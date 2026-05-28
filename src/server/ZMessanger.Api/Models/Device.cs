@@ -14,8 +14,8 @@ public class Device
     public Guid DeviceId { get; set; }
 
     /// <summary>
-    /// Short, human-readable device alias (max 10 chars). Unique across
-    /// the system — used for device discovery during key exchange.
+    /// Short, human-readable device alias in format "ZM-XXXX-XXXX" (12 chars).
+    /// Unique across the system — used for device discovery during key exchange.
     /// </summary>
     public string UserHandle { get; set; } = string.Empty;
 

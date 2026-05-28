@@ -44,7 +44,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasKey(d => d.DeviceId);
 
             // UserHandle must be unique — it is the public discovery identifier.
-            entity.Property(d => d.UserHandle).HasMaxLength(10);
+            // Format is "ZM-XXXX-XXXX" (12 chars) where X is alphanumeric.
+            entity.Property(d => d.UserHandle).HasMaxLength(12);
             entity.HasIndex(d => d.UserHandle).IsUnique();
 
             entity.Property(d => d.PushPlatform).HasMaxLength(10);

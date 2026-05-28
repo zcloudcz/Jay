@@ -7,6 +7,7 @@
 
 using Microsoft.EntityFrameworkCore;
 using ZMessanger.Api.Data;
+using ZMessanger.Api.Endpoints;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,6 +25,8 @@ var app = builder.Build();
 // Property is lowercase because ASP.NET Core's default System.Text.Json
 // serialization uses camelCase — standard REST/JSON convention.
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
+
+app.MapDeviceEndpoints();
 
 app.Run();
 
