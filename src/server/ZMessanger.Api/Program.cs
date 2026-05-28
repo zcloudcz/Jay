@@ -12,6 +12,8 @@ var app = builder.Build();
 // Health-check endpoint — lightweight probe for orchestrators (k8s, Azure App
 // Service) and integration tests. Returns 200 with a JSON body so callers can
 // verify both connectivity and basic serialization.
+// Property is lowercase because ASP.NET Core's default System.Text.Json
+// serialization uses camelCase — standard REST/JSON convention.
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 
 app.Run();
