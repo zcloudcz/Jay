@@ -8,6 +8,8 @@
 using Microsoft.EntityFrameworkCore;
 using ZMessanger.Api.Data;
 using ZMessanger.Api.Endpoints;
+using ZMessanger.Api.Hubs;
+using ZMessanger.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,6 +18,15 @@ var builder = WebApplication.CreateBuilder(args);
 // WebApplicationFactory in integration tests using Testcontainers).
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// MessageQueueService is scoped (one instance per request/hub invocation)
+// because it depends on the scoped AppDbContext.
+builder.Services.AddScoped<MessageQueueService>();
+
+// SignalR is the real-time transport for message relay, typing indicators,
+// and WebRTC call signaling. Called explicitly for clarity even though the
+// shared framework may include it.
+builder.Services.AddSignalR();
 
 var app = builder.Build();
 
@@ -27,6 +38,10 @@ var app = builder.Build();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 
 app.MapDeviceEndpoints();
+
+// Map the SignalR hub at /hub. Clients connect with a deviceId query param:
+// ws://host/hub?deviceId=<guid>
+app.MapHub<MessengerHub>("/hub");
 
 app.Run();
 
