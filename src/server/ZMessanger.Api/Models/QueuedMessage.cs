@@ -36,11 +36,11 @@ public class QueuedMessage
     /// </summary>
     public byte[] EncryptedBody { get; set; } = [];
 
-    public DateTime CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>
     /// After this timestamp the message is eligible for garbage collection.
     /// Prevents unbounded storage growth from abandoned devices.
     /// </summary>
-    public DateTime ExpiresAt { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
 }

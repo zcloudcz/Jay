@@ -30,7 +30,7 @@ public class Backup
     /// </summary>
     public long SizeBytes { get; set; }
 
-    public DateTime CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
 
     // Navigation property
     public Account Account { get; set; } = null!;

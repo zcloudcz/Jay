@@ -12,6 +12,7 @@ public class AccountDevice
 {
     public Guid AccountId { get; set; }
     public Guid DeviceId { get; set; }
+    public DateTimeOffset LinkedAt { get; set; }
 
     // Navigation properties
     public Account Account { get; set; } = null!;

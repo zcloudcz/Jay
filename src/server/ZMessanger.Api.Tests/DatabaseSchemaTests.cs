@@ -69,8 +69,8 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "alice#1",
             IdentityKey = [0x01, 0x02, 0x03],
             SignedPreKey = [0x04, 0x05, 0x06],
-            CreatedAt = DateTime.UtcNow,
-            LastSeenAt = DateTime.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow,
+            LastSeenAt = DateTimeOffset.UtcNow,
             OneTimePreKeys =
             [
                 new OneTimePreKey { KeyId = 1, PublicKey = [0x0A] },
@@ -109,8 +109,8 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "dupe#1",
             IdentityKey = [0x01],
             SignedPreKey = [0x02],
-            CreatedAt = DateTime.UtcNow,
-            LastSeenAt = DateTime.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            LastSeenAt = DateTimeOffset.UtcNow
         };
 
         var device2 = new Device
@@ -119,8 +119,8 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "dupe#1", // same handle — should fail
             IdentityKey = [0x03],
             SignedPreKey = [0x04],
-            CreatedAt = DateTime.UtcNow,
-            LastSeenAt = DateTime.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            LastSeenAt = DateTimeOffset.UtcNow
         };
 
         db.Devices.Add(device1);
@@ -145,8 +145,8 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "bob#42",
             IdentityKey = [0x10],
             SignedPreKey = [0x20],
-            CreatedAt = DateTime.UtcNow,
-            LastSeenAt = DateTime.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            LastSeenAt = DateTimeOffset.UtcNow
         };
 
         var account = new Account
@@ -154,15 +154,15 @@ public class DatabaseSchemaTests : IntegrationTestBase
             AccountId = Guid.NewGuid(),
             Email = "bob@example.com",
             AuthKeyHash = [0xFF, 0xFE],
-            CreatedAt = DateTime.UtcNow,
-            AccountDevices = [new AccountDevice { Device = device }],
+            CreatedAt = DateTimeOffset.UtcNow,
+            AccountDevices = [new AccountDevice { Device = device, LinkedAt = DateTimeOffset.UtcNow }],
             Backups =
             [
                 new Backup
                 {
                     BlobPath = "backups/test/1.enc",
                     SizeBytes = 1024,
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTimeOffset.UtcNow
                 }
             ]
         };
@@ -196,7 +196,7 @@ public class DatabaseSchemaTests : IntegrationTestBase
 
         var recipientId = Guid.NewGuid();
         var senderId = Guid.NewGuid();
-        var now = DateTime.UtcNow;
+        var now = DateTimeOffset.UtcNow;
 
         var messages = Enumerable.Range(1, 5).Select(i => new QueuedMessage
         {
@@ -235,8 +235,8 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "grp#a",
             IdentityKey = [0x01],
             SignedPreKey = [0x02],
-            CreatedAt = DateTime.UtcNow,
-            LastSeenAt = DateTime.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            LastSeenAt = DateTimeOffset.UtcNow
         };
 
         var device2 = new Device
@@ -245,8 +245,8 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "grp#b",
             IdentityKey = [0x03],
             SignedPreKey = [0x04],
-            CreatedAt = DateTime.UtcNow,
-            LastSeenAt = DateTime.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            LastSeenAt = DateTimeOffset.UtcNow
         };
 
         db.Devices.AddRange(device1, device2);
@@ -257,20 +257,20 @@ public class DatabaseSchemaTests : IntegrationTestBase
             GroupId = Guid.NewGuid(),
             NameEncrypted = [0xAA, 0xBB],
             CreatedBy = device1.DeviceId,
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow,
             Members =
             [
                 new GroupMember
                 {
                     DeviceId = device1.DeviceId,
                     Role = "admin",
-                    JoinedAt = DateTime.UtcNow
+                    JoinedAt = DateTimeOffset.UtcNow
                 },
                 new GroupMember
                 {
                     DeviceId = device2.DeviceId,
                     // Role defaults to "member"
-                    JoinedAt = DateTime.UtcNow
+                    JoinedAt = DateTimeOffset.UtcNow
                 }
             ]
         };
@@ -315,8 +315,8 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "idx#1",
             IdentityKey = [0x01],
             SignedPreKey = [0x02],
-            CreatedAt = DateTime.UtcNow,
-            LastSeenAt = DateTime.UtcNow
+            CreatedAt = DateTimeOffset.UtcNow,
+            LastSeenAt = DateTimeOffset.UtcNow
         };
 
         db.Devices.Add(device);

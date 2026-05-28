@@ -4,7 +4,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace ZMessanger.Api.Data.Migrations
+namespace ZMessanger.Api.Migrations
 {
     /// <inheritdoc />
     public partial class InitialCreate : Migration
@@ -19,7 +19,7 @@ namespace ZMessanger.Api.Data.Migrations
                     AccountId = table.Column<Guid>(type: "uuid", nullable: false),
                     Email = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false),
                     AuthKeyHash = table.Column<byte[]>(type: "bytea", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -36,8 +36,8 @@ namespace ZMessanger.Api.Data.Migrations
                     SignedPreKey = table.Column<byte[]>(type: "bytea", nullable: false),
                     PushToken = table.Column<string>(type: "text", nullable: true),
                     PushPlatform = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    LastSeenAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    LastSeenAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -51,7 +51,7 @@ namespace ZMessanger.Api.Data.Migrations
                     GroupId = table.Column<Guid>(type: "uuid", nullable: false),
                     NameEncrypted = table.Column<byte[]>(type: "bytea", nullable: true),
                     CreatedBy = table.Column<Guid>(type: "uuid", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -67,8 +67,8 @@ namespace ZMessanger.Api.Data.Migrations
                     RecipientId = table.Column<Guid>(type: "uuid", nullable: false),
                     SenderId = table.Column<Guid>(type: "uuid", nullable: false),
                     EncryptedBody = table.Column<byte[]>(type: "bytea", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    ExpiresAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    ExpiresAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -84,7 +84,7 @@ namespace ZMessanger.Api.Data.Migrations
                     AccountId = table.Column<Guid>(type: "uuid", nullable: false),
                     BlobPath = table.Column<string>(type: "text", nullable: false),
                     SizeBytes = table.Column<long>(type: "bigint", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -102,7 +102,8 @@ namespace ZMessanger.Api.Data.Migrations
                 columns: table => new
                 {
                     AccountId = table.Column<Guid>(type: "uuid", nullable: false),
-                    DeviceId = table.Column<Guid>(type: "uuid", nullable: false)
+                    DeviceId = table.Column<Guid>(type: "uuid", nullable: false),
+                    LinkedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -149,7 +150,7 @@ namespace ZMessanger.Api.Data.Migrations
                     GroupId = table.Column<Guid>(type: "uuid", nullable: false),
                     DeviceId = table.Column<Guid>(type: "uuid", nullable: false),
                     Role = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false, defaultValue: "member"),
-                    JoinedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    JoinedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {

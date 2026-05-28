@@ -43,13 +43,13 @@ public class Device
     /// </summary>
     public string? PushPlatform { get; set; }
 
-    public DateTime CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>
     /// Updated on every authenticated API call from this device.
     /// Used for stale-device cleanup and rate-limiting heuristics.
     /// </summary>
-    public DateTime LastSeenAt { get; set; }
+    public DateTimeOffset LastSeenAt { get; set; }
 
     // Navigation properties
     public List<OneTimePreKey> OneTimePreKeys { get; set; } = [];

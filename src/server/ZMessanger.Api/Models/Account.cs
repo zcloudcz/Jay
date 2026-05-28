@@ -26,7 +26,7 @@ public class Account
     /// </summary>
     public byte[] AuthKeyHash { get; set; } = [];
 
-    public DateTime CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
 
     // Navigation properties
     public List<AccountDevice> AccountDevices { get; set; } = [];

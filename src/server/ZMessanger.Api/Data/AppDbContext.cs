@@ -12,8 +12,8 @@
 //   can reference keys by client-assigned ID without collisions.
 // - Covering index on QueuedMessage (RecipientId, CreatedAt) for the
 //   "fetch my pending messages" hot path.
-// - DateTime columns use 'timestamp with time zone' (Npgsql default for
-//   DateTime with DateTimeKind.Utc) so there is no timezone ambiguity.
+// - DateTimeOffset columns map to 'timestamp with time zone' (Npgsql native
+//   mapping) so there is no timezone ambiguity.
 // ---------------------------------------------------------------------------
 
 using Microsoft.EntityFrameworkCore;

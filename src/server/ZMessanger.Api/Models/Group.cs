@@ -25,7 +25,7 @@ public class Group
     /// </summary>
     public Guid CreatedBy { get; set; }
 
-    public DateTime CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
 
     // Navigation property
     public List<GroupMember> Members { get; set; } = [];

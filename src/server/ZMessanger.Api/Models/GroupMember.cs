@@ -22,7 +22,7 @@ public class GroupMember
     /// </summary>
     public string Role { get; set; } = "member";
 
-    public DateTime JoinedAt { get; set; }
+    public DateTimeOffset JoinedAt { get; set; }
 
     // Navigation properties
     public Group Group { get; set; } = null!;

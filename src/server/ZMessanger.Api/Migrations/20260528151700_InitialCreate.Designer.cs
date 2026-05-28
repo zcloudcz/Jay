@@ -2,22 +2,25 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ZMessanger.Api.Data;
 
 #nullable disable
 
-namespace ZMessanger.Api.Data.Migrations
+namespace ZMessanger.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260528151700_InitialCreate")]
+    partial class InitialCreate
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.4")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -32,7 +35,7 @@ namespace ZMessanger.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("bytea");
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Email")
@@ -56,6 +59,9 @@ namespace ZMessanger.Api.Data.Migrations
                     b.Property<Guid>("DeviceId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset>("LinkedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("AccountId", "DeviceId");
 
                     b.HasIndex("DeviceId");
@@ -78,7 +84,7 @@ namespace ZMessanger.Api.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<long>("SizeBytes")
@@ -97,14 +103,14 @@ namespace ZMessanger.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<byte[]>("IdentityKey")
                         .IsRequired()
                         .HasColumnType("bytea");
 
-                    b.Property<DateTime>("LastSeenAt")
+                    b.Property<DateTimeOffset>("LastSeenAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("PushPlatform")
@@ -137,7 +143,7 @@ namespace ZMessanger.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("CreatedBy")
@@ -159,7 +165,7 @@ namespace ZMessanger.Api.Data.Migrations
                     b.Property<Guid>("DeviceId")
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime>("JoinedAt")
+                    b.Property<DateTimeOffset>("JoinedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Role")
@@ -210,14 +216,14 @@ namespace ZMessanger.Api.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
-                    b.Property<DateTime>("CreatedAt")
+                    b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<byte[]>("EncryptedBody")
                         .IsRequired()
                         .HasColumnType("bytea");
 
-                    b.Property<DateTime>("ExpiresAt")
+                    b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("RecipientId")
