@@ -2,10 +2,19 @@
 // Program.cs — Application entry point for ZMessanger API
 // ---------------------------------------------------------------------------
 // Minimal API host with a /health endpoint. Future tasks will add SignalR,
-// EF Core, authentication, and domain-specific routes on top of this skeleton.
+// authentication, and domain-specific routes on top of this skeleton.
 // ---------------------------------------------------------------------------
 
+using Microsoft.EntityFrameworkCore;
+using ZMessanger.Api.Data;
+
 var builder = WebApplication.CreateBuilder(args);
+
+// Register EF Core with Npgsql. The connection string is read from
+// configuration so it can be overridden per environment (and by
+// WebApplicationFactory in integration tests using Testcontainers).
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 var app = builder.Build();
 
