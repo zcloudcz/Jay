@@ -12,7 +12,7 @@ using ZMessanger.Api.Data;
 namespace ZMessanger.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260528151700_InitialCreate")]
+    [Migration("20260528154123_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -126,8 +126,8 @@ namespace ZMessanger.Api.Migrations
 
                     b.Property<string>("UserHandle")
                         .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)");
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)");
 
                     b.HasKey("DeviceId");
 

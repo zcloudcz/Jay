@@ -31,7 +31,7 @@ namespace ZMessanger.Api.Migrations
                 columns: table => new
                 {
                     DeviceId = table.Column<Guid>(type: "uuid", nullable: false),
-                    UserHandle = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false),
+                    UserHandle = table.Column<string>(type: "character varying(12)", maxLength: 12, nullable: false),
                     IdentityKey = table.Column<byte[]>(type: "bytea", nullable: false),
                     SignedPreKey = table.Column<byte[]>(type: "bytea", nullable: false),
                     PushToken = table.Column<string>(type: "text", nullable: true),

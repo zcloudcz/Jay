@@ -123,8 +123,8 @@ namespace ZMessanger.Api.Migrations
 
                     b.Property<string>("UserHandle")
                         .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)");
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)");
 
                     b.HasKey("DeviceId");
 

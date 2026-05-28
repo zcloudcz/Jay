@@ -13,9 +13,6 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using FluentAssertions;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
-using ZMessanger.Api.Data;
 using ZMessanger.Api.Tests.TestFixtures;
 
 namespace ZMessanger.Api.Tests.Endpoints;
@@ -27,8 +24,9 @@ public class DeviceEndpointsTests : IntegrationTestBase
     private static readonly string ValidIdentityKey = Convert.ToBase64String([0x01, 0x02, 0x03]);
     private static readonly string ValidSignedPreKey = Convert.ToBase64String([0x04, 0x05, 0x06]);
 
-    // The handle format: "ZM-" prefix, two groups of 4 uppercase alphanumeric chars.
-    private static readonly Regex HandlePattern = new(@"^ZM-[A-Z0-9]{4}-[A-Z0-9]{4}$");
+    // The handle format: "ZM-" prefix, two groups of 4 chars from the reduced
+    // alphabet (excludes ambiguous 0, O, 1, I, L to reduce transcription errors).
+    private static readonly Regex HandlePattern = new(@"^ZM-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$");
 
     // -----------------------------------------------------------------------
     // POST /devices

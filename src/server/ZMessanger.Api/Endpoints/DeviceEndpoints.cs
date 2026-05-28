@@ -12,6 +12,7 @@
 
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using ZMessanger.Api.Data;
 using ZMessanger.Api.Models;
 
@@ -91,17 +92,60 @@ public static class DeviceEndpoints
         {
             foreach (var otk in request.OneTimePreKeys)
             {
+                if (string.IsNullOrWhiteSpace(otk.PublicKey))
+                    return Results.BadRequest(new { error = "OneTimePreKey PublicKey must not be null or empty." });
+
+                byte[] otkBytes;
+                try
+                {
+                    otkBytes = Convert.FromBase64String(otk.PublicKey);
+                }
+                catch (FormatException)
+                {
+                    return Results.BadRequest(new { error = $"OneTimePreKey with KeyId {otk.KeyId} has invalid base64." });
+                }
+
+                if (otkBytes.Length == 0)
+                    return Results.BadRequest(new { error = $"OneTimePreKey with KeyId {otk.KeyId} must not be empty." });
+
                 device.OneTimePreKeys.Add(new OneTimePreKey
                 {
                     DeviceId = device.DeviceId,
                     KeyId = otk.KeyId,
-                    PublicKey = Convert.FromBase64String(otk.PublicKey)
+                    PublicKey = otkBytes
                 });
             }
         }
 
         db.Devices.Add(device);
-        await db.SaveChangesAsync(ct);
+
+        // --- Persist with collision retry (Fix 3: TOCTOU) ----------------
+        // The pre-check in GenerateUniqueHandle reduces collisions but a
+        // concurrent registration could still insert the same handle between
+        // the AnyAsync check and our SaveChanges. Catch the unique-constraint
+        // violation and retry with a fresh handle.
+        const int maxSaveAttempts = 3;
+        for (var saveAttempt = 0; saveAttempt < maxSaveAttempts; saveAttempt++)
+        {
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                break; // success
+            }
+            catch (DbUpdateException ex)
+                when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+            {
+                if (saveAttempt == maxSaveAttempts - 1)
+                    throw; // exhausted retries — let it bubble up
+
+                // Detach the failed tracker state and regenerate the handle.
+                db.ChangeTracker.Clear();
+
+                device.UserHandle = await GenerateUniqueHandle(db, ct);
+
+                db.Devices.Add(device);
+            }
+        }
 
         return Results.Created(
             $"/devices/{device.DeviceId}",
@@ -116,27 +160,38 @@ public static class DeviceEndpoints
         AppDbContext db,
         CancellationToken ct)
     {
+        // Load device WITHOUT OTKs — the atomic SQL below handles OTK consumption.
         var device = await db.Devices
-            .Include(d => d.OneTimePreKeys)
             .FirstOrDefaultAsync(d => d.DeviceId == id, ct);
 
         if (device is null)
             return Results.NotFound(new { error = "Device not found." });
 
-        // Consume one OTK if available. The X3DH protocol benefits from a
-        // one-time key but can fall back to the signed pre-key alone.
-        // NOTE: Under high concurrency two requests could read the same OTK
-        // before either deletes it. The protocol tolerates this (the session
-        // just falls back to the signed pre-key). A future optimisation could
-        // use a raw SQL DELETE ... RETURNING to make consumption atomic.
+        // Atomically consume one OTK using DELETE ... RETURNING so two
+        // concurrent requests can never consume the same key. FOR UPDATE
+        // SKIP LOCKED ensures waiters grab the next available key instead
+        // of blocking or duplicating.
         OneTimePreKeyDto? oneTimePreKeyDto = null;
 
-        var otk = device.OneTimePreKeys.FirstOrDefault();
-        if (otk is not null)
+        var consumed = await db.Database.SqlQueryRaw<OtkResult>(
+            """
+            DELETE FROM "OneTimePreKeys"
+            WHERE "Id" = (
+                SELECT "Id" FROM "OneTimePreKeys"
+                WHERE "DeviceId" = @deviceId
+                ORDER BY "Id"
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING "Id", "KeyId", "PublicKey"
+            """,
+            new NpgsqlParameter("@deviceId", id))
+            .ToListAsync(ct);
+
+        if (consumed.Count > 0)
         {
+            var otk = consumed[0];
             oneTimePreKeyDto = new OneTimePreKeyDto(otk.KeyId, Convert.ToBase64String(otk.PublicKey));
-            db.OneTimePreKeys.Remove(otk);
-            await db.SaveChangesAsync(ct);
         }
 
         return Results.Ok(new KeyBundleResponse(
@@ -144,6 +199,18 @@ public static class DeviceEndpoints
             Convert.ToBase64String(device.IdentityKey),
             Convert.ToBase64String(device.SignedPreKey),
             oneTimePreKeyDto));
+    }
+
+    /// <summary>
+    /// Result type for the DELETE ... RETURNING SQL query on OneTimePreKeys.
+    /// Must be a class (not a record) with a parameterless constructor for
+    /// EF Core's SqlQueryRaw materialization.
+    /// </summary>
+    private class OtkResult
+    {
+        public long Id { get; set; }
+        public int KeyId { get; set; }
+        public byte[] PublicKey { get; set; } = [];
     }
 
     // -----------------------------------------------------------------------
