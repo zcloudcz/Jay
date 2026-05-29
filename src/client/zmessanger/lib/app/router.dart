@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+
+import '../core/network/api_client.dart';
+import '../core/storage/secure_storage.dart';
+import '../features/onboarding/onboarding_controller.dart';
+import '../features/onboarding/onboarding_screen.dart';
 
 /// Central route configuration for the whole app.
 ///
@@ -25,7 +31,19 @@ final router = GoRouter(
   routes: [
     GoRoute(
       path: '/onboarding',
-      builder: (context, state) => const _Placeholder('Onboarding'),
+      builder: (context, state) {
+        // Provider is scoped to this route so the controller (and its
+        // network resources) are disposed when the user navigates away.
+        // The base URL defaults to localhost for development; it will be
+        // configurable via environment/build flavors in production.
+        return ChangeNotifierProvider(
+          create: (_) => OnboardingController(
+            apiClient: ApiClient(baseUrl: 'http://localhost:5000'),
+            secureStorage: SecureStorage(),
+          ),
+          child: const OnboardingScreen(),
+        );
+      },
     ),
     GoRoute(
       path: '/chats',
