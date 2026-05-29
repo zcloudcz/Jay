@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------
 // Program.cs — Application entry point for ZMessanger API
 // ---------------------------------------------------------------------------
-// Minimal API host with health check, device registration endpoints, and a
-// SignalR hub for real-time encrypted message relay. Authentication is the
-// next planned addition.
+// Minimal API host with health check, device/account/group/backup endpoints,
+// TURN credential generation, a SignalR hub for real-time encrypted message
+// relay, and a background service for expired message cleanup.
 // ---------------------------------------------------------------------------
 
 using Microsoft.EntityFrameworkCore;
@@ -24,6 +24,14 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // because it depends on the scoped AppDbContext.
 builder.Services.AddScoped<MessageQueueService>();
 
+// TurnCredentialService is a singleton — it is stateless (reads config once,
+// computes HMACs). No DbContext dependency, so no scoping needed.
+builder.Services.AddSingleton<TurnCredentialService>();
+
+// MessageCleanupService runs hourly to bulk-delete expired queued messages.
+// Prevents unbounded storage growth from abandoned devices that never reconnect.
+builder.Services.AddHostedService<MessageCleanupService>();
+
 // SignalR is the real-time transport for message relay, typing indicators,
 // and WebRTC call signaling. Called explicitly for clarity even though the
 // shared framework may include it.
@@ -39,6 +47,10 @@ var app = builder.Build();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 
 app.MapDeviceEndpoints();
+app.MapAccountEndpoints();
+app.MapGroupEndpoints();
+app.MapBackupEndpoints();
+app.MapTurnCredentialEndpoints();
 
 // Map the SignalR hub at /hub. Clients connect with a deviceId query param:
 // ws://host/hub?deviceId=<guid>

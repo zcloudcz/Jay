@@ -14,6 +14,7 @@
 
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
 using ZMessanger.Api.Data;
@@ -43,6 +44,17 @@ public abstract class IntegrationTestBase : IAsyncLifetime
         Factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
+                // Provide a TURN shared secret for tests — the TurnCredentialService
+                // requires it and throws on startup if missing.
+                builder.ConfigureAppConfiguration((_, config) =>
+                {
+                    config.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["Turn:SharedSecret"] = "test-shared-secret-for-turn",
+                        ["Turn:TtlSeconds"] = "3600"
+                    });
+                });
+
                 builder.ConfigureServices(services =>
                 {
                     // Remove the application's DbContext registration so we
