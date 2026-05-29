@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 
 import '../core/network/api_client.dart';
 import '../core/storage/secure_storage.dart';
+import '../features/chat/chat_screen.dart';
+import '../features/chat_list/chat_list_screen.dart';
 import '../features/onboarding/onboarding_controller.dart';
 import '../features/onboarding/onboarding_screen.dart';
 
@@ -47,13 +49,13 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/chats',
-      builder: (context, state) => const _Placeholder('Chats'),
+      builder: (context, state) => const ChatListScreen(),
       routes: [
         GoRoute(
           path: ':id',
           builder: (context, state) {
             final id = state.pathParameters['id']!;
-            return _Placeholder('Chat $id');
+            return ChatScreen(contactId: id);
           },
         ),
       ],
