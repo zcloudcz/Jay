@@ -125,6 +125,11 @@ public static class GroupEndpoints
         if (!groupExists)
             return Results.NotFound(new { error = "Group not found." });
 
+        // The device must exist in the Devices table — we don't want to add phantom
+        // members that have no key material and can never actually decrypt messages.
+        if (!await db.Devices.AnyAsync(d => d.DeviceId == request.DeviceId, ct))
+            return Results.BadRequest(new { error = "Device not found." });
+
         // Prevent duplicate membership — the composite PK would reject it anyway,
         // but returning 409 is a better client experience than a 500 from a DB error.
         var alreadyMember = await db.GroupMembers

@@ -50,8 +50,10 @@ public static class BackupEndpoints
 
         // Deterministic blob path: the client uses the same pattern to construct
         // the upload URL. Timestamp format avoids filesystem-unfriendly characters.
+        // Append a GUID to prevent same-second collisions — two near-simultaneous
+        // backup requests from the same account would otherwise overwrite each other.
         var timestamp = now.ToString("yyyyMMddHHmmss");
-        var blobPath = $"backups/{request.AccountId}/{timestamp}.enc";
+        var blobPath = $"backups/{request.AccountId}/{timestamp}_{Guid.NewGuid():N}.enc";
 
         var backup = new Backup
         {

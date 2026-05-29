@@ -76,6 +76,12 @@ public static class AccountEndpoints
         if (authKeyBytes.Length == 0)
             return Results.BadRequest(new { error = "AuthKey must not be empty." });
 
+        // Basic email format validation — catches obvious typos (missing @, etc.)
+        // before we hit the database. Not a full RFC 5322 check, but good enough
+        // to reject clearly invalid input early.
+        try { _ = new System.Net.Mail.MailAddress(request.Email); }
+        catch (FormatException) { return Results.BadRequest(new { error = "Invalid email format." }); }
+
         // --- Email uniqueness check (advisory — the unique index is the real guard) ---
         var emailNormalized = request.Email.Trim().ToLowerInvariant();
         var exists = await db.Accounts.AnyAsync(a => a.Email == emailNormalized, ct);
@@ -146,6 +152,10 @@ public static class AccountEndpoints
     // -----------------------------------------------------------------------
     // POST /accounts/{accountId}/devices/{deviceId} — Link device to account
     // -----------------------------------------------------------------------
+    // TODO: Authentication not yet implemented. This endpoint currently accepts
+    // any accountId/deviceId without verifying the caller controls either.
+    // A future task must require proof of account ownership (auth token) and
+    // device ownership (signed challenge) before allowing device linking.
     private static async Task<IResult> LinkDevice(
         Guid accountId,
         Guid deviceId,
