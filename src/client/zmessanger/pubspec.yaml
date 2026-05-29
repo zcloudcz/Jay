@@ -1,0 +1,56 @@
+name: zmessanger
+description: "End-to-end encrypted multiplatform messenger."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI / Navigation
+  cupertino_icons: ^1.0.8
+  go_router: ^17.2.3
+  provider: ^6.1.5+1
+
+  # Networking
+  dio: ^5.9.2
+  signalr_netcore: ^1.4.4
+
+  # WebRTC (voice/video calls)
+  flutter_webrtc: ^1.4.1
+
+  # Local storage & security
+  flutter_secure_storage: ^10.3.1
+  local_auth: ^3.0.1
+  drift: ^2.33.0
+  sqlite3_flutter_libs: ^0.6.0+eol
+  drift_flutter: ^0.3.0
+  path_provider: ^2.1.5
+
+  # QR code scanning & generation (contact exchange)
+  mobile_scanner: ^7.2.0
+  qr_flutter: ^4.1.0
+
+  # Sharing / file handling
+  share_plus: ^13.1.0
+  file_picker: ^3.0.4
+  image_picker: ^1.2.2
+
+  # Utilities
+  intl: ^0.20.2
+  uuid: ^4.5.3
+  crypto: ^3.0.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  mockito: ^5.6.4
+  build_runner: ^2.15.0
+  drift_dev: ^2.33.0
+
+flutter:
+  uses-material-design: true

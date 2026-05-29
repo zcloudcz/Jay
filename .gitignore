@@ -40,6 +40,12 @@ Desktop.ini
 ## Working memory (volatile session state, not project docs)
 MEMORY.md
 
+## Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.g.dart
+
 ## Misc
 *.log
 *.tmp
