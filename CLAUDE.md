@@ -106,15 +106,20 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | Endpoint | Purpose | Status |
 |----------|---------|--------|
 | `GET /health` | Health check | ✅ Done |
-| `POST /devices` | Register device + upload keys | Planned (Task 3) |
-| `GET /devices/{id}/key-bundle` | Fetch key bundle for X3DH | Planned (Task 3) |
-| `POST /accounts` | Register account | Planned (Task 5) |
-| `POST /accounts/login` | Authenticate | Planned (Task 5) |
-| `POST /groups` | Create group | Planned (Task 5) |
-| `PUT /groups/{id}/members` | Manage membership | Planned (Task 5) |
-| `POST /backups` | Upload encrypted backup | Planned (Task 5) |
-| `GET /turn/credentials` | Time-limited TURN credentials | Planned (Task 5) |
-| `SignalR /hub` | Message relay, typing, call signaling | Planned (Task 4) |
+| `POST /devices` | Register device + upload keys | ✅ Done |
+| `GET /devices/{id}/key-bundle` | Fetch key bundle for X3DH | ✅ Done |
+| `POST /accounts` | Register account (Argon2id) | ✅ Done |
+| `POST /accounts/login` | Authenticate | ✅ Done |
+| `POST /accounts/{id}/devices/{id}` | Link device to account | ✅ Done |
+| `GET /accounts/{id}/devices` | List linked devices | ✅ Done |
+| `POST /groups` | Create group | ✅ Done |
+| `GET /groups/{id}/members` | List members | ✅ Done |
+| `PUT /groups/{id}/members` | Add member | ✅ Done |
+| `DELETE /groups/{id}/members/{id}` | Remove member | ✅ Done |
+| `POST /backups` | Upload backup metadata | ✅ Done |
+| `GET /backups/{accountId}` | List backups | ✅ Done |
+| `GET /turn/credentials` | Time-limited TURN credentials | ✅ Done |
+| `SignalR /hub` | Message relay, typing, call signaling | ✅ Done |
 
 ## Conventions
 
