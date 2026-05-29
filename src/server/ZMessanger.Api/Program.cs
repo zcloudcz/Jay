@@ -1,8 +1,9 @@
 // ---------------------------------------------------------------------------
 // Program.cs — Application entry point for ZMessanger API
 // ---------------------------------------------------------------------------
-// Minimal API host with a /health endpoint. Future tasks will add SignalR,
-// authentication, and domain-specific routes on top of this skeleton.
+// Minimal API host with health check, device registration endpoints, and a
+// SignalR hub for real-time encrypted message relay. Authentication is the
+// next planned addition.
 // ---------------------------------------------------------------------------
 
 using Microsoft.EntityFrameworkCore;

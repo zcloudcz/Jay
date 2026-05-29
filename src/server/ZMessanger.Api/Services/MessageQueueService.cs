@@ -11,10 +11,24 @@
 // ---------------------------------------------------------------------------
 
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using ZMessanger.Api.Data;
 using ZMessanger.Api.Models;
 
 namespace ZMessanger.Api.Services;
+
+/// <summary>
+/// Result type for the atomic DELETE ... RETURNING dequeue query.
+/// Must be a class with a parameterless constructor for EF Core's
+/// SqlQueryRaw materialization.
+/// </summary>
+public class DequeuedMessage
+{
+    public long Id { get; set; }
+    public Guid SenderId { get; set; }
+    public byte[] EncryptedBody { get; set; } = null!;
+    public DateTimeOffset CreatedAt { get; set; }
+}
 
 public class MessageQueueService(AppDbContext db)
 {
@@ -47,34 +61,35 @@ public class MessageQueueService(AppDbContext db)
     /// Expired messages are excluded — they will be cleaned up separately.
     /// </summary>
     /// <remarks>
-    /// Uses ExecuteDeleteAsync inside a transaction so the fetch-then-delete
-    /// is atomic. This prevents a race where two concurrent DequeueAsync calls
-    /// for the same recipient could both return the same messages.
+    /// Uses a single DELETE ... RETURNING statement (same pattern as OTK
+    /// consumption in DeviceEndpoints.cs) so the read and delete are atomic
+    /// without an explicit transaction. FOR UPDATE SKIP LOCKED prevents
+    /// concurrent dequeue calls from returning the same messages.
     /// </remarks>
-    public async Task<List<QueuedMessage>> DequeueAsync(Guid recipientId)
+    public async Task<List<DequeuedMessage>> DequeueAsync(Guid recipientId)
     {
-        var now = DateTimeOffset.UtcNow;
-
-        // Use an explicit transaction so the read and delete are atomic.
-        // Without this, a concurrent call could read the same rows before
-        // either deletes them — delivering duplicates.
-        await using var transaction = await db.Database.BeginTransactionAsync();
-
-        var messages = await db.QueuedMessages
-            .Where(m => m.RecipientId == recipientId && m.ExpiresAt > now)
-            .OrderBy(m => m.CreatedAt)
+        // DELETE ... RETURNING does not guarantee row order, so we sort in
+        // application code after the atomic delete to ensure FIFO delivery.
+        var messages = await db.Database.SqlQueryRaw<DequeuedMessage>("""
+            DELETE FROM "QueuedMessages"
+            WHERE "Id" IN (
+                SELECT "Id" FROM "QueuedMessages"
+                WHERE "RecipientId" = @recipientId AND "ExpiresAt" > now()
+                ORDER BY "CreatedAt"
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING "Id", "SenderId", "EncryptedBody", "CreatedAt"
+            """, new NpgsqlParameter("@recipientId", recipientId))
             .ToListAsync();
 
-        // Always delete all messages for this recipient (including expired
-        // ones), not just the non-expired set we return. This cleans up
-        // stale rows as a side effect so abandoned devices don't accumulate
-        // expired messages forever. The delete runs even when messages is
-        // empty — the recipient may have only expired messages to purge.
-        await db.QueuedMessages
-            .Where(m => m.RecipientId == recipientId)
-            .ExecuteDeleteAsync();
+        messages.Sort((a, b) => a.CreatedAt.CompareTo(b.CreatedAt));
 
-        await transaction.CommitAsync();
+        // Clean up any expired messages for this recipient as a side effect.
+        // This runs as a separate statement — it won't affect the returned
+        // result set and keeps abandoned devices from accumulating stale rows.
+        await db.QueuedMessages
+            .Where(m => m.RecipientId == recipientId && m.ExpiresAt <= DateTimeOffset.UtcNow)
+            .ExecuteDeleteAsync();
 
         return messages;
     }

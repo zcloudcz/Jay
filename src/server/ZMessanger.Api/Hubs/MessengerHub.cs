@@ -31,6 +31,9 @@ public class MessengerHub(MessageQueueService queueService) : Hub
 
     public override async Task OnConnectedAsync()
     {
+        // Ensure SignalR connection is fully initialized before application logic.
+        await base.OnConnectedAsync();
+
         // The client must pass its DeviceId as a query string parameter
         // when establishing the SignalR connection (e.g. /hub?deviceId=xxx).
         var deviceIdStr = Context.GetHttpContext()?.Request.Query["deviceId"].ToString();
@@ -57,8 +60,6 @@ public class MessengerHub(MessageQueueService queueService) : Hub
                 });
             }
         }
-
-        await base.OnConnectedAsync();
     }
 
     public override Task OnDisconnectedAsync(Exception? exception)
@@ -85,12 +86,11 @@ public class MessengerHub(MessageQueueService queueService) : Hub
         var senderDeviceId = GetCallerDeviceId();
         if (senderDeviceId is null) return;
 
-        var encryptedBody = Convert.FromBase64String(encryptedBodyBase64);
-
         if (OnlineDevices.TryGetValue(recipientDeviceId, out var connectionId))
         {
             // Recipient is online — deliver directly. This avoids a DB round-trip
             // and gives sub-second latency for the common case.
+            // No need to decode Base64 — we pass the string through as-is.
             await Clients.Client(connectionId).SendAsync("ReceiveMessage", new
             {
                 senderId = senderDeviceId.Value,
@@ -100,7 +100,8 @@ public class MessengerHub(MessageQueueService queueService) : Hub
         }
         else
         {
-            // Recipient is offline — store for later delivery.
+            // Recipient is offline — decode and store for later delivery.
+            var encryptedBody = Convert.FromBase64String(encryptedBodyBase64);
             await queueService.EnqueueAsync(recipientDeviceId, senderDeviceId.Value, encryptedBody);
         }
     }
@@ -112,6 +113,9 @@ public class MessengerHub(MessageQueueService queueService) : Hub
     /// </summary>
     public async Task SendGroupMessage(Guid groupId, Dictionary<Guid, string> encryptedPayloads)
     {
+        if (encryptedPayloads.Count > 256)
+            throw new HubException("Group message exceeds maximum member count");
+
         var senderDeviceId = GetCallerDeviceId();
         if (senderDeviceId is null) return;
 
@@ -184,6 +188,10 @@ public class MessengerHub(MessageQueueService queueService) : Hub
         // If the target is offline, the signal is silently dropped.
         // The caller's UI should handle "no answer" via a timeout.
     }
+
+    // SECURITY TODO: Hub is currently unauthenticated. Any client can claim any deviceId.
+    // Before production: require signed JWT/token in Authorization header, derive deviceId
+    // from validated token instead of query parameter. Query params are logged by proxies.
 
     /// <summary>
     /// Extracts the caller's DeviceId from the connection query string.

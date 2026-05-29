@@ -70,7 +70,7 @@ public class MessageQueueServiceTests : IntegrationTestBase
         }
 
         // Act — dequeue should return both messages.
-        List<QueuedMessage> result;
+        List<DequeuedMessage> result;
         using (var dequeueScope = Factory.Services.CreateScope())
         {
             var service = CreateService(dequeueScope);
@@ -130,7 +130,7 @@ public class MessageQueueServiceTests : IntegrationTestBase
         }
 
         // Act
-        List<QueuedMessage> result;
+        List<DequeuedMessage> result;
         using (var dequeueScope = Factory.Services.CreateScope())
         {
             var service = CreateService(dequeueScope);
@@ -182,7 +182,7 @@ public class MessageQueueServiceTests : IntegrationTestBase
         }
 
         // Act
-        List<QueuedMessage> result;
+        List<DequeuedMessage> result;
         using (var dequeueScope = Factory.Services.CreateScope())
         {
             var service = CreateService(dequeueScope);
