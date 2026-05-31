@@ -245,19 +245,57 @@ class WebRTCManager extends ChangeNotifier {
     }
 
     // ICE server configuration: STUN for candidate gathering, TURN as
-    // relay fallback. Port 3478 for STUN and 3479 for TURN match the
-    // DeskShare server defaults from RemoteDesktopNet.
+    // relay fallback. The STUN/TURN servers are provided by DeskShare.Stun
+    // and DeskShare.Turn from the RemoteDesktopNet project.
+    //
+    // Default STUN port 3478 matches the DeskShare.Stun server default.
+    // TURN URLs and credentials are fetched from the API because:
+    //   1. TURN credentials are time-limited (HMAC-SHA1 based)
+    //   2. Server URLs may differ between environments (dev/staging/prod)
+    //   3. The API may return multiple TURN URLs (UDP + TCP + TLS)
     final iceServers = <Map<String, dynamic>>[
+      // STUN is unauthenticated — no credentials needed. It only helps
+      // discover the device's public IP and port mapping.
       {'urls': 'stun:stun.zmessanger.com:3478'},
     ];
 
-    // Only add TURN server if we successfully fetched credentials.
+    // Use server-provided TURN configuration when available.
+    // The /turn/credentials endpoint returns:
+    //   - urls: TURN server URL(s) matching DeskShare.Turn's listener
+    //   - username: time-stamped username (expires per TTL)
+    //   - credential: HMAC-SHA1 signature of the username
     if (turnCreds != null) {
-      iceServers.add({
-        'urls': 'turn:turn.zmessanger.com:3479',
-        'username': turnCreds['username'] ?? '',
-        'credential': turnCreds['credential'] ?? '',
-      });
+      final turnUrls = turnCreds['urls'];
+      final username = turnCreds['username']?.toString() ?? '';
+      final credential = turnCreds['credential']?.toString() ?? '';
+
+      if (turnUrls is List) {
+        // Server returned multiple TURN URLs (e.g. UDP, TCP, TLS variants).
+        // Add each as a separate ICE server entry so the browser/platform
+        // can try all transport types during connectivity checks.
+        for (final url in turnUrls) {
+          iceServers.add({
+            'urls': url.toString(),
+            'username': username,
+            'credential': credential,
+          });
+        }
+      } else if (turnUrls is String) {
+        // Single TURN URL — common for simple deployments.
+        iceServers.add({
+          'urls': turnUrls,
+          'username': username,
+          'credential': credential,
+        });
+      } else {
+        // Fallback: API didn't return a urls field, use default TURN address.
+        // Port 3479 is the DeskShare.Turn default.
+        iceServers.add({
+          'urls': 'turn:turn.zmessanger.com:3479',
+          'username': username,
+          'credential': credential,
+        });
+      }
     }
 
     _peerConnection = await createPeerConnection(
