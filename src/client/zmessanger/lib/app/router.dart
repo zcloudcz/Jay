@@ -3,8 +3,14 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../core/network/api_client.dart';
+import '../core/network/signalr_client.dart';
+import '../core/network/webrtc_manager.dart';
 import '../core/storage/database.dart';
 import '../core/storage/secure_storage.dart';
+import '../features/backup/backup_controller.dart';
+import '../features/backup/backup_settings_screen.dart';
+import '../features/backup/restore_screen.dart';
+import '../features/calls/call_screen.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/chat_list/chat_list_screen.dart';
 import '../features/contacts/contacts_controller.dart';
@@ -91,7 +97,27 @@ final router = GoRouter(
       path: '/call/:id',
       builder: (context, state) {
         final id = state.pathParameters['id']!;
-        return _Placeholder('Call $id');
+        // The call route receives the target device ID as a path parameter.
+        // We create a WebRTCManager scoped to this route — it manages the
+        // peer connection lifecycle and is disposed when the user navigates
+        // away from the call screen.
+        final apiClient = ApiClient(baseUrl: 'http://localhost:5000');
+        final signalR = SignalRClient(
+          baseUrl: 'http://localhost:5000',
+          deviceId: id,
+        );
+        return ChangeNotifierProvider(
+          create: (_) => WebRTCManager(
+            signalRClient: signalR,
+            apiClient: apiClient,
+            myDeviceId: id,
+          ),
+          child: Builder(
+            builder: (context) => CallScreen(
+              webrtcManager: context.read<WebRTCManager>(),
+            ),
+          ),
+        );
       },
     ),
     GoRoute(
@@ -108,7 +134,33 @@ final router = GoRouter(
         ),
         GoRoute(
           path: 'backup',
-          builder: (context, state) => const _Placeholder('Backup Settings'),
+          builder: (context, state) {
+            // Scope the BackupController to this route so resources are
+            // released when the user navigates away from backup settings.
+            return ChangeNotifierProvider(
+              create: (_) => BackupController(
+                database: AppDatabase('zmessanger'),
+                apiClient: ApiClient(baseUrl: 'http://localhost:5000'),
+                accountId: 'placeholder-account',
+              ),
+              child: const BackupSettingsScreen(),
+            );
+          },
+          routes: [
+            GoRoute(
+              path: 'restore',
+              builder: (context, state) {
+                return ChangeNotifierProvider(
+                  create: (_) => BackupController(
+                    database: AppDatabase('zmessanger'),
+                    apiClient: ApiClient(baseUrl: 'http://localhost:5000'),
+                    accountId: 'placeholder-account',
+                  ),
+                  child: const RestoreScreen(),
+                );
+              },
+            ),
+          ],
         ),
       ],
     ),
