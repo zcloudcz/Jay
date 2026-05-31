@@ -3,9 +3,13 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../core/network/api_client.dart';
+import '../core/storage/database.dart';
 import '../core/storage/secure_storage.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/chat_list/chat_list_screen.dart';
+import '../features/contacts/contacts_controller.dart';
+import '../features/contacts/contacts_screen.dart';
+import '../features/contacts/qr_scanner_screen.dart';
 import '../features/onboarding/onboarding_controller.dart';
 import '../features/onboarding/onboarding_screen.dart';
 
@@ -62,11 +66,20 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/contacts',
-      builder: (context, state) => const _Placeholder('Contacts'),
+      builder: (context, state) {
+        // Scope the ContactsController to this route so it and its DB
+        // queries are disposed when the user navigates away.
+        return ChangeNotifierProvider(
+          create: (_) => ContactsController(
+            database: AppDatabase('zmessanger'),
+          ),
+          child: const ContactsScreen(),
+        );
+      },
       routes: [
         GoRoute(
           path: 'scan',
-          builder: (context, state) => const _Placeholder('Scan QR'),
+          builder: (context, state) => const QrScannerScreen(),
         ),
       ],
     ),
