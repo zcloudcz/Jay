@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../core/network/api_client.dart';
-import '../core/network/signalr_client.dart';
 import '../core/network/webrtc_manager.dart';
 import '../core/storage/database.dart';
 import '../core/storage/secure_storage.dart';
@@ -13,18 +12,21 @@ import '../features/backup/restore_screen.dart';
 import '../features/calls/call_screen.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/chat_list/chat_list_screen.dart';
-import '../features/contacts/contacts_controller.dart';
 import '../features/contacts/contacts_screen.dart';
 import '../features/contacts/qr_scanner_screen.dart';
+import '../features/groups/group_create_screen.dart';
 import '../features/onboarding/onboarding_controller.dart';
 import '../features/onboarding/onboarding_screen.dart';
+import '../features/settings/account_screen.dart';
+import '../features/settings/app_lock_settings_screen.dart';
+import '../features/settings/settings_screen.dart';
 
 /// Central route configuration for the whole app.
 ///
-/// Every screen that will exist in the app has a route defined here, even
-/// if the destination widget is just a placeholder today. This lets us wire
-/// up navigation early and replace placeholders incrementally as features
-/// are implemented.
+/// Every screen has a route defined here. Routes read shared dependencies
+/// (DB, API client, SignalR) from the provider tree set up in main.dart
+/// instead of creating new instances inline. This ensures a single source
+/// of truth for all services and proper lifecycle management.
 ///
 /// Route hierarchy:
 ///   /onboarding        — first-run device setup
@@ -44,14 +46,13 @@ final router = GoRouter(
     GoRoute(
       path: '/onboarding',
       builder: (context, state) {
-        // Provider is scoped to this route so the controller (and its
-        // network resources) are disposed when the user navigates away.
-        // The base URL defaults to localhost for development; it will be
-        // configurable via environment/build flavors in production.
+        // OnboardingController is scoped to this route so the controller
+        // (and its network resources) are disposed when the user navigates away.
+        // Reads ApiClient and SecureStorage from the provider tree.
         return ChangeNotifierProvider(
-          create: (_) => OnboardingController(
-            apiClient: ApiClient(baseUrl: 'http://localhost:5000'),
-            secureStorage: SecureStorage(),
+          create: (ctx) => OnboardingController(
+            apiClient: ctx.read<ApiClient>(),
+            secureStorage: ctx.read<SecureStorage>(),
           ),
           child: const OnboardingScreen(),
         );
@@ -73,14 +74,9 @@ final router = GoRouter(
     GoRoute(
       path: '/contacts',
       builder: (context, state) {
-        // Scope the ContactsController to this route so it and its DB
-        // queries are disposed when the user navigates away.
-        return ChangeNotifierProvider(
-          create: (_) => ContactsController(
-            database: AppDatabase('zmessanger'),
-          ),
-          child: const ContactsScreen(),
-        );
+        // ContactsController is already in the provider tree (app-wide),
+        // so we don't need to wrap it in a route-scoped provider.
+        return const ContactsScreen();
       },
       routes: [
         GoRoute(
@@ -91,56 +87,49 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/groups/create',
-      builder: (context, state) => const _Placeholder('Create Group'),
+      builder: (context, state) => const GroupCreateScreen(),
     ),
     GoRoute(
       path: '/call/:id',
       builder: (context, state) {
-        final id = state.pathParameters['id']!;
-        // The call route receives the target device ID as a path parameter.
-        // We create a WebRTCManager scoped to this route — it manages the
-        // peer connection lifecycle and is disposed when the user navigates
-        // away from the call screen.
-        final apiClient = ApiClient(baseUrl: 'http://localhost:5000');
-        final signalR = SignalRClient(
-          baseUrl: 'http://localhost:5000',
-          deviceId: id,
-        );
-        return ChangeNotifierProvider(
-          create: (_) => WebRTCManager(
-            signalRClient: signalR,
-            apiClient: apiClient,
-            myDeviceId: id,
-          ),
-          child: Builder(
-            builder: (context) => CallScreen(
-              webrtcManager: context.read<WebRTCManager>(),
-            ),
+        // WebRTCManager is already in the provider tree (app-wide singleton).
+        // The call screen reads it from context rather than creating a new
+        // instance, ensuring a single peer connection lifecycle.
+        return Builder(
+          builder: (context) => CallScreen(
+            webrtcManager: context.read<WebRTCManager>(),
           ),
         );
       },
     ),
     GoRoute(
       path: '/settings',
-      builder: (context, state) => const _Placeholder('Settings'),
+      builder: (context, state) => const SettingsScreen(),
       routes: [
         GoRoute(
           path: 'lock',
-          builder: (context, state) => const _Placeholder('Lock Settings'),
+          builder: (context, state) {
+            // AppLock is in the provider tree — the settings screen reads it.
+            return const AppLockSettingsScreen();
+          },
         ),
         GoRoute(
           path: 'account',
-          builder: (context, state) => const _Placeholder('Account Settings'),
+          builder: (context, state) {
+            // AccountScreen reads ApiClient from the provider tree.
+            return const AccountScreen();
+          },
         ),
         GoRoute(
           path: 'backup',
           builder: (context, state) {
-            // Scope the BackupController to this route so resources are
-            // released when the user navigates away from backup settings.
+            // BackupController is scoped to this route because it holds
+            // operation-specific state (progress, errors) that should reset
+            // when the user navigates away and back.
             return ChangeNotifierProvider(
-              create: (_) => BackupController(
-                database: AppDatabase('zmessanger'),
-                apiClient: ApiClient(baseUrl: 'http://localhost:5000'),
+              create: (ctx) => BackupController(
+                database: ctx.read<AppDatabase>(),
+                apiClient: ctx.read<ApiClient>(),
                 accountId: 'placeholder-account',
               ),
               child: const BackupSettingsScreen(),
@@ -151,9 +140,9 @@ final router = GoRouter(
               path: 'restore',
               builder: (context, state) {
                 return ChangeNotifierProvider(
-                  create: (_) => BackupController(
-                    database: AppDatabase('zmessanger'),
-                    apiClient: ApiClient(baseUrl: 'http://localhost:5000'),
+                  create: (ctx) => BackupController(
+                    database: ctx.read<AppDatabase>(),
+                    apiClient: ctx.read<ApiClient>(),
                     accountId: 'placeholder-account',
                   ),
                   child: const RestoreScreen(),
@@ -166,25 +155,3 @@ final router = GoRouter(
     ),
   ],
 );
-
-/// Temporary placeholder widget used for routes whose screens are not yet
-/// implemented. Displays the screen name so navigation can be verified
-/// visually during development.
-class _Placeholder extends StatelessWidget {
-  const _Placeholder(this.name);
-
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(name)),
-      body: Center(
-        child: Text(
-          name,
-          style: Theme.of(context).textTheme.headlineMedium,
-        ),
-      ),
-    );
-  }
-}
