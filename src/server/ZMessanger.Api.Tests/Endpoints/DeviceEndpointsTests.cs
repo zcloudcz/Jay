@@ -242,6 +242,26 @@ public class DeviceEndpointsTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task Register_device_with_invalid_otk_base64_returns_bad_request()
+    {
+        // Valid identity/signed keys but the one-time pre-key has garbage base64.
+        // The server must validate OTK key material, not just the top-level keys.
+        var request = new
+        {
+            identityKey = ValidIdentityKey,
+            signedPreKey = ValidSignedPreKey,
+            oneTimePreKeys = new[]
+            {
+                new { keyId = 1, publicKey = "!!!not-valid-base64!!!" }
+            }
+        };
+
+        var response = await Client.PostAsJsonAsync("/devices", request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Register_two_devices_get_different_handles()
     {
         // Verifies handle uniqueness — two registrations should never

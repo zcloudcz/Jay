@@ -181,6 +181,20 @@ public class AccountEndpointsTests : IntegrationTestBase
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    [Fact]
+    public async Task Register_with_invalid_email_format_returns_bad_request()
+    {
+        // "notanemail" lacks an '@' and domain — the server uses MailAddress
+        // parsing to catch obviously malformed emails before hitting the DB.
+        var response = await Client.PostAsJsonAsync("/accounts", new
+        {
+            email = "notanemail",
+            authKey = ValidAuthKey
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     // -----------------------------------------------------------------------
     // POST /accounts/{accountId}/devices/{deviceId} — Link device to account
     // -----------------------------------------------------------------------
