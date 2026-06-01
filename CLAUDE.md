@@ -50,7 +50,7 @@ ZMessanger/
 │   │   │   ├── Services/                       # Business logic services
 │   │   │   └── Migrations/                     # EF Core migrations
 │   │   └── ZMessanger.Api.Tests/               # Integration tests (Testcontainers)
-│   └── client/zmessanger/                      # Flutter app (not yet created)
+│   └── client/zmessanger/                      # Flutter app
 │       ├── lib/
 │       │   ├── core/crypto/                    # E2EE (libsignal wrapper)
 │       │   ├── core/network/                   # API client, SignalR, WebRTC
