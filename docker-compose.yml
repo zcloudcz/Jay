@@ -1,0 +1,66 @@
+# ---------------------------------------------------------------------------
+# docker-compose.yml — Local development environment for CallType
+# ---------------------------------------------------------------------------
+# Brings up the API, PostgreSQL, and Azurite (Azure Blob Storage emulator)
+# with a single `docker compose up`. All services are pre-configured to talk
+# to each other — no manual setup needed beyond having Docker installed.
+#
+# Usage:
+#   docker compose up -d          # start everything in background
+#   docker compose logs -f api    # follow API logs
+#   docker compose down -v        # stop and remove volumes (clean slate)
+# ---------------------------------------------------------------------------
+
+services:
+  api:
+    build:
+      context: src/server/CallType.Api
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_URLS=http://+:8080
+      # Connection to the postgres service by container name (Docker DNS).
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=calltype;Username=calltype;Password=calltype_dev_password
+      # Azurite connection string — uses the well-known development account key
+      # with the azurite hostname resolved by Docker DNS.
+      - ConnectionStrings__BlobStorage=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1
+      - Jwt__Secret=dev-secret-min-32-characters-long!!
+      - Jwt__Issuer=CallType.Api
+      - Turn__SharedSecret=dev-turn-secret
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: calltype
+      POSTGRES_USER: calltype
+      POSTGRES_PASSWORD: calltype_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U calltype"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Azurite emulates Azure Blob Storage for local development.
+  # The --skipApiVersionCheck flag is needed because the Azure.Storage.Blobs
+  # SDK may use a newer API version than the Azurite image supports.
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --skipApiVersionCheck
+    ports:
+      - "10000:10000"   # Blob service
+      - "10001:10001"   # Queue service
+      - "10002:10002"   # Table service
+    restart: unless-stopped
+
+volumes:
+  pgdata:
