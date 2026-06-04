@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "value": "dev"
+    },
+    "containerImage": {
+      "value": "mcr.microsoft.com/dotnet/samples:aspnetapp"
+    },
+    "pgAdminLogin": {
+      "value": "calltypeadmin"
+    },
+    "pgAdminPassword": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<subscription-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<vault-name>"
+        },
+        "secretName": "pg-admin-password"
+      }
+    },
+    "jwtSecret": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<subscription-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<vault-name>"
+        },
+        "secretName": "jwt-secret"
+      }
+    },
+    "turnSharedSecret": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<subscription-id>/resourceGroups/<rg>/providers/Microsoft.KeyVault/vaults/<vault-name>"
+        },
+        "secretName": "turn-shared-secret"
+      }
+    }
+  }
+}
