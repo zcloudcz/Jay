@@ -1,0 +1,51 @@
+# ---------------------------------------------------------------------------
+# Deploy — Build Docker image and deploy to Azure Container Apps
+# ---------------------------------------------------------------------------
+# Triggered on push to main only. Builds the API Docker image, pushes it to
+# Azure Container Registry (ACR), and deploys to Azure Container Apps.
+#
+# Required GitHub secrets (set in repo Settings > Secrets):
+#   AZURE_CREDENTIALS  — Service principal JSON for azure/login
+#   ACR_LOGIN_SERVER   — e.g. myregistry.azurecr.io
+#   ACR_USERNAME       — ACR admin username or service principal ID
+#   ACR_PASSWORD       — ACR admin password or service principal secret
+#   AZURE_RG           — Azure resource group name
+# ---------------------------------------------------------------------------
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Docker Login to ACR
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ secrets.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE=${{ secrets.ACR_LOGIN_SERVER }}/calltype-api:${{ github.sha }}
+          docker build -t $IMAGE src/server/CallType.Api
+          docker push $IMAGE
+
+      - name: Deploy to Azure Container Apps
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          containerAppName: calltype-api
+          resourceGroup: ${{ secrets.AZURE_RG }}
+          imageToDeploy: ${{ secrets.ACR_LOGIN_SERVER }}/calltype-api:${{ github.sha }}

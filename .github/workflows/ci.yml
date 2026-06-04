@@ -1,0 +1,63 @@
+# ---------------------------------------------------------------------------
+# CI — Build and test on every PR and push to main/master
+# ---------------------------------------------------------------------------
+# Two parallel jobs: backend (.NET) and Flutter client. Each runs independently
+# so a Flutter test failure doesn't block backend feedback and vice versa.
+#
+# The backend job uses Testcontainers, which requires Docker. GitHub-hosted
+# ubuntu-latest runners have Docker pre-installed.
+# ---------------------------------------------------------------------------
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build API
+        run: dotnet build src/server/CallType.Api --configuration Release
+
+      # Integration tests require Docker for Testcontainers (PostgreSQL + Azurite).
+      # GitHub-hosted runners have Docker available by default.
+      - name: Run tests
+        run: dotnet test src/server/CallType.Api.Tests --configuration Release --verbosity normal
+
+  flutter:
+    runs-on: ubuntu-latest
+    # Only run if the client directory exists — skip gracefully during early
+    # development when the Flutter project hasn't been scaffolded yet.
+    if: hashFiles('src/client/calltype/pubspec.yaml') != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.41.x"
+
+      - name: Install dependencies
+        working-directory: src/client/calltype
+        run: flutter pub get
+
+      - name: Generate code (drift, json_serializable, etc.)
+        working-directory: src/client/calltype
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Analyze
+        working-directory: src/client/calltype
+        run: dart analyze
+
+      - name: Run tests
+        working-directory: src/client/calltype
+        run: flutter test
