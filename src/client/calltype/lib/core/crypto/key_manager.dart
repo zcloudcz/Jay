@@ -27,7 +27,10 @@ class KeyManager {
   /// Returns the existing identity key pair, or generates and persists
   /// a new one if this is the first launch.
   ///
-  /// The returned map has 'publicKey' and 'privateKey' as base64 strings.
+  /// Uses real X25519 key generation via [SignalProtocol.generateKeyPair].
+  /// The returned map has 'publicKey' and 'privateKey' as base64 strings
+  /// representing a valid X25519 key pair where the public key is the
+  /// Curve25519 point derived from the private seed.
   Future<Map<String, String>> getOrCreateIdentityKeyPair() async {
     final existingPublic = await _secureStorage.read(_publicKeyKey);
     final existingPrivate = await _secureStorage.read(_privateKeyKey);
@@ -36,10 +39,12 @@ class KeyManager {
       return {'publicKey': existingPublic, 'privateKey': existingPrivate};
     }
 
-    // First launch — generate a new key pair and persist it.
+    // First launch — generate a real X25519 key pair and persist it.
     // This is the ONLY time keys are generated; after this they are
     // loaded from storage on every subsequent app start.
-    final keyPair = SignalProtocol.generateIdentityKeyPair();
+    // Using the async generateKeyPair() to get a properly derived
+    // X25519 public key (not just random bytes like the old placeholder).
+    final keyPair = await SignalProtocol.generateKeyPair();
 
     await _secureStorage.write(_publicKeyKey, keyPair['publicKey']!);
     await _secureStorage.write(_privateKeyKey, keyPair['privateKey']!);
@@ -54,5 +59,15 @@ class KeyManager {
   Future<String> getPublicIdentityKey() async {
     final keyPair = await getOrCreateIdentityKeyPair();
     return keyPair['publicKey']!;
+  }
+
+  /// Returns the private identity key (base64).
+  ///
+  /// Needed by [SessionManager.initializeSession] to perform the X3DH
+  /// DH computations. Keep the private key in memory only as long as
+  /// needed — do not cache it in a field.
+  Future<String> getPrivateIdentityKey() async {
+    final keyPair = await getOrCreateIdentityKeyPair();
+    return keyPair['privateKey']!;
   }
 }

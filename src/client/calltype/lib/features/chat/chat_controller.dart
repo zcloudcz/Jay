@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../core/crypto/key_manager.dart';
+import '../../core/crypto/session_manager.dart';
+import '../../core/network/api_client.dart';
 import '../../core/network/signalr_client.dart';
 import '../../core/storage/database.dart';
 
@@ -13,8 +17,14 @@ import '../../core/storage/database.dart';
 /// Bridges the local database (source of truth for message history) with
 /// the real-time SignalR transport. The flow is:
 ///   1. User sends message → store locally with status 'sending'
-///   2. Send via SignalR → update status to 'sent' on success / 'failed' on error
-///   3. Incoming message via SignalR → store in DB → reload list
+///   2. Encrypt via [SessionManager] → send via SignalR
+///   3. Update status to 'sent' on success / 'failed' on error
+///   4. Incoming message via SignalR → decrypt → store in DB → reload list
+///
+/// Session establishment happens lazily on first send: if no E2E session
+/// exists with the peer, we fetch their key bundle from the API and perform
+/// X3DH before encrypting. This avoids pre-establishing sessions with
+/// contacts we never message.
 ///
 /// Uses [ChangeNotifier] so the chat screen rebuilds reactively when
 /// messages change. The controller is scoped to a single conversation
@@ -23,16 +33,25 @@ class ChatController extends ChangeNotifier {
   ChatController({
     required AppDatabase database,
     required SignalRClient signalRClient,
+    required SessionManager sessionManager,
+    required KeyManager keyManager,
+    required ApiClient apiClient,
     required this.conversationId,
     required this.myDeviceId,
   })  : _db = database,
-        _signalR = signalRClient {
+        _signalR = signalRClient,
+        _sessionManager = sessionManager,
+        _keyManager = keyManager,
+        _apiClient = apiClient {
     _loadMessages();
     _listenForIncoming();
   }
 
   final AppDatabase _db;
   final SignalRClient _signalR;
+  final SessionManager _sessionManager;
+  final KeyManager _keyManager;
+  final ApiClient _apiClient;
 
   /// The conversation this controller manages.
   final String conversationId;
@@ -67,12 +86,13 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Subscribes to the SignalR message stream and stores incoming messages.
+  /// Subscribes to the SignalR message stream and processes incoming messages.
   ///
-  /// Only processes messages that belong to this conversation. The
-  /// conversation matching logic uses the senderId — for direct chats,
-  /// the conversationId IS the peer's deviceId. For group chats, the
-  /// server includes a groupId field.
+  /// Only processes messages that belong to this conversation. Incoming
+  /// encrypted bodies are decrypted via [SessionManager] before storage.
+  /// If decryption fails (no session, tampered data), the encrypted body
+  /// is stored as-is with a "[encrypted]" prefix so the user sees something
+  /// rather than nothing.
   void _listenForIncoming() {
     _messageSubscription = _signalR.onMessage.listen((data) async {
       final senderId = data['senderId']?.toString();
@@ -87,15 +107,31 @@ class ChatController extends ChangeNotifier {
       // have their own ChatController instances.
       if (incomingConversationId != conversationId) return;
 
-      // TODO: Decrypt encryptedBody using SessionManager once libsignal
-      // is integrated. For now, store the encrypted body as-is.
       final encryptedBody = data['encryptedBody']?.toString() ?? '';
+
+      // Attempt to decrypt the incoming message body.
+      // Falls back to storing the raw encrypted data if decryption fails —
+      // this can happen if the session was lost (e.g. app reinstall) or
+      // if the message was corrupted in transit.
+      String decryptedBody;
+      try {
+        final encryptedBytes = Uint8List.fromList(base64Decode(encryptedBody));
+        decryptedBody = await _sessionManager.decryptMessage(
+          senderId,
+          encryptedBytes,
+        );
+      } catch (_) {
+        // Decryption failed — store a placeholder. The user can see that
+        // a message arrived but can't read it. A re-keying flow (future
+        // feature) would resolve this by re-establishing the session.
+        decryptedBody = '[encrypted] $encryptedBody';
+      }
 
       final message = MessagesCompanion.insert(
         id: _uuid.v4(),
         conversationId: conversationId,
         senderId: senderId,
-        body: Value(encryptedBody),
+        body: Value(decryptedBody),
         status: const Value('delivered'),
         createdAt: DateTime.now(),
         receivedAt: Value(DateTime.now()),
@@ -120,12 +156,14 @@ class ChatController extends ChangeNotifier {
   /// Sends a text message in this conversation.
   ///
   /// The message is stored locally first (optimistic insert with status
-  /// 'sending'), then sent via SignalR. On success the status updates to
-  /// 'sent'; on failure it becomes 'failed' so the UI can show a retry option.
+  /// 'sending'), then encrypted via [SessionManager] and sent via SignalR.
+  /// On success the status updates to 'sent'; on failure it becomes 'failed'
+  /// so the UI can show a retry option.
   ///
-  /// TODO: Encrypt the message body via SessionManager before sending.
-  /// Currently sends plaintext — this is acceptable only during development
-  /// before the E2E encryption pipeline is complete.
+  /// If no E2E session exists with the peer, automatically fetches their
+  /// key bundle from the API and establishes a session via X3DH before
+  /// encrypting. This lazy initialization avoids wasting resources on
+  /// sessions that may never be used.
   Future<void> sendMessage(String text) async {
     final messageId = _uuid.v4();
     final now = DateTime.now();
@@ -151,23 +189,55 @@ class ChatController extends ChangeNotifier {
     await _loadMessages();
 
     try {
-      // TODO: Replace plaintext with encrypted body from SessionManager.
-      // For now, send the raw text as base64 to match the server's expected
-      // format without actual encryption.
-      await _signalR.sendMessage(conversationId, text);
+      // Ensure we have an E2E session with the peer. If not, fetch their
+      // key bundle and perform X3DH to establish one.
+      await _ensureSession(conversationId);
+
+      // Encrypt the message with the session's current chain key.
+      final encrypted = await _sessionManager.encryptMessage(
+        conversationId,
+        text,
+      );
+
+      // Send the encrypted bytes as base64 — the server treats this as
+      // an opaque blob and never attempts to parse or decrypt it.
+      final encryptedBase64 = base64Encode(encrypted);
+      await _signalR.sendMessage(conversationId, encryptedBase64);
 
       // Network send succeeded — update status to 'sent'.
       await (_db.update(_db.messages)
             ..where((m) => m.id.equals(messageId)))
           .write(const MessagesCompanion(status: Value('sent')));
     } catch (_) {
-      // Network failure — mark as 'failed' so the UI can offer retry.
+      // Encryption or network failure — mark as 'failed' so the UI
+      // can offer retry.
       await (_db.update(_db.messages)
             ..where((m) => m.id.equals(messageId)))
           .write(const MessagesCompanion(status: Value('failed')));
     }
 
     await _loadMessages();
+  }
+
+  /// Ensures an E2E session exists with the given peer device.
+  ///
+  /// If no session exists, fetches the peer's X3DH key bundle from the
+  /// server API and initializes a new session. This is the "lazy X3DH"
+  /// pattern — sessions are established on first message, not on contact add.
+  Future<void> _ensureSession(String peerDeviceId) async {
+    if (await _sessionManager.hasSession(peerDeviceId)) return;
+
+    // Fetch peer's key bundle: identity key + signed pre-key + OTK.
+    // The server consumes the OTK atomically — subsequent fetches for
+    // the same peer return a different OTK (or none if depleted).
+    final keyBundle = await _apiClient.getKeyBundle(peerDeviceId);
+    final myPrivateKey = await _keyManager.getPrivateIdentityKey();
+
+    await _sessionManager.initializeSession(
+      peerDeviceId,
+      keyBundle,
+      myPrivateKey,
+    );
   }
 
   @override
