@@ -1,15 +1,19 @@
 // ---------------------------------------------------------------------------
 // BackupEndpointsTests.cs — Integration tests for backup endpoints
 // ---------------------------------------------------------------------------
-// Tests the backup creation and listing flow against a real PostgreSQL
-// instance via Testcontainers. Verifies account existence checks, input
-// validation, blob path format, and list ordering.
+// Tests the backup upload, listing, and download flow against a real PostgreSQL
+// instance via Testcontainers. Upload uses multipart form data (IFormFile) to
+// Azure Blob Storage (stubbed via BlobServiceClient in the test factory).
+//
+// The BlobServiceClient is replaced with an Azurite-backed or in-memory mock
+// in IntegrationTestBase so tests don't require a real Azure account.
 //
 // All backup endpoints require JWT — tests authenticate in each test method.
 // ---------------------------------------------------------------------------
 
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using CallType.Api.Tests.TestFixtures;
@@ -40,24 +44,35 @@ public class BackupEndpointsTests : IntegrationTestBase
         return Guid.Parse(body.GetProperty("accountId").GetString()!);
     }
 
+    /// <summary>
+    /// Helper: creates a multipart form upload request with fake encrypted data.
+    /// Simulates what the Flutter client would send as an encrypted backup file.
+    /// </summary>
+    private static MultipartFormDataContent CreateBackupFileContent(string fileContent = "encrypted-backup-data")
+    {
+        var content = new MultipartFormDataContent();
+        var fileBytes = Encoding.UTF8.GetBytes(fileContent);
+        var fileStream = new ByteArrayContent(fileBytes);
+        fileStream.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+        content.Add(fileStream, "file", "backup.enc");
+        return content;
+    }
+
     // -----------------------------------------------------------------------
-    // POST /backups — Create backup
+    // POST /backups/{accountId} — Upload backup
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task Create_backup_returns_created_with_blob_path()
+    public async Task Upload_backup_returns_created_with_blob_path()
     {
         await RegisterAndAuthenticateAsync();
 
         // Arrange
         var accountId = await RegisterAccountAsync();
+        using var formContent = CreateBackupFileContent();
 
         // Act
-        var response = await Client.PostAsJsonAsync("/backups", new
-        {
-            accountId,
-            sizeBytes = 1024L
-        });
+        var response = await Client.PostAsync($"/backups/{accountId}", formContent);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -70,35 +85,29 @@ public class BackupEndpointsTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task Create_backup_for_nonexistent_account_returns_not_found()
+    public async Task Upload_backup_for_nonexistent_account_returns_not_found()
     {
         await RegisterAndAuthenticateAsync();
 
         // Act — use a random GUID that was never registered as an account
-        var response = await Client.PostAsJsonAsync("/backups", new
-        {
-            accountId = Guid.NewGuid(),
-            sizeBytes = 512L
-        });
+        using var formContent = CreateBackupFileContent();
+        var response = await Client.PostAsync($"/backups/{Guid.NewGuid()}", formContent);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
-    public async Task Create_backup_with_zero_size_returns_bad_request()
+    public async Task Upload_backup_with_empty_file_returns_bad_request()
     {
         await RegisterAndAuthenticateAsync();
 
         // Arrange
         var accountId = await RegisterAccountAsync();
+        using var formContent = CreateBackupFileContent("");
 
         // Act
-        var response = await Client.PostAsJsonAsync("/backups", new
-        {
-            accountId,
-            sizeBytes = 0L
-        });
+        var response = await Client.PostAsync($"/backups/{accountId}", formContent);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -116,22 +125,16 @@ public class BackupEndpointsTests : IntegrationTestBase
         // Arrange — create two backups for the same account
         var accountId = await RegisterAccountAsync();
 
-        var first = await Client.PostAsJsonAsync("/backups", new
-        {
-            accountId,
-            sizeBytes = 100L
-        });
-        first.StatusCode.Should().Be(HttpStatusCode.Created);
-        var firstBody = await first.Content.ReadFromJsonAsync<JsonElement>();
+        using var first = CreateBackupFileContent("first-backup");
+        var firstResp = await Client.PostAsync($"/backups/{accountId}", first);
+        firstResp.StatusCode.Should().Be(HttpStatusCode.Created);
+        var firstBody = await firstResp.Content.ReadFromJsonAsync<JsonElement>();
         var firstId = firstBody.GetProperty("id").GetInt64();
 
-        var second = await Client.PostAsJsonAsync("/backups", new
-        {
-            accountId,
-            sizeBytes = 200L
-        });
-        second.StatusCode.Should().Be(HttpStatusCode.Created);
-        var secondBody = await second.Content.ReadFromJsonAsync<JsonElement>();
+        using var second = CreateBackupFileContent("second-backup");
+        var secondResp = await Client.PostAsync($"/backups/{accountId}", second);
+        secondResp.StatusCode.Should().Be(HttpStatusCode.Created);
+        var secondBody = await secondResp.Content.ReadFromJsonAsync<JsonElement>();
         var secondId = secondBody.GetProperty("id").GetInt64();
 
         // Act
@@ -163,5 +166,65 @@ public class BackupEndpointsTests : IntegrationTestBase
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var backups = await response.Content.ReadFromJsonAsync<JsonElement>();
         backups.GetArrayLength().Should().Be(0);
+    }
+
+    // -----------------------------------------------------------------------
+    // GET /backups/{accountId}/{backupId} — Download backup
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Download_backup_returns_file_content()
+    {
+        await RegisterAndAuthenticateAsync();
+
+        // Arrange — upload a backup first
+        var accountId = await RegisterAccountAsync();
+        var originalContent = "encrypted-backup-payload-for-download-test";
+        using var formContent = CreateBackupFileContent(originalContent);
+        var uploadResp = await Client.PostAsync($"/backups/{accountId}", formContent);
+        uploadResp.StatusCode.Should().Be(HttpStatusCode.Created);
+        var uploadBody = await uploadResp.Content.ReadFromJsonAsync<JsonElement>();
+        var backupId = uploadBody.GetProperty("id").GetInt64();
+
+        // Act
+        var downloadResp = await Client.GetAsync($"/backups/{accountId}/{backupId}");
+
+        // Assert
+        downloadResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        downloadResp.Content.Headers.ContentType!.MediaType.Should().Be("application/octet-stream");
+        var downloadedContent = await downloadResp.Content.ReadAsStringAsync();
+        downloadedContent.Should().Be(originalContent);
+    }
+
+    [Fact]
+    public async Task Download_backup_for_wrong_account_returns_not_found()
+    {
+        await RegisterAndAuthenticateAsync();
+
+        // Arrange — upload a backup under one account
+        var accountId = await RegisterAccountAsync();
+        using var formContent = CreateBackupFileContent();
+        var uploadResp = await Client.PostAsync($"/backups/{accountId}", formContent);
+        uploadResp.StatusCode.Should().Be(HttpStatusCode.Created);
+        var uploadBody = await uploadResp.Content.ReadFromJsonAsync<JsonElement>();
+        var backupId = uploadBody.GetProperty("id").GetInt64();
+
+        // Act — try to download it under a different account
+        var otherAccountId = await RegisterAccountAsync();
+        var downloadResp = await Client.GetAsync($"/backups/{otherAccountId}/{backupId}");
+
+        // Assert — should not leak backups across accounts
+        downloadResp.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Download_nonexistent_backup_returns_not_found()
+    {
+        await RegisterAndAuthenticateAsync();
+        var accountId = await RegisterAccountAsync();
+
+        var response = await Client.GetAsync($"/backups/{accountId}/999999");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }

@@ -1,13 +1,13 @@
 // ---------------------------------------------------------------------------
 // IntegrationTestBase.cs — Shared test infrastructure for integration tests
 // ---------------------------------------------------------------------------
-// Spins up a real PostgreSQL container via Testcontainers so every test
-// class runs against a genuine database — no in-memory fakes that silently
-// diverge from PostgreSQL behavior (e.g. case sensitivity, jsonb, arrays).
+// Spins up a real PostgreSQL container and an Azurite container (Azure Blob
+// Storage emulator) via Testcontainers so every test class runs against
+// genuine services — no in-memory fakes that silently diverge from production.
 //
 // Implements IAsyncLifetime so xUnit manages the container lifecycle:
-//   InitializeAsync  -> start container, build WebApplicationFactory, apply schema
-//   DisposeAsync     -> tear down container and factory
+//   InitializeAsync  -> start containers, build WebApplicationFactory, apply schema
+//   DisposeAsync     -> tear down containers and factory
 //
 // Test classes inherit this and get Factory + Client ready to use.
 // Provides RegisterAndAuthenticateAsync() so tests that hit protected
@@ -18,10 +18,12 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Azure.Storage.Blobs;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Testcontainers.Azurite;
 using Testcontainers.PostgreSql;
 using CallType.Api.Data;
 
@@ -30,6 +32,15 @@ namespace CallType.Api.Tests.TestFixtures;
 public abstract class IntegrationTestBase : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17-alpine")
+        .Build();
+
+    // Azurite emulates Azure Blob Storage locally. Backup upload/download tests
+    // exercise real blob I/O instead of mocking the BlobServiceClient.
+    // skipApiVersionCheck is required because Azure.Storage.Blobs SDK v12.28+
+    // uses API version 2026-04-06 which the latest Azurite image doesn't yet
+    // recognize. The flag tells Azurite to accept any API version.
+    private readonly AzuriteContainer _azurite = new AzuriteBuilder("mcr.microsoft.com/azure-storage/azurite:latest")
+        .WithCommand("--skipApiVersionCheck")
         .Build();
 
     /// <summary>
@@ -50,7 +61,10 @@ public abstract class IntegrationTestBase : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        await _postgres.StartAsync();
+        // Start both containers in parallel — they are independent services.
+        await Task.WhenAll(
+            _postgres.StartAsync(),
+            _azurite.StartAsync());
 
         Factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
@@ -65,7 +79,9 @@ public abstract class IntegrationTestBase : IAsyncLifetime
                         // JWT signing key for test token generation. Must be at least
                         // 32 chars for HMAC-SHA256 to accept it.
                         ["Jwt:Secret"] = "test-jwt-secret-at-least-32-characters-long!!",
-                        ["Jwt:Issuer"] = "CallType.Api.Tests"
+                        ["Jwt:Issuer"] = "CallType.Api.Tests",
+                        // Azurite connection string for blob storage tests.
+                        ["ConnectionStrings:BlobStorage"] = _azurite.GetConnectionString()
                     });
                 });
 
@@ -81,6 +97,17 @@ public abstract class IntegrationTestBase : IAsyncLifetime
 
                     services.AddDbContext<AppDbContext>(options =>
                         options.UseNpgsql(_postgres.GetConnectionString()));
+
+                    // Replace the BlobServiceClient singleton with one pointing
+                    // at the Azurite container instead of real Azure.
+                    var blobDescriptor = services.SingleOrDefault(
+                        d => d.ServiceType == typeof(BlobServiceClient));
+
+                    if (blobDescriptor is not null)
+                        services.Remove(blobDescriptor);
+
+                    services.AddSingleton(_ =>
+                        new BlobServiceClient(_azurite.GetConnectionString()));
                 });
             });
 
@@ -141,6 +168,9 @@ public abstract class IntegrationTestBase : IAsyncLifetime
     {
         Client.Dispose();
         await Factory.DisposeAsync();
-        await _postgres.DisposeAsync();
+        // Tear down both containers in parallel.
+        await Task.WhenAll(
+            _postgres.DisposeAsync().AsTask(),
+            _azurite.DisposeAsync().AsTask());
     }
 }

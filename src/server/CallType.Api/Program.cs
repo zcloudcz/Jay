@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 
 using System.Text;
+using Azure.Storage.Blobs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -38,6 +39,12 @@ builder.Services.AddSingleton<JwtService>();
 // MessageCleanupService runs hourly to bulk-delete expired queued messages.
 // Prevents unbounded storage growth from abandoned devices that never reconnect.
 builder.Services.AddHostedService<MessageCleanupService>();
+
+// BlobServiceClient for Azure Blob Storage — used by backup endpoints to upload
+// and download encrypted backup files. Registered as singleton because the client
+// is thread-safe and maintains an internal connection pool.
+builder.Services.AddSingleton(_ =>
+    new BlobServiceClient(builder.Configuration.GetConnectionString("BlobStorage")));
 
 // --- JWT Bearer Authentication -------------------------------------------
 // All endpoints except health, device registration, and auth/token require
