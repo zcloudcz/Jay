@@ -36,10 +36,11 @@ public static class BackupEndpoints
         // from non-browser clients (Flutter, curl) won't include an antiforgery token.
         app.MapPost("/backups/{accountId:guid}", UploadBackup)
             .DisableAntiforgery()
-            .RequireAuthorization();
+            .RequireAuthorization()
+            .RequireRateLimiting("api");
 
-        app.MapGet("/backups/{accountId:guid}", ListBackups).RequireAuthorization();
-        app.MapGet("/backups/{accountId:guid}/{backupId:long}", DownloadBackup).RequireAuthorization();
+        app.MapGet("/backups/{accountId:guid}", ListBackups).RequireAuthorization().RequireRateLimiting("api");
+        app.MapGet("/backups/{accountId:guid}/{backupId:long}", DownloadBackup).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 

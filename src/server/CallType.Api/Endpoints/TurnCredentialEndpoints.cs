@@ -25,7 +25,7 @@ public static class TurnCredentialEndpoints
     {
         // TURN credentials require authentication — prevents anonymous clients
         // from using our TURN server as an open relay.
-        app.MapGet("/turn/credentials", GetCredentials).RequireAuthorization();
+        app.MapGet("/turn/credentials", GetCredentials).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 

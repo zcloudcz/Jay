@@ -28,10 +28,10 @@ public static class GroupEndpoints
     {
         // All group operations require authentication — only known devices
         // should be able to create groups or manage membership.
-        app.MapPost("/groups", CreateGroup).RequireAuthorization();
-        app.MapGet("/groups/{groupId:guid}/members", ListMembers).RequireAuthorization();
-        app.MapPut("/groups/{groupId:guid}/members", AddMember).RequireAuthorization();
-        app.MapDelete("/groups/{groupId:guid}/members/{deviceId:guid}", RemoveMember).RequireAuthorization();
+        app.MapPost("/groups", CreateGroup).RequireAuthorization().RequireRateLimiting("api");
+        app.MapGet("/groups/{groupId:guid}/members", ListMembers).RequireAuthorization().RequireRateLimiting("api");
+        app.MapPut("/groups/{groupId:guid}/members", AddMember).RequireAuthorization().RequireRateLimiting("api");
+        app.MapDelete("/groups/{groupId:guid}/members/{deviceId:guid}", RemoveMember).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 

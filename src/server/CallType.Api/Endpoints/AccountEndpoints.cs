@@ -43,11 +43,12 @@ public static class AccountEndpoints
     {
         // Account registration and login are public — these are part of the
         // account auth flow that happens before the device has a JWT.
-        app.MapPost("/accounts", RegisterAccount).AllowAnonymous();
-        app.MapPost("/accounts/login", Login).AllowAnonymous();
+        // Login uses the stricter "auth" limiter to slow down brute-force.
+        app.MapPost("/accounts", RegisterAccount).AllowAnonymous().RequireRateLimiting("api");
+        app.MapPost("/accounts/login", Login).AllowAnonymous().RequireRateLimiting("auth");
         // Device linking and listing require an authenticated device.
-        app.MapPost("/accounts/{accountId:guid}/devices/{deviceId:guid}", LinkDevice).RequireAuthorization();
-        app.MapGet("/accounts/{accountId:guid}/devices", ListLinkedDevices).RequireAuthorization();
+        app.MapPost("/accounts/{accountId:guid}/devices/{deviceId:guid}", LinkDevice).RequireAuthorization().RequireRateLimiting("api");
+        app.MapGet("/accounts/{accountId:guid}/devices", ListLinkedDevices).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 

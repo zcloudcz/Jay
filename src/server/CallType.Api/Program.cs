@@ -1,14 +1,17 @@
 // ---------------------------------------------------------------------------
 // Program.cs — Application entry point for CallType API
 // ---------------------------------------------------------------------------
-// Minimal API host with JWT authentication, health check, device/account/
-// group/backup endpoints, TURN credential generation, a SignalR hub for
-// real-time encrypted message relay, and background expired message cleanup.
+// Minimal API host with JWT authentication, CORS, rate limiting, health check,
+// device/account/group/backup endpoints, TURN credential generation, a SignalR
+// hub for real-time encrypted message relay, and background expired message
+// cleanup.
 // ---------------------------------------------------------------------------
 
 using System.Text;
+using System.Threading.RateLimiting;
 using Azure.Storage.Blobs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using CallType.Api.Data;
@@ -17,6 +20,15 @@ using CallType.Api.Hubs;
 using CallType.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// --- Request size limit -----------------------------------------------------
+// 10 MB cap on request bodies. Prevents abuse (huge uploads) and protects
+// Kestrel memory. Backup uploads are expected to be under this — larger
+// backups should be split client-side.
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 10 * 1024 * 1024; // 10 MB
+});
 
 // Register EF Core with Npgsql. The connection string is read from
 // configuration so it can be overridden per environment (and by
@@ -45,6 +57,59 @@ builder.Services.AddHostedService<MessageCleanupService>();
 // is thread-safe and maintains an internal connection pool.
 builder.Services.AddSingleton(_ =>
     new BlobServiceClient(builder.Configuration.GetConnectionString("BlobStorage")));
+
+// --- CORS -------------------------------------------------------------------
+// Required for browser-based clients (Flutter Web) and SignalR WebSocket
+// connections. AllowCredentials is mandatory for SignalR because the WebSocket
+// upgrade sends cookies/auth headers.
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        var allowedOrigins = builder.Configuration
+            .GetSection("Cors:AllowedOrigins")
+            .Get<string[]>();
+
+        if (allowedOrigins is { Length: > 0 })
+        {
+            policy.WithOrigins(allowedOrigins);
+        }
+        else
+        {
+            // Development fallback — allow any localhost origin.
+            // SetIsOriginAllowed covers any port (3000, 5185, 8080, etc.)
+            // without enumerating them.
+            policy.SetIsOriginAllowed(origin =>
+                new Uri(origin).Host == "localhost");
+        }
+
+        policy.AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials(); // Required for SignalR
+    });
+});
+
+// --- Rate Limiting ----------------------------------------------------------
+// Two buckets: "api" for general endpoints (100 req/min) and "auth" for
+// authentication endpoints (10 req/min). The auth limiter is stricter to
+// slow down credential brute-force attempts.
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddFixedWindowLimiter("api", opt =>
+    {
+        opt.PermitLimit = 100;
+        opt.Window = TimeSpan.FromMinutes(1);
+    });
+
+    options.AddFixedWindowLimiter("auth", opt =>
+    {
+        opt.PermitLimit = 10;
+        opt.Window = TimeSpan.FromMinutes(1);
+    });
+
+    // 429 Too Many Requests — standard HTTP status for rate limiting.
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+});
 
 // --- JWT Bearer Authentication -------------------------------------------
 // All endpoints except health, device registration, and auth/token require
@@ -100,8 +165,12 @@ builder.Services.AddSignalR();
 
 var app = builder.Build();
 
-// Authentication and authorization middleware must run before endpoint routing
-// so that [Authorize] attributes and RequireAuthorization() are enforced.
+// Middleware order matters:
+// 1. CORS — must be before auth so preflight OPTIONS requests are handled
+// 2. Rate limiter — reject abusive traffic before burning auth CPU
+// 3. Authentication + Authorization
+app.UseCors();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -113,7 +182,7 @@ app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
     .AllowAnonymous();
 
-// Auth endpoints are public — they ARE the authentication mechanism.
+// Auth endpoints use the stricter "auth" rate limiter to slow down brute-force.
 app.MapAuthEndpoints();
 
 app.MapDeviceEndpoints();

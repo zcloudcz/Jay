@@ -34,8 +34,10 @@ public static class AuthEndpoints
         // Both auth endpoints are public — they are the authentication mechanism
         // itself. The device proves identity via device secret (token) or existing
         // JWT (refresh), not via the Authorization header middleware.
-        app.MapPost("/auth/token", GetToken).AllowAnonymous();
-        app.MapPost("/auth/refresh", RefreshToken).AllowAnonymous();
+        // Stricter rate limit on auth endpoints — 10 req/min to slow down
+        // credential brute-force attempts against the device secret.
+        app.MapPost("/auth/token", GetToken).AllowAnonymous().RequireRateLimiting("auth");
+        app.MapPost("/auth/refresh", RefreshToken).AllowAnonymous().RequireRateLimiting("auth");
         return app;
     }
 

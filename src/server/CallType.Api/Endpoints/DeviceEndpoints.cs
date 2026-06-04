@@ -31,10 +31,10 @@ public static class DeviceEndpoints
     public static WebApplication MapDeviceEndpoints(this WebApplication app)
     {
         // Device registration is public — new devices don't have credentials yet.
-        app.MapPost("/devices", RegisterDevice).AllowAnonymous();
+        app.MapPost("/devices", RegisterDevice).AllowAnonymous().RequireRateLimiting("api");
         // Key bundle fetch requires auth — only registered devices should be able
         // to look up other devices' keys to prevent key-bundle enumeration.
-        app.MapGet("/devices/{id:guid}/key-bundle", GetKeyBundle).RequireAuthorization();
+        app.MapGet("/devices/{id:guid}/key-bundle", GetKeyBundle).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 
