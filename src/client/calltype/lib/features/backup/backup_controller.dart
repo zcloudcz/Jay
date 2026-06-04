@@ -20,7 +20,7 @@ enum BackupStatus { idle, encrypting, uploading, done, error }
 /// Backup flow:
 ///   1. Serialize messages, contacts, and conversations from local DB
 ///   2. Derive encryption key from user's passphrase via PBKDF2
-///   3. Encrypt the serialized data (AES-256, placeholder for now)
+///   3. Encrypt the serialized data with AES-256-GCM
 ///   4. Upload the encrypted blob to the server (which stores it in Azure Blob)
 ///
 /// Restore flow:
@@ -149,18 +149,21 @@ class BackupController extends ChangeNotifier {
       _progress = 0.5;
       notifyListeners();
 
-      // -- Step 3: Encrypt (placeholder) ---------------------------------------
-      // TODO: Implement AES-256-GCM encryption using the derived key.
-      // For now, we base64-encode the plaintext + prepend the salt.
-      // This is NOT secure and must be replaced before production use.
-      // The encrypt package or pointycastle can provide AES-GCM.
-      final plaintextBytes = utf8.encode(jsonString);
-      final encryptedPayload = base64Encode([...salt, ...plaintextBytes]);
+      // -- Step 3: Encrypt with AES-256-GCM ------------------------------------
+      // The encrypted payload contains the salt prepended so the restore flow
+      // can extract it for key re-derivation. Format:
+      //   [16-byte salt][12-byte nonce][ciphertext][16-byte GCM tag]
+      final plaintextBytes = Uint8List.fromList(utf8.encode(jsonString));
+      final encryptedData = await BackupCrypto.encrypt(
+        encryptionKey,
+        plaintextBytes,
+      );
 
-      // Suppress unused variable warning — the key will be used once
-      // AES-256-GCM encryption is implemented above.
-      assert(encryptionKey.isNotEmpty,
-          'Key derivation must produce a non-empty key');
+      // Prepend the salt — the receiver needs it to re-derive the key.
+      // The salt is not secret (it's stored in plaintext), but it must
+      // be unique per backup to prevent rainbow table attacks.
+      final payload = Uint8List.fromList([...salt, ...encryptedData]);
+      final encryptedPayload = base64Encode(payload);
 
       _status = BackupStatus.uploading;
       _progress = 0.7;
@@ -190,8 +193,9 @@ class BackupController extends ChangeNotifier {
   /// Restores data from an encrypted cloud backup.
   ///
   /// [passphrase] must be the same passphrase used during [createBackup].
-  /// If the wrong passphrase is provided, decryption will produce garbage
-  /// and the JSON parsing will fail with a clear error.
+  /// If the wrong passphrase is provided, the AES-256-GCM authentication
+  /// tag check will fail, producing a clear authentication error rather
+  /// than silently importing corrupted data.
   ///
   /// TODO: Implement full restore flow. This requires:
   ///   1. A backup list/download endpoint on the server
