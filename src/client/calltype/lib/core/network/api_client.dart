@@ -110,4 +110,24 @@ class ApiClient {
     );
     return response.data!;
   }
+
+  // -- Push notifications -----------------------------------------------------
+
+  /// Registers or updates the device's push notification token on the server.
+  ///
+  /// Called at app startup and whenever the FCM token refreshes. The server
+  /// uses this token to send data-only push notifications when messages arrive
+  /// while the app is not connected via SignalR.
+  ///
+  /// PUT /devices/{deviceId}/push-token
+  Future<void> updatePushToken({
+    required String deviceId,
+    required String token,
+    required String platform,
+  }) async {
+    await _dio.put(
+      '/devices/$deviceId/push-token',
+      data: {'token': token, 'platform': platform},
+    );
+  }
 }

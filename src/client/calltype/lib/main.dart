@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'app/app.dart';
 import 'core/auth/app_lock.dart';
 import 'core/network/api_client.dart';
+import 'core/network/push_service.dart';
 import 'core/network/signalr_client.dart';
 import 'core/network/webrtc_manager.dart';
 import 'core/storage/database.dart';
@@ -40,6 +41,14 @@ void main() async {
   final db = AppDatabase('calltype');
   final apiClient = ApiClient(baseUrl: baseUrl);
   final signalRClient = SignalRClient(baseUrl: baseUrl, deviceId: deviceId);
+
+  // Initialize push notifications if the device is registered.
+  // Fire-and-forget — push is best-effort and must never block app startup.
+  // If Firebase is not configured (no google-services.json / GoogleService-Info.plist),
+  // PushService.initialize() catches the error and the app works without push.
+  if (deviceId.isNotEmpty) {
+    PushService(apiClient, deviceId).initialize();
+  }
 
   runApp(
     MultiProvider(
