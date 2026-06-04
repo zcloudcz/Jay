@@ -1,4 +1,4 @@
-# ZMessanger — Design Specification
+# CallType — Design Specification
 
 ## Overview
 
@@ -197,13 +197,13 @@ lib/
 2. App generates Identity Key Pair (Ed25519)
 3. App generates batch of Pre-Keys
 4. App uploads to server: `DeviceID` + public Identity Key + Pre-Keys
-5. Server assigns short **User Handle**: `ZM-XXXX-XXXX` (8 alphanumeric chars)
-6. App displays QR code: `zmessanger://contact/{handle}/{identity-key-fingerprint}`
+5. Server assigns short **User Handle**: `CT-XXXX-XXXX` (8 alphanumeric chars)
+6. App displays QR code: `calltype://contact/{handle}/{identity-key-fingerprint}`
 
 ### Contact Addition
 
 - **QR scan** — in-person. Camera scans QR → verifies fingerprint → adds contact.
-- **Invite link** — share `https://zmsg.app/c/{handle}`. Recipient opens → app resolves handle → fetches Key Bundle → TOFU.
+- **Invite link** — share `https://calltype.app/c/{handle}`. Recipient opens → app resolves handle → fetches Key Bundle → TOFU.
 - **Safety numbers** — derived from both parties' Identity Keys. Displayed in chat settings for manual verification.
 
 ### Account Registration (Optional Upgrade)
@@ -247,16 +247,16 @@ Shared with `RemoteDesktopNet` (DeskShare) project at `C:\GIT\ZCLOUD\RemoteDeskt
 
 **Integration plan:**
 - Extract STUN/TURN as shared NuGet packages or deploy as shared Azure Container App
-- ZMessanger API issues time-limited TURN credentials to clients via REST endpoint
-- `TurnAuthenticator` extended to support ZMessanger device authentication
+- CallType API issues time-limited TURN credentials to clients via REST endpoint
+- `TurnAuthenticator` extended to support CallType device authentication
 - Existing OpenTelemetry/Prometheus monitoring pipeline reused
 
 **Client ICE configuration:**
 ```dart
 final iceServers = [
-  {'urls': 'stun:turn.zmsg.app:3478'},
+  {'urls': 'stun:turn.calltype.app:3478'},
   {
-    'urls': 'turn:turn.zmsg.app:3479',
+    'urls': 'turn:turn.calltype.app:3479',
     'username': timeBasedUsername,
     'credential': hmacCredential,
   },

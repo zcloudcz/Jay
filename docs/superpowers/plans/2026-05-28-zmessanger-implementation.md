@@ -1,4 +1,4 @@
-# ZMessanger Implementation Plan
+# CallType Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Flutter/Dart, ASP.NET Core 8, SignalR, PostgreSQL, EF Core, libsignal (Rust), WebRTC, Azure Container Apps, Azure Blob Storage
 
-**Spec:** `docs/superpowers/specs/2026-05-28-zmessanger-design.md`
+**Spec:** `docs/superpowers/specs/2026-05-28-calltype-design.md`
 
 ---
 
@@ -17,9 +17,9 @@
 ### Backend (`src/server/`)
 
 ```
-ZMessanger.sln
+CallType.sln
 src/server/
-├── ZMessanger.Api/
+├── CallType.Api/
 │   ├── Program.cs                          # Host builder, DI, middleware
 │   ├── appsettings.json                    # Config (DB, Azure, TURN)
 │   ├── Endpoints/
@@ -48,7 +48,7 @@ src/server/
 │   │   ├── GroupMember.cs
 │   │   └── Backup.cs
 │   └── Dockerfile
-├── ZMessanger.Api.Tests/
+├── CallType.Api.Tests/
 │   ├── Endpoints/
 │   │   ├── DeviceEndpointsTests.cs
 │   │   ├── AccountEndpointsTests.cs
@@ -66,7 +66,7 @@ src/server/
 ### Flutter Client (`src/client/`)
 
 ```
-src/client/zmessanger/
+src/client/calltype/
 ├── pubspec.yaml
 ├── lib/
 │   ├── main.dart
@@ -159,34 +159,34 @@ src/client/zmessanger/
 ### Task 1: Solution Scaffolding
 
 **Files:**
-- Create: `src/server/ZMessanger.Api/ZMessanger.Api.csproj`
-- Create: `src/server/ZMessanger.Api/Program.cs`
-- Create: `src/server/ZMessanger.Api/appsettings.json`
-- Create: `src/server/ZMessanger.Api.Tests/ZMessanger.Api.Tests.csproj`
-- Create: `ZMessanger.sln`
+- Create: `src/server/CallType.Api/CallType.Api.csproj`
+- Create: `src/server/CallType.Api/Program.cs`
+- Create: `src/server/CallType.Api/appsettings.json`
+- Create: `src/server/CallType.Api.Tests/CallType.Api.Tests.csproj`
+- Create: `CallType.sln`
 
 - [ ] **Step 1: Create solution and API project**
 
 ```bash
-cd C:\GIT\ZCLOUD\ZMessanger
-dotnet new sln -n ZMessanger
+cd C:\GIT\ZCLOUD\CallType
+dotnet new sln -n CallType
 mkdir -p src/server
-dotnet new webapi -n ZMessanger.Api -o src/server/ZMessanger.Api --no-openapi
-dotnet sln add src/server/ZMessanger.Api/ZMessanger.Api.csproj
+dotnet new webapi -n CallType.Api -o src/server/CallType.Api --no-openapi
+dotnet sln add src/server/CallType.Api/CallType.Api.csproj
 ```
 
 - [ ] **Step 2: Create test project**
 
 ```bash
-dotnet new xunit -n ZMessanger.Api.Tests -o src/server/ZMessanger.Api.Tests
-dotnet sln add src/server/ZMessanger.Api.Tests/ZMessanger.Api.Tests.csproj
-dotnet add src/server/ZMessanger.Api.Tests reference src/server/ZMessanger.Api
+dotnet new xunit -n CallType.Api.Tests -o src/server/CallType.Api.Tests
+dotnet sln add src/server/CallType.Api.Tests/CallType.Api.Tests.csproj
+dotnet add src/server/CallType.Api.Tests reference src/server/CallType.Api
 ```
 
 - [ ] **Step 3: Add NuGet packages to API project**
 
 ```bash
-cd src/server/ZMessanger.Api
+cd src/server/CallType.Api
 dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
 dotnet add package Microsoft.AspNetCore.SignalR
 dotnet add package Konscious.Security.Cryptography.Argon2  # Argon2id
@@ -196,7 +196,7 @@ dotnet add package Azure.Storage.Blobs
 - [ ] **Step 4: Add NuGet packages to test project**
 
 ```bash
-cd src/server/ZMessanger.Api.Tests
+cd src/server/CallType.Api.Tests
 dotnet add package Testcontainers.PostgreSql
 dotnet add package Microsoft.AspNetCore.Mvc.Testing
 dotnet add package FluentAssertions
@@ -205,7 +205,7 @@ dotnet add package FluentAssertions
 - [ ] **Step 5: Write minimal Program.cs**
 
 ```csharp
-// src/server/ZMessanger.Api/Program.cs
+// src/server/CallType.Api/Program.cs
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSignalR();
@@ -220,12 +220,12 @@ app.Run();
 - [ ] **Step 6: Write health check test**
 
 ```csharp
-// src/server/ZMessanger.Api.Tests/HealthCheckTests.cs
+// src/server/CallType.Api.Tests/HealthCheckTests.cs
 using System.Net;
 using Microsoft.AspNetCore.Mvc.Testing;
 using FluentAssertions;
 
-namespace ZMessanger.Api.Tests;
+namespace CallType.Api.Tests;
 
 public class HealthCheckTests : IClassFixture<WebApplicationFactory<Program>>
 {
@@ -248,10 +248,10 @@ public class HealthCheckTests : IClassFixture<WebApplicationFactory<Program>>
 
 - [ ] **Step 7: Make Program class accessible to tests**
 
-Add to `ZMessanger.Api.csproj`:
+Add to `CallType.Api.csproj`:
 ```xml
 <ItemGroup>
-  <InternalsVisibleTo Include="ZMessanger.Api.Tests" />
+  <InternalsVisibleTo Include="CallType.Api.Tests" />
 </ItemGroup>
 ```
 
@@ -262,7 +262,7 @@ public partial class Program { }
 
 - [ ] **Step 8: Run tests**
 
-Run: `dotnet test src/server/ZMessanger.Api.Tests -v normal`
+Run: `dotnet test src/server/CallType.Api.Tests -v normal`
 Expected: 1 test PASS
 
 - [ ] **Step 9: Create .gitignore and commit**
@@ -279,22 +279,22 @@ git commit -m "chore: scaffold ASP.NET Core solution with health check"
 ### Task 2: Database Schema + EF Core
 
 **Files:**
-- Create: `src/server/ZMessanger.Api/Data/AppDbContext.cs`
-- Create: `src/server/ZMessanger.Api/Models/Device.cs`
-- Create: `src/server/ZMessanger.Api/Models/OneTimePreKey.cs`
-- Create: `src/server/ZMessanger.Api/Models/Account.cs`
-- Create: `src/server/ZMessanger.Api/Models/AccountDevice.cs`
-- Create: `src/server/ZMessanger.Api/Models/QueuedMessage.cs`
-- Create: `src/server/ZMessanger.Api/Models/Group.cs`
-- Create: `src/server/ZMessanger.Api/Models/GroupMember.cs`
-- Create: `src/server/ZMessanger.Api/Models/Backup.cs`
-- Create: `src/server/ZMessanger.Api.Tests/TestFixtures/IntegrationTestBase.cs`
+- Create: `src/server/CallType.Api/Data/AppDbContext.cs`
+- Create: `src/server/CallType.Api/Models/Device.cs`
+- Create: `src/server/CallType.Api/Models/OneTimePreKey.cs`
+- Create: `src/server/CallType.Api/Models/Account.cs`
+- Create: `src/server/CallType.Api/Models/AccountDevice.cs`
+- Create: `src/server/CallType.Api/Models/QueuedMessage.cs`
+- Create: `src/server/CallType.Api/Models/Group.cs`
+- Create: `src/server/CallType.Api/Models/GroupMember.cs`
+- Create: `src/server/CallType.Api/Models/Backup.cs`
+- Create: `src/server/CallType.Api.Tests/TestFixtures/IntegrationTestBase.cs`
 
 - [ ] **Step 1: Create entity models**
 
 ```csharp
-// src/server/ZMessanger.Api/Models/Device.cs
-namespace ZMessanger.Api.Models;
+// src/server/CallType.Api/Models/Device.cs
+namespace CallType.Api.Models;
 
 public class Device
 {
@@ -314,8 +314,8 @@ public class Device
 ```
 
 ```csharp
-// src/server/ZMessanger.Api/Models/OneTimePreKey.cs
-namespace ZMessanger.Api.Models;
+// src/server/CallType.Api/Models/OneTimePreKey.cs
+namespace CallType.Api.Models;
 
 public class OneTimePreKey
 {
@@ -329,8 +329,8 @@ public class OneTimePreKey
 ```
 
 ```csharp
-// src/server/ZMessanger.Api/Models/Account.cs
-namespace ZMessanger.Api.Models;
+// src/server/CallType.Api/Models/Account.cs
+namespace CallType.Api.Models;
 
 public class Account
 {
@@ -345,8 +345,8 @@ public class Account
 ```
 
 ```csharp
-// src/server/ZMessanger.Api/Models/AccountDevice.cs
-namespace ZMessanger.Api.Models;
+// src/server/CallType.Api/Models/AccountDevice.cs
+namespace CallType.Api.Models;
 
 public class AccountDevice
 {
@@ -360,8 +360,8 @@ public class AccountDevice
 ```
 
 ```csharp
-// src/server/ZMessanger.Api/Models/QueuedMessage.cs
-namespace ZMessanger.Api.Models;
+// src/server/CallType.Api/Models/QueuedMessage.cs
+namespace CallType.Api.Models;
 
 public class QueuedMessage
 {
@@ -375,8 +375,8 @@ public class QueuedMessage
 ```
 
 ```csharp
-// src/server/ZMessanger.Api/Models/Group.cs
-namespace ZMessanger.Api.Models;
+// src/server/CallType.Api/Models/Group.cs
+namespace CallType.Api.Models;
 
 public class Group
 {
@@ -390,8 +390,8 @@ public class Group
 ```
 
 ```csharp
-// src/server/ZMessanger.Api/Models/GroupMember.cs
-namespace ZMessanger.Api.Models;
+// src/server/CallType.Api/Models/GroupMember.cs
+namespace CallType.Api.Models;
 
 public class GroupMember
 {
@@ -406,8 +406,8 @@ public class GroupMember
 ```
 
 ```csharp
-// src/server/ZMessanger.Api/Models/Backup.cs
-namespace ZMessanger.Api.Models;
+// src/server/CallType.Api/Models/Backup.cs
+namespace CallType.Api.Models;
 
 public class Backup
 {
@@ -424,11 +424,11 @@ public class Backup
 - [ ] **Step 2: Create DbContext**
 
 ```csharp
-// src/server/ZMessanger.Api/Data/AppDbContext.cs
+// src/server/CallType.Api/Data/AppDbContext.cs
 using Microsoft.EntityFrameworkCore;
-using ZMessanger.Api.Models;
+using CallType.Api.Models;
 
-namespace ZMessanger.Api.Data;
+namespace CallType.Api.Data;
 
 public class AppDbContext : DbContext
 {
@@ -505,9 +505,9 @@ public class AppDbContext : DbContext
 - [ ] **Step 3: Register DbContext in Program.cs**
 
 ```csharp
-// src/server/ZMessanger.Api/Program.cs
+// src/server/CallType.Api/Program.cs
 using Microsoft.EntityFrameworkCore;
-using ZMessanger.Api.Data;
+using CallType.Api.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -528,7 +528,7 @@ Add connection string to `appsettings.json`:
 ```json
 {
   "ConnectionStrings": {
-    "Default": "Host=localhost;Database=zmessanger;Username=postgres;Password=postgres"
+    "Default": "Host=localhost;Database=calltype;Username=postgres;Password=postgres"
   }
 }
 ```
@@ -536,14 +536,14 @@ Add connection string to `appsettings.json`:
 - [ ] **Step 4: Create integration test base with Testcontainers**
 
 ```csharp
-// src/server/ZMessanger.Api.Tests/TestFixtures/IntegrationTestBase.cs
+// src/server/CallType.Api.Tests/TestFixtures/IntegrationTestBase.cs
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
-using ZMessanger.Api.Data;
+using CallType.Api.Data;
 
-namespace ZMessanger.Api.Tests.TestFixtures;
+namespace CallType.Api.Tests.TestFixtures;
 
 public class IntegrationTestBase : IAsyncLifetime
 {
@@ -590,7 +590,7 @@ public class IntegrationTestBase : IAsyncLifetime
 - [ ] **Step 5: Create initial EF Core migration**
 
 ```bash
-cd src/server/ZMessanger.Api
+cd src/server/CallType.Api
 dotnet tool install --global dotnet-ef
 dotnet ef migrations add InitialCreate
 ```
@@ -607,19 +607,19 @@ git commit -m "feat: add EF Core models, DbContext, PostgreSQL schema, integrati
 ### Task 3: Device Registration API
 
 **Files:**
-- Create: `src/server/ZMessanger.Api/Endpoints/DeviceEndpoints.cs`
-- Create: `src/server/ZMessanger.Api.Tests/Endpoints/DeviceEndpointsTests.cs`
+- Create: `src/server/CallType.Api/Endpoints/DeviceEndpoints.cs`
+- Create: `src/server/CallType.Api.Tests/Endpoints/DeviceEndpointsTests.cs`
 
 - [ ] **Step 1: Write failing test for device registration**
 
 ```csharp
-// src/server/ZMessanger.Api.Tests/Endpoints/DeviceEndpointsTests.cs
+// src/server/CallType.Api.Tests/Endpoints/DeviceEndpointsTests.cs
 using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
-using ZMessanger.Api.Tests.TestFixtures;
+using CallType.Api.Tests.TestFixtures;
 
-namespace ZMessanger.Api.Tests.Endpoints;
+namespace CallType.Api.Tests.Endpoints;
 
 public class DeviceEndpointsTests : IntegrationTestBase
 {
@@ -661,18 +661,18 @@ public class DeviceEndpointsTests : IntegrationTestBase
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `dotnet test src/server/ZMessanger.Api.Tests --filter DeviceEndpoints -v normal`
+Run: `dotnet test src/server/CallType.Api.Tests --filter DeviceEndpoints -v normal`
 Expected: FAIL — 404 (endpoint not mapped)
 
 - [ ] **Step 3: Implement device registration endpoint**
 
 ```csharp
-// src/server/ZMessanger.Api/Endpoints/DeviceEndpoints.cs
+// src/server/CallType.Api/Endpoints/DeviceEndpoints.cs
 using Microsoft.EntityFrameworkCore;
-using ZMessanger.Api.Data;
-using ZMessanger.Api.Models;
+using CallType.Api.Data;
+using CallType.Api.Models;
 
-namespace ZMessanger.Api.Endpoints;
+namespace CallType.Api.Endpoints;
 
 public static class DeviceEndpoints
 {
@@ -786,14 +786,14 @@ public static class DeviceEndpoints
 
 ```csharp
 // Add to Program.cs before app.Run():
-using ZMessanger.Api.Endpoints;
+using CallType.Api.Endpoints;
 // ...
 app.MapDeviceEndpoints();
 ```
 
 - [ ] **Step 5: Run tests**
 
-Run: `dotnet test src/server/ZMessanger.Api.Tests --filter DeviceEndpoints -v normal`
+Run: `dotnet test src/server/CallType.Api.Tests --filter DeviceEndpoints -v normal`
 Expected: 2 tests PASS
 
 - [ ] **Step 6: Write key bundle test**
@@ -839,7 +839,7 @@ private record OtkResponse(int KeyId, string PublicKey);
 
 - [ ] **Step 7: Run all tests**
 
-Run: `dotnet test src/server/ZMessanger.Api.Tests -v normal`
+Run: `dotnet test src/server/CallType.Api.Tests -v normal`
 Expected: all PASS
 
 - [ ] **Step 8: Commit**
@@ -854,22 +854,22 @@ git commit -m "feat: device registration + key bundle API with integration tests
 ### Task 4: SignalR Messenger Hub
 
 **Files:**
-- Create: `src/server/ZMessanger.Api/Hubs/MessengerHub.cs`
-- Create: `src/server/ZMessanger.Api/Services/MessageQueueService.cs`
-- Create: `src/server/ZMessanger.Api.Tests/Services/MessageQueueServiceTests.cs`
+- Create: `src/server/CallType.Api/Hubs/MessengerHub.cs`
+- Create: `src/server/CallType.Api/Services/MessageQueueService.cs`
+- Create: `src/server/CallType.Api.Tests/Services/MessageQueueServiceTests.cs`
 
 - [ ] **Step 1: Write MessageQueueService tests**
 
 ```csharp
-// src/server/ZMessanger.Api.Tests/Services/MessageQueueServiceTests.cs
+// src/server/CallType.Api.Tests/Services/MessageQueueServiceTests.cs
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
-using ZMessanger.Api.Data;
-using ZMessanger.Api.Models;
-using ZMessanger.Api.Services;
-using ZMessanger.Api.Tests.TestFixtures;
+using CallType.Api.Data;
+using CallType.Api.Models;
+using CallType.Api.Services;
+using CallType.Api.Tests.TestFixtures;
 
-namespace ZMessanger.Api.Tests.Services;
+namespace CallType.Api.Tests.Services;
 
 public class MessageQueueServiceTests : IntegrationTestBase
 {
@@ -914,12 +914,12 @@ public class MessageQueueServiceTests : IntegrationTestBase
 - [ ] **Step 2: Implement MessageQueueService**
 
 ```csharp
-// src/server/ZMessanger.Api/Services/MessageQueueService.cs
+// src/server/CallType.Api/Services/MessageQueueService.cs
 using Microsoft.EntityFrameworkCore;
-using ZMessanger.Api.Data;
-using ZMessanger.Api.Models;
+using CallType.Api.Data;
+using CallType.Api.Models;
 
-namespace ZMessanger.Api.Services;
+namespace CallType.Api.Services;
 
 public class MessageQueueService
 {
@@ -957,17 +957,17 @@ public class MessageQueueService
 
 - [ ] **Step 3: Run tests**
 
-Run: `dotnet test src/server/ZMessanger.Api.Tests --filter MessageQueueService -v normal`
+Run: `dotnet test src/server/CallType.Api.Tests --filter MessageQueueService -v normal`
 Expected: 2 tests PASS
 
 - [ ] **Step 4: Implement MessengerHub**
 
 ```csharp
-// src/server/ZMessanger.Api/Hubs/MessengerHub.cs
+// src/server/CallType.Api/Hubs/MessengerHub.cs
 using Microsoft.AspNetCore.SignalR;
-using ZMessanger.Api.Services;
+using CallType.Api.Services;
 
-namespace ZMessanger.Api.Hubs;
+namespace CallType.Api.Hubs;
 
 public class MessengerHub : Hub
 {
@@ -1099,10 +1099,10 @@ public class MessengerHub : Hub
 ```csharp
 // Update Program.cs
 using Microsoft.EntityFrameworkCore;
-using ZMessanger.Api.Data;
-using ZMessanger.Api.Endpoints;
-using ZMessanger.Api.Hubs;
-using ZMessanger.Api.Services;
+using CallType.Api.Data;
+using CallType.Api.Endpoints;
+using CallType.Api.Hubs;
+using CallType.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -1124,7 +1124,7 @@ public partial class Program { }
 
 - [ ] **Step 6: Run all tests**
 
-Run: `dotnet test src/server/ZMessanger.Api.Tests -v normal`
+Run: `dotnet test src/server/CallType.Api.Tests -v normal`
 Expected: all PASS
 
 - [ ] **Step 7: Commit**
@@ -1139,25 +1139,25 @@ git commit -m "feat: SignalR MessengerHub with store-and-forward message queue"
 ### Task 5: Account, Group, Backup Endpoints + Message Cleanup
 
 **Files:**
-- Create: `src/server/ZMessanger.Api/Endpoints/AccountEndpoints.cs`
-- Create: `src/server/ZMessanger.Api/Endpoints/GroupEndpoints.cs`
-- Create: `src/server/ZMessanger.Api/Endpoints/BackupEndpoints.cs`
-- Create: `src/server/ZMessanger.Api/Endpoints/TurnCredentialEndpoints.cs`
-- Create: `src/server/ZMessanger.Api/Services/TurnCredentialService.cs`
-- Create: `src/server/ZMessanger.Api/Services/MessageCleanupService.cs`
+- Create: `src/server/CallType.Api/Endpoints/AccountEndpoints.cs`
+- Create: `src/server/CallType.Api/Endpoints/GroupEndpoints.cs`
+- Create: `src/server/CallType.Api/Endpoints/BackupEndpoints.cs`
+- Create: `src/server/CallType.Api/Endpoints/TurnCredentialEndpoints.cs`
+- Create: `src/server/CallType.Api/Services/TurnCredentialService.cs`
+- Create: `src/server/CallType.Api/Services/MessageCleanupService.cs`
 - Create: corresponding test files
 
 - [ ] **Step 1: Implement AccountEndpoints**
 
 ```csharp
-// src/server/ZMessanger.Api/Endpoints/AccountEndpoints.cs
+// src/server/CallType.Api/Endpoints/AccountEndpoints.cs
 using System.Security.Cryptography;
 using Konscious.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
-using ZMessanger.Api.Data;
-using ZMessanger.Api.Models;
+using CallType.Api.Data;
+using CallType.Api.Models;
 
-namespace ZMessanger.Api.Endpoints;
+namespace CallType.Api.Endpoints;
 
 public static class AccountEndpoints
 {
@@ -1254,12 +1254,12 @@ public static class AccountEndpoints
 - [ ] **Step 2: Implement GroupEndpoints**
 
 ```csharp
-// src/server/ZMessanger.Api/Endpoints/GroupEndpoints.cs
+// src/server/CallType.Api/Endpoints/GroupEndpoints.cs
 using Microsoft.EntityFrameworkCore;
-using ZMessanger.Api.Data;
-using ZMessanger.Api.Models;
+using CallType.Api.Data;
+using CallType.Api.Models;
 
-namespace ZMessanger.Api.Endpoints;
+namespace CallType.Api.Endpoints;
 
 public static class GroupEndpoints
 {
@@ -1350,12 +1350,12 @@ public static class GroupEndpoints
 - [ ] **Step 3: Implement BackupEndpoints**
 
 ```csharp
-// src/server/ZMessanger.Api/Endpoints/BackupEndpoints.cs
+// src/server/CallType.Api/Endpoints/BackupEndpoints.cs
 using Microsoft.EntityFrameworkCore;
-using ZMessanger.Api.Data;
-using ZMessanger.Api.Models;
+using CallType.Api.Data;
+using CallType.Api.Models;
 
-namespace ZMessanger.Api.Endpoints;
+namespace CallType.Api.Endpoints;
 
 public static class BackupEndpoints
 {
@@ -1407,11 +1407,11 @@ public static class BackupEndpoints
 - [ ] **Step 4: Implement TurnCredentialService**
 
 ```csharp
-// src/server/ZMessanger.Api/Services/TurnCredentialService.cs
+// src/server/CallType.Api/Services/TurnCredentialService.cs
 using System.Security.Cryptography;
 using System.Text;
 
-namespace ZMessanger.Api.Services;
+namespace CallType.Api.Services;
 
 public class TurnCredentialService
 {
@@ -1420,7 +1420,7 @@ public class TurnCredentialService
 
     public TurnCredentialService(IConfiguration config)
     {
-        _sharedSecret = config["Turn:SharedSecret"] ?? "zmessanger-turn-secret";
+        _sharedSecret = config["Turn:SharedSecret"] ?? "calltype-turn-secret";
         _ttlSeconds = config.GetValue("Turn:TtlSeconds", 86400);
     }
 
@@ -1440,10 +1440,10 @@ public class TurnCredentialService
 ```
 
 ```csharp
-// src/server/ZMessanger.Api/Endpoints/TurnCredentialEndpoints.cs
-using ZMessanger.Api.Services;
+// src/server/CallType.Api/Endpoints/TurnCredentialEndpoints.cs
+using CallType.Api.Services;
 
-namespace ZMessanger.Api.Endpoints;
+namespace CallType.Api.Endpoints;
 
 public static class TurnCredentialEndpoints
 {
@@ -1464,11 +1464,11 @@ public static class TurnCredentialEndpoints
 - [ ] **Step 5: Implement MessageCleanupService**
 
 ```csharp
-// src/server/ZMessanger.Api/Services/MessageCleanupService.cs
+// src/server/CallType.Api/Services/MessageCleanupService.cs
 using Microsoft.EntityFrameworkCore;
-using ZMessanger.Api.Data;
+using CallType.Api.Data;
 
-namespace ZMessanger.Api.Services;
+namespace CallType.Api.Services;
 
 public class MessageCleanupService : BackgroundService
 {
@@ -1511,12 +1511,12 @@ public class MessageCleanupService : BackgroundService
 - [ ] **Step 6: Update Program.cs with all endpoints and services**
 
 ```csharp
-// src/server/ZMessanger.Api/Program.cs
+// src/server/CallType.Api/Program.cs
 using Microsoft.EntityFrameworkCore;
-using ZMessanger.Api.Data;
-using ZMessanger.Api.Endpoints;
-using ZMessanger.Api.Hubs;
-using ZMessanger.Api.Services;
+using CallType.Api.Data;
+using CallType.Api.Endpoints;
+using CallType.Api.Hubs;
+using CallType.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -1545,13 +1545,13 @@ public partial class Program { }
 - [ ] **Step 7: Write tests for Account and TURN endpoints**
 
 ```csharp
-// src/server/ZMessanger.Api.Tests/Endpoints/AccountEndpointsTests.cs
+// src/server/CallType.Api.Tests/Endpoints/AccountEndpointsTests.cs
 using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
-using ZMessanger.Api.Tests.TestFixtures;
+using CallType.Api.Tests.TestFixtures;
 
-namespace ZMessanger.Api.Tests.Endpoints;
+namespace CallType.Api.Tests.Endpoints;
 
 public class AccountEndpointsTests : IntegrationTestBase
 {
@@ -1596,12 +1596,12 @@ public class AccountEndpointsTests : IntegrationTestBase
 ```
 
 ```csharp
-// src/server/ZMessanger.Api.Tests/Services/TurnCredentialServiceTests.cs
+// src/server/CallType.Api.Tests/Services/TurnCredentialServiceTests.cs
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
-using ZMessanger.Api.Services;
+using CallType.Api.Services;
 
-namespace ZMessanger.Api.Tests.Services;
+namespace CallType.Api.Tests.Services;
 
 public class TurnCredentialServiceTests
 {
@@ -1646,20 +1646,20 @@ public class TurnCredentialServiceTests
 
 - [ ] **Step 8: Run all tests**
 
-Run: `dotnet test src/server/ZMessanger.Api.Tests -v normal`
+Run: `dotnet test src/server/CallType.Api.Tests -v normal`
 Expected: all PASS
 
 - [ ] **Step 9: Add Dockerfile**
 
 ```dockerfile
-# src/server/ZMessanger.Api/Dockerfile
+# src/server/CallType.Api/Dockerfile
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
 WORKDIR /app
 EXPOSE 8080
 
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
-COPY ["ZMessanger.Api.csproj", "."]
+COPY ["CallType.Api.csproj", "."]
 RUN dotnet restore
 COPY . .
 RUN dotnet publish -c Release -o /app/publish
@@ -1667,7 +1667,7 @@ RUN dotnet publish -c Release -o /app/publish
 FROM base AS final
 WORKDIR /app
 COPY --from=build /app/publish .
-ENTRYPOINT ["dotnet", "ZMessanger.Api.dll"]
+ENTRYPOINT ["dotnet", "CallType.Api.dll"]
 ```
 
 - [ ] **Step 10: Commit**
@@ -1684,15 +1684,15 @@ git commit -m "feat: account, group, backup, TURN credential endpoints + message
 ### Task 6: Flutter Project Setup
 
 **Files:**
-- Create: `src/client/zmessanger/pubspec.yaml`
-- Create: `src/client/zmessanger/lib/main.dart`
+- Create: `src/client/calltype/pubspec.yaml`
+- Create: `src/client/calltype/lib/main.dart`
 
 - [ ] **Step 1: Create Flutter project**
 
 ```bash
-cd C:\GIT\ZCLOUD\ZMessanger\src\client
-flutter create zmessanger --platforms=android,ios,web
-cd zmessanger
+cd C:\GIT\ZCLOUD\CallType\src\client
+flutter create calltype --platforms=android,ios,web
+cd calltype
 ```
 
 - [ ] **Step 2: Add dependencies to pubspec.yaml**
@@ -1745,10 +1745,10 @@ git commit -m "feat: scaffold Flutter project with dependencies"
 ### Task 7: Theme + Navigation
 
 **Files:**
-- Create: `src/client/zmessanger/lib/app/theme.dart`
-- Create: `src/client/zmessanger/lib/app/router.dart`
-- Create: `src/client/zmessanger/lib/app/app.dart`
-- Modify: `src/client/zmessanger/lib/main.dart`
+- Create: `src/client/calltype/lib/app/theme.dart`
+- Create: `src/client/calltype/lib/app/router.dart`
+- Create: `src/client/calltype/lib/app/app.dart`
+- Modify: `src/client/calltype/lib/main.dart`
 
 - [ ] **Step 1: Create Material 3 theme**
 
@@ -1806,13 +1806,13 @@ import 'package:flutter/material.dart';
 import 'router.dart';
 import 'theme.dart';
 
-class ZMessangerApp extends StatelessWidget {
-  const ZMessangerApp({super.key});
+class CallTypeApp extends StatelessWidget {
+  const CallTypeApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'ZMessanger',
+      title: 'CallType',
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
@@ -1832,7 +1832,7 @@ import 'app/app.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ZMessangerApp());
+  runApp(const CallTypeApp());
 }
 ```
 
@@ -1853,9 +1853,9 @@ git commit -m "feat: Material 3 theme, GoRouter navigation, app shell"
 ### Task 8: Local Database (SQLCipher + Drift)
 
 **Files:**
-- Create: `src/client/zmessanger/lib/core/storage/database.dart`
-- Create: `src/client/zmessanger/lib/core/storage/tables.dart`
-- Create: `src/client/zmessanger/lib/core/storage/secure_storage.dart`
+- Create: `src/client/calltype/lib/core/storage/database.dart`
+- Create: `src/client/calltype/lib/core/storage/tables.dart`
+- Create: `src/client/calltype/lib/core/storage/secure_storage.dart`
 
 - [ ] **Step 1: Replace sqflite_sqlcipher with drift for type-safe queries**
 
@@ -2006,9 +2006,9 @@ git commit -m "feat: SQLCipher local database with drift, secure storage wrapper
 ### Task 9: Onboarding Flow
 
 **Files:**
-- Create: `src/client/zmessanger/lib/features/onboarding/onboarding_screen.dart`
-- Create: `src/client/zmessanger/lib/features/onboarding/onboarding_controller.dart`
-- Create: `src/client/zmessanger/lib/core/network/api_client.dart`
+- Create: `src/client/calltype/lib/features/onboarding/onboarding_screen.dart`
+- Create: `src/client/calltype/lib/features/onboarding/onboarding_controller.dart`
+- Create: `src/client/calltype/lib/core/network/api_client.dart`
 
 - [ ] **Step 1: Create API client**
 
@@ -2119,7 +2119,7 @@ class OnboardingController extends ChangeNotifier {
     }
   }
 
-  String get qrData => 'zmessanger://contact/$userHandle';
+  String get qrData => 'calltype://contact/$userHandle';
 }
 ```
 
@@ -2161,7 +2161,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             children: [
               Icon(Icons.chat_bubble_outline, size: 64, color: theme.colorScheme.primary),
               const SizedBox(height: 24),
-              Text('ZMessanger', style: theme.textTheme.headlineMedium),
+              Text('CallType', style: theme.textTheme.headlineMedium),
               const SizedBox(height: 8),
               Text('Secure. Anonymous. Simple.',
                   style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
@@ -2226,11 +2226,11 @@ git commit -m "feat: onboarding flow with device registration, QR code display"
 ### Task 10: Chat List + Chat Detail UI
 
 **Files:**
-- Create: `src/client/zmessanger/lib/features/chat_list/chat_list_screen.dart`
-- Create: `src/client/zmessanger/lib/features/chat/chat_screen.dart`
-- Create: `src/client/zmessanger/lib/features/chat/message_bubble.dart`
-- Create: `src/client/zmessanger/lib/features/chat/message_input.dart`
-- Create: `src/client/zmessanger/lib/shared/widgets/avatar.dart`
+- Create: `src/client/calltype/lib/features/chat_list/chat_list_screen.dart`
+- Create: `src/client/calltype/lib/features/chat/chat_screen.dart`
+- Create: `src/client/calltype/lib/features/chat/message_bubble.dart`
+- Create: `src/client/calltype/lib/features/chat/message_input.dart`
+- Create: `src/client/calltype/lib/shared/widgets/avatar.dart`
 
 - [ ] **Step 1: Create avatar widget**
 
@@ -2273,7 +2273,7 @@ class ChatListScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ZMessanger'),
+        title: const Text('CallType'),
         actions: [
           IconButton(icon: const Icon(Icons.qr_code_scanner), onPressed: () => context.push('/contacts/scan')),
           IconButton(icon: const Icon(Icons.settings), onPressed: () => context.push('/settings')),
@@ -2501,16 +2501,16 @@ git commit -m "feat: chat list, chat detail, message bubble, message input UI"
 ### Task 11: libsignal Rust FFI Bridge
 
 **Files:**
-- Create: `src/client/zmessanger/native/libsignal/Cargo.toml`
-- Create: `src/client/zmessanger/native/libsignal/src/lib.rs`
-- Create: `src/client/zmessanger/native/libsignal/build.sh`
+- Create: `src/client/calltype/native/libsignal/Cargo.toml`
+- Create: `src/client/calltype/native/libsignal/src/lib.rs`
+- Create: `src/client/calltype/native/libsignal/build.sh`
 
 - [ ] **Step 1: Create Rust FFI bridge project**
 
 ```toml
 # native/libsignal/Cargo.toml
 [package]
-name = "zmessanger_signal"
+name = "calltype_signal"
 version = "0.1.0"
 edition = "2021"
 
@@ -2605,7 +2605,7 @@ cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../../android/app/src/main/jn
 
 # iOS (universal)
 cargo lipo --release
-cp target/universal/release/libzmessanger_signal.a ../../ios/Runner/
+cp target/universal/release/libcalltype_signal.a ../../ios/Runner/
 
 # WASM (for web)
 wasm-pack build --target web --out-dir ../../web/pkg
@@ -2625,12 +2625,12 @@ git commit -m "feat: libsignal Rust FFI bridge project scaffold"
 ### Task 12: Dart Crypto Layer
 
 **Files:**
-- Create: `src/client/zmessanger/lib/core/crypto/signal_protocol.dart`
-- Create: `src/client/zmessanger/lib/core/crypto/key_manager.dart`
-- Create: `src/client/zmessanger/lib/core/crypto/session_manager.dart`
-- Create: `src/client/zmessanger/lib/core/crypto/group_cipher.dart`
-- Create: `src/client/zmessanger/lib/core/crypto/backup_crypto.dart`
-- Create: `src/client/zmessanger/test/core/crypto/key_manager_test.dart`
+- Create: `src/client/calltype/lib/core/crypto/signal_protocol.dart`
+- Create: `src/client/calltype/lib/core/crypto/key_manager.dart`
+- Create: `src/client/calltype/lib/core/crypto/session_manager.dart`
+- Create: `src/client/calltype/lib/core/crypto/group_cipher.dart`
+- Create: `src/client/calltype/lib/core/crypto/backup_crypto.dart`
+- Create: `src/client/calltype/test/core/crypto/key_manager_test.dart`
 
 - [ ] **Step 1: Create FFI wrapper**
 
@@ -2656,7 +2656,7 @@ class SignalProtocol {
       return;
     }
     if (Platform.isAndroid) {
-      _lib = DynamicLibrary.open('libzmessanger_signal.so');
+      _lib = DynamicLibrary.open('libcalltype_signal.so');
     } else if (Platform.isIOS) {
       _lib = DynamicLibrary.process();
     }
@@ -2831,7 +2831,7 @@ git commit -m "feat: Dart crypto layer — key manager, session manager, group c
 ### Task 13: SignalR Client
 
 **Files:**
-- Create: `src/client/zmessanger/lib/core/network/signalr_client.dart`
+- Create: `src/client/calltype/lib/core/network/signalr_client.dart`
 
 - [ ] **Step 1: Implement SignalR connection manager**
 
@@ -2940,8 +2940,8 @@ git commit -m "feat: SignalR client with message, typing, call signal streams"
 ### Task 14: Chat Controller (1:1 + Group)
 
 **Files:**
-- Create: `src/client/zmessanger/lib/features/chat/chat_controller.dart`
-- Create: `src/client/zmessanger/lib/features/chat_list/chat_list_controller.dart`
+- Create: `src/client/calltype/lib/features/chat/chat_controller.dart`
+- Create: `src/client/calltype/lib/features/chat_list/chat_list_controller.dart`
 
 - [ ] **Step 1: Create chat controller**
 
@@ -3087,9 +3087,9 @@ git commit -m "feat: chat controller with local persistence + SignalR messaging"
 ### Task 15: Contact Management + QR Scanner
 
 **Files:**
-- Create: `src/client/zmessanger/lib/features/contacts/contacts_screen.dart`
-- Create: `src/client/zmessanger/lib/features/contacts/qr_scanner_screen.dart`
-- Create: `src/client/zmessanger/lib/features/contacts/contacts_controller.dart`
+- Create: `src/client/calltype/lib/features/contacts/contacts_screen.dart`
+- Create: `src/client/calltype/lib/features/contacts/qr_scanner_screen.dart`
+- Create: `src/client/calltype/lib/features/contacts/contacts_controller.dart`
 
 - [ ] **Step 1: Create contacts controller**
 
@@ -3154,7 +3154,7 @@ class QrScannerScreen extends StatelessWidget {
           if (barcode?.rawValue == null) return;
 
           final uri = Uri.tryParse(barcode!.rawValue!);
-          if (uri?.scheme == 'zmessanger' && uri?.host == 'contact') {
+          if (uri?.scheme == 'calltype' && uri?.host == 'contact') {
             final handle = uri!.pathSegments.first;
             // Add contact and navigate to chat
             context.pop(handle);
@@ -3218,7 +3218,7 @@ git commit -m "feat: contacts screen, QR scanner, contact controller"
 ### Task 16: WebRTC Manager
 
 **Files:**
-- Create: `src/client/zmessanger/lib/core/network/webrtc_manager.dart`
+- Create: `src/client/calltype/lib/core/network/webrtc_manager.dart`
 
 - [ ] **Step 1: Implement WebRTC peer connection manager**
 
@@ -3314,9 +3314,9 @@ class WebRTCManager extends ChangeNotifier {
     // TURN credentials fetched from server in production
     _pc = await createPeerConnection({
       'iceServers': [
-        {'urls': 'stun:turn.zmsg.app:3478'},
+        {'urls': 'stun:turn.calltype.app:3478'},
         {
-          'urls': 'turn:turn.zmsg.app:3479',
+          'urls': 'turn:turn.calltype.app:3479',
           'username': 'placeholder',
           'credential': 'placeholder',
         },
@@ -3405,8 +3405,8 @@ git commit -m "feat: WebRTC manager with call lifecycle, ICE, TURN support"
 ### Task 17: Call UI
 
 **Files:**
-- Create: `src/client/zmessanger/lib/features/calls/call_screen.dart`
-- Create: `src/client/zmessanger/lib/features/calls/call_controller.dart`
+- Create: `src/client/calltype/lib/features/calls/call_screen.dart`
+- Create: `src/client/calltype/lib/features/calls/call_controller.dart`
 
 - [ ] **Step 1: Create call screen**
 
@@ -3566,8 +3566,8 @@ git commit -m "feat: voice/video call UI with WebRTC renderers"
 ### Task 18: STUN/TURN Integration with RemoteDesktopNet
 
 **Files:**
-- Modify: `src/server/ZMessanger.Api/Services/TurnCredentialService.cs` (already done in Task 5)
-- Modify: `src/client/zmessanger/lib/core/network/webrtc_manager.dart`
+- Modify: `src/server/CallType.Api/Services/TurnCredentialService.cs` (already done in Task 5)
+- Modify: `src/client/calltype/lib/core/network/webrtc_manager.dart`
 
 - [ ] **Step 1: Update WebRTC manager to fetch TURN credentials from API**
 
@@ -3579,9 +3579,9 @@ Future<void> _createPeerConnection(String targetDeviceId) async {
 
   _pc = await createPeerConnection({
     'iceServers': [
-      {'urls': 'stun:turn.zmsg.app:3478'},
+      {'urls': 'stun:turn.calltype.app:3478'},
       {
-        'urls': 'turn:turn.zmsg.app:3479',
+        'urls': 'turn:turn.calltype.app:3479',
         'username': creds['username'],
         'credential': creds['credential'],
       },
@@ -3622,18 +3622,18 @@ git commit -m "feat: integrate DeskShare STUN/TURN via API-issued credentials"
 ### Task 19: Server-Side Backup with Azure Blob Storage
 
 **Files:**
-- Modify: `src/server/ZMessanger.Api/Endpoints/BackupEndpoints.cs`
+- Modify: `src/server/CallType.Api/Endpoints/BackupEndpoints.cs`
 
 - [ ] **Step 1: Update BackupEndpoints with real Blob Storage upload/download**
 
 ```csharp
-// src/server/ZMessanger.Api/Endpoints/BackupEndpoints.cs — full replacement
+// src/server/CallType.Api/Endpoints/BackupEndpoints.cs — full replacement
 using Azure.Storage.Blobs;
 using Microsoft.EntityFrameworkCore;
-using ZMessanger.Api.Data;
-using ZMessanger.Api.Models;
+using CallType.Api.Data;
+using CallType.Api.Models;
 
-namespace ZMessanger.Api.Endpoints;
+namespace CallType.Api.Endpoints;
 
 public static class BackupEndpoints
 {
@@ -3716,7 +3716,7 @@ Add to `appsettings.json`:
 ```json
 {
   "ConnectionStrings": {
-    "Default": "Host=localhost;Database=zmessanger;Username=postgres;Password=postgres",
+    "Default": "Host=localhost;Database=calltype;Username=postgres;Password=postgres",
     "BlobStorage": "UseDevelopmentStorage=true"
   }
 }
@@ -3734,9 +3734,9 @@ git commit -m "feat: backup upload/download with Azure Blob Storage"
 ### Task 20: Client-Side Backup Controller
 
 **Files:**
-- Create: `src/client/zmessanger/lib/features/backup/backup_controller.dart`
-- Create: `src/client/zmessanger/lib/features/backup/backup_settings_screen.dart`
-- Create: `src/client/zmessanger/lib/features/backup/restore_screen.dart`
+- Create: `src/client/calltype/lib/features/backup/backup_controller.dart`
+- Create: `src/client/calltype/lib/features/backup/backup_settings_screen.dart`
+- Create: `src/client/calltype/lib/features/backup/restore_screen.dart`
 
 - [ ] **Step 1: Create backup controller**
 
@@ -3908,8 +3908,8 @@ git commit -m "feat: client-side encrypted backup with passphrase-derived key"
 ### Task 21: App Lock (PIN + Biometrics)
 
 **Files:**
-- Create: `src/client/zmessanger/lib/core/auth/app_lock.dart`
-- Create: `src/client/zmessanger/lib/features/settings/app_lock_settings_screen.dart`
+- Create: `src/client/calltype/lib/core/auth/app_lock.dart`
+- Create: `src/client/calltype/lib/features/settings/app_lock_settings_screen.dart`
 
 - [ ] **Step 1: Create app lock service**
 
@@ -3948,7 +3948,7 @@ class AppLock {
     if (!available) return false;
 
     return await _localAuth.authenticate(
-      localizedReason: 'Unlock ZMessanger',
+      localizedReason: 'Unlock CallType',
       options: const AuthenticationOptions(biometricOnly: true),
     );
   }
@@ -4070,17 +4070,17 @@ git commit -m "feat: app lock with PIN and biometric authentication"
 ### Task 22: Push Notification Relay (Server)
 
 **Files:**
-- Create: `src/server/ZMessanger.Api/Services/PushNotificationService.cs`
-- Modify: `src/server/ZMessanger.Api/Hubs/MessengerHub.cs`
+- Create: `src/server/CallType.Api/Services/PushNotificationService.cs`
+- Modify: `src/server/CallType.Api/Hubs/MessengerHub.cs`
 
 - [ ] **Step 1: Create push notification service**
 
 ```csharp
-// src/server/ZMessanger.Api/Services/PushNotificationService.cs
+// src/server/CallType.Api/Services/PushNotificationService.cs
 using Microsoft.EntityFrameworkCore;
-using ZMessanger.Api.Data;
+using CallType.Api.Data;
 
-namespace ZMessanger.Api.Services;
+namespace CallType.Api.Services;
 
 public class PushNotificationService
 {
@@ -4197,8 +4197,8 @@ git commit -m "feat: push notification relay service (FCM + APNs)"
 ### Task 23: Settings Screen + Account Management
 
 **Files:**
-- Create: `src/client/zmessanger/lib/features/settings/settings_screen.dart`
-- Create: `src/client/zmessanger/lib/features/settings/account_screen.dart`
+- Create: `src/client/calltype/lib/features/settings/settings_screen.dart`
+- Create: `src/client/calltype/lib/features/settings/account_screen.dart`
 
 - [ ] **Step 1: Create settings screen**
 
@@ -4242,7 +4242,7 @@ class SettingsScreen extends StatelessWidget {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.info_outline),
-            title: const Text('About ZMessanger'),
+            title: const Text('About CallType'),
             subtitle: const Text('v0.1.0'),
             onTap: () {},
           ),
@@ -4376,8 +4376,8 @@ git commit -m "feat: settings, account registration/login, backup settings UI"
 ### Task 24: Group Creation UI
 
 **Files:**
-- Create: `src/client/zmessanger/lib/features/groups/group_create_screen.dart`
-- Create: `src/client/zmessanger/lib/features/groups/group_controller.dart`
+- Create: `src/client/calltype/lib/features/groups/group_create_screen.dart`
+- Create: `src/client/calltype/lib/features/groups/group_controller.dart`
 
 - [ ] **Step 1: Create group controller**
 
@@ -4495,12 +4495,12 @@ git commit -m "feat: group creation UI and controller"
 ### Task 25: CLAUDE.md for the Project
 
 **Files:**
-- Create: `C:\GIT\ZCLOUD\ZMessanger\CLAUDE.md`
+- Create: `C:\GIT\ZCLOUD\CallType\CLAUDE.md`
 
 - [ ] **Step 1: Write project CLAUDE.md**
 
 ```markdown
-# ZMessanger
+# CallType
 
 End-to-end encrypted multiplatform messenger (iOS, Android, Web).
 
@@ -4518,9 +4518,9 @@ End-to-end encrypted multiplatform messenger (iOS, Android, Web).
 
 ```
 src/
-├── server/ZMessanger.Api/       # ASP.NET Core backend
-├── server/ZMessanger.Api.Tests/ # Integration + unit tests
-└── client/zmessanger/           # Flutter app
+├── server/CallType.Api/       # ASP.NET Core backend
+├── server/CallType.Api.Tests/ # Integration + unit tests
+└── client/calltype/           # Flutter app
     ├── lib/                     # Dart source
     ├── test/                    # Dart tests
     └── native/libsignal/       # Rust FFI bridge
@@ -4530,13 +4530,13 @@ src/
 
 ### Backend
 ```bash
-dotnet build src/server/ZMessanger.Api
-dotnet test src/server/ZMessanger.Api.Tests
+dotnet build src/server/CallType.Api
+dotnet test src/server/CallType.Api.Tests
 ```
 
 ### Client
 ```bash
-cd src/client/zmessanger
+cd src/client/calltype
 flutter pub get
 dart run build_runner build --delete-conflicting-outputs  # drift codegen
 flutter test
@@ -4546,7 +4546,7 @@ flutter run              # connected device
 
 ### libsignal native
 ```bash
-cd src/client/zmessanger/native/libsignal
+cd src/client/calltype/native/libsignal
 ./build.sh  # builds for Android, iOS, WASM
 ```
 
@@ -4563,7 +4563,7 @@ cd src/client/zmessanger/native/libsignal
 
 ## Spec
 
-`docs/superpowers/specs/2026-05-28-zmessanger-design.md`
+`docs/superpowers/specs/2026-05-28-calltype-design.md`
 ```
 
 - [ ] **Step 2: Commit**
@@ -4597,8 +4597,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final dbKey = await SecureStorage.getOrCreateDbKey();
-  final db = AppDatabase('zmessanger.db', dbKey);
-  final api = ApiClient('https://api.zmsg.app'); // configure per environment
+  final db = AppDatabase('calltype.db', dbKey);
+  final api = ApiClient('https://api.calltype.app'); // configure per environment
   final deviceId = await SecureStorage.getDeviceId() ?? '';
 
   runApp(
@@ -4606,14 +4606,14 @@ void main() async {
       providers: [
         Provider.value(value: db),
         Provider.value(value: api),
-        ChangeNotifierProvider(create: (_) => SignalRClient('https://api.zmsg.app', deviceId)),
+        ChangeNotifierProvider(create: (_) => SignalRClient('https://api.calltype.app', deviceId)),
         ChangeNotifierProvider(create: (ctx) => WebRTCManager(
           ctx.read<SignalRClient>(), api, deviceId)),
         ChangeNotifierProvider(create: (_) => ChatListController(db)),
         ChangeNotifierProvider(create: (_) => ContactsController(db, api)),
         Provider(create: (_) => AppLock()),
       ],
-      child: const ZMessangerApp(),
+      child: const CallTypeApp(),
     ),
   );
 }
@@ -4626,12 +4626,12 @@ Expected: all screens navigate, no crashes
 
 - [ ] **Step 3: Run all backend tests**
 
-Run: `dotnet test src/server/ZMessanger.Api.Tests -v normal`
+Run: `dotnet test src/server/CallType.Api.Tests -v normal`
 Expected: all PASS
 
 - [ ] **Step 4: Run all Flutter tests**
 
-Run: `cd src/client/zmessanger && flutter test`
+Run: `cd src/client/calltype && flutter test`
 Expected: all PASS (or no tests fail)
 
 - [ ] **Step 5: Final commit**

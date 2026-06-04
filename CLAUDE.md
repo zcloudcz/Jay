@@ -1,4 +1,4 @@
-# ZMessanger
+# CallType
 
 End-to-end encrypted multiplatform messenger. Anonymous-first with optional
 registration for cloud backup. Voice/video calls via WebRTC.
@@ -7,7 +7,7 @@ registration for cloud backup. Voice/video calls via WebRTC.
 
 A WhatsApp-like messaging app with strong privacy:
 - **Anonymous by default** — no phone number, no email required. Each device
-  gets a random ID (`ZM-XXXX-XXXX`) and identity key pair on first launch.
+  gets a random ID (`CT-XXXX-XXXX`) and identity key pair on first launch.
 - **Optional registration** (email + passphrase) enables cloud backup and
   multi-device sync.
 - **E2E encryption** via Signal Protocol (X3DH + Double Ratchet). Server
@@ -35,13 +35,13 @@ A WhatsApp-like messaging app with strong privacy:
 ## Project structure
 
 ```
-ZMessanger/
+CallType/
 ├── docs/superpowers/
 │   ├── specs/2026-05-28-zmessanger-design.md   # Full design spec
 │   └── plans/2026-05-28-zmessanger-implementation.md  # 26-task plan
 ├── src/
 │   ├── server/
-│   │   ├── ZMessanger.Api/                     # ASP.NET Core backend
+│   │   ├── CallType.Api/                       # ASP.NET Core backend
 │   │   │   ├── Program.cs                      # Entry point, DI, middleware
 │   │   │   ├── Data/AppDbContext.cs             # EF Core DbContext (8 entities)
 │   │   │   ├── Models/                         # Entity models
@@ -49,8 +49,8 @@ ZMessanger/
 │   │   │   ├── Hubs/                           # SignalR hubs
 │   │   │   ├── Services/                       # Business logic services
 │   │   │   └── Migrations/                     # EF Core migrations
-│   │   └── ZMessanger.Api.Tests/               # Integration tests (Testcontainers)
-│   └── client/zmessanger/                      # Flutter app
+│   │   └── CallType.Api.Tests/                 # Integration tests (Testcontainers)
+│   └── client/calltype/                        # Flutter app
 │       ├── lib/
 │       │   ├── core/crypto/                    # E2EE (libsignal wrapper)
 │       │   ├── core/network/                   # API client, SignalR, WebRTC
@@ -58,20 +58,20 @@ ZMessanger/
 │       │   ├── features/                       # Feature-first UI modules
 │       │   └── shared/                         # Reusable widgets, models
 │       └── native/libsignal/                   # Rust FFI bridge
-└── ZMessanger.sln
+└── CallType.sln
 ```
 
 ## Build & test
 
 ### Backend
 ```bash
-dotnet build src/server/ZMessanger.Api
-dotnet test src/server/ZMessanger.Api.Tests    # requires Docker (Testcontainers)
+dotnet build src/server/CallType.Api
+dotnet test src/server/CallType.Api.Tests    # requires Docker (Testcontainers)
 ```
 
-### Client (once created)
+### Client
 ```bash
-cd src/client/zmessanger
+cd src/client/calltype
 flutter pub get
 dart run build_runner build --delete-conflicting-outputs
 flutter test
@@ -81,9 +81,9 @@ flutter run -d chrome
 ### EF Core migrations
 ```bash
 # Add migration
-dotnet ef migrations add MigrationName --project src/server/ZMessanger.Api
+dotnet ef migrations add MigrationName --project src/server/CallType.Api
 # Apply to DB
-dotnet ef database update --project src/server/ZMessanger.Api
+dotnet ef database update --project src/server/CallType.Api
 ```
 
 ## Database entities (server — PostgreSQL)
@@ -101,7 +101,7 @@ dotnet ef database update --project src/server/ZMessanger.Api
 
 All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content.
 
-## API endpoints (planned/implemented)
+## API endpoints
 
 | Endpoint | Purpose | Status |
 |----------|---------|--------|
@@ -139,7 +139,7 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 2. **Signal Protocol for E2EE** — X3DH key agreement + Double Ratchet for
    forward secrecy. Sender Keys for group chat.
 3. **Anonymous identity** — device generates UUID + key pair. User Handle
-   (`ZM-XXXX-XXXX`) for human-readable discovery. QR code for contact exchange.
+   (`CT-XXXX-XXXX`) for human-readable discovery. QR code for contact exchange.
 4. **Backup encryption** — independent passphrase-derived key (Argon2id).
    Server never sees backup content. Only for registered users.
 5. **STUN/TURN shared with RemoteDesktopNet** — custom .NET STUN (RFC 5389)
@@ -151,7 +151,7 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 
 - **RemoteDesktopNet** (`C:\GIT\ZCLOUD\RemoteDesktopNet`) — provides
   DeskShare.Stun and DeskShare.Turn servers. RFC 5389/5766 compliant .NET 8
-  implementations with HMAC-SHA1 auth. ZMessanger will use these for WebRTC
+  implementations with HMAC-SHA1 auth. CallType uses these for WebRTC
   NAT traversal.
 
 ## Spec & plan
