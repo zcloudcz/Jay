@@ -9,8 +9,14 @@
 // Key challenge: MessengerHub uses a static ConcurrentDictionary to track
 // online devices. Since all tests run in the same process, each test uses
 // unique random deviceIds to avoid cross-test interference.
+//
+// Authentication: The hub now requires JWT. Each test registers a device,
+// obtains a token, and passes it as access_token query parameter during the
+// WebSocket upgrade — the same mechanism real clients use.
 // ---------------------------------------------------------------------------
 
+using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -24,17 +30,54 @@ namespace CallType.Api.Tests.Hubs;
 
 public class MessengerHubTests : IntegrationTestBase
 {
+    // Reusable key material for device registration.
+    private static readonly string ValidIdentityKey = Convert.ToBase64String([0x01, 0x02, 0x03]);
+    private static readonly string ValidSignedPreKey = Convert.ToBase64String([0x04, 0x05, 0x06]);
+
+    /// <summary>
+    /// Registers a device and obtains a JWT token for it. Returns the deviceId
+    /// and token needed to connect to the SignalR hub.
+    /// </summary>
+    private async Task<(Guid DeviceId, string Token)> RegisterDeviceAndGetTokenAsync()
+    {
+        // Use a fresh HttpClient to avoid polluting the shared Client's auth header.
+        using var client = Factory.CreateClient();
+
+        var regResponse = await client.PostAsJsonAsync("/devices", new
+        {
+            identityKey = ValidIdentityKey,
+            signedPreKey = ValidSignedPreKey
+        });
+        regResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var regBody = await regResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var deviceId = Guid.Parse(regBody.GetProperty("deviceId").GetString()!);
+        var deviceSecret = regBody.GetProperty("deviceSecret").GetString()!;
+
+        var tokenResponse = await client.PostAsJsonAsync("/auth/token", new
+        {
+            deviceId,
+            deviceSecret
+        });
+        tokenResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var tokenBody = await tokenResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var token = tokenBody.GetProperty("token").GetString()!;
+
+        return (deviceId, token);
+    }
+
     /// <summary>
     /// Builds a SignalR HubConnection that connects through the test server's
-    /// in-process HTTP handler. This avoids opening real TCP sockets and keeps
-    /// the test isolated. The deviceId query parameter identifies the connecting
-    /// device to the hub.
+    /// in-process HTTP handler with JWT authentication. The access_token query
+    /// parameter is extracted by the JwtBearerEvents.OnMessageReceived handler
+    /// in Program.cs — same mechanism as production WebSocket connections.
     /// </summary>
-    private HubConnection CreateHubConnection(Guid deviceId)
+    private HubConnection CreateHubConnection(Guid deviceId, string accessToken)
     {
         var server = Factory.Server;
         return new HubConnectionBuilder()
-            .WithUrl($"{server.BaseAddress}hub?deviceId={deviceId}", options =>
+            .WithUrl($"{server.BaseAddress}hub?access_token={accessToken}", options =>
             {
                 // Route HTTP requests through the test server's in-process handler
                 // instead of opening real network connections.
@@ -46,12 +89,13 @@ public class MessengerHubTests : IntegrationTestBase
     [Fact]
     public async Task Client_connects_and_receives_queued_messages()
     {
-        // Arrange — enqueue a message directly in the DB before the recipient connects.
-        // This simulates the "device was offline, messages accumulated" scenario.
-        var recipientId = Guid.NewGuid();
+        // Arrange — register a device and get token for the recipient.
+        var (recipientId, recipientToken) = await RegisterDeviceAndGetTokenAsync();
         var senderId = Guid.NewGuid();
         var messageBody = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF };
 
+        // Enqueue a message directly in the DB before the recipient connects.
+        // This simulates the "device was offline, messages accumulated" scenario.
         using (var scope = Factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -71,7 +115,7 @@ public class MessengerHubTests : IntegrationTestBase
         // callback to fire rather than polling.
         var receivedTcs = new TaskCompletionSource<JsonElement>();
 
-        await using var connection = CreateHubConnection(recipientId);
+        await using var connection = CreateHubConnection(recipientId, recipientToken);
         connection.On<JsonElement>("ReceiveMessage", msg =>
         {
             receivedTcs.TrySetResult(msg);
@@ -105,15 +149,14 @@ public class MessengerHubTests : IntegrationTestBase
     [Fact]
     public async Task SendMessage_to_online_recipient_delivers_directly()
     {
-        // Arrange — two devices connect to the hub. Client A sends a message
-        // to Client B, who should receive it in real-time without DB queueing.
-        var deviceA = Guid.NewGuid();
-        var deviceB = Guid.NewGuid();
+        // Arrange — two devices connect to the hub with JWT auth.
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (deviceB, tokenB) = await RegisterDeviceAndGetTokenAsync();
 
         var receivedTcs = new TaskCompletionSource<JsonElement>();
 
-        await using var connectionA = CreateHubConnection(deviceA);
-        await using var connectionB = CreateHubConnection(deviceB);
+        await using var connectionA = CreateHubConnection(deviceA, tokenA);
+        await using var connectionB = CreateHubConnection(deviceB, tokenB);
 
         // Client B listens for incoming messages.
         connectionB.On<JsonElement>("ReceiveMessage", msg =>
@@ -152,10 +195,10 @@ public class MessengerHubTests : IntegrationTestBase
     public async Task SendMessage_to_offline_recipient_queues_message()
     {
         // Arrange — only Client A is connected. Client B is offline (never connects).
-        var deviceA = Guid.NewGuid();
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
         var deviceB = Guid.NewGuid(); // Never connects — simulates offline device.
 
-        await using var connectionA = CreateHubConnection(deviceA);
+        await using var connectionA = CreateHubConnection(deviceA, tokenA);
         await connectionA.StartAsync();
 
         // Act — send a message to the offline device.
@@ -183,13 +226,13 @@ public class MessengerHubTests : IntegrationTestBase
     public async Task CallSignal_relays_to_online_target()
     {
         // Arrange — two devices for a WebRTC call signaling scenario.
-        var deviceA = Guid.NewGuid();
-        var deviceB = Guid.NewGuid();
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (deviceB, tokenB) = await RegisterDeviceAndGetTokenAsync();
 
         var signalTcs = new TaskCompletionSource<JsonElement>();
 
-        await using var connectionA = CreateHubConnection(deviceA);
-        await using var connectionB = CreateHubConnection(deviceB);
+        await using var connectionA = CreateHubConnection(deviceA, tokenA);
+        await using var connectionB = CreateHubConnection(deviceB, tokenB);
 
         // Client B listens for call signals (offer, answer, ICE candidates).
         connectionB.On<JsonElement>("CallSignal", signal =>
@@ -219,14 +262,14 @@ public class MessengerHubTests : IntegrationTestBase
     {
         // Arrange — two devices in a conversation. Client A starts typing,
         // Client B should see the typing indicator.
-        var deviceA = Guid.NewGuid();
-        var deviceB = Guid.NewGuid();
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (deviceB, tokenB) = await RegisterDeviceAndGetTokenAsync();
         var conversationId = "conv-" + Guid.NewGuid().ToString("N");
 
         var typingTcs = new TaskCompletionSource<JsonElement>();
 
-        await using var connectionA = CreateHubConnection(deviceA);
-        await using var connectionB = CreateHubConnection(deviceB);
+        await using var connectionA = CreateHubConnection(deviceA, tokenA);
+        await using var connectionB = CreateHubConnection(deviceB, tokenB);
 
         connectionB.On<JsonElement>("TypingIndicator", indicator =>
         {
@@ -254,11 +297,11 @@ public class MessengerHubTests : IntegrationTestBase
     {
         // Arrange — Client B connects then disconnects. Messages sent after
         // disconnect should be queued, not delivered directly.
-        var deviceA = Guid.NewGuid();
-        var deviceB = Guid.NewGuid();
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (deviceB, tokenB) = await RegisterDeviceAndGetTokenAsync();
 
-        await using var connectionA = CreateHubConnection(deviceA);
-        await using var connectionB = CreateHubConnection(deviceB);
+        await using var connectionA = CreateHubConnection(deviceA, tokenA);
+        await using var connectionB = CreateHubConnection(deviceB, tokenB);
 
         await connectionA.StartAsync();
         await connectionB.StartAsync();

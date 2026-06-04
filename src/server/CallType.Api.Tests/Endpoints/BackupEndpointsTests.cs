@@ -4,6 +4,8 @@
 // Tests the backup creation and listing flow against a real PostgreSQL
 // instance via Testcontainers. Verifies account existence checks, input
 // validation, blob path format, and list ordering.
+//
+// All backup endpoints require JWT — tests authenticate in each test method.
 // ---------------------------------------------------------------------------
 
 using System.Net;
@@ -45,6 +47,8 @@ public class BackupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Create_backup_returns_created_with_blob_path()
     {
+        await RegisterAndAuthenticateAsync();
+
         // Arrange
         var accountId = await RegisterAccountAsync();
 
@@ -68,6 +72,8 @@ public class BackupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Create_backup_for_nonexistent_account_returns_not_found()
     {
+        await RegisterAndAuthenticateAsync();
+
         // Act — use a random GUID that was never registered as an account
         var response = await Client.PostAsJsonAsync("/backups", new
         {
@@ -82,6 +88,8 @@ public class BackupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Create_backup_with_zero_size_returns_bad_request()
     {
+        await RegisterAndAuthenticateAsync();
+
         // Arrange
         var accountId = await RegisterAccountAsync();
 
@@ -103,6 +111,8 @@ public class BackupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task List_backups_returns_ordered_by_date_desc()
     {
+        await RegisterAndAuthenticateAsync();
+
         // Arrange — create two backups for the same account
         var accountId = await RegisterAccountAsync();
 
@@ -144,6 +154,8 @@ public class BackupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task List_backups_for_account_with_no_backups_returns_empty()
     {
+        await RegisterAndAuthenticateAsync();
+
         var accountId = await RegisterAccountAsync();
 
         var response = await Client.GetAsync($"/backups/{accountId}");

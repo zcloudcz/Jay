@@ -4,6 +4,9 @@
 // Tests the full registration -> login -> device-linking flow against a real
 // PostgreSQL instance via Testcontainers. Verifies Argon2id hashing, email
 // uniqueness, timing-safe comparison, and device linkage.
+//
+// POST /accounts and POST /accounts/login are public (AllowAnonymous).
+// Device linking and listing require JWT — tests authenticate first.
 // ---------------------------------------------------------------------------
 
 using System.Net;
@@ -202,6 +205,9 @@ public class AccountEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Link_device_to_account_succeeds()
     {
+        // Authenticate — device linking requires JWT.
+        await RegisterAndAuthenticateAsync();
+
         // Arrange
         var email = $"test-{Guid.NewGuid():N}@example.com";
         var accountId = await RegisterAccountAsync(email);
@@ -218,6 +224,9 @@ public class AccountEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Link_device_twice_returns_409_conflict()
     {
+        // Authenticate — device linking requires JWT.
+        await RegisterAndAuthenticateAsync();
+
         // Arrange
         var email = $"test-{Guid.NewGuid():N}@example.com";
         var accountId = await RegisterAccountAsync(email);
@@ -239,6 +248,9 @@ public class AccountEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Link_device_to_nonexistent_account_returns_404()
     {
+        // Authenticate — device linking requires JWT.
+        await RegisterAndAuthenticateAsync();
+
         var deviceId = await RegisterDeviceAsync();
 
         var response = await Client.PostAsync(
@@ -250,6 +262,9 @@ public class AccountEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Link_nonexistent_device_to_account_returns_404()
     {
+        // Authenticate — device linking requires JWT.
+        await RegisterAndAuthenticateAsync();
+
         var email = $"test-{Guid.NewGuid():N}@example.com";
         var accountId = await RegisterAccountAsync(email);
 
@@ -266,6 +281,9 @@ public class AccountEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task List_linked_devices_returns_linked_devices()
     {
+        // Authenticate — listing linked devices requires JWT.
+        await RegisterAndAuthenticateAsync();
+
         // Arrange — register account, register 2 devices, link both
         var email = $"test-{Guid.NewGuid():N}@example.com";
         var accountId = await RegisterAccountAsync(email);
@@ -299,6 +317,9 @@ public class AccountEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task List_linked_devices_for_account_with_no_devices_returns_empty()
     {
+        // Authenticate — listing linked devices requires JWT.
+        await RegisterAndAuthenticateAsync();
+
         var email = $"test-{Guid.NewGuid():N}@example.com";
         var accountId = await RegisterAccountAsync(email);
 

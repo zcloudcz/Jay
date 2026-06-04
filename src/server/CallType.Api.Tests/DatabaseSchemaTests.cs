@@ -69,6 +69,7 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "alice#1",
             IdentityKey = [0x01, 0x02, 0x03],
             SignedPreKey = [0x04, 0x05, 0x06],
+            DeviceSecretHash = new byte[32], // Placeholder hash for schema test.
             CreatedAt = DateTimeOffset.UtcNow,
             LastSeenAt = DateTimeOffset.UtcNow,
             OneTimePreKeys =
@@ -109,6 +110,7 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "dupe#1",
             IdentityKey = [0x01],
             SignedPreKey = [0x02],
+            DeviceSecretHash = new byte[32],
             CreatedAt = DateTimeOffset.UtcNow,
             LastSeenAt = DateTimeOffset.UtcNow
         };
@@ -119,6 +121,7 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "dupe#1", // same handle — should fail
             IdentityKey = [0x03],
             SignedPreKey = [0x04],
+            DeviceSecretHash = new byte[32],
             CreatedAt = DateTimeOffset.UtcNow,
             LastSeenAt = DateTimeOffset.UtcNow
         };
@@ -145,6 +148,7 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "bob#42",
             IdentityKey = [0x10],
             SignedPreKey = [0x20],
+            DeviceSecretHash = new byte[32],
             CreatedAt = DateTimeOffset.UtcNow,
             LastSeenAt = DateTimeOffset.UtcNow
         };
@@ -235,6 +239,7 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "grp#a",
             IdentityKey = [0x01],
             SignedPreKey = [0x02],
+            DeviceSecretHash = new byte[32],
             CreatedAt = DateTimeOffset.UtcNow,
             LastSeenAt = DateTimeOffset.UtcNow
         };
@@ -245,6 +250,7 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "grp#b",
             IdentityKey = [0x03],
             SignedPreKey = [0x04],
+            DeviceSecretHash = new byte[32],
             CreatedAt = DateTimeOffset.UtcNow,
             LastSeenAt = DateTimeOffset.UtcNow
         };
@@ -315,6 +321,7 @@ public class DatabaseSchemaTests : IntegrationTestBase
             UserHandle = "idx#1",
             IdentityKey = [0x01],
             SignedPreKey = [0x02],
+            DeviceSecretHash = new byte[32],
             CreatedAt = DateTimeOffset.UtcNow,
             LastSeenAt = DateTimeOffset.UtcNow
         };

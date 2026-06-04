@@ -6,6 +6,9 @@
 // full stack: HTTP routing -> JSON binding -> EF Core -> Npgsql -> PostgreSQL.
 // This catches issues that in-memory fakes silently hide (unique index
 // enforcement, byte[] round-tripping, cascade deletes).
+//
+// POST /devices is public (AllowAnonymous) — no auth needed.
+// GET /devices/{id}/key-bundle requires JWT — tests authenticate first.
 // ---------------------------------------------------------------------------
 
 using System.Net;
@@ -110,6 +113,9 @@ public class DeviceEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Register_device_stores_all_one_time_pre_keys()
     {
+        // Authenticate first — key-bundle endpoint requires JWT.
+        await RegisterAndAuthenticateAsync();
+
         // Arrange — register with 5 one-time pre-keys
         var otks = Enumerable.Range(1, 5).Select(i => new
         {
@@ -162,6 +168,9 @@ public class DeviceEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Get_key_bundle_returns_keys_and_consumes_one_time_key()
     {
+        // Authenticate — key-bundle endpoint requires JWT.
+        await RegisterAndAuthenticateAsync();
+
         // Arrange — register a device with exactly 1 OTK
         var request = new
         {
@@ -211,6 +220,9 @@ public class DeviceEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Get_key_bundle_for_nonexistent_device_returns_404()
     {
+        // Authenticate — key-bundle endpoint requires JWT.
+        await RegisterAndAuthenticateAsync();
+
         // Act — use a random GUID that won't exist in the database
         var response = await Client.GetAsync($"/devices/{Guid.NewGuid()}/key-bundle");
 
@@ -221,6 +233,9 @@ public class DeviceEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Get_key_bundle_without_one_time_keys_returns_null_otk()
     {
+        // Authenticate — key-bundle endpoint requires JWT.
+        await RegisterAndAuthenticateAsync();
+
         // Arrange — register a device WITHOUT any OTKs
         var request = new
         {

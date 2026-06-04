@@ -10,8 +10,14 @@
 //   DisposeAsync     -> tear down container and factory
 //
 // Test classes inherit this and get Factory + Client ready to use.
+// Provides RegisterAndAuthenticateAsync() so tests that hit protected
+// endpoints can obtain a valid JWT without boilerplate.
 // ---------------------------------------------------------------------------
 
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -37,6 +43,11 @@ public abstract class IntegrationTestBase : IAsyncLifetime
     /// </summary>
     protected HttpClient Client { get; private set; } = null!;
 
+    // Reusable key material for the auth helper. Tests that need specific keys
+    // can still register devices manually.
+    private static readonly string DefaultIdentityKey = Convert.ToBase64String([0x01, 0x02, 0x03]);
+    private static readonly string DefaultSignedPreKey = Convert.ToBase64String([0x04, 0x05, 0x06]);
+
     public async Task InitializeAsync()
     {
         await _postgres.StartAsync();
@@ -44,14 +55,17 @@ public abstract class IntegrationTestBase : IAsyncLifetime
         Factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
-                // Provide a TURN shared secret for tests — the TurnCredentialService
-                // requires it and throws on startup if missing.
                 builder.ConfigureAppConfiguration((_, config) =>
                 {
                     config.AddInMemoryCollection(new Dictionary<string, string?>
                     {
+                        // TURN shared secret for TurnCredentialService.
                         ["Turn:SharedSecret"] = "test-shared-secret-for-turn",
-                        ["Turn:TtlSeconds"] = "3600"
+                        ["Turn:TtlSeconds"] = "3600",
+                        // JWT signing key for test token generation. Must be at least
+                        // 32 chars for HMAC-SHA256 to accept it.
+                        ["Jwt:Secret"] = "test-jwt-secret-at-least-32-characters-long!!",
+                        ["Jwt:Issuer"] = "CallType.Api.Tests"
                     });
                 });
 
@@ -77,6 +91,50 @@ public abstract class IntegrationTestBase : IAsyncLifetime
         using var scope = Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.EnsureCreatedAsync();
+    }
+
+    /// <summary>
+    /// Registers a new device, obtains a JWT, and sets the Bearer header on Client.
+    /// Returns the deviceId, token, and userHandle so tests can use them in assertions.
+    /// This is the standard way for tests to authenticate before hitting protected endpoints.
+    /// </summary>
+    protected async Task<(Guid DeviceId, string Token, string UserHandle)> RegisterAndAuthenticateAsync()
+    {
+        // 1. Register a device (public endpoint — no auth needed).
+        var regResponse = await Client.PostAsJsonAsync("/devices", new
+        {
+            identityKey = DefaultIdentityKey,
+            signedPreKey = DefaultSignedPreKey
+        });
+
+        if (regResponse.StatusCode != HttpStatusCode.Created)
+            throw new InvalidOperationException(
+                $"Device registration failed with {regResponse.StatusCode}: {await regResponse.Content.ReadAsStringAsync()}");
+
+        var regBody = await regResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var deviceId = Guid.Parse(regBody.GetProperty("deviceId").GetString()!);
+        var userHandle = regBody.GetProperty("userHandle").GetString()!;
+        var deviceSecret = regBody.GetProperty("deviceSecret").GetString()!;
+
+        // 2. Exchange the device secret for a JWT (public endpoint).
+        var tokenResponse = await Client.PostAsJsonAsync("/auth/token", new
+        {
+            deviceId,
+            deviceSecret
+        });
+
+        if (tokenResponse.StatusCode != HttpStatusCode.OK)
+            throw new InvalidOperationException(
+                $"Token request failed with {tokenResponse.StatusCode}: {await tokenResponse.Content.ReadAsStringAsync()}");
+
+        var tokenBody = await tokenResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var token = tokenBody.GetProperty("token").GetString()!;
+
+        // 3. Set the Authorization header for all subsequent requests on this client.
+        Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", token);
+
+        return (deviceId, token, userHandle);
     }
 
     public async Task DisposeAsync()

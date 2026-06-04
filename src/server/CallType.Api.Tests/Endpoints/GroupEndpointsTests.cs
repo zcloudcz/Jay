@@ -4,6 +4,8 @@
 // Tests group creation, membership management, and edge cases against a real
 // PostgreSQL instance via Testcontainers. Verifies that the creator gets admin
 // role, duplicate members are rejected, and removal works correctly.
+//
+// All group endpoints require JWT — tests authenticate in each test method.
 // ---------------------------------------------------------------------------
 
 using System.Net;
@@ -22,6 +24,7 @@ public class GroupEndpointsTests : IntegrationTestBase
 
     /// <summary>
     /// Helper: registers a device and returns its deviceId.
+    /// Device registration is public, so no auth needed for this call itself.
     /// </summary>
     private async Task<Guid> RegisterDeviceAsync()
     {
@@ -57,6 +60,9 @@ public class GroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Create_group_adds_creator_as_admin()
     {
+        // Authenticate — group endpoints require JWT.
+        await RegisterAndAuthenticateAsync();
+
         // Arrange
         var deviceId = await RegisterDeviceAsync();
 
@@ -88,6 +94,8 @@ public class GroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Create_group_with_nonexistent_device_returns_400()
     {
+        await RegisterAndAuthenticateAsync();
+
         var response = await Client.PostAsJsonAsync("/groups", new
         {
             createdBy = Guid.NewGuid()
@@ -99,6 +107,8 @@ public class GroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Create_group_without_name_succeeds()
     {
+        await RegisterAndAuthenticateAsync();
+
         // Arrange — unnamed groups are valid (ad-hoc chats)
         var deviceId = await RegisterDeviceAsync();
 
@@ -120,6 +130,8 @@ public class GroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Add_and_remove_member_works()
     {
+        await RegisterAndAuthenticateAsync();
+
         // Arrange
         var creatorDevice = await RegisterDeviceAsync();
         var memberDevice = await RegisterDeviceAsync();
@@ -159,6 +171,8 @@ public class GroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Add_duplicate_member_returns_409_conflict()
     {
+        await RegisterAndAuthenticateAsync();
+
         // Arrange
         var creatorDevice = await RegisterDeviceAsync();
         var memberDevice = await RegisterDeviceAsync();
@@ -182,6 +196,8 @@ public class GroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Add_member_to_nonexistent_group_returns_404()
     {
+        await RegisterAndAuthenticateAsync();
+
         var deviceId = await RegisterDeviceAsync();
 
         var response = await Client.PutAsJsonAsync(
@@ -194,6 +210,8 @@ public class GroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Remove_nonexistent_member_returns_404()
     {
+        await RegisterAndAuthenticateAsync();
+
         var creatorDevice = await RegisterDeviceAsync();
         var groupId = await CreateGroupAsync(creatorDevice);
 
@@ -210,6 +228,8 @@ public class GroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task List_members_returns_all_members_with_roles()
     {
+        await RegisterAndAuthenticateAsync();
+
         // Arrange — create a group with creator + 2 additional members
         var creatorDevice = await RegisterDeviceAsync();
         var member1 = await RegisterDeviceAsync();
@@ -245,6 +265,8 @@ public class GroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task List_members_for_nonexistent_group_returns_404()
     {
+        await RegisterAndAuthenticateAsync();
+
         var response = await Client.GetAsync($"/groups/{Guid.NewGuid()}/members");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);

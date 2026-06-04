@@ -4,6 +4,8 @@
 // Tests the HTTP layer of the TURN credential API (routing, query param
 // validation, response shape). The cryptographic correctness of the
 // credential generation itself is covered by TurnCredentialServiceTests.
+//
+// TURN endpoint requires JWT — tests authenticate before making requests.
 // ---------------------------------------------------------------------------
 
 using System.Net;
@@ -19,6 +21,9 @@ public class TurnCredentialEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Get_credentials_returns_valid_response()
     {
+        // Authenticate — TURN endpoint requires JWT.
+        await RegisterAndAuthenticateAsync();
+
         // Arrange — a valid deviceId is required by the endpoint.
         var deviceId = Guid.NewGuid();
 
@@ -50,6 +55,8 @@ public class TurnCredentialEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Get_credentials_without_deviceId_returns_bad_request()
     {
+        await RegisterAndAuthenticateAsync();
+
         // Act — call the endpoint without any query parameters.
         var response = await Client.GetAsync("/turn/credentials");
 
@@ -60,6 +67,8 @@ public class TurnCredentialEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Get_credentials_with_empty_deviceId_returns_bad_request()
     {
+        await RegisterAndAuthenticateAsync();
+
         // Act — pass an empty GUID (all zeros) which the endpoint treats as invalid.
         var response = await Client.GetAsync($"/turn/credentials?deviceId={Guid.Empty}");
 
