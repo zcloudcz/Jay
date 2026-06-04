@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -7,7 +7,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CallType.Api.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class AddDeviceSecretHash : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -36,6 +36,7 @@ namespace CallType.Api.Migrations
                     SignedPreKey = table.Column<byte[]>(type: "bytea", nullable: false),
                     PushToken = table.Column<string>(type: "text", nullable: true),
                     PushPlatform = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: true),
+                    DeviceSecretHash = table.Column<byte[]>(type: "bytea", nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     LastSeenAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },

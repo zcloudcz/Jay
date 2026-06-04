@@ -43,6 +43,14 @@ public class Device
     /// </summary>
     public string? PushPlatform { get; set; }
 
+    /// <summary>
+    /// SHA-256 hash of the device secret issued at registration time.
+    /// The raw secret is returned once to the client and never stored.
+    /// Authentication works by hashing the client-provided secret and
+    /// comparing it to this value — same pattern as API key auth.
+    /// </summary>
+    public byte[] DeviceSecretHash { get; set; } = null!;
+
     public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>

@@ -30,8 +30,11 @@ public static class DeviceEndpoints
     /// </summary>
     public static WebApplication MapDeviceEndpoints(this WebApplication app)
     {
-        app.MapPost("/devices", RegisterDevice);
-        app.MapGet("/devices/{id:guid}/key-bundle", GetKeyBundle);
+        // Device registration is public — new devices don't have credentials yet.
+        app.MapPost("/devices", RegisterDevice).AllowAnonymous();
+        // Key bundle fetch requires auth — only registered devices should be able
+        // to look up other devices' keys to prevent key-bundle enumeration.
+        app.MapGet("/devices/{id:guid}/key-bundle", GetKeyBundle).RequireAuthorization();
         return app;
     }
 
@@ -75,6 +78,13 @@ public static class DeviceEndpoints
         // --- Handle generation --------------------------------------------
         var userHandle = await GenerateUniqueHandle(db, ct);
 
+        // --- Generate device secret -----------------------------------------
+        // The device secret is a 32-byte random value returned to the client
+        // exactly once (in this response). Only the SHA-256 hash is stored.
+        // This is the credential the device uses to obtain JWTs via /auth/token.
+        var deviceSecret = RandomNumberGenerator.GetBytes(32);
+        var deviceSecretHash = System.Security.Cryptography.SHA256.HashData(deviceSecret);
+
         // --- Build the Device entity --------------------------------------
         var now = DateTimeOffset.UtcNow;
         var device = new Device
@@ -83,6 +93,7 @@ public static class DeviceEndpoints
             UserHandle = userHandle,
             IdentityKey = identityKeyBytes,
             SignedPreKey = signedPreKeyBytes,
+            DeviceSecretHash = deviceSecretHash,
             CreatedAt = now,
             LastSeenAt = now
         };
@@ -147,9 +158,11 @@ public static class DeviceEndpoints
             }
         }
 
+        // Return the raw secret as base64. This is the ONLY time the client
+        // will ever see the secret — it is not stored on the server.
         return Results.Created(
             $"/devices/{device.DeviceId}",
-            new RegisterDeviceResponse(device.DeviceId, device.UserHandle));
+            new RegisterDeviceResponse(device.DeviceId, device.UserHandle, Convert.ToBase64String(deviceSecret)));
     }
 
     // -----------------------------------------------------------------------
@@ -289,7 +302,7 @@ public record RegisterDeviceRequest(
 
 public record OneTimePreKeyInput(int KeyId, string PublicKey);
 
-public record RegisterDeviceResponse(Guid DeviceId, string UserHandle);
+public record RegisterDeviceResponse(Guid DeviceId, string UserHandle, string DeviceSecret);
 
 public record KeyBundleResponse(
     Guid DeviceId,
