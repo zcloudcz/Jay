@@ -14,14 +14,23 @@
 // OnConnectedAsync/OnDisconnectedAsync from different threads concurrently.
 // A plain Dictionary + lock would work but ConcurrentDictionary is simpler
 // and has less contention under high connection churn.
+//
+// Authentication: [Authorize] requires a valid JWT. The deviceId is extracted
+// from the "sub" claim — no longer from the spoofable query string. The JWT
+// is passed as a query parameter during the WebSocket upgrade because
+// WebSocket does not support custom HTTP headers; the JwtBearerEvents in
+// Program.cs moves it to the auth context.
 // ---------------------------------------------------------------------------
 
 using System.Collections.Concurrent;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using CallType.Api.Services;
 
 namespace CallType.Api.Hubs;
 
+[Authorize]
 public class MessengerHub(MessageQueueService queueService) : Hub
 {
     // Maps DeviceId -> ConnectionId for all currently connected devices.
@@ -34,11 +43,12 @@ public class MessengerHub(MessageQueueService queueService) : Hub
         // Ensure SignalR connection is fully initialized before application logic.
         await base.OnConnectedAsync();
 
-        // The client must pass its DeviceId as a query string parameter
-        // when establishing the SignalR connection (e.g. /hub?deviceId=xxx).
-        var deviceIdStr = Context.GetHttpContext()?.Request.Query["deviceId"].ToString();
+        // DeviceId is now extracted from the validated JWT "sub" claim — no longer
+        // from the query string, which was spoofable. The [Authorize] attribute
+        // guarantees Context.User is non-null and the token is valid by this point.
+        var deviceId = GetDeviceId();
 
-        if (Guid.TryParse(deviceIdStr, out var deviceId))
+        if (deviceId != Guid.Empty)
         {
             // If the same device reconnects (e.g. after a network blip),
             // the old connection ID is overwritten — only the latest
@@ -64,9 +74,9 @@ public class MessengerHub(MessageQueueService queueService) : Hub
 
     public override Task OnDisconnectedAsync(Exception? exception)
     {
-        var deviceIdStr = Context.GetHttpContext()?.Request.Query["deviceId"].ToString();
+        var deviceId = GetDeviceId();
 
-        if (Guid.TryParse(deviceIdStr, out var deviceId))
+        if (deviceId != Guid.Empty)
         {
             // Only remove if the stored connection ID matches ours — prevents
             // a stale disconnect from removing a newer reconnection's entry.
@@ -189,17 +199,31 @@ public class MessengerHub(MessageQueueService queueService) : Hub
         // The caller's UI should handle "no answer" via a timeout.
     }
 
-    // SECURITY TODO: Hub is currently unauthenticated. Any client can claim any deviceId.
-    // Before production: require signed JWT/token in Authorization header, derive deviceId
-    // from validated token instead of query parameter. Query params are logged by proxies.
-
     /// <summary>
-    /// Extracts the caller's DeviceId from the connection query string.
-    /// Returns null if the query parameter is missing or malformed.
+    /// Extracts the caller's DeviceId from the JWT "sub" claim.
+    /// Returns null if the claim is missing or malformed.
+    /// With [Authorize] on the hub, the claim should always be present,
+    /// but defensive parsing avoids a hard crash on malformed tokens.
     /// </summary>
     private Guid? GetCallerDeviceId()
     {
-        var deviceIdStr = Context.GetHttpContext()?.Request.Query["deviceId"].ToString();
-        return Guid.TryParse(deviceIdStr, out var deviceId) ? deviceId : null;
+        var deviceId = GetDeviceId();
+        return deviceId != Guid.Empty ? deviceId : null;
+    }
+
+    /// <summary>
+    /// Reads the DeviceId from the authenticated user's JWT claims.
+    /// Returns Guid.Empty if the claim is missing (should not happen
+    /// under [Authorize], but defensive coding is cheap insurance).
+    /// </summary>
+    private Guid GetDeviceId()
+    {
+        // Try the mapped ClaimTypes.NameIdentifier first (ASP.NET Core maps
+        // "sub" to this by default), then fall back to the raw "sub" claim
+        // in case the mapping is disabled.
+        var sub = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+               ?? Context.User?.FindFirst("sub")?.Value;
+
+        return Guid.TryParse(sub, out var id) ? id : Guid.Empty;
     }
 }

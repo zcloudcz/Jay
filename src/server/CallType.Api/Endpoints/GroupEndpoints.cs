@@ -26,10 +26,12 @@ public static class GroupEndpoints
     /// </summary>
     public static WebApplication MapGroupEndpoints(this WebApplication app)
     {
-        app.MapPost("/groups", CreateGroup);
-        app.MapGet("/groups/{groupId:guid}/members", ListMembers);
-        app.MapPut("/groups/{groupId:guid}/members", AddMember);
-        app.MapDelete("/groups/{groupId:guid}/members/{deviceId:guid}", RemoveMember);
+        // All group operations require authentication — only known devices
+        // should be able to create groups or manage membership.
+        app.MapPost("/groups", CreateGroup).RequireAuthorization();
+        app.MapGet("/groups/{groupId:guid}/members", ListMembers).RequireAuthorization();
+        app.MapPut("/groups/{groupId:guid}/members", AddMember).RequireAuthorization();
+        app.MapDelete("/groups/{groupId:guid}/members/{deviceId:guid}", RemoveMember).RequireAuthorization();
         return app;
     }
 

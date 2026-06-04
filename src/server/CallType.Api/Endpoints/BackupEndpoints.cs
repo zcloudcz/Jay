@@ -24,8 +24,10 @@ public static class BackupEndpoints
     /// </summary>
     public static WebApplication MapBackupEndpoints(this WebApplication app)
     {
-        app.MapPost("/backups", CreateBackup);
-        app.MapGet("/backups/{accountId:guid}", ListBackups);
+        // Backup operations require authentication — only the owning device
+        // should be able to create or list encrypted backups.
+        app.MapPost("/backups", CreateBackup).RequireAuthorization();
+        app.MapGet("/backups/{accountId:guid}", ListBackups).RequireAuthorization();
         return app;
     }
 

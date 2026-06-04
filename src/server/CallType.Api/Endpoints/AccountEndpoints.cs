@@ -41,10 +41,13 @@ public static class AccountEndpoints
     /// </summary>
     public static WebApplication MapAccountEndpoints(this WebApplication app)
     {
-        app.MapPost("/accounts", RegisterAccount);
-        app.MapPost("/accounts/login", Login);
-        app.MapPost("/accounts/{accountId:guid}/devices/{deviceId:guid}", LinkDevice);
-        app.MapGet("/accounts/{accountId:guid}/devices", ListLinkedDevices);
+        // Account registration and login are public — these are part of the
+        // account auth flow that happens before the device has a JWT.
+        app.MapPost("/accounts", RegisterAccount).AllowAnonymous();
+        app.MapPost("/accounts/login", Login).AllowAnonymous();
+        // Device linking and listing require an authenticated device.
+        app.MapPost("/accounts/{accountId:guid}/devices/{deviceId:guid}", LinkDevice).RequireAuthorization();
+        app.MapGet("/accounts/{accountId:guid}/devices", ListLinkedDevices).RequireAuthorization();
         return app;
     }
 
