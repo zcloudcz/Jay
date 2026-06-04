@@ -31,7 +31,7 @@ using CallType.Api.Services;
 namespace CallType.Api.Hubs;
 
 [Authorize]
-public class MessengerHub(MessageQueueService queueService) : Hub
+public class MessengerHub(MessageQueueService queueService, PushNotificationService pushService) : Hub
 {
     // Maps DeviceId -> ConnectionId for all currently connected devices.
     // Static because SignalR creates a new Hub instance per invocation,
@@ -113,6 +113,11 @@ public class MessengerHub(MessageQueueService queueService) : Hub
             // Recipient is offline — decode and store for later delivery.
             var encryptedBody = Convert.FromBase64String(encryptedBodyBase64);
             await queueService.EnqueueAsync(recipientDeviceId, senderDeviceId.Value, encryptedBody);
+
+            // Attempt to wake the device via push notification. This is best-effort —
+            // failures are logged but never propagated to the sender. The message is
+            // already safely queued and will be delivered on next connect regardless.
+            await pushService.SendPushAsync(recipientDeviceId);
         }
     }
 
@@ -150,6 +155,9 @@ public class MessengerHub(MessageQueueService queueService) : Hub
             {
                 var encryptedBody = Convert.FromBase64String(encryptedBodyBase64);
                 await queueService.EnqueueAsync(deviceId, senderDeviceId.Value, encryptedBody);
+
+                // Wake offline group members via push — same best-effort pattern as 1:1 messages.
+                await pushService.SendPushAsync(deviceId);
             }
         }
     }

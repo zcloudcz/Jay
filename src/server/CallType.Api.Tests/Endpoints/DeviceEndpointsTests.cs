@@ -16,6 +16,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using CallType.Api.Data;
 using CallType.Api.Tests.TestFixtures;
 
 namespace CallType.Api.Tests.Endpoints;
@@ -275,6 +278,147 @@ public class DeviceEndpointsTests : IntegrationTestBase
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
+
+    // -----------------------------------------------------------------------
+    // PUT /devices/{id}/push-token
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Update_push_token_stores_fcm_token()
+    {
+        // Arrange — register and authenticate a device.
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+
+        // Act — set a push token for the device.
+        var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token", new
+        {
+            token = "fcm-test-token-abc123",
+            platform = "fcm"
+        });
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // Verify the token was stored in the database.
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var device = await db.Devices.FirstAsync(d => d.DeviceId == deviceId);
+
+        device.PushToken.Should().Be("fcm-test-token-abc123");
+        device.PushPlatform.Should().Be("fcm");
+    }
+
+    [Fact]
+    public async Task Update_push_token_stores_apns_token()
+    {
+        // Verify APNs tokens are accepted alongside FCM.
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+
+        var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token", new
+        {
+            token = "apns-device-token-hex-string",
+            platform = "apns"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var device = await db.Devices.FirstAsync(d => d.DeviceId == deviceId);
+
+        device.PushToken.Should().Be("apns-device-token-hex-string");
+        device.PushPlatform.Should().Be("apns");
+    }
+
+    [Fact]
+    public async Task Update_push_token_replaces_previous_token()
+    {
+        // When the FCM token refreshes, the client sends the new token.
+        // The old token should be overwritten — not appended.
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+
+        // Set initial token.
+        await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token", new
+        {
+            token = "old-token",
+            platform = "fcm"
+        });
+
+        // Replace with new token.
+        var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token", new
+        {
+            token = "new-token",
+            platform = "fcm"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var device = await db.Devices.FirstAsync(d => d.DeviceId == deviceId);
+
+        device.PushToken.Should().Be("new-token", "the latest token should replace the previous one");
+    }
+
+    [Fact]
+    public async Task Update_push_token_with_invalid_platform_returns_bad_request()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+
+        var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token", new
+        {
+            token = "some-token",
+            platform = "webpush" // Not a recognized platform.
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Update_push_token_with_empty_token_returns_bad_request()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+
+        var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token", new
+        {
+            token = "",
+            platform = "fcm"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Update_push_token_for_nonexistent_device_returns_not_found()
+    {
+        await RegisterAndAuthenticateAsync();
+
+        var response = await Client.PutAsJsonAsync($"/devices/{Guid.NewGuid()}/push-token", new
+        {
+            token = "some-token",
+            platform = "fcm"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Update_push_token_without_auth_returns_unauthorized()
+    {
+        // The push-token endpoint requires authentication. Verify a raw
+        // (unauthenticated) client gets 401.
+        using var unauthenticatedClient = Factory.CreateClient();
+
+        var response = await unauthenticatedClient.PutAsJsonAsync(
+            $"/devices/{Guid.NewGuid()}/push-token",
+            new { token = "some-token", platform = "fcm" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    // -----------------------------------------------------------------------
+    // Handle uniqueness
+    // -----------------------------------------------------------------------
 
     [Fact]
     public async Task Register_two_devices_get_different_handles()

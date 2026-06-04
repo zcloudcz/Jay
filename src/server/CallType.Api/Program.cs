@@ -40,6 +40,12 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // because it depends on the scoped AppDbContext.
 builder.Services.AddScoped<MessageQueueService>();
 
+// PushNotificationService is a singleton — it is stateless (reads config once)
+// and uses IServiceScopeFactory to create short-lived DbContext scopes for
+// device lookups. IHttpClientFactory provides pooled HttpClient instances.
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<PushNotificationService>();
+
 // TurnCredentialService is a singleton — it is stateless (reads config once,
 // computes HMACs). No DbContext dependency, so no scoping needed.
 builder.Services.AddSingleton<TurnCredentialService>();

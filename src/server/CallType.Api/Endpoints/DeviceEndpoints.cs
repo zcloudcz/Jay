@@ -35,6 +35,10 @@ public static class DeviceEndpoints
         // Key bundle fetch requires auth — only registered devices should be able
         // to look up other devices' keys to prevent key-bundle enumeration.
         app.MapGet("/devices/{id:guid}/key-bundle", GetKeyBundle).RequireAuthorization().RequireRateLimiting("api");
+        // Push token registration requires auth — only the device owner should be
+        // able to set its push token. Uses PUT because the token is idempotent
+        // (setting the same token twice is a no-op).
+        app.MapPut("/devices/{id:guid}/push-token", UpdatePushToken).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 
@@ -214,6 +218,43 @@ public static class DeviceEndpoints
             oneTimePreKeyDto));
     }
 
+    // -----------------------------------------------------------------------
+    // PUT /devices/{id}/push-token — Register or update push notification token
+    // -----------------------------------------------------------------------
+    private static async Task<IResult> UpdatePushToken(
+        Guid id,
+        UpdatePushTokenRequest request,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        // Validate platform — only known push platforms are accepted.
+        // This prevents storing tokens for unsupported platforms that would
+        // silently fail at push time with no useful diagnostic.
+        if (request.Platform is not ("fcm" or "apns"))
+        {
+            return Results.BadRequest(new { error = "Platform must be 'fcm' or 'apns'." });
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Token))
+        {
+            return Results.BadRequest(new { error = "Token must not be empty." });
+        }
+
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == id, ct);
+        if (device is null)
+            return Results.NotFound(new { error = "Device not found." });
+
+        // Overwrite previous token — a device has at most one active push token.
+        // When the client refreshes its FCM token, it calls this endpoint with the
+        // new token, replacing the stale one.
+        device.PushToken = request.Token;
+        device.PushPlatform = request.Platform;
+
+        await db.SaveChangesAsync(ct);
+
+        return Results.NoContent();
+    }
+
     /// <summary>
     /// Result type for the DELETE ... RETURNING SQL query on OneTimePreKeys.
     /// Must be a class (not a record) with a parameterless constructor for
@@ -311,3 +352,5 @@ public record KeyBundleResponse(
     OneTimePreKeyDto? OneTimePreKey);
 
 public record OneTimePreKeyDto(int KeyId, string PublicKey);
+
+public record UpdatePushTokenRequest(string Token, string Platform);
