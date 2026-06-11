@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
+import '../contacts/contacts_controller.dart';
+import 'chat_controller.dart';
 import 'message_bubble.dart';
 import 'message_input.dart';
 
@@ -9,46 +13,41 @@ import 'message_input.dart';
 /// history) with a message input bar pinned at the bottom. The AppBar
 /// displays the contact name and action buttons for voice/video calls.
 ///
-/// Currently uses placeholder sample messages. In Phase 4 this will read
-/// from the local Drift database (decrypted messages) and receive new
-/// messages via SignalR in real time.
-class ChatScreen extends StatefulWidget {
+/// All state lives in [ChatController] (provided route-scoped by the
+/// router): it loads message history from the local encrypted database,
+/// decrypts incoming SignalR messages, and encrypts + sends outgoing ones.
+/// This widget only renders the controller's message list and forwards
+/// the user's input to it.
+class ChatScreen extends StatelessWidget {
   const ChatScreen({super.key, required this.contactId});
 
-  /// The device ID or conversation ID of the chat partner.
+  /// The device ID of the chat partner (doubles as the conversation ID
+  /// for direct chats).
   final String contactId;
 
-  @override
-  State<ChatScreen> createState() => _ChatScreenState();
-}
-
-class _ChatScreenState extends State<ChatScreen> {
-  /// Local list of messages for this placeholder implementation.
-  /// Will be replaced by a Drift query stream in Phase 4.
-  final List<_SampleMessage> _messages = List.of(_placeholderMessages);
-
-  void _handleSend(String text) {
-    setState(() {
-      _messages.insert(
-        0,
-        _SampleMessage(
-          text: text,
-          time: '${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}',
-          isMine: true,
-        ),
-      );
-    });
+  /// Resolves a human-readable title for the conversation: the contact's
+  /// display name, falling back to their handle, falling back to a
+  /// shortened device ID for peers not (yet) in the contact list.
+  String _contactName(BuildContext context) {
+    final contacts = context.watch<ContactsController>().contacts;
+    for (final contact in contacts) {
+      if (contact.deviceId == contactId) {
+        return contact.displayName ?? contact.userHandle;
+      }
+    }
+    // Unknown peer — show enough of the ID to be recognizable without
+    // overflowing the AppBar.
+    return contactId.length > 13 ? '${contactId.substring(0, 13)}…' : contactId;
   }
 
   @override
   Widget build(BuildContext context) {
-    // Derive a display name from the contact ID. In the real app this
-    // will come from the Contacts table in the local database.
-    final contactName = 'Contact ${widget.contactId}';
+    final controller = context.watch<ChatController>();
+    final messages = controller.messages;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(contactName),
+        title: Text(_contactName(context)),
         actions: [
           // Voice call — will trigger WebRTC offer flow in Phase 6.
           IconButton(
@@ -73,54 +72,33 @@ class _ChatScreenState extends State<ChatScreen> {
           // Message list fills available space. Using Expanded ensures
           // the input bar stays at the bottom even with few messages.
           Expanded(
-            child: _messages.isEmpty
+            child: messages.isEmpty
                 ? const Center(
                     child: Text('No messages yet. Say hello!'),
                   )
                 : ListView.builder(
                     // Reversed so new messages appear at the bottom and
-                    // the list auto-scrolls to show them. This is the
-                    // standard pattern for chat UIs in Flutter.
+                    // the list auto-scrolls to show them. The controller
+                    // orders messages newest-first to match.
                     reverse: true,
                     padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: _messages.length,
+                    itemCount: messages.length,
                     itemBuilder: (context, index) {
-                      final msg = _messages[index];
+                      final msg = messages[index];
                       return MessageBubble(
-                        text: msg.text,
-                        time: msg.time,
-                        isMine: msg.isMine,
+                        // body is null only for non-text messages
+                        // (attachments — Phase 5); render a placeholder.
+                        text: msg.body ?? '[attachment]',
+                        time: DateFormat.Hm().format(msg.createdAt),
+                        isMine: msg.senderId == controller.myDeviceId,
                       );
                     },
                   ),
           ),
           // Input bar pinned at bottom of the screen.
-          MessageInput(onSend: _handleSend),
+          MessageInput(onSend: controller.sendMessage),
         ],
       ),
     );
   }
 }
-
-/// Placeholder message data for visual development.
-class _SampleMessage {
-  const _SampleMessage({
-    required this.text,
-    required this.time,
-    required this.isMine,
-  });
-
-  final String text;
-  final String time;
-  final bool isMine;
-}
-
-/// Sample messages to show in the chat view during development.
-/// Listed in reverse chronological order (newest first) because the
-/// ListView is reversed.
-const _placeholderMessages = [
-  _SampleMessage(text: 'See you then!', time: '10:32', isMine: true),
-  _SampleMessage(text: 'Sure, let\'s meet at 3pm.', time: '10:31', isMine: false),
-  _SampleMessage(text: 'Are you free this afternoon?', time: '10:30', isMine: true),
-  _SampleMessage(text: 'Hey, how are you?', time: '10:28', isMine: false),
-];

@@ -46,8 +46,22 @@ param fcmServiceAccountJson string = ''
 @description('Custom domain for the API (optional, empty = use default ACA domain)')
 param customDomain string = ''
 
+@description('Browser origins allowed by CORS (Flutter Web client URLs). Empty = API falls back to localhost-only origins, which blocks any production web client.')
+param corsAllowedOrigins array = []
+
+@description('Value for ASP.NET AllowedHosts (Host-header validation). Set to the API domain in production; * disables the check.')
+param apiAllowedHosts string = '*'
+
 // --- Variables --------------------------------------------------------------
 // Naming convention: calltype-{resource}-{env} for readability in Azure Portal.
+
+// CORS origins use ASP.NET's indexed array binding
+// (Cors__AllowedOrigins__0, __1, ...). Built as a variable because Bicep
+// allows [for] loops only as a whole declaration value, not inline in concat().
+var corsEnvVars = [for (origin, i) in corsAllowedOrigins: {
+  name: 'Cors__AllowedOrigins__${i}'
+  value: origin
+}]
 
 var suffix = 'calltype-${environment}'
 var logAnalyticsName = 'log-${suffix}'
@@ -149,10 +163,14 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json('0.5')
             memory: '1Gi'
           }
-          env: [
+          env: concat([
             {
               name: 'ASPNETCORE_URLS'
               value: 'http://+:8080'
+            }
+            {
+              name: 'AllowedHosts'
+              value: apiAllowedHosts
             }
             {
               // EF Core connection string pointing at the PostgreSQL Flexible Server.
@@ -180,7 +198,7 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'Push__FcmServiceAccountJson'
               secretRef: 'fcm-service-account'
             }
-          ]
+          ], corsEnvVars)
         }
       ]
       scale: {

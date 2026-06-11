@@ -32,6 +32,10 @@ class SignalRClient extends ChangeNotifier {
   final String _baseUrl;
   final String _deviceId;
 
+  /// This device's UUID — exposed so feature controllers (e.g. chat) can
+  /// determine message direction without a second SecureStorage read.
+  String get deviceId => _deviceId;
+
   HubConnection? _hubConnection;
 
   // -- Broadcast streams for incoming events --------------------------------

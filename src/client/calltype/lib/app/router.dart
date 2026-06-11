@@ -3,7 +3,9 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../core/crypto/key_manager.dart';
+import '../core/crypto/session_manager.dart';
 import '../core/network/api_client.dart';
+import '../core/network/signalr_client.dart';
 import '../core/network/webrtc_manager.dart';
 import '../core/storage/database.dart';
 import '../core/storage/secure_storage.dart';
@@ -11,6 +13,7 @@ import '../features/backup/backup_controller.dart';
 import '../features/backup/backup_settings_screen.dart';
 import '../features/backup/restore_screen.dart';
 import '../features/calls/call_screen.dart';
+import '../features/chat/chat_controller.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/chat_list/chat_list_screen.dart';
 import '../features/contacts/contacts_screen.dart';
@@ -70,7 +73,21 @@ final router = GoRouter(
           path: ':id',
           builder: (context, state) {
             final id = state.pathParameters['id']!;
-            return ChatScreen(contactId: id);
+            // ChatController is scoped to this route — it subscribes to the
+            // SignalR message stream for ONE conversation and must cancel
+            // that subscription when the user navigates away (auto-dispose
+            // via ChangeNotifierProvider).
+            return ChangeNotifierProvider(
+              create: (ctx) => ChatController(
+                database: ctx.read<AppDatabase>(),
+                signalRClient: ctx.read<SignalRClient>(),
+                sessionManager: ctx.read<SessionManager>(),
+                apiClient: ctx.read<ApiClient>(),
+                conversationId: id,
+                myDeviceId: ctx.read<SignalRClient>().deviceId,
+              ),
+              child: ChatScreen(contactId: id),
+            );
           },
         ),
       ],
