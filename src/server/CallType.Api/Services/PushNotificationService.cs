@@ -7,17 +7,18 @@
 // controls how to display it — the server knows nothing about message content
 // because of E2E encryption.
 //
-// Uses the FCM legacy HTTP API for simplicity in the MVP. The legacy API
-// requires only a server key (no OAuth2 service account), which keeps
-// deployment simple. Can be upgraded to FCM HTTP v1 later for features
-// like topic messaging and analytics.
+// Uses the FCM HTTP v1 API (https://fcm.googleapis.com/v1/.../messages:send)
+// authenticated with OAuth2 access tokens from FcmTokenProvider. The legacy
+// server-key API this service originally targeted was shut down by Google in
+// June 2024 and must not be used.
 //
-// The service is registered as a singleton because it is stateless — it reads
-// config once and uses IHttpClientFactory for pooled connections. It takes
-// IServiceScopeFactory to create short-lived DbContext scopes for device
-// lookups, avoiding the scoped-in-singleton anti-pattern.
+// The service is registered as a singleton because it is stateless — it uses
+// IHttpClientFactory for pooled connections and IServiceScopeFactory to create
+// short-lived DbContext scopes for device lookups, avoiding the
+// scoped-in-singleton anti-pattern.
 // ---------------------------------------------------------------------------
 
+using System.Net;
 using Microsoft.EntityFrameworkCore;
 using CallType.Api.Data;
 
@@ -27,19 +28,19 @@ public class PushNotificationService
 {
     private readonly IHttpClientFactory _httpFactory;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly FcmTokenProvider _fcmTokens;
     private readonly ILogger<PushNotificationService> _logger;
-    private readonly string? _fcmServerKey;
 
     public PushNotificationService(
         IHttpClientFactory httpFactory,
         IServiceScopeFactory scopeFactory,
-        IConfiguration config,
+        FcmTokenProvider fcmTokens,
         ILogger<PushNotificationService> logger)
     {
         _httpFactory = httpFactory;
         _scopeFactory = scopeFactory;
+        _fcmTokens = fcmTokens;
         _logger = logger;
-        _fcmServerKey = config["Push:FcmServerKey"];
     }
 
     /// <summary>
@@ -64,7 +65,7 @@ public class PushNotificationService
         switch (device.PushPlatform)
         {
             case "fcm":
-                await SendFcmAsync(device.PushToken);
+                await SendFcmAsync(db, recipientDeviceId, device.PushToken);
                 break;
             case "apns":
                 // APNs HTTP/2 push requires an Apple auth key (.p8) and team ID.
@@ -83,43 +84,67 @@ public class PushNotificationService
     }
 
     /// <summary>
-    /// Sends a data-only FCM message via the legacy HTTP API.
+    /// Sends a data-only FCM message via the HTTP v1 API.
     /// Data-only (no "notification" block) means the message is always delivered
     /// to the app's message handler — even in the foreground. The client decides
     /// whether and how to show a local notification.
     /// </summary>
-    private async Task SendFcmAsync(string token)
+    private async Task SendFcmAsync(AppDbContext db, Guid deviceId, string token)
     {
-        if (string.IsNullOrEmpty(_fcmServerKey))
+        if (!_fcmTokens.IsConfigured)
         {
-            _logger.LogWarning("FCM server key not configured (Push:FcmServerKey), skipping push");
+            _logger.LogWarning(
+                "FCM service account not configured (Push:FcmServiceAccountJson), skipping push");
             return;
         }
 
         try
         {
+            var accessToken = await _fcmTokens.GetAccessTokenAsync();
+
             var client = _httpFactory.CreateClient();
-            client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"key={_fcmServerKey}");
+            using var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"https://fcm.googleapis.com/v1/projects/{_fcmTokens.ProjectId}/messages:send");
+            request.Headers.Authorization = new("Bearer", accessToken);
 
             // Data-only message — no "notification" block. This ensures:
             // 1. The app always receives the message in its handler (not the system tray)
             // 2. The client controls display, which matters for E2E encrypted content
             //    where the server has no plaintext to put in a notification body.
-            var payload = new
+            request.Content = JsonContent.Create(new
             {
-                to = token,
-                data = new { type = "new_message" }
-            };
+                message = new
+                {
+                    token,
+                    data = new { type = "new_message" }
+                }
+            });
 
-            var response = await client.PostAsJsonAsync(
-                "https://fcm.googleapis.com/fcm/send",
-                payload);
+            using var response = await client.SendAsync(request);
 
-            if (!response.IsSuccessStatusCode)
+            if (response.StatusCode == HttpStatusCode.NotFound)
             {
+                // HTTP v1 returns 404 UNREGISTERED when the token is no longer
+                // valid (app uninstalled, token rotated). Clear it so we stop
+                // burning requests on a dead token — the client re-registers a
+                // fresh token on next startup anyway.
+                _logger.LogInformation(
+                    "FCM token for device {DeviceId} is no longer registered, clearing it",
+                    deviceId);
+
+                await db.Devices
+                    .Where(d => d.DeviceId == deviceId)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(d => d.PushToken, (string?)null)
+                        .SetProperty(d => d.PushPlatform, (string?)null));
+            }
+            else if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
                 _logger.LogWarning(
-                    "FCM push failed with status {StatusCode}",
-                    response.StatusCode);
+                    "FCM push failed with status {StatusCode}: {Body}",
+                    (int)response.StatusCode, body);
             }
         }
         catch (Exception ex)

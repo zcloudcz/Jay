@@ -30,7 +30,7 @@ A WhatsApp-like messaging app with strong privacy:
 | **STUN/TURN** | DeskShare.Stun + DeskShare.Turn from `C:\GIT\ZCLOUD\RemoteDesktopNet` |
 | **File storage** | Azure Blob Storage (encrypted attachments + backups) |
 | **Hosting** | Azure Container Apps |
-| **Push** | FCM (Android) + APNs (iOS) |
+| **Push** | FCM HTTP v1 (Android/Web) + APNs (iOS — not implemented yet) |
 
 ## Project structure
 
@@ -77,6 +77,15 @@ dart run build_runner build --delete-conflicting-outputs
 flutter test
 flutter run -d chrome
 ```
+
+### Push notifications (FCM)
+
+Server push uses the **FCM HTTP v1 API** (the legacy server-key API was shut
+down by Google in June 2024). Configuration: put the *entire* Firebase service
+account JSON (Firebase console → Project settings → Service accounts) into
+`Push:FcmServiceAccountJson` (env: `Push__FcmServiceAccountJson`). Empty =
+push disabled, messages still delivered via store-and-forward on next connect.
+APNs (iOS) is a known gap — `PushNotificationService` logs and skips it.
 
 ### EF Core migrations
 ```bash

@@ -5,7 +5,7 @@
 // push tokens. Since we cannot call the real FCM API in tests, we verify:
 // 1. The service resolves the device from the DB correctly.
 // 2. It handles missing devices, null tokens, and unknown platforms gracefully.
-// 3. It skips push when the FCM server key is not configured (default in tests).
+// 3. It skips push when the FCM service account is not configured (default in tests).
 //
 // The actual HTTP call to FCM is not tested here — that would require mocking
 // the HttpClient pipeline or a fake FCM endpoint, which adds complexity for
@@ -62,9 +62,9 @@ public class PushNotificationServiceTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task SendPushAsync_does_not_throw_when_fcm_key_not_configured()
+    public async Task SendPushAsync_does_not_throw_when_fcm_not_configured()
     {
-        // The test environment has no Push:FcmServerKey configured.
+        // The test environment has no Push:FcmServiceAccountJson configured.
         // The service should log a warning and return without throwing.
         var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
 
@@ -80,10 +80,11 @@ public class PushNotificationServiceTests : IntegrationTestBase
 
         var pushService = GetPushService();
 
-        // Act & Assert — FCM key is empty, so SendFcmAsync should return early.
+        // Act & Assert — no service account configured, so SendFcmAsync
+        // should return early.
         var act = () => pushService.SendPushAsync(deviceId);
         await act.Should().NotThrowAsync(
-            "push should gracefully handle missing FCM server key");
+            "push should gracefully handle a missing FCM service account");
     }
 
     [Fact]

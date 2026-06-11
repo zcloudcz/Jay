@@ -39,6 +39,10 @@ param jwtSecret string
 @secure()
 param turnSharedSecret string
 
+@description('Firebase service account JSON for FCM HTTP v1 push (optional, empty = push disabled)')
+@secure()
+param fcmServiceAccountJson string = ''
+
 @description('Custom domain for the API (optional, empty = use default ACA domain)')
 param customDomain string = ''
 
@@ -109,6 +113,12 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'turn-secret'
           value: turnSharedSecret
         }
+        {
+          // Whole Firebase service account JSON as one secret — the API parses
+          // client_email/private_key/project_id out of it. Empty = push disabled.
+          name: 'fcm-service-account'
+          value: fcmServiceAccountJson
+        }
       ]
       // External ingress — the API is publicly accessible.
       ingress: {
@@ -165,6 +175,10 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'Turn__SharedSecret'
               secretRef: 'turn-secret'
+            }
+            {
+              name: 'Push__FcmServiceAccountJson'
+              secretRef: 'fcm-service-account'
             }
           ]
         }

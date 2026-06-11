@@ -43,7 +43,10 @@ builder.Services.AddScoped<MessageQueueService>();
 // PushNotificationService is a singleton — it is stateless (reads config once)
 // and uses IServiceScopeFactory to create short-lived DbContext scopes for
 // device lookups. IHttpClientFactory provides pooled HttpClient instances.
+// FcmTokenProvider is a singleton because it caches the OAuth2 access token
+// for the FCM HTTP v1 API across all push sends (tokens are valid ~1 hour).
 builder.Services.AddHttpClient();
+builder.Services.AddSingleton<FcmTokenProvider>();
 builder.Services.AddSingleton<PushNotificationService>();
 
 // TurnCredentialService is a singleton — it is stateless (reads config once,
