@@ -25,7 +25,7 @@ A WhatsApp-like messaging app with strong privacy:
 | **Real-time** | SignalR (WebSocket) |
 | **Database (server)** | PostgreSQL via EF Core (Npgsql) |
 | **Database (client)** | SQLite + SQLCipher via drift |
-| **E2EE** | Signal Protocol — libsignal (Rust) via FFI (mobile) / WASM (web) |
+| **E2EE** | Simplified Signal Protocol in pure Dart (`cryptography` package): X25519 + HKDF + AES-256-GCM. Full Double Ratchet planned (Phase 4) |
 | **Voice/Video** | WebRTC (`flutter_webrtc`) |
 | **STUN/TURN** | DeskShare.Stun + DeskShare.Turn from `C:\GIT\ZCLOUD\RemoteDesktopNet` |
 | **File storage** | Azure Blob Storage (encrypted attachments + backups) |
@@ -51,13 +51,12 @@ CallType/
 │   │   │   └── Migrations/                     # EF Core migrations
 │   │   └── CallType.Api.Tests/                 # Integration tests (Testcontainers)
 │   └── client/calltype/                        # Flutter app
-│       ├── lib/
-│       │   ├── core/crypto/                    # E2EE (libsignal wrapper)
-│       │   ├── core/network/                   # API client, SignalR, WebRTC
-│       │   ├── core/storage/                   # SQLCipher DB, secure storage
-│       │   ├── features/                       # Feature-first UI modules
-│       │   └── shared/                         # Reusable widgets, models
-│       └── native/libsignal/                   # Rust FFI bridge
+│       └── lib/
+│           ├── core/crypto/                    # E2EE (pure Dart, `cryptography` pkg)
+│           ├── core/network/                   # API client, SignalR, WebRTC
+│           ├── core/storage/                   # SQLCipher DB, secure storage
+│           ├── features/                       # Feature-first UI modules
+│           └── shared/                         # Reusable widgets, models
 └── CallType.sln
 ```
 
@@ -145,8 +144,12 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 
 1. **Store-and-forward model** — server holds encrypted messages until
    delivered (max 30 days), then deletes. Not permanent storage.
-2. **Signal Protocol for E2EE** — X3DH key agreement + Double Ratchet for
-   forward secrecy. Sender Keys for group chat.
+2. **Simplified Signal Protocol for E2EE** — X3DH-style key agreement (X25519)
+   + symmetric chain-key ratchet with AES-256-GCM, implemented in pure Dart
+   (`cryptography` package). **Known limitation:** no DH (Double) Ratchet yet —
+   forward secrecy after a chain-key compromise is limited. Full Double Ratchet
+   and Sender Keys for groups are planned (Phase 4). Document this honestly
+   anywhere user-facing.
 3. **Anonymous identity** — device generates UUID + key pair. User Handle
    (`CT-XXXX-XXXX`) for human-readable discovery. QR code for contact exchange.
 4. **Backup encryption** — independent passphrase-derived key (Argon2id).
