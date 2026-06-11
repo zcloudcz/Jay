@@ -9,16 +9,19 @@ import '../../core/crypto/session_manager.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/signalr_client.dart';
 import '../../core/storage/database.dart';
+import 'message_inbox_service.dart';
 
-/// Manages state for a single conversation — loads messages from DB,
-/// listens for incoming messages via SignalR, and sends new messages.
+/// Manages state for a single conversation — loads messages from DB and
+/// sends new messages.
 ///
-/// Bridges the local database (source of truth for message history) with
-/// the real-time SignalR transport. The flow is:
+/// The flow is:
 ///   1. User sends message → store locally with status 'sending'
 ///   2. Encrypt via [SessionManager] → send via SignalR
 ///   3. Update status to 'sent' on success / 'failed' on error
-///   4. Incoming message via SignalR → decrypt → store in DB → reload list
+///   4. Incoming messages are decrypted + persisted by the app-wide
+///      [MessageInboxService] (so nothing is lost while this screen is
+///      closed); this controller only listens to its [persistedMessages]
+///      stream and reloads the visible list.
 ///
 /// Session establishment happens lazily on first send: if no E2E session
 /// exists with the peer, we fetch their key bundle from the API and perform
@@ -33,6 +36,7 @@ class ChatController extends ChangeNotifier {
     required AppDatabase database,
     required SignalRClient signalRClient,
     required SessionManager sessionManager,
+    required MessageInboxService inbox,
     required ApiClient apiClient,
     required this.conversationId,
     required this.myDeviceId,
@@ -41,7 +45,10 @@ class ChatController extends ChangeNotifier {
         _sessionManager = sessionManager,
         _apiClient = apiClient {
     _loadMessages();
-    _listenForIncoming();
+    _listenForIncoming(inbox);
+    // Opening the chat means the user is reading it — clear the unread
+    // badge that the inbox service has been incrementing.
+    _markConversationRead();
   }
 
   final AppDatabase _db;
@@ -56,7 +63,7 @@ class ChatController extends ChangeNotifier {
   /// and as the senderId for outgoing messages.
   final String myDeviceId;
 
-  StreamSubscription<Map<String, dynamic>>? _messageSubscription;
+  StreamSubscription<Message>? _messageSubscription;
 
   /// Current message list, ordered newest-first (for reversed ListView).
   List<Message> get messages => List.unmodifiable(_messages);
@@ -82,74 +89,28 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Subscribes to the SignalR message stream and processes incoming messages.
+  /// Subscribes to the inbox's persisted-message stream and reloads the
+  /// visible list when a message for THIS conversation lands in the DB.
   ///
-  /// Only processes messages that belong to this conversation. Incoming
-  /// encrypted bodies are decrypted via [SessionManager] before storage.
-  /// If decryption fails (no session, tampered data), the encrypted body
-  /// is stored as-is with a "[encrypted]" prefix so the user sees something
-  /// rather than nothing.
-  void _listenForIncoming() {
-    _messageSubscription = _signalR.onMessage.listen((data) async {
-      final senderId = data['senderId']?.toString();
-      if (senderId == null) return;
-
-      // For direct chats, the conversationId is the peer's deviceId.
-      // For group chats, it would be the groupId from the payload.
-      final incomingConversationId =
-          data['groupId']?.toString() ?? senderId;
-
-      // Only process messages for THIS conversation — other conversations
-      // have their own ChatController instances.
-      if (incomingConversationId != conversationId) return;
-
-      final encryptedBody = data['encryptedBody']?.toString() ?? '';
-
-      // Attempt to decrypt the incoming message body. The transport carries
-      // base64(UTF-8 JSON envelope); SessionManager handles the envelope —
-      // including establishing a brand-new session when this is the peer's
-      // first (pre-key) message to us.
-      // Falls back to storing the raw encrypted data if decryption fails —
-      // this can happen if the session was lost (e.g. app reinstall) or
-      // if the message was corrupted in transit.
-      String decryptedBody;
-      try {
-        final envelopeJson = utf8.decode(base64Decode(encryptedBody));
-        decryptedBody = await _sessionManager.decryptMessage(
-          senderId,
-          envelopeJson,
-        );
-      } catch (_) {
-        // Decryption failed — store a placeholder. The user can see that
-        // a message arrived but can't read it. A re-keying flow (future
-        // feature) would resolve this by re-establishing the session.
-        decryptedBody = '[encrypted] $encryptedBody';
-      }
-
-      final message = MessagesCompanion.insert(
-        id: _uuid.v4(),
-        conversationId: conversationId,
-        senderId: senderId,
-        body: Value(decryptedBody),
-        status: const Value('delivered'),
-        createdAt: DateTime.now(),
-        receivedAt: Value(DateTime.now()),
-      );
-
-      await _db.into(_db.messages).insert(message);
-
-      // Update the conversation's last message timestamp so the chat list
-      // sorts correctly without a separate refresh.
-      await (_db.update(_db.conversations)
-            ..where((c) => c.id.equals(conversationId)))
-          .write(ConversationsCompanion(
-        lastMessageAt: Value(DateTime.now()),
-        // Increment unread count — the chat list screen resets it when opened.
-        unreadCount: const Value(1),
-      ));
+  /// Decryption and persistence already happened in [MessageInboxService] —
+  /// re-doing either here would double-process every message.
+  void _listenForIncoming(MessageInboxService inbox) {
+    _messageSubscription = inbox.persistedMessages.listen((message) async {
+      // Other conversations have their own ChatController instances.
+      if (message.conversationId != conversationId) return;
 
       await _loadMessages();
+      // The user is looking at this chat, so the message the inbox just
+      // counted as unread has effectively been read already.
+      await _markConversationRead();
     });
+  }
+
+  /// Clears the unread badge for this conversation.
+  Future<void> _markConversationRead() async {
+    await (_db.update(_db.conversations)
+          ..where((c) => c.id.equals(conversationId)))
+        .write(const ConversationsCompanion(unreadCount: Value(0)));
   }
 
   /// Sends a text message in this conversation.

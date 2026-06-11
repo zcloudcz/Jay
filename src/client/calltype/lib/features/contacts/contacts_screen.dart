@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../shared/widgets/avatar.dart';
+import '../chat_list/chat_list_controller.dart';
 import 'contacts_controller.dart';
 import 'qr_scanner_screen.dart';
 
@@ -209,7 +210,18 @@ class _ContactTile extends StatelessWidget {
               size: 20,
             )
           : null,
-      onTap: () => context.push('/chats/${contact.deviceId}'),
+      onTap: () async {
+        // Make sure the conversation row exists BEFORE opening the chat —
+        // sending and the chat list both rely on it (messages would send
+        // fine without it, but the conversation would never appear in
+        // the list).
+        await context
+            .read<ChatListController>()
+            .createDirectConversation(contact.deviceId);
+        if (context.mounted) {
+          context.push('/chats/${contact.deviceId}');
+        }
+      },
     );
   }
 }

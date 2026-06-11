@@ -11,6 +11,7 @@ import 'core/network/signalr_client.dart';
 import 'core/network/webrtc_manager.dart';
 import 'core/storage/database.dart';
 import 'core/storage/secure_storage.dart';
+import 'features/chat/message_inbox_service.dart';
 import 'features/chat_list/chat_list_controller.dart';
 import 'features/contacts/contacts_controller.dart';
 
@@ -50,6 +51,17 @@ void main() async {
   final keyManager = KeyManager(secureStorage: secureStorage);
   final sessionManager = SessionManager(database: db, keyManager: keyManager);
 
+  // App-wide inbox: decrypts + persists EVERY incoming message, even when
+  // no chat screen is open. Must start before SignalR connects — the server
+  // flushes queued (offline) messages immediately on connect and deletes
+  // them after delivery, so a late subscriber would lose them permanently.
+  final inbox = MessageInboxService(
+    database: db,
+    sessionManager: sessionManager,
+    incomingMessages: signalRClient.onMessage,
+  );
+  inbox.start();
+
   // Initialize push notifications if the device is registered.
   // Fire-and-forget — push is best-effort and must never block app startup.
   // If Firebase is not configured (no google-services.json / GoogleService-Info.plist),
@@ -69,6 +81,7 @@ void main() async {
         Provider.value(value: secureStorage),
         Provider.value(value: keyManager),
         Provider.value(value: sessionManager),
+        Provider.value(value: inbox),
 
         // -- Network providers (ChangeNotifier-based) -----------------------
         // SignalR and WebRTC are ChangeNotifiers so UI can react to

@@ -1,11 +1,8 @@
 import 'dart:convert';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:calltype/core/crypto/key_manager.dart';
-import 'package:calltype/core/crypto/session_manager.dart';
-import 'package:calltype/core/storage/database.dart';
-import 'package:calltype/core/storage/secure_storage.dart';
+
+import '../../helpers/test_device.dart';
 
 /// End-to-end tests of the X3DH + Double Ratchet implementation.
 ///
@@ -16,12 +13,12 @@ import 'package:calltype/core/storage/secure_storage.dart';
 /// the JSON envelopes [SessionManager.encryptMessage] produces, so these
 /// tests cover the real wire format end to end.
 void main() {
-  late _Device alice;
-  late _Device bob;
+  late TestDevice alice;
+  late TestDevice bob;
 
   setUp(() async {
-    alice = await _Device.create('alice');
-    bob = await _Device.create('bob');
+    alice = await TestDevice.create('alice');
+    bob = await TestDevice.create('bob');
   });
 
   tearDown(() async {
@@ -78,7 +75,7 @@ void main() {
       // Simulate an attacker replaying the captured initial message to a
       // Bob that lost his session (fresh DB) — the one-time pre-key was
       // already consumed, so establishment must fail.
-      final bobReinstalled = await _Device.createWithSecureStorage(
+      final bobReinstalled = await TestDevice.createWithSecureStorage(
         'bob',
         bob.secureStorage,
       );
@@ -88,7 +85,7 @@ void main() {
         throwsStateError,
       );
 
-      await bobReinstalled.close(closeSecureStorage: false);
+      await bobReinstalled.close();
     });
 
     test('normal message without an existing session is rejected', () async {
@@ -102,7 +99,7 @@ void main() {
 
       // ...then a normal (non-pre-key) message hits a device with no session.
       final normal = await alice.sessions.encryptMessage(bob.id, 'three');
-      final stranger = await _Device.create('stranger');
+      final stranger = await TestDevice.create('stranger');
 
       await expectLater(
         stranger.sessions.decryptMessage(alice.id, normal),
@@ -278,80 +275,4 @@ void main() {
       );
     });
   });
-}
-
-// ===========================================================================
-// Test doubles
-// ===========================================================================
-
-/// A complete simulated device: in-memory DB, in-memory secure storage,
-/// real KeyManager and SessionManager.
-class _Device {
-  _Device._(this.id, this._db, this.secureStorage, this.keys, this.sessions);
-
-  final String id;
-  final AppDatabase _db;
-  final SecureStorage secureStorage;
-  final KeyManager keys;
-  final SessionManager sessions;
-
-  static Future<_Device> create(String id) =>
-      createWithSecureStorage(id, _InMemorySecureStorage());
-
-  /// Variant reusing existing secure storage — simulates an app reinstall
-  /// where the keychain survives but the database does not.
-  static Future<_Device> createWithSecureStorage(
-    String id,
-    SecureStorage secureStorage,
-  ) async {
-    final db = AppDatabase.forTesting(NativeDatabase.memory());
-    final keys = KeyManager(secureStorage: secureStorage);
-    final sessions = SessionManager(database: db, keyManager: keys);
-    final device = _Device._(id, db, secureStorage, keys, sessions);
-    // Pre-generate all key material, as onboarding does on a real device.
-    await keys.getOrCreateIdentityKeyPair();
-    await keys.getOrCreateSignedPreKey();
-    await keys.getOrCreateOneTimePreKeys();
-    return device;
-  }
-
-  /// Builds the key bundle the server would serve for this device,
-  /// consuming one one-time pre-key like the real endpoint does.
-  Future<Map<String, dynamic>> keyBundle({bool includeOneTime = true}) async {
-    final identityKey = await keys.getPublicIdentityKey();
-    final signedPreKey = await keys.getOrCreateSignedPreKey();
-
-    Map<String, dynamic>? oneTime;
-    if (includeOneTime) {
-      final all = await keys.getOrCreateOneTimePreKeys();
-      final first = all.first;
-      oneTime = {'keyId': first['keyId'], 'publicKey': first['publicKey']};
-    }
-
-    return {
-      'identityKey': identityKey,
-      'signedPreKey': signedPreKey['publicKey'],
-      'oneTimePreKey': ?oneTime,
-    };
-  }
-
-  Future<void> close({bool closeSecureStorage = true}) async {
-    await _db.close();
-  }
-}
-
-/// In-memory SecureStorage — KeyManager's only dependency. The real one
-/// uses platform channels (Keychain/Keystore) which don't exist in unit
-/// tests; a plain map preserves the same read/write/delete semantics.
-class _InMemorySecureStorage extends SecureStorage {
-  final Map<String, String> _values = {};
-
-  @override
-  Future<String?> read(String key) async => _values[key];
-
-  @override
-  Future<void> write(String key, String value) async => _values[key] = value;
-
-  @override
-  Future<void> delete(String key) async => _values.remove(key);
 }

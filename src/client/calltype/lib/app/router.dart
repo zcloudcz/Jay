@@ -15,6 +15,7 @@ import '../features/backup/restore_screen.dart';
 import '../features/calls/call_screen.dart';
 import '../features/chat/chat_controller.dart';
 import '../features/chat/chat_screen.dart';
+import '../features/chat/message_inbox_service.dart';
 import '../features/chat_list/chat_list_screen.dart';
 import '../features/contacts/contacts_screen.dart';
 import '../features/contacts/qr_scanner_screen.dart';
@@ -82,6 +83,7 @@ final router = GoRouter(
                 database: ctx.read<AppDatabase>(),
                 signalRClient: ctx.read<SignalRClient>(),
                 sessionManager: ctx.read<SessionManager>(),
+                inbox: ctx.read<MessageInboxService>(),
                 apiClient: ctx.read<ApiClient>(),
                 conversationId: id,
                 myDeviceId: ctx.read<SignalRClient>().deviceId,
