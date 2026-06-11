@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:calltype/core/crypto/key_manager.dart';
 import 'package:calltype/core/network/api_client.dart';
 import 'package:calltype/core/storage/secure_storage.dart';
 import 'package:calltype/features/onboarding/onboarding_controller.dart';
@@ -21,9 +22,11 @@ void main() {
       // internally — this is safe and does not call platform channels.
       // Platform channels are only invoked when read/write/delete are
       // called, which we avoid in these unit tests.
+      final secureStorage = SecureStorage();
       controller = OnboardingController(
         apiClient: ApiClient(baseUrl: 'https://test.calltype.test'),
-        secureStorage: SecureStorage(),
+        secureStorage: secureStorage,
+        keyManager: KeyManager(secureStorage: secureStorage),
       );
     });
 

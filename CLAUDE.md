@@ -25,7 +25,7 @@ A WhatsApp-like messaging app with strong privacy:
 | **Real-time** | SignalR (WebSocket) |
 | **Database (server)** | PostgreSQL via EF Core (Npgsql) |
 | **Database (client)** | SQLite + SQLCipher via drift |
-| **E2EE** | Simplified Signal Protocol in pure Dart (`cryptography` package): X25519 + HKDF + AES-256-GCM. Full Double Ratchet planned (Phase 4) |
+| **E2EE** | Signal Protocol in pure Dart (`cryptography` package): X3DH + full Double Ratchet, X25519 + HKDF + AES-256-GCM |
 | **Voice/Video** | WebRTC (`flutter_webrtc`) |
 | **STUN/TURN** | DeskShare.Stun + DeskShare.Turn from `C:\GIT\ZCLOUD\RemoteDesktopNet` |
 | **File storage** | Azure Blob Storage (encrypted attachments + backups) |
@@ -144,12 +144,13 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 
 1. **Store-and-forward model** — server holds encrypted messages until
    delivered (max 30 days), then deletes. Not permanent storage.
-2. **Simplified Signal Protocol for E2EE** — X3DH-style key agreement (X25519)
-   + symmetric chain-key ratchet with AES-256-GCM, implemented in pure Dart
-   (`cryptography` package). **Known limitation:** no DH (Double) Ratchet yet —
-   forward secrecy after a chain-key compromise is limited. Full Double Ratchet
-   and Sender Keys for groups are planned (Phase 4). Document this honestly
-   anywhere user-facing.
+2. **Signal Protocol for E2EE** — X3DH key agreement + full Double Ratchet
+   in pure Dart (`cryptography` package). The initiator's first messages are
+   pre-key messages carrying the X3DH prologue, so the responder establishes
+   its session from the first incoming message (see `session_manager.dart`
+   for the wire format). **Known limitations:** no header encryption, no
+   signed pre-key signature verification (server doesn't store it), Sender
+   Keys for groups pending. Document limits honestly anywhere user-facing.
 3. **Anonymous identity** — device generates UUID + key pair. User Handle
    (`CT-XXXX-XXXX`) for human-readable discovery. QR code for contact exchange.
 4. **Backup encryption** — independent passphrase-derived key (Argon2id).

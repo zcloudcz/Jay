@@ -23,11 +23,15 @@ class ApiClient {
   /// of one-time pre-keys required for X3DH key agreement. The server
   /// assigns a device UUID and a human-readable handle (CT-XXXX-XXXX).
   ///
+  /// [oneTimePreKeys] items are `{ keyId: int, publicKey: base64 }` — the
+  /// keyId comes back to us later in pre-key messages so we can look up
+  /// the matching private key locally.
+  ///
   /// POST /devices
   Future<Map<String, dynamic>> registerDevice({
     required String identityKey,
     required String signedPreKey,
-    required List<String> oneTimePreKeys,
+    required List<Map<String, dynamic>> oneTimePreKeys,
   }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/devices',

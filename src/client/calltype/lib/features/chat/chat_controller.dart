@@ -5,7 +5,6 @@ import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../core/crypto/key_manager.dart';
 import '../../core/crypto/session_manager.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/signalr_client.dart';
@@ -34,14 +33,12 @@ class ChatController extends ChangeNotifier {
     required AppDatabase database,
     required SignalRClient signalRClient,
     required SessionManager sessionManager,
-    required KeyManager keyManager,
     required ApiClient apiClient,
     required this.conversationId,
     required this.myDeviceId,
   })  : _db = database,
         _signalR = signalRClient,
         _sessionManager = sessionManager,
-        _keyManager = keyManager,
         _apiClient = apiClient {
     _loadMessages();
     _listenForIncoming();
@@ -50,7 +47,6 @@ class ChatController extends ChangeNotifier {
   final AppDatabase _db;
   final SignalRClient _signalR;
   final SessionManager _sessionManager;
-  final KeyManager _keyManager;
   final ApiClient _apiClient;
 
   /// The conversation this controller manages.
@@ -109,16 +105,19 @@ class ChatController extends ChangeNotifier {
 
       final encryptedBody = data['encryptedBody']?.toString() ?? '';
 
-      // Attempt to decrypt the incoming message body.
+      // Attempt to decrypt the incoming message body. The transport carries
+      // base64(UTF-8 JSON envelope); SessionManager handles the envelope —
+      // including establishing a brand-new session when this is the peer's
+      // first (pre-key) message to us.
       // Falls back to storing the raw encrypted data if decryption fails —
       // this can happen if the session was lost (e.g. app reinstall) or
       // if the message was corrupted in transit.
       String decryptedBody;
       try {
-        final encryptedBytes = Uint8List.fromList(base64Decode(encryptedBody));
+        final envelopeJson = utf8.decode(base64Decode(encryptedBody));
         decryptedBody = await _sessionManager.decryptMessage(
           senderId,
-          encryptedBytes,
+          envelopeJson,
         );
       } catch (_) {
         // Decryption failed — store a placeholder. The user can see that
@@ -193,15 +192,16 @@ class ChatController extends ChangeNotifier {
       // key bundle and perform X3DH to establish one.
       await _ensureSession(conversationId);
 
-      // Encrypt the message with the session's current chain key.
-      final encrypted = await _sessionManager.encryptMessage(
+      // Encrypt the message — returns a JSON envelope with the Double
+      // Ratchet header and ciphertext.
+      final envelope = await _sessionManager.encryptMessage(
         conversationId,
         text,
       );
 
-      // Send the encrypted bytes as base64 — the server treats this as
-      // an opaque blob and never attempts to parse or decrypt it.
-      final encryptedBase64 = base64Encode(encrypted);
+      // Send the envelope as base64(UTF-8 JSON) — the server treats this
+      // as an opaque blob and never attempts to parse or decrypt it.
+      final encryptedBase64 = base64Encode(utf8.encode(envelope));
       await _signalR.sendMessage(conversationId, encryptedBase64);
 
       // Network send succeeded — update status to 'sent'.
@@ -231,13 +231,8 @@ class ChatController extends ChangeNotifier {
     // The server consumes the OTK atomically — subsequent fetches for
     // the same peer return a different OTK (or none if depleted).
     final keyBundle = await _apiClient.getKeyBundle(peerDeviceId);
-    final myPrivateKey = await _keyManager.getPrivateIdentityKey();
 
-    await _sessionManager.initializeSession(
-      peerDeviceId,
-      keyBundle,
-      myPrivateKey,
-    );
+    await _sessionManager.initiateSession(peerDeviceId, keyBundle);
   }
 
   @override

@@ -1,8 +1,6 @@
-import 'dart:convert';
-import 'dart:math';
-
 import 'package:flutter/foundation.dart';
 
+import '../../core/crypto/key_manager.dart';
 import '../../core/network/api_client.dart';
 import '../../core/storage/secure_storage.dart';
 
@@ -15,11 +13,14 @@ class OnboardingController extends ChangeNotifier {
   OnboardingController({
     required ApiClient apiClient,
     required SecureStorage secureStorage,
+    required KeyManager keyManager,
   })  : _apiClient = apiClient,
-        _secureStorage = secureStorage;
+        _secureStorage = secureStorage,
+        _keyManager = keyManager;
 
   final ApiClient _apiClient;
   final SecureStorage _secureStorage;
+  final KeyManager _keyManager;
 
   String? _deviceId;
   String? _userHandle;
@@ -50,32 +51,33 @@ class OnboardingController extends ChangeNotifier {
 
   /// Starts the device registration flow.
   ///
-  /// Generates placeholder cryptographic keys (random 32-byte base64
-  /// strings — real Signal Protocol keys come in Phase 3), uploads them
-  /// to the server, and persists the resulting device ID locally.
-  ///
-  /// The 100 one-time pre-keys follow the Signal Protocol recommendation
-  /// for initial key upload — the server hands one out to each peer that
-  /// wants to start a session, so a large batch reduces how often we need
-  /// to replenish.
+  /// Generates the device's REAL cryptographic key material via [KeyManager]
+  /// (X25519 identity key pair, signed pre-key pair, and a batch of one-time
+  /// pre-key pairs), uploads the PUBLIC halves to the server, and persists
+  /// the resulting device ID locally. The private halves never leave the
+  /// device — they stay in platform-secure storage, where the session
+  /// manager finds them when a peer initiates an E2E session with us.
   Future<void> register() async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      final identityKey = _generatePlaceholderKey();
-      final signedPreKey = _generatePlaceholderKey();
-
-      // Generate 100 one-time pre-keys as recommended by Signal Protocol.
-      // Each key is consumed by a single X3DH handshake, so we upload a
-      // large initial batch to avoid immediate replenishment.
-      final oneTimePreKeys = List.generate(100, (_) => _generatePlaceholderKey());
+      final identityKey = await _keyManager.getPublicIdentityKey();
+      final signedPreKey = await _keyManager.getOrCreateSignedPreKey();
+      final oneTimePreKeys = await _keyManager.getOrCreateOneTimePreKeys();
 
       final result = await _apiClient.registerDevice(
         identityKey: identityKey,
-        signedPreKey: signedPreKey,
-        oneTimePreKeys: oneTimePreKeys,
+        signedPreKey: signedPreKey['publicKey'] as String,
+        // Upload only keyId + public half — see KeyManager docs.
+        oneTimePreKeys: [
+          for (final preKey in oneTimePreKeys)
+            {
+              'keyId': preKey['keyId'],
+              'publicKey': preKey['publicKey'],
+            },
+        ],
       );
 
       _deviceId = result['deviceId'] as String;
@@ -91,16 +93,5 @@ class OnboardingController extends ChangeNotifier {
       _error = e.toString();
       notifyListeners();
     }
-  }
-
-  /// Generates a random 32-byte base64-encoded string as a placeholder key.
-  ///
-  /// These are NOT real cryptographic keys — they exist solely to exercise
-  /// the registration API and key upload flow. Phase 3 replaces this with
-  /// actual libsignal key generation.
-  static String _generatePlaceholderKey() {
-    final rng = Random.secure();
-    final bytes = List<int>.generate(32, (_) => rng.nextInt(256));
-    return base64Encode(bytes);
   }
 }

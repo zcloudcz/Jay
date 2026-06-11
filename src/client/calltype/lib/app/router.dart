@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../core/crypto/key_manager.dart';
 import '../core/network/api_client.dart';
 import '../core/network/webrtc_manager.dart';
 import '../core/storage/database.dart';
@@ -53,6 +54,9 @@ final router = GoRouter(
           create: (ctx) => OnboardingController(
             apiClient: ctx.read<ApiClient>(),
             secureStorage: ctx.read<SecureStorage>(),
+            // KeyManager is cheap to construct — it's a thin wrapper over
+            // SecureStorage, so a route-scoped instance is fine here.
+            keyManager: KeyManager(secureStorage: ctx.read<SecureStorage>()),
           ),
           child: const OnboardingScreen(),
         );

@@ -204,9 +204,19 @@ class SignalProtocol {
   /// Returns [nonce (12 bytes)][ciphertext][GCM tag (16 bytes)].
   /// The nonce is randomly generated per message — reusing a nonce with
   /// the same key would completely break GCM's security guarantees.
-  static Future<Uint8List> encrypt(List<int> key, List<int> plaintext) async {
+  ///
+  /// [aad] (additional authenticated data) is authenticated but not
+  /// encrypted. The Double Ratchet passes the message header here so a
+  /// tampered header (e.g. swapped ratchet key or message number) fails
+  /// authentication even though the header itself travels in plaintext.
+  static Future<Uint8List> encrypt(
+    List<int> key,
+    List<int> plaintext, {
+    List<int> aad = const [],
+  }) async {
     final secretKey = SecretKey(key);
-    final secretBox = await aesGcm.encrypt(plaintext, secretKey: secretKey);
+    final secretBox =
+        await aesGcm.encrypt(plaintext, secretKey: secretKey, aad: aad);
     return Uint8List.fromList([
       ...secretBox.nonce,
       ...secretBox.cipherText,
@@ -218,9 +228,14 @@ class SignalProtocol {
   ///
   /// Expects the format produced by [encrypt]:
   /// [nonce (12 bytes)][ciphertext][GCM tag (16 bytes)].
-  /// Throws [SecretBoxAuthenticationError] if the ciphertext or tag
-  /// has been tampered with — GCM is authenticated encryption.
-  static Future<List<int>> decrypt(List<int> key, Uint8List encrypted) async {
+  /// [aad] must match the value passed to [encrypt] byte-for-byte.
+  /// Throws [SecretBoxAuthenticationError] if the ciphertext, tag, or
+  /// AAD has been tampered with — GCM is authenticated encryption.
+  static Future<List<int>> decrypt(
+    List<int> key,
+    Uint8List encrypted, {
+    List<int> aad = const [],
+  }) async {
     // AES-GCM nonce is always 12 bytes; GCM tag is always 16 bytes.
     final nonce = encrypted.sublist(0, 12);
     final ciphertext = encrypted.sublist(12, encrypted.length - 16);
@@ -228,7 +243,18 @@ class SignalProtocol {
 
     final secretKey = SecretKey(key);
     final secretBox = SecretBox(ciphertext, nonce: nonce, mac: mac);
-    return aesGcm.decrypt(secretBox, secretKey: secretKey);
+    return aesGcm.decrypt(secretBox, secretKey: secretKey, aad: aad);
+  }
+
+  /// HMAC-SHA256 — the KDF_CK primitive of the Double Ratchet.
+  ///
+  /// The Signal spec advances chain keys with constant-input HMAC instead
+  /// of HKDF: messageKey = HMAC(chainKey, 0x01), nextChainKey =
+  /// HMAC(chainKey, 0x02). The two constant bytes provide domain separation
+  /// so a message key can never collide with a chain key.
+  static Future<List<int>> hmacSha256(List<int> key, List<int> data) async {
+    final mac = await Hmac.sha256().calculateMac(data, secretKey: SecretKey(key));
+    return mac.bytes;
   }
 
   /// Produces a cryptographically secure random byte sequence as base64.
