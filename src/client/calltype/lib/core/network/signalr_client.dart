@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:signalr_netcore/signalr_client.dart';
 
+import '../auth/auth_service.dart';
+
 /// Manages the SignalR connection to the CallType backend hub.
 ///
 /// Provides typed methods for every hub operation (send message, typing,
@@ -26,11 +28,14 @@ class SignalRClient extends ChangeNotifier {
   SignalRClient({
     required String baseUrl,
     required String deviceId,
+    AuthService? authService,
   })  : _baseUrl = baseUrl,
-        _deviceId = deviceId;
+        _deviceId = deviceId,
+        _authService = authService;
 
   final String _baseUrl;
   final String _deviceId;
+  final AuthService? _authService;
 
   /// This device's UUID — exposed so feature controllers (e.g. chat) can
   /// determine message direction without a second SecureStorage read.
@@ -68,10 +73,24 @@ class SignalRClient extends ChangeNotifier {
   /// connection. Queued messages are delivered by the server automatically
   /// on connect via the ReceiveMessage callback.
   Future<void> connect() async {
-    // Build the hub connection. The deviceId query parameter is how the
-    // server maps this connection to our device — see MessengerHub.OnConnectedAsync.
+    // The hub is protected by [Authorize] on the server. WebSockets cannot
+    // carry custom HTTP headers, so SignalR passes the JWT as the
+    // `access_token` query parameter — the server moves it into the auth
+    // pipeline in JwtBearerEvents.OnMessageReceived (see Program.cs).
+    // The factory is consulted on every (re)connect, so an expired token
+    // is transparently replaced after long offline periods.
+    final authService = _authService;
+    final options = authService == null
+        ? HttpConnectionOptions()
+        : HttpConnectionOptions(
+            accessTokenFactory: () async => await authService.getToken() ?? '',
+          );
+
+    // Build the hub connection. The deviceId query parameter is kept for
+    // server log correlation — the device identity itself is derived from
+    // JWT claims on the server (MessengerHub.GetDeviceId).
     _hubConnection = HubConnectionBuilder()
-        .withUrl('$_baseUrl/hub?deviceId=$_deviceId')
+        .withUrl('$_baseUrl/hub?deviceId=$_deviceId', options: options)
         .withAutomaticReconnect(
           // Retry delays in ms: 2s, 5s, 10s, 20s, then give up (null).
           // This matches the server's expected reconnection pattern —

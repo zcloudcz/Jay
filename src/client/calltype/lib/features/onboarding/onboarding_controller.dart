@@ -86,6 +86,14 @@ class OnboardingController extends ChangeNotifier {
       // Persist device ID so the app knows it's provisioned on next launch.
       await _secureStorage.setDeviceId(_deviceId!);
 
+      // Persist the device secret — the server returns it EXACTLY ONCE
+      // (only its hash is stored server-side). It is the credential
+      // AuthService exchanges for JWTs on every API call and SignalR connect.
+      final deviceSecret = result['deviceSecret'] as String?;
+      if (deviceSecret != null) {
+        await _secureStorage.setDeviceSecret(deviceSecret);
+      }
+
       _isLoading = false;
       notifyListeners();
     } catch (e) {

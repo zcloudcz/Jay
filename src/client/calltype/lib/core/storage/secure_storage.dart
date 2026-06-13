@@ -22,6 +22,7 @@ class SecureStorage {
 
   static const _keyDbKey = 'zm_db_key';
   static const _keyDeviceId = 'zm_device_id';
+  static const _keyDeviceSecret = 'zm_device_secret';
   static const _keyPinHash = 'zm_pin_hash';
 
   // -- Database encryption key ---------------------------------------------
@@ -56,6 +57,19 @@ class SecureStorage {
   /// during first launch after the server assigns the device ID.
   Future<void> setDeviceId(String id) =>
       _storage.write(key: _keyDeviceId, value: id);
+
+  /// Retrieves the device secret issued by the server at registration,
+  /// or null if the device has not been provisioned yet.
+  ///
+  /// This is the device's API credential: it is exchanged for short-lived
+  /// JWTs via POST /auth/token. The server only stores its hash, so this
+  /// copy is the only one in existence — losing it means re-registering.
+  Future<String?> getDeviceSecret() => _storage.read(key: _keyDeviceSecret);
+
+  /// Persists the device secret. Called once during registration — the
+  /// server returns the secret exactly once and never again.
+  Future<void> setDeviceSecret(String secret) =>
+      _storage.write(key: _keyDeviceSecret, value: secret);
 
   // -- PIN / biometric lock ------------------------------------------------
 

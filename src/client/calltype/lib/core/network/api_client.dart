@@ -1,17 +1,29 @@
 import 'package:dio/dio.dart';
 
+import '../auth/auth_service.dart';
+
 /// REST client for the CallType backend API.
 ///
 /// Wraps [Dio] to provide typed methods for every server endpoint the
 /// client needs. Each method documents the endpoint it calls and the
 /// shape of its response so callers don't need to guess at JSON keys.
 ///
+/// When an [AuthService] is provided, every request carries the device's
+/// JWT as a Bearer header (all server endpoints except registration,
+/// health, and the auth endpoints themselves require it). A 401 response
+/// triggers ONE forced token refresh + retry — this covers token expiry
+/// between the local freshness check and the server's validation.
+///
 /// The base URL is injected via constructor so the app can point at
 /// different environments (localhost during dev, staging, production)
 /// without rebuilding.
 class ApiClient {
-  ApiClient({required String baseUrl, Dio? dio})
-      : _dio = dio ?? Dio(BaseOptions(baseUrl: baseUrl));
+  ApiClient({required String baseUrl, AuthService? authService, Dio? dio})
+      : _dio = dio ?? Dio(BaseOptions(baseUrl: baseUrl)) {
+    if (authService != null) {
+      _dio.interceptors.add(_AuthInterceptor(authService, _dio));
+    }
+  }
 
   final Dio _dio;
 
@@ -133,5 +145,78 @@ class ApiClient {
       '/devices/$deviceId/push-token',
       data: {'token': token, 'platform': platform},
     );
+  }
+}
+
+/// Dio interceptor that attaches the device JWT and retries once on 401.
+///
+/// Request flow:
+///   - Ask [AuthService] for a token. Null (device not registered yet) means
+///     the request goes out unauthenticated — registration and health checks
+///     must work without credentials.
+///   - On 401: force-refresh the token and replay the request exactly once.
+///     The `_retriedFlag` in request extras prevents infinite retry loops
+///     when credentials are genuinely invalid (e.g. device deleted server-side).
+class _AuthInterceptor extends Interceptor {
+  _AuthInterceptor(this._authService, this._dio);
+
+  final AuthService _authService;
+  final Dio _dio;
+
+  /// Marker in RequestOptions.extra so a replayed request is never
+  /// retried a second time.
+  static const _retriedFlag = 'auth_retried';
+
+  @override
+  Future<void> onRequest(
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) async {
+    // The auth endpoints themselves must never carry a Bearer header —
+    // they ARE the mechanism that issues tokens.
+    if (!options.path.startsWith('/auth/')) {
+      final token = await _authService.getToken();
+      if (token != null) {
+        options.headers['Authorization'] = 'Bearer $token';
+      }
+    }
+    handler.next(options);
+  }
+
+  @override
+  Future<void> onError(
+    DioException err,
+    ErrorInterceptorHandler handler,
+  ) async {
+    final options = err.requestOptions;
+    final alreadyRetried = options.extra[_retriedFlag] == true;
+
+    if (err.response?.statusCode != 401 ||
+        alreadyRetried ||
+        options.path.startsWith('/auth/')) {
+      handler.next(err);
+      return;
+    }
+
+    // The server rejected our token even though the local cache considered
+    // it fresh (clock skew, server restart with new signing key, …).
+    // Refresh once and replay.
+    try {
+      final token = await _authService.getToken(forceRefresh: true);
+      if (token == null) {
+        handler.next(err);
+        return;
+      }
+
+      options.headers['Authorization'] = 'Bearer $token';
+      options.extra[_retriedFlag] = true;
+
+      final response = await _dio.fetch<dynamic>(options);
+      handler.resolve(response);
+    } on DioException catch (retryErr) {
+      // The retry itself failed — surface the NEW error (it carries the
+      // fresher status code / message).
+      handler.next(retryErr);
+    }
   }
 }

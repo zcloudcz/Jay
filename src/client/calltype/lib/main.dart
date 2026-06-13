@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'app/app.dart';
 import 'core/auth/app_lock.dart';
+import 'core/auth/auth_service.dart';
 import 'core/crypto/key_manager.dart';
 import 'core/crypto/session_manager.dart';
 import 'core/network/api_client.dart';
@@ -42,8 +43,19 @@ void main() async {
   const baseUrl = 'http://localhost:5000';
 
   final db = AppDatabase('calltype');
-  final apiClient = ApiClient(baseUrl: baseUrl);
-  final signalRClient = SignalRClient(baseUrl: baseUrl, deviceId: deviceId);
+
+  // AuthService exchanges the device secret (stored at registration) for
+  // short-lived JWTs. ApiClient attaches them as Bearer headers; SignalR
+  // passes them as access_token during the WebSocket handshake. Without
+  // this, every protected endpoint returns 401.
+  final authService = AuthService(secureStorage: secureStorage, baseUrl: baseUrl);
+
+  final apiClient = ApiClient(baseUrl: baseUrl, authService: authService);
+  final signalRClient = SignalRClient(
+    baseUrl: baseUrl,
+    deviceId: deviceId,
+    authService: authService,
+  );
 
   // E2E crypto services. Single instances app-wide: KeyManager wraps secure
   // storage (identity + pre-keys), SessionManager owns Double Ratchet session
@@ -78,6 +90,7 @@ void main() async {
         // ChangeNotifier and have no dispose logic.
         Provider.value(value: db),
         Provider.value(value: apiClient),
+        Provider.value(value: authService),
         Provider.value(value: secureStorage),
         Provider.value(value: keyManager),
         Provider.value(value: sessionManager),
