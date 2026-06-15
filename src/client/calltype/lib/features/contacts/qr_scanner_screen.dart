@@ -5,8 +5,8 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 ///
 /// Scans for QR codes containing the CallType contact URI:
 ///   calltype://contact/{handle}
-/// or the legacy format from OnboardingScreen:
-///   zm://{deviceId}/{handle}
+/// or the device-pairing format from OnboardingScreen:
+///   ct://{deviceId}/{handle}
 ///
 /// When a valid code is detected, the screen pops and returns the
 /// parsed handle string to the caller via Navigator.pop(). The caller
@@ -80,7 +80,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   ///
   /// Supports two URI formats:
   ///   - calltype://contact/{handle} (canonical)
-  ///   - zm://{deviceId}/{handle} (onboarding QR format)
+  ///   - ct://{deviceId}/{handle} (onboarding QR format)
   void _onDetect(BarcodeCapture capture) {
     if (_handled) return;
 
@@ -114,9 +114,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       return {'handle': contactUri.pathSegments.first};
     }
 
-    // Legacy format from OnboardingScreen: zm://{deviceId}/{handle}
-    if (raw.startsWith('zm://')) {
-      final parts = raw.substring('zm://'.length).split('/');
+    // Device-pairing format from OnboardingScreen: ct://{deviceId}/{handle}
+    if (raw.startsWith('ct://')) {
+      final parts = raw.substring('ct://'.length).split('/');
       if (parts.length >= 2) {
         return {'deviceId': parts[0], 'handle': parts[1]};
       }

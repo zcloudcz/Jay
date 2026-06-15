@@ -233,8 +233,8 @@ AuthService _authServiceReturning(String token) => AuthService(
     );
 
 _InMemorySecureStorage _registeredStorage() => _InMemorySecureStorage()
-  ..values['zm_device_id'] = 'device-123'
-  ..values['zm_device_secret'] = 'secret-abc';
+  ..values['ct_device_id'] = 'device-123'
+  ..values['ct_device_secret'] = 'secret-abc';
 
 Dio _dioWith(_FakeAdapter adapter) {
   final dio = Dio(BaseOptions(baseUrl: 'https://api.test'));
@@ -272,17 +272,17 @@ class _InMemorySecureStorage extends SecureStorage {
   Future<void> delete(String key) async => values.remove(key);
 
   @override
-  Future<String?> getDeviceId() async => values['zm_device_id'];
+  Future<String?> getDeviceId() async => values['ct_device_id'];
 
   @override
-  Future<void> setDeviceId(String id) async => values['zm_device_id'] = id;
+  Future<void> setDeviceId(String id) async => values['ct_device_id'] = id;
 
   @override
-  Future<String?> getDeviceSecret() async => values['zm_device_secret'];
+  Future<String?> getDeviceSecret() async => values['ct_device_secret'];
 
   @override
   Future<void> setDeviceSecret(String secret) async =>
-      values['zm_device_secret'] = secret;
+      values['ct_device_secret'] = secret;
 }
 
 /// Programmable Dio adapter counting requests — the unit-test equivalent

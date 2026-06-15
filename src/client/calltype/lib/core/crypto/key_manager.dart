@@ -31,10 +31,10 @@ class KeyManager {
   final SecureStorage _secureStorage;
 
   // Storage keys — prefixed to avoid collisions with other secure values.
-  static const _publicKeyKey = 'zm_identity_public_key';
-  static const _privateKeyKey = 'zm_identity_private_key';
-  static const _signedPreKeyKey = 'zm_signed_prekey';
-  static const _oneTimePreKeysKey = 'zm_one_time_prekeys';
+  static const _publicKeyKey = 'ct_identity_public_key';
+  static const _privateKeyKey = 'ct_identity_private_key';
+  static const _signedPreKeyKey = 'ct_signed_prekey';
+  static const _oneTimePreKeysKey = 'ct_one_time_prekeys';
 
   /// How many one-time pre-keys to generate for the initial upload.
   /// Signal recommends ~100: each is consumed by one incoming session

@@ -32,7 +32,7 @@ class AppLock {
   /// Key used to persist the biometric preference in secure storage.
   /// Stored separately from the PIN hash because the user may toggle
   /// biometrics on/off without changing their PIN.
-  static const _keyBiometricEnabled = 'zm_biometric_enabled';
+  static const _keyBiometricEnabled = 'ct_biometric_enabled';
 
   // -- PIN management ---------------------------------------------------------
 

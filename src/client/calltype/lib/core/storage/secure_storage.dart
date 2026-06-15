@@ -10,7 +10,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// SQLite database: the database encryption key, device identity,
 /// and user PIN hash. For larger structured data use [AppDatabase].
 ///
-/// All keys are prefixed with 'zm_' to avoid collisions if the
+/// All keys are prefixed with 'ct_' to avoid collisions if the
 /// secure storage namespace is shared with other Flutter plugins.
 class SecureStorage {
   SecureStorage({FlutterSecureStorage? storage})
@@ -20,10 +20,10 @@ class SecureStorage {
 
   // -- Key constants -------------------------------------------------------
 
-  static const _keyDbKey = 'zm_db_key';
-  static const _keyDeviceId = 'zm_device_id';
-  static const _keyDeviceSecret = 'zm_device_secret';
-  static const _keyPinHash = 'zm_pin_hash';
+  static const _keyDbKey = 'ct_db_key';
+  static const _keyDeviceId = 'ct_device_id';
+  static const _keyDeviceSecret = 'ct_device_secret';
+  static const _keyPinHash = 'ct_pin_hash';
 
   // -- Database encryption key ---------------------------------------------
 

@@ -46,7 +46,7 @@ class OnboardingController extends ChangeNotifier {
   /// to initiate a key exchange without a second network call.
   String? get qrData {
     if (_deviceId == null || _userHandle == null) return null;
-    return 'zm://$_deviceId/$_userHandle';
+    return 'ct://$_deviceId/$_userHandle';
   }
 
   /// Starts the device registration flow.

@@ -37,8 +37,8 @@ A WhatsApp-like messaging app with strong privacy:
 ```
 CallType/
 ├── docs/superpowers/
-│   ├── specs/2026-05-28-zmessanger-design.md   # Full design spec
-│   └── plans/2026-05-28-zmessanger-implementation.md  # 26-task plan
+│   ├── specs/2026-05-28-calltype-design.md   # Full design spec
+│   └── plans/2026-05-28-calltype-implementation.md  # 26-task plan
 ├── src/
 │   ├── server/
 │   │   ├── CallType.Api/                       # ASP.NET Core backend
@@ -169,5 +169,5 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 
 ## Spec & plan
 
-- Full design spec: `docs/superpowers/specs/2026-05-28-zmessanger-design.md`
-- Implementation plan (26 tasks, 7 phases): `docs/superpowers/plans/2026-05-28-zmessanger-implementation.md`
+- Full design spec: `docs/superpowers/specs/2026-05-28-calltype-design.md`
+- Implementation plan (26 tasks, 7 phases): `docs/superpowers/plans/2026-05-28-calltype-implementation.md`
