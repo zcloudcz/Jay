@@ -241,7 +241,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FLUTTER_VER=$(flutter --version --machine | grep -o '"frameworkVersion":"[^"]*"' | cut -d'"' -f4)
+          # `--machine` prints pretty JSON ("frameworkVersion": "x.y.z"), so parse
+          # with sed rather than assuming compact output.
+          FLUTTER_VER=$(flutter --version --machine | sed -nE 's/.*"frameworkVersion": *"([^"]+)".*//p')
           if [ "${{ matrix.platform }}" = "windows" ]; then
             ARTIFACT_PATH="calltype-windows.zip"
           else
