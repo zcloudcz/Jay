@@ -15,11 +15,15 @@ class WebRTCManager extends ChangeNotifier {
     required SignalRClient signalRClient,
     required ApiClient apiClient,
     required String myDeviceId,
+    // Test-only: forces ICE relay so I03 can prove a relay candidate was
+    // actually selected. Never enabled in production call setup.
+    bool forceIceRelay = false,
     Future<RTCPeerConnection> Function(Map<String, dynamic>)? peerFactory,
     Future<MediaStream> Function(Map<String, dynamic>)? mediaFactory,
     RTCVideoRenderer Function()? rendererFactory,
   }) : _signalR = signalRClient,
        _api = apiClient,
+       _forceIceRelay = forceIceRelay,
        _peerFactory = peerFactory ?? ((config) => createPeerConnection(config)),
        _mediaFactory =
            mediaFactory ??
@@ -39,6 +43,7 @@ class WebRTCManager extends ChangeNotifier {
   }
   final SignalRClient _signalR;
   final ApiClient _api;
+  final bool _forceIceRelay;
   final Future<RTCPeerConnection> Function(Map<String, dynamic>) _peerFactory;
   final Future<MediaStream> Function(Map<String, dynamic>) _mediaFactory;
   final RTCVideoRenderer Function() _rendererFactory;
@@ -197,6 +202,7 @@ class WebRTCManager extends ChangeNotifier {
       peer = await _peerFactory({
         'iceServers': servers,
         'sdpSemantics': 'unified-plan',
+        if (_forceIceRelay) 'iceTransportPolicy': 'relay',
       });
       _check(generation);
       peer.onIceCandidate = (candidate) {
@@ -369,6 +375,33 @@ class WebRTCManager extends ChangeNotifier {
       case 'hangup':
         await _cleanup();
     }
+  }
+
+  /// Redacted diagnostic for I03: which candidate type/protocol won, and for
+  /// which call. Never returns SDP or IP addresses — those are personal
+  /// network data and must not end up in logs or evidence files.
+  Future<Map<String, String>?> getSelectedCandidateSummary() async {
+    final peer = _peer;
+    final callId = _callId;
+    if (peer == null || callId == null) return null;
+    final stats = await peer.getStats();
+    final pair = stats.where(
+      (r) =>
+          r.type == 'candidate-pair' &&
+          (r.values['state'] == 'succeeded' || r.values['nominated'] == true),
+    );
+    if (pair.isEmpty) return null;
+    final localId = pair.first.values['localCandidateId'];
+    final local = stats.where(
+      (r) => r.type == 'local-candidate' && r.id == localId,
+    );
+    if (local.isEmpty) return null;
+    final values = local.first.values;
+    return {
+      'type': '${values['candidateType']}',
+      'protocol': '${values['protocol']}',
+      'callId': callId,
+    };
   }
 
   Future<void> endCall() async {
