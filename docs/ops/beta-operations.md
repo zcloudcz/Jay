@@ -9,7 +9,7 @@
 | Poslední úspěšná záloha | Kontrola timestampu poslední `pg_dump` (I02) | denně | žádná úspěšná záloha > 26 h (RPO 24 h + rezerva) |
 | Expirace DB/TURN certifikátu | `openssl s_client`/obdobný nástroj, dny do expirace | týdně | < 30 dní do expirace |
 | DB disk | Volné místo na externím serveru | denně (operátor serveru) | < 20 % volno |
-| TURN traffic | Součet relay egress za měsíc (z coturn logů/metrik) | denně | > 80 % smluvního/rozpočtového limitu (viz `beta-cost-model.md`) |
+| TURN traffic | Cloudflare dashboard (Calls → TURN → usage) | týdně | > 80 % zahrnutého objemu / rozpočtu (viz `beta-cost-model.md`) |
 | Omezené logy | Kontrola velikosti/retence App Service logů | týdně | růst nad nastavený strop |
 
 Návrh: HTTP kontrola po 5 minutách, zásah po 3 po sobě jdoucích selháních (potlačuje jednorázový
@@ -81,7 +81,7 @@ Každý postup: detekce → read-only diagnóza → povolená náprava → rollb
 
 ### Vyčerpaný TURN traffic
 
-- **Detekce:** měsíční součet z coturn logů/metrik překročí smluvní/rozpočtový limit (I03/I04).
+- **Detekce:** Cloudflare TURN usage překročí zahrnutý měsíční objem nebo rozpočet (I04); coturn logy už neexistují (vyřazen 2026-09-16).
 - **Diagnóza:** ověřit, zda jde o legitimní nárůst hovorů nebo zneužití (např. cizí klient používá
   uniklé credentials — TTL a `denied-peer-ip` by měly omezit dopad, viz `turn-validation.md`).
 - **Náprava:** předem definované chování po vyčerpání musí být rozhodnuto před nasazením — buď

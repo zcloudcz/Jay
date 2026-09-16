@@ -60,3 +60,8 @@
 | Skutečný hovor přes Cloudflare relay (forced relay, dvě sítě) | NOT_RUN |
 
 Pozn.: `Turn__StunUrls__0` stále ukazuje na `stun:187.127.83.154:3478`; Cloudflare STUN je v `urls`, starý záznam lze odstranit při vyřazení coturn.
+
+## Vyřazení coturn 2026-09-16
+
+- Z App Service smazány `Turn__StunUrls__0`, `Turn__Urls__0`, `Turn__Urls__1`, `Turn__SharedSecret`; zůstávají `Turn__Provider=cloudflare`, `Turn__Cloudflare__*`, `Turn__TtlSeconds`. `/health/ready` 200 po restartu.
+- Serverová část (stop/disable coturn, zavření 3478/UDP+TCP a relay rozsahu na firewallu) — provádí operátor serveru, zde NOT_RUN.

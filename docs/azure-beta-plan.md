@@ -27,7 +27,7 @@ Current outbound IPv4 addresses for the PostgreSQL firewall: `51.137.102.12`, `5
 - PostgreSQL on the existing server through Npgsql. Connectivity, authentication and encrypted transport are verified; server-certificate verification and backup restoration still need validation.
 - Flutter web on Static Web Apps Free, with its actual API URL compiled in and exact CORS origin configured. The [official plan comparison](https://azure.microsoft.com/en-us/pricing/details/app-service/static/) lists 100 GB included bandwidth; exceeding the Free quota stops serving rather than charging overage. Verify applicable quota period and account terms before rollout.
 - Small private Blob Storage usage for encrypted history backups, with explicit retention and size limits.
-- Authenticated coturn on the existing server if public IP, listener/relay ports, resources and included bandwidth permit it.
+- Cloudflare TURN (since 16 September 2026): hosted relay with UDP/TCP 3478 and TLS 5349, credentials minted per request by the API. The coturn instance on the existing server was decommissioned the same day.
 
 No purchased domain, Azure VM, managed PostgreSQL, paid ACR, Application Insights or paid SignalR service is proposed.
 
@@ -39,9 +39,11 @@ The planning target is **USD 14-16/month before tax**, allowing modest Blob usag
 
 This is **not a guaranteed USD 20 cap**. Confirm whether that maximum includes tax and existing-server costs. Storage, operations and outbound traffic quotas are not yet implemented; define workload limits and behavior at exhaustion before committing to the ceiling. An [Azure budget alert does not stop consumption or spending](https://learn.microsoft.com/en-us/azure/cost-management-billing/costs/tutorial-acm-create-budgets).
 
-## Free TURN
+## TURN
 
-Coturn runs on the same existing server as PostgreSQL at `187.127.83.154:3478`, with short-lived credentials issued by the API. Authenticated relay tests passed over UDP and TCP. Allocation quotas, restrictions against private/internal relay destinations, capacity and bandwidth/overage terms still need operational review. Free software does not make traffic free. TURN TLS on restrictive networks needs a verified endpoint and port arrangement.
+**Current (16 September 2026):** Cloudflare TURN. `Turn__Provider=cloudflare`; the API calls Cloudflare's credential endpoint with a server-side API token and returns `stun:`/`turn:` (UDP+TCP 3478) and `turns:` (TLS 5349) URLs to the client. Coturn-specific settings (`Turn__Urls__*`, `Turn__StunUrls__0`, `Turn__SharedSecret`) were removed from the App Service; the coturn service on `187.127.83.154:3478` is to be stopped and its port closed by the server operator. Cloudflare's included monthly traffic and per-GB overage must be confirmed against the current price list before it is counted in the budget. A real forced-relay call over Cloudflare has not been run yet.
+
+**Historical:** coturn on the existing server (`187.127.83.154:3478`) passed authenticated UDP/TCP relay tests on 14 September 2026 and can be restored with `Turn__Provider=shared-secret` plus the settings above and `infra/coturn/turnserver.conf.example`.
 
 Fallback: [Metered Open Relay](https://www.metered.ca/tools/openrelay/) advertises **20 GB/month free** and requires an account. Quota-exhaustion behavior and potential overage charges have not been confirmed. Do not describe this as unlimited free TURN or rely on it to enforce the budget until billing behavior is verified.
 

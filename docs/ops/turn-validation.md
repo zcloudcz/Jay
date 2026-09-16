@@ -5,7 +5,7 @@ s historickým TTL 3600 s (`docs/azure-beta-plan.md`; skutečná hodnota app-set
 je 86400 v `appsettings.json` výchozím configu — **rozdíl mezi vývojovým defaultem a nasazenou
 hodnotou, ověřit se skutečným nastavením před závěrem, TTL změna se koordinuje s B00**).
 
-## 0. Cloudflare TURN (preferovaná varianta od 2026-09-16)
+## 0. Cloudflare TURN (aktivní od 2026-09-16; coturn vyřazen)
 
 Server umí místo vlastního coturn vydávat credentials z Cloudflare TURN. Přepnutí je jen konfigurace API, klient se nemění.
 
@@ -26,7 +26,7 @@ odmítne expirované credentials sám), 7 (skutečný forced-relay hovor, D04 `f
 je nyní k dispozici, stále NOT_RUN). Traffic: Cloudflare uvádí zahrnutý objem měsíčně a cenu za GB nad ním — ověřit
 aktuální ceník před závazkem v I04; do té doby limit externího serveru z I03 neplatí.
 
-Návrat na coturn: `Turn__Provider=shared-secret` a restart; ostatní klíče zůstaly.
+Návrat na coturn: coturn settings byly z App Service smazány 2026-09-16 (`Turn__Urls__0/1`, `Turn__StunUrls__0`, `Turn__SharedSecret`). Návrat = znovu nastavit tyto klíče s novým shared secretem, `Turn__Provider=shared-secret`, restart, a na serveru coturn znovu spustit.
 
 ## 1. Zjištěný stav bez admin přístupu k serveru
 

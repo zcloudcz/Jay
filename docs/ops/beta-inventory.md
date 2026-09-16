@@ -25,11 +25,10 @@ Jwt__Secret
 Jwt__Issuer
 Turn__TtlSeconds
 Database__ApplyMigrationsOnStartup
-Turn__Urls__0
-Turn__Urls__1
-Turn__StunUrls__0
 ConnectionStrings__DefaultConnection
-Turn__SharedSecret
+Turn__Provider
+Turn__Cloudflare__KeyId
+Turn__Cloudflare__ApiToken
 ConnectionStrings__BlobStorage
 Cors__AllowedOrigins__0
 Cors__AllowedOrigins__1

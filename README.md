@@ -58,11 +58,12 @@ The relay stores message ciphertext before online or offline delivery. It remove
 | `Jwt__Secret` | Deployment-specific JWT signing secret, at least 32 characters |
 | `Database__ApplyMigrationsOnStartup` | Explicit database migration startup switch |
 | `Cors__AllowedOrigins__0` | Browser client origin; local Compose uses `http://localhost:8090` |
-| `Turn__Urls__0`, `Turn__StunUrls__0` | Reachable TURN/STUN endpoints |
-| `Turn__SharedSecret` | Secret matching the TURN server configuration |
+| `Turn__Provider` | `cloudflare` (beta default) or `shared-secret` (self-hosted coturn) |
+| `Turn__Cloudflare__KeyId`, `Turn__Cloudflare__ApiToken` | Cloudflare TURN key; the token is a server-side secret |
+| `Turn__Urls__0`, `Turn__StunUrls__0`, `Turn__SharedSecret` | Only for `shared-secret`: self-hosted TURN/STUN endpoints and the matching secret |
 | `Push__FcmServiceAccountJson` | Firebase service-account configuration for server push |
 
-Compose does not start a TURN service. Reliable calling across restrictive networks requires a reachable TURN server and configured URLs. Firebase client configuration and notification permissions are required for push; Apple delivery through Firebase also requires APNs credentials/capabilities. Direct APNs relay support is not implemented. Background incoming-call delivery and platform push behavior still require real-device verification.
+Compose does not start a TURN service. Reliable calling across restrictive networks requires a TURN provider: the hosted beta uses Cloudflare TURN (UDP/TCP 3478, TLS 5349); self-hosted coturn remains available via `Turn__Provider=shared-secret`. Firebase client configuration and notification permissions are required for push; Apple delivery through Firebase also requires APNs credentials/capabilities. Direct APNs relay support is not implemented. Background incoming-call delivery and platform push behavior still require real-device verification.
 
 The [hosted web beta](https://orange-bush-07e1b5803.6.azurestaticapps.net) runs on Azure Static Web Apps Free, with its API at `https://calltype-beta-zahy.azurewebsites.net` on Linux App Service B1. External PostgreSQL, coturn and private Blob backup storage are configured. The API health check, reliable direct/group and offline delivery checks, backup ownership checks, and authenticated UDP/TCP TURN relay tests passed. Real audio/video across separate networks remains unverified.
 
