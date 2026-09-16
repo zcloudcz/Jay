@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": { "value": "westeurope" },
+    "appServicePlanName": { "value": "asp-calltype-beta" },
+    "webAppName": { "value": "calltype-beta-zahy" },
+    "staticWebAppName": { "value": "calltype-beta-web" },
+    "storageAccountName": { "value": "calltypebetazahy" },
+    "dotnetVersion": { "value": "10.0" }
+  }
+}

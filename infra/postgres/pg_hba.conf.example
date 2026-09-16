@@ -1,0 +1,38 @@
+# CallType beta — pg_hba.conf example (I02)
+#
+# Purpose: restrict PostgreSQL connections to TLS-only, to the application DB/user only,
+# and to known application sources. This is a starting point for the server admin to adapt —
+# not a drop-in file (host addresses/CIDRs below are placeholders, see docs/ops/postgres-restore.md
+# for how to get the real, current App Service outbound IP list from docs/ops/beta-inventory.md).
+#
+# Rules:
+# - "hostssl" only: plain "host" (unencrypted) and "hostnossl" are forbidden for any non-local rule.
+# - No "trust" method anywhere. No 0.0.0.0/0 or ::/0 range.
+# - Application account is scoped to its own database, never postgres/superuser.
+# - Migration account (separate from the app account, see below) is listed as its own rule so it
+#   can be revoked independently without touching the app's runtime access.
+# - Keep the default deny-all behavior: any connection not matching a rule above the trailing
+#   reject is refused. Do not add a catch-all "hostssl all all ... md5" line.
+
+# TYPE     DATABASE        USER              ADDRESS                    METHOD
+
+# Application runtime account, scoped to the calltype database only.
+# Replace <APP_SERVICE_OUTBOUND_CIDR_LIST> with the current outboundIpAddresses from
+# `az webapp show --name calltype-beta-zahy ...` (see docs/ops/beta-inventory.md) as /32 entries,
+# one per line — do not use possibleOutboundIpAddresses as a permanent allow-list, it is broader
+# than what is currently assigned.
+hostssl  calltype        calltype_app      <APP_SERVICE_OUTBOUND_CIDR_LIST>/32   scram-sha-256
+
+# Migration account, scoped to the calltype database only, used only from the operator's
+# controlled admin host/bastion during a coordinated migration window (see B00 for schema changes).
+# Never leave this rule open to the App Service outbound range - migrations run manually or from
+# a short-lived, separately audited CI job, not from the running API process.
+hostssl  calltype        calltype_migrate  <OPERATOR_ADMIN_SOURCE>/32            scram-sha-256
+
+# Administrative/superuser access: restrict to loopback or a dedicated bastion, never to the
+# app's outbound IPs. Keep separate from the two rules above so revoking app/migration access
+# never blocks the admin's own path back in.
+hostssl  all             postgres          <ADMIN_BASTION_SOURCE>/32             scram-sha-256
+
+# Everything else is implicitly rejected by PostgreSQL when no rule matches - do not add a
+# trailing permissive line.
