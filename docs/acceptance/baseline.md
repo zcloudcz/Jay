@@ -38,3 +38,14 @@
 - Rezervace zálohy má pevné TTL 10 min bez heartbeatu (ponytail); upload delší než TTL skončí 500 a osiřelý blob. Při ≤ 8 MiB přijatelné.
 - Q01 (zařízení), I02/I03 provozní kroky, hosted CI běh, Apple podpis, reálný push a TURN hovor: BLOCKED — viz reporty balíčků a `docs/ops/evidence/`.
 - Rozpočet ≤ 20 USD nepotvrzen (I04 blockery).
+
+## Nasazení 2026-09-16 (commit `0feeac4`)
+
+| Krok | Stav |
+| --- | --- |
+| Repo `github.com/zcloudcz/Jay` (private), master + `codex/beta-*` pushnuty | PASS |
+| Migrace `BackupQuotas` přes Kudu helper (`/home/data/db-probe`, `dotnet DbProbe.dll --migrate`) | PASS (provedl operátor, hlásí "Migrations applied") |
+| API `az webapp deploy` zip → `/health` 200, `/health/ready` 200 | PASS |
+| Web SWA (`swa deploy --env production`) → 200, `sqlite3.wasm` `application/wasm` | PASS |
+| Autentizovaný SignalR / backup smoke po nasazení | NOT_RUN |
+| Hosted CI (`deploy.yml`) | NOT_RUN — nasazeno ručně z lokálních artefaktů stejného commitu |
