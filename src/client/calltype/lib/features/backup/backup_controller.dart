@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../core/crypto/backup_crypto.dart';
@@ -7,6 +8,13 @@ import '../../core/network/api_client.dart';
 import '../../core/network/backup_api.dart';
 import 'backup_import.dart';
 import '../../core/storage/database.dart';
+
+/// Server-side backup quota, mirrored here purely for display copy (K03
+/// defaults in appsettings.json). Not fetched from the server — there is no
+/// limits endpoint. ponytail: if these ever diverge from the server config,
+/// add a GET that returns them instead of hardcoding a second copy.
+const int kBackupMaxFileBytes = 8 * 1024 * 1024;
+const int kBackupMaxPerAccount = 3;
 
 /// Tracks the progress of a backup or restore operation.
 ///
@@ -67,6 +75,11 @@ class BackupController extends ChangeNotifier {
   bool _disposed = false;
   String completionMessage = 'Backup created successfully!';
   double _progress = 0.0;
+
+  /// Cached list of completed backups for this account, as returned by
+  /// GET /backups/{accountId}. Populated by [loadBackups]; the UI calls it
+  /// on screen entry and again after a successful delete.
+  List<Map<String, dynamic>> backups = [];
 
   /// Current status of the backup/restore operation.
   BackupStatus get status => _status;
@@ -204,10 +217,60 @@ class BackupController extends ChangeNotifier {
       _status = BackupStatus.done;
       if (!_disposed) notifyListeners();
     } catch (e) {
-      _error = e.toString();
+      // Any failure here (encryption, network, quota) leaves local data
+      // untouched — this method never writes to _db, only reads from it.
+      _error = _describeError(e);
       _status = BackupStatus.error;
       if (!_disposed) notifyListeners();
     }
+  }
+
+  /// Refreshes [backups] from the server. Best-effort — a failure here
+  /// (e.g. offline) leaves the previous list displayed rather than clearing it.
+  Future<void> loadBackups() async {
+    try {
+      backups = await _apiClient.listBackups(accountId);
+    } catch (_) {
+      // Keep whatever was loaded before; the settings screen already shows
+      // a way to retry (pull-to-refresh / re-entering the screen).
+    }
+    if (!_disposed) notifyListeners();
+  }
+
+  /// Deletes a backup. The endpoint is idempotent (204 even if already
+  /// gone), so this is safe to retry. Refreshes [backups] on success.
+  Future<void> deleteBackup(int backupId) async {
+    try {
+      await _apiClient.deleteBackup(accountId, backupId);
+      await loadBackups();
+    } catch (e) {
+      _error = _describeError(e);
+      _status = BackupStatus.error;
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  /// Translates transport errors into copy a non-technical user can act on.
+  /// Local history is never touched by any of these failures — callers only
+  /// reach this after a read-only network call.
+  String _describeError(Object e) {
+    if (e is DioException) {
+      switch (e.response?.statusCode) {
+        case 401:
+          return 'Your session expired. Please sign in again.';
+        case 403:
+          return 'You do not have access to this backup.';
+        case 409:
+          return 'Backup limit reached (max $kBackupMaxPerAccount). Delete an old backup to make room.';
+        case 413:
+          return 'File is too large (max ${kBackupMaxFileBytes ~/ (1024 * 1024)} MB).';
+        case null:
+          return 'Network error. Check your connection and try again.';
+        default:
+          return 'Backup request failed (${e.response!.statusCode}). Please try again.';
+      }
+    }
+    return e.toString();
   }
 
   bool get isBusy =>
@@ -253,7 +316,13 @@ class BackupController extends ChangeNotifier {
       _progress = 1;
       _status = BackupStatus.done;
     } catch (e) {
-      _error = 'Restore failed. Check the passphrase and backup file. $e';
+      // importBackup validates the whole payload before writing anything, and
+      // wraps its DB writes in a single transaction — a bad passphrase,
+      // corrupted blob, or failure partway through never leaves target's
+      // local DB partially modified.
+      _error = e is FormatException
+          ? 'Restore failed. Check the passphrase and backup file. $e'
+          : _describeError(e);
       _status = BackupStatus.error;
     }
     if (!_disposed) notifyListeners();

@@ -73,6 +73,14 @@ builder.Services.AddSingleton<JwtService>();
 // Prevents unbounded storage growth from abandoned devices that never reconnect.
 builder.Services.AddHostedService<MessageCleanupService>();
 
+// Backup quota limits (K03) — see CallType.Api.Configuration.BackupLimitsOptions
+// for defaults. BackupStorageService enforces them at reservation time;
+// BackupCleanupService reclaims abandoned reservations and finishes interrupted deletes.
+builder.Services.Configure<CallType.Api.Configuration.BackupLimitsOptions>(
+    builder.Configuration.GetSection(CallType.Api.Configuration.BackupLimitsOptions.SectionName));
+builder.Services.AddScoped<BackupStorageService>();
+builder.Services.AddHostedService<BackupCleanupService>();
+
 // BlobServiceClient for Azure Blob Storage — used by backup endpoints to upload
 // and download encrypted backup files. Registered as singleton because the client
 // is thread-safe and maintains an internal connection pool.

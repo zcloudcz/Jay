@@ -156,6 +156,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasKey(b => b.Id);
             entity.Property(b => b.Id).ValueGeneratedOnAdd();
 
+            // Stored as text (not the numeric enum default) so the DB value is
+            // readable when debugging quota issues directly in PostgreSQL.
+            entity.Property(b => b.Status).HasConversion<string>().HasMaxLength(20);
+
+            // Quota checks always filter/sum by AccountId + Status — cover it.
+            entity.HasIndex(b => new { b.AccountId, b.Status });
+
             entity.HasOne(b => b.Account)
                   .WithMany(a => a.Backups)
                   .HasForeignKey(b => b.AccountId)
