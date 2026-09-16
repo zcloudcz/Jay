@@ -1,0 +1,62 @@
+# CallType beta — coturn config example (I03)
+#
+# Non-functional example: the shared secret below is a placeholder, never a real value.
+# Fill in real values on the server only; never commit a working secret. Verify every directive
+# name/behavior against the coturn version actually running on the server (unverified in this
+# package — see docs/ops/evidence/I03.md) before applying.
+
+# --- Long-term credential mechanism, shared secret from the SAME secret the API issues with ---
+# The API's Turn__SharedSecret (docs/ops/beta-inventory.md app-setting name) MUST equal this value.
+# Never hardcode the real secret in this example file or in git history.
+use-auth-secret
+static-auth-secret=REPLACE_WITH_RUNTIME_SECRET_FROM_ENVIRONMENT
+
+# Explicit realm - required for long-term credentials, must match what the API embeds when minting
+# TURN REST API credentials (see Turn__Urls / Turn__StunUrls app settings).
+realm=calltype.beta
+
+# --- No public management/CLI surface ---
+no-cli
+# If a management interface is not required at all, do not bind one (omit `cli-ip`/`cli-port`).
+# If the coturn build enables it by default, explicitly disable listening on any external interface.
+
+# --- Bounded relay port range (adjust to what the server's firewall actually opens) ---
+min-port=49160
+max-port=49200
+
+# --- Per-user / total allocation quotas (values are planning placeholders, see turn-validation.md
+# for how the real limits should be derived from the 2-concurrent-call capacity target) ---
+user-quota=4
+total-quota=20
+
+# --- Deny relay to loopback, private/internal, link-local and metadata ranges (IPv4 + IPv6) ---
+# This protects internal services from being used as a relay target (SSRF-via-TURN), separate
+# from restricting WHO can request an allocation (that is the credential/secret mechanism above).
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+denied-peer-ip=169.254.169.254-169.254.169.254
+denied-peer-ip=::1-::1
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=64:ff9b::-64:ff9b::ffff:ffff
+
+# --- No multicast relay targets ---
+no-multicast-peers
+
+# --- Log limits (avoid unbounded disk growth on a server shared with PostgreSQL) ---
+log-file=/var/log/turnserver/turnserver.log
+max-bps=0
+# Rotate/size-cap logs at the OS level (logrotate) - coturn itself does not enforce log retention.
+# Redact/avoid verbose per-packet logging in production; do not log credentials.
+no-stdout-log
+
+# --- Fingerprint / origin checks recommended defaults, verify against installed version ---
+fingerprint
+stale-nonce=600
