@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:calltype/core/network/api_client.dart';
@@ -63,6 +64,22 @@ class TestMedia implements MediaStream {
     disposed = true;
   }
 
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class TestMediaByKind implements MediaStream {
+  TestMediaByKind({required this.audio, required this.video});
+  final List<TestTrack> audio;
+  final List<TestTrack> video;
+  @override
+  List<MediaStreamTrack> getTracks() => [...audio, ...video];
+  @override
+  List<MediaStreamTrack> getAudioTracks() => audio;
+  @override
+  List<MediaStreamTrack> getVideoTracks() => video;
+  @override
+  Future<void> dispose() async {}
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -481,4 +498,82 @@ void main() {
       await signal.signals.close();
     },
   );
+  test('mute and camera toggles only flip local track.enabled', () async {
+    final signal = TestSignal();
+    final audioTrack = TestTrack();
+    final videoTrack = TestTrack();
+    final manager = WebRTCManager(
+      signalRClient: signal,
+      apiClient: TestApi(),
+      myDeviceId: 'me',
+      peerFactory: (_) async => TestPeer(),
+      rendererFactory: TestRenderer.new,
+      mediaFactory: (_) async =>
+          TestMediaByKind(audio: [audioTrack], video: [videoTrack]),
+    );
+    await manager.startCall('other', video: true);
+    expect(manager.isMuted, isFalse);
+    manager.toggleMute();
+    expect(manager.isMuted, isTrue);
+    expect(audioTrack.enabled, isFalse);
+    expect(videoTrack.enabled, isTrue); // mute must not touch video
+    manager.toggleCamera();
+    expect(videoTrack.enabled, isFalse);
+    expect(audioTrack.enabled, isFalse); // camera toggle must not touch audio
+    await manager.endCall();
+    manager.dispose();
+    await signal.signals.close();
+  });
+  test('second incoming offer while busy is declined, not queued', () async {
+    final signal = TestSignal();
+    final manager = WebRTCManager(
+      signalRClient: signal,
+      apiClient: TestApi(),
+      myDeviceId: 'me',
+      peerFactory: (_) async => TestPeer(),
+      rendererFactory: TestRenderer.new,
+      mediaFactory: (_) async => TestMedia(),
+    );
+    await manager.startCall('other');
+    signal.signals.add({
+      'senderId': 'third',
+      'signalType': 'offer',
+      'payload': jsonEncode({
+        'v': 1,
+        'callId': '99887766-5544-4788-9900-aabbccddeeff',
+        'payload': 'v=0',
+      }),
+    });
+    await Future<void>.delayed(Duration.zero);
+    // Declined via busy signal to the third party; own call state untouched.
+    expect(signal.sent.last, 'hangup');
+    expect(signal.payloads.last, contains('busy'));
+    expect(manager.remoteDeviceId, 'other');
+    await manager.endCall();
+    manager.dispose();
+    await signal.signals.close();
+  });
+  test('no-answer timeout ends the call and releases resources', () {
+    fakeAsync((async) {
+      final signal = TestSignal();
+      final peer = TestPeer();
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => peer,
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => TestMedia(),
+      );
+      unawaited(manager.startCall('other'));
+      async.flushMicrotasks();
+      expect(manager.state, CallState.ringing);
+      async.elapse(const Duration(seconds: 45));
+      async.flushMicrotasks();
+      expect(manager.state, CallState.ended);
+      expect(peer.closed, isTrue);
+      expect(manager.error, contains('No answer'));
+      manager.dispose();
+    });
+  });
 }
