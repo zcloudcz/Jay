@@ -39,10 +39,25 @@ class TestRenderer implements RTCVideoRenderer {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class TestTrack implements MediaStreamTrack {
+  bool stopped = false;
+  @override
+  bool enabled = true;
+  @override
+  Future<void> stop() async {
+    stopped = true;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class TestMedia implements MediaStream {
+  TestMedia({List<TestTrack>? tracks}) : tracks = tracks ?? [];
+  final List<TestTrack> tracks;
   bool disposed = false;
   @override
-  List<MediaStreamTrack> getTracks() => [];
+  List<MediaStreamTrack> getTracks() => tracks;
   @override
   Future<void> dispose() async {
     disposed = true;
@@ -52,9 +67,18 @@ class TestMedia implements MediaStream {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class TestRtpSender implements RTCRtpSender {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class TestPeer implements RTCPeerConnection {
   bool closed = false;
   bool answered = false;
+  List<StatsReport>? stats;
+  @override
+  Future<List<StatsReport>> getStats([MediaStreamTrack? track]) async =>
+      stats ?? [];
   @override
   void Function(RTCIceCandidate)? onIceCandidate;
   @override
@@ -83,6 +107,12 @@ class TestPeer implements RTCPeerConnection {
   Future<void> close() async {
     closed = true;
   }
+
+  @override
+  Future<RTCRtpSender> addTrack(
+    MediaStreamTrack track, [
+    MediaStream? stream,
+  ]) async => TestRtpSender();
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -267,6 +297,186 @@ void main() {
       signal.signals.add(incoming);
       await Future<void>.delayed(Duration.zero);
       expect(manager.state, CallState.ended);
+      manager.dispose();
+      await signal.signals.close();
+    },
+  );
+  test('microphone permission denial closes peer and leaks nothing', () async {
+    final signal = TestSignal();
+    final peer = TestPeer();
+    final manager = WebRTCManager(
+      signalRClient: signal,
+      apiClient: TestApi(),
+      myDeviceId: 'me',
+      peerFactory: (_) async => peer,
+      rendererFactory: TestRenderer.new,
+      mediaFactory: (_) async => throw Exception('NotAllowedError: microphone'),
+    );
+    await manager.startCall('other').catchError((_) {});
+    expect(manager.state, CallState.ended);
+    expect(peer.closed, isTrue);
+    expect(manager.error, isNotNull);
+    expect(signal.sent, isNot(contains('offer')));
+    manager.dispose();
+    await signal.signals.close();
+  });
+  test('camera permission denial closes peer and leaks nothing', () async {
+    final signal = TestSignal();
+    final peer = TestPeer();
+    final manager = WebRTCManager(
+      signalRClient: signal,
+      apiClient: TestApi(),
+      myDeviceId: 'me',
+      peerFactory: (_) async => peer,
+      rendererFactory: TestRenderer.new,
+      mediaFactory: (_) async => throw Exception('NotAllowedError: camera'),
+    );
+    await manager.startCall('other', video: true).catchError((_) {});
+    expect(manager.state, CallState.ended);
+    expect(peer.closed, isTrue);
+    manager.dispose();
+    await signal.signals.close();
+  });
+  test(
+    'connection drop mid-call closes peer and stops tracks, not just state',
+    () async {
+      final signal = TestSignal();
+      final peer = TestPeer();
+      final track = TestTrack();
+      final media = TestMedia(tracks: [track]);
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => peer,
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => media,
+      );
+      await manager.startCall('other');
+      peer.onIceConnectionState?.call(
+        RTCIceConnectionState.RTCIceConnectionStateConnected,
+      );
+      expect(manager.state, CallState.connected);
+      peer.onIceConnectionState?.call(
+        RTCIceConnectionState.RTCIceConnectionStateFailed,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.state, CallState.ended);
+      expect(peer.closed, isTrue);
+      expect(track.stopped, isTrue);
+      expect(media.disposed, isTrue);
+      manager.dispose();
+      await signal.signals.close();
+    },
+  );
+  test(
+    'repeated call A to B then new call: first call cannot end the second',
+    () async {
+      final signal = TestSignal();
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => TestPeer(),
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => TestMedia(),
+      );
+      await manager.startCall('b');
+      final firstCallId = (jsonDecode(signal.payloads.last) as Map)['callId'];
+      await manager.endCall();
+      await manager.startCall('b');
+      expect(manager.state, CallState.ringing);
+      // Late ICE from the ended first call must not touch the new call.
+      signal.signals.add({
+        'senderId': 'b',
+        'signalType': 'ice-candidate',
+        'payload': jsonEncode({
+          'v': 1,
+          'callId': firstCallId,
+          'payload': 'cand|0|0',
+        }),
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.state, CallState.ringing);
+      await manager.endCall();
+      manager.dispose();
+      await signal.signals.close();
+    },
+  );
+  test(
+    'forced ICE relay is off by default and opt-in sets transport policy',
+    () async {
+      final signal = TestSignal();
+      Map<String, dynamic>? capturedConfig;
+      final defaultManager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (config) async {
+          capturedConfig = config;
+          return TestPeer();
+        },
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => TestMedia(),
+      );
+      await defaultManager.startCall('other');
+      expect(capturedConfig!.containsKey('iceTransportPolicy'), isFalse);
+      await defaultManager.endCall();
+      defaultManager.dispose();
+
+      final relaySignal = TestSignal();
+      final relayManager = WebRTCManager(
+        signalRClient: relaySignal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        forceIceRelay: true,
+        peerFactory: (config) async {
+          capturedConfig = config;
+          return TestPeer();
+        },
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => TestMedia(),
+      );
+      await relayManager.startCall('other');
+      expect(capturedConfig!['iceTransportPolicy'], 'relay');
+      await relayManager.endCall();
+      relayManager.dispose();
+      await signal.signals.close();
+      await relaySignal.signals.close();
+    },
+  );
+  test(
+    'selected candidate pair summary is redacted to type/protocol/callId',
+    () async {
+      final signal = TestSignal();
+      final peer = TestPeer();
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => peer,
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => TestMedia(),
+      );
+      await manager.startCall('other');
+      peer.stats = [
+        StatsReport('pair1', 'candidate-pair', 0, {
+          'state': 'succeeded',
+          'nominated': true,
+          'localCandidateId': 'local1',
+        }),
+        StatsReport('local1', 'local-candidate', 0, {
+          'candidateType': 'relay',
+          'protocol': 'udp',
+          'ip': '203.0.113.5',
+        }),
+      ];
+      final callId = (jsonDecode(signal.payloads.last) as Map)['callId'];
+      final summary = await manager.getSelectedCandidateSummary();
+      expect(summary, {'type': 'relay', 'protocol': 'udp', 'callId': callId});
+      // Never expose the raw candidate address/SDP through this API.
+      expect(summary.toString(), isNot(contains('203.0.113.5')));
+      await manager.endCall();
       manager.dispose();
       await signal.signals.close();
     },
