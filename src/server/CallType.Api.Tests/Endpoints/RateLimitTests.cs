@@ -1,5 +1,9 @@
 using System.Net;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using FluentAssertions;
 using CallType.Api.Tests.TestFixtures;
@@ -76,6 +80,51 @@ public class RateLimitTests : IntegrationTestBase
             (await Login("172.30.0.10", "203.0.113.1")).Should().Be(400);
         (await Login("172.30.0.10", "203.0.113.1")).Should().Be(429);
         (await Login("172.30.0.10", "203.0.113.2")).Should().Be(400);
-    }}
+    }
 
+    [Fact]
+    public async Task Hub_access_token_never_appears_in_logs_on_failed_authentication()
+    {
+        // Marker doubles as a fake JWT and as the string we scan for — if it
+        // ever leaks into a log line (auth failure, exception, or otherwise),
+        // this test fails regardless of which component logged it.
+        const string tokenMarker = "SECRET_TOKEN_MARKER_never_should_be_logged";
+        var sink = new CapturingLoggerProvider();
 
+        await using var logged = Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureServices(services => services.AddSingleton<ILoggerProvider>(sink)));
+        using var client = logged.CreateClient();
+
+        // Invalid token against the SignalR negotiate endpoint — exercises the
+        // same OnMessageReceived query-string extraction path as /hub, without
+        // needing a full WebSocket handshake.
+        var response = await client.PostAsync($"/hub/negotiate?access_token={tokenMarker}", content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        sink.Messages.Should().NotContain(m => m.Contains(tokenMarker));
+    }
+
+    /// <summary>Captures every formatted log message (and exception text) so tests can assert secrets never appear in them.</summary>
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        public ConcurrentBag<string> Messages { get; } = new();
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(Messages);
+
+        public void Dispose() { }
+
+        private sealed class CapturingLogger(ConcurrentBag<string> messages) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                messages.Add(formatter(state, exception));
+                if (exception is not null)
+                    messages.Add(exception.ToString());
+            }
+        }
+    }
+}
