@@ -49,3 +49,14 @@
 | Web SWA (`swa deploy --env production`) → 200, `sqlite3.wasm` `application/wasm` | PASS |
 | Autentizovaný SignalR / backup smoke po nasazení | NOT_RUN |
 | Hosted CI (`deploy.yml`) | NOT_RUN — nasazeno ručně z lokálních artefaktů stejného commitu |
+
+## Nasazení Cloudflare TURN 2026-09-16 (commit `830c110`)
+
+| Krok | Stav |
+| --- | --- |
+| Azure app settings `Turn__Provider=cloudflare`, `Turn__Cloudflare__KeyId`, `Turn__Cloudflare__ApiToken` (nastavil operátor) | PASS (ověřeny jen názvy) |
+| API zip deploy → `/health` 200, `/health/ready` 200 (po studeném startu) | PASS |
+| Autentizovaný `GET /turn/credentials` (dočasná testovací identita) → 200, `urls` = Cloudflare stun/turn UDP+TCP 3478 + turns TLS 5349, TTL 3600 | PASS |
+| Skutečný hovor přes Cloudflare relay (forced relay, dvě sítě) | NOT_RUN |
+
+Pozn.: `Turn__StunUrls__0` stále ukazuje na `stun:187.127.83.154:3478`; Cloudflare STUN je v `urls`, starý záznam lze odstranit při vyřazení coturn.
