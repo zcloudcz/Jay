@@ -12,6 +12,13 @@ void main() {
     expect(restored.name, original.name);
     expect(restored.bytes, original.bytes);
   });
+  test('attachment at exactly the size limit is accepted', () {
+    final attachment = Attachment(
+      name: 'max.bin',
+      bytes: Uint8List(Attachment.maxBytes),
+    );
+    expect(attachment.bytes.length, Attachment.maxBytes);
+  });
   test('oversized attachment is rejected before encryption', () {
     expect(
       () =>
@@ -23,6 +30,17 @@ void main() {
     expect(
       () => Attachment(name: '../secret', bytes: Uint8List(1)),
       throwsArgumentError,
+    );
+  });
+  test('corrupted metadata is rejected on decode', () {
+    expect(() => Attachment.decode('not json'), throwsFormatException);
+    expect(
+      () => Attachment.decode('{"name":"x.bin"}'),
+      throwsA(isA<TypeError>()),
+    );
+    expect(
+      () => Attachment.decode('{"name":"x.bin","data":"not-base64!!"}'),
+      throwsFormatException,
     );
   });
 }

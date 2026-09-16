@@ -399,6 +399,154 @@ public class MessengerHubTests : IntegrationTestBase
         message.GetProperty("groupId").GetGuid().Should().Be(group);
         message.GetProperty("messageId").GetGuid().Should().Be(id);
     }    [Fact]
+    public async Task Group_removal_excludes_future_fanout_without_deleting_earlier_messages()
+    {
+        // Arrange — A, B, C in a group. A sends to B and C while all are members.
+        var (a, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (b, tokenB) = await RegisterDeviceAndGetTokenAsync();
+        var (c, tokenC) = await RegisterDeviceAndGetTokenAsync();
+        var group = Guid.NewGuid();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Groups.Add(new Group { GroupId = group, CreatedBy = a, CreatedAt = DateTimeOffset.UtcNow });
+            db.GroupMembers.AddRange(
+                new GroupMember { GroupId = group, DeviceId = a },
+                new GroupMember { GroupId = group, DeviceId = b },
+                new GroupMember { GroupId = group, DeviceId = c });
+            await db.SaveChangesAsync();
+        }
+        await using var sending = CreateHubConnection(a, tokenA);
+        await sending.StartAsync();
+        var earlierId = Guid.NewGuid();
+        await sending.InvokeAsync("SendReliableGroupMessage", group, earlierId,
+            new Dictionary<Guid, string> { [b] = "AQI=", [c] = "AQI=" });
+
+        // Act — C is removed from the group (direct DB manipulation, equivalent
+        // to what GroupEndpoints' member-removal does).
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var membership = await db.GroupMembers.SingleAsync(m => m.GroupId == group && m.DeviceId == c);
+            db.GroupMembers.Remove(membership);
+            await db.SaveChangesAsync();
+        }
+
+        // C's own further attempts to send into the group must now be rejected.
+        await using var removed = CreateHubConnection(c, tokenC);
+        await removed.StartAsync();
+        var rejectedSend = () => removed.InvokeAsync("SendReliableGroupMessage", group, Guid.NewGuid(),
+            new Dictionary<Guid, string> { [b] = "AQI=" });
+        await rejectedSend.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>();
+
+        // A new fan-out excludes C entirely.
+        var laterId = Guid.NewGuid();
+        var laterRejected = () => sending.InvokeAsync("SendReliableGroupMessage", group, laterId,
+            new Dictionary<Guid, string> { [b] = "AQI=", [c] = "AQI=" });
+        await laterRejected.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>(
+            "the sender-and-recipients membership check must reject a payload naming a removed member");
+
+        var laterOkId = Guid.NewGuid();
+        await sending.InvokeAsync("SendReliableGroupMessage", group, laterOkId,
+            new Dictionary<Guid, string> { [b] = "AQI=" });
+
+        // Assert — the earlier message addressed to C is untouched by the removal.
+        using var verify = Factory.Services.CreateScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var earlierForC = await verifyDb.QueuedMessages.AsNoTracking()
+            .SingleOrDefaultAsync(m => m.RecipientId == c && m.MessageId == earlierId);
+        earlierForC.Should().NotBeNull("removal must not retroactively delete already-queued messages");
+        var laterForC = await verifyDb.QueuedMessages.AsNoTracking()
+            .Where(m => m.RecipientId == c && m.MessageId == laterOkId).CountAsync();
+        laterForC.Should().Be(0, "a removed member must not appear in a new fan-out");
+
+        await removed.StopAsync();
+        await sending.StopAsync();
+    }
+
+    [Fact]
+    public async Task Foreign_ack_is_ignored_and_replayed_overwrite_with_different_payload_is_rejected()
+    {
+        var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
+        var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
+        var (attacker, attackerToken) = await RegisterDeviceAndGetTokenAsync();
+        var id = Guid.NewGuid();
+        await using var sending = CreateHubConnection(sender, senderToken);
+        await sending.StartAsync();
+        await sending.InvokeAsync("SendReliableMessage", recipient, id, "AQI=");
+
+        // An attacker who is not the true recipient (per JWT) cannot ack it away.
+        await using var attackerConn = CreateHubConnection(attacker, attackerToken);
+        await attackerConn.StartAsync();
+        await attackerConn.InvokeAsync("AcknowledgeMessage", sender, id);
+
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var stored = await db.QueuedMessages.AsNoTracking().SingleAsync(m =>
+                m.RecipientId == recipient && m.SenderId == sender && m.MessageId == id);
+            stored.AcknowledgedAt.Should().BeNull("only the true JWT-identified recipient may acknowledge");
+        }
+
+        // Retrying the same messageId with a different ciphertext must not overwrite the original.
+        await sending.InvokeAsync("SendReliableMessage", recipient, id, "AwQ=");
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var stored = await db.QueuedMessages.AsNoTracking().SingleAsync(m =>
+                m.RecipientId == recipient && m.SenderId == sender && m.MessageId == id);
+            stored.EncryptedBody.Should().BeEquivalentTo(Convert.FromBase64String("AQI="),
+                "the original ciphertext must not be replaced by a same-id resend with a different body");
+        }
+
+        await attackerConn.StopAsync();
+        await sending.StopAsync();
+    }
+
+    [Fact]
+    public async Task Group_fanout_exceeding_hub_invocation_limit_fails_visibly_with_no_partial_writes()
+    {
+        // Program.cs caps SignalR.MaximumReceiveMessageSize at 1 MiB. A group
+        // fan-out whose combined per-recipient payloads exceed that must fail
+        // the whole invocation rather than silently succeeding for some
+        // recipients and dropping others.
+        var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
+        var members = new List<Guid> { sender };
+        var payloads = new Dictionary<Guid, string>();
+        // ~300 KiB per recipient x 5 recipients pushes the whole invocation past 1 MiB.
+        var chunk = Convert.ToBase64String(new byte[300 * 1024]);
+        for (var i = 0; i < 5; i++)
+        {
+            var (member, _) = await RegisterDeviceAndGetTokenAsync();
+            members.Add(member);
+            payloads[member] = chunk;
+        }
+        var group = Guid.NewGuid();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Groups.Add(new Group { GroupId = group, CreatedBy = sender, CreatedAt = DateTimeOffset.UtcNow });
+            db.GroupMembers.AddRange(members.Select(m => new GroupMember { GroupId = group, DeviceId = m }));
+            await db.SaveChangesAsync();
+        }
+        await using var sending = CreateHubConnection(sender, senderToken);
+        await sending.StartAsync();
+        var id = Guid.NewGuid();
+
+        // Act — the oversized invocation must throw, never report a silent "sent".
+        var send = () => sending.InvokeAsync("SendReliableGroupMessage", group, id, payloads);
+        await send.Should().ThrowAsync<Exception>("an over-limit SignalR invocation must surface as an error");
+
+        // Assert — no partial writes landed for any recipient.
+        using var verify = Factory.Services.CreateScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var written = await verifyDb.QueuedMessages.AsNoTracking().Where(m => m.MessageId == id).CountAsync();
+        written.Should().Be(0, "a rejected invocation must not partially persist any recipient's message");
+
+        await sending.StopAsync();
+    }
+
+    [Fact]
     public async Task Attachment_sized_encoded_payload_is_queued_and_oversize_is_rejected()
     {
         var (sender, token) = await RegisterDeviceAndGetTokenAsync();

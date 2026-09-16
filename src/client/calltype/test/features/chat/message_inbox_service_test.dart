@@ -108,6 +108,25 @@ void main() {
       expect(acknowledgements, [data['messageId'], data['messageId']]);
     },
   );
+  test(
+    'redelivery after a lost ack does not re-advance the ratchet',
+    () async {
+      // A replayed delivery must ack without touching the Double Ratchet —
+      // otherwise a lost ack + retry would desync sender/receiver chains.
+      // We prove this by comparing the raw serialized session state (not
+      // just the displayed message) before and after the duplicate.
+      final data = await payload('once');
+      await add(data);
+      final sessionBefore = await (bob.db.select(
+        bob.db.signalSessions,
+      )..where((s) => s.address.equals(alice.id))).getSingle();
+      await add(data);
+      final sessionAfter = await (bob.db.select(
+        bob.db.signalSessions,
+      )..where((s) => s.address.equals(alice.id))).getSingle();
+      expect(sessionAfter.sessionData, sessionBefore.sessionData);
+    },
+  );
   test('concurrent deliveries serialize ratchet updates', () async {
     final data = await Future.wait([payload('one')]);
     final second = await payload('two');
