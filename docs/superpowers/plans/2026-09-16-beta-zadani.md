@@ -136,4 +136,4 @@ Přípravu kódu neblokují; blokují pouze konkrétní provozní akci.
 
 ## 8. Záměrně mimo rozsah
 
-SQLCipher migrace, přechod na libsignal/Sender Keys, multi-instance SignalR, vlastní doména, velké přílohy, synchronizace živé identity mezi zařízeními a automatické vydání do obchodů mají samostatné zadání, až vznikne konkrétní požadavek. Příchozí VoIP hovor v ukončené mobilní aplikaci také vyžaduje samostatné platformní zadání; obyčejný FCM push není jeho náhradou.
+SQLCipher migrace, přechod na libsignal/Sender Keys, multi-instance SignalR, vlastní doména, velké přílohy, synchronizace živé identity mezi zařízeními a automatické vydání do obchodů mají samostatné zadání, až vznikne konkrétní požadavek. Kanály (jednosměrný veřejný broadcast ve stylu WhatsApp Channels) mají vlastní zadání [2026-09-16-channels.md](2026-09-16-channels.md) a začínají až po uzavření G1–G5. Příchozí VoIP hovor v ukončené mobilní aplikaci také vyžaduje samostatné platformní zadání; obyčejný FCM push není jeho náhradou.
