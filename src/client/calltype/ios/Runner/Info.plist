@@ -67,5 +67,14 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 <key>NSCameraUsageDescription</key><string>Scan contact QR codes and make video calls.</string><key>NSMicrophoneUsageDescription</key><string>Use the microphone during voice and video calls.</string><key>NSFaceIDUsageDescription</key><string>Unlock your private conversations.</string>
+<!-- Lets the app receive silent/background FCM pushes (K04). This alone does
+     NOT enable the Push Notifications capability — that also needs an
+     aps-environment entitlement wired into the Xcode project's code signing,
+     which requires an Apple developer team and is BLOCKED until R01/Q01 has
+     one (see docs/acceptance/release-builds.md). -->
+<key>UIBackgroundModes</key>
+<array>
+	<string>remote-notification</string>
+</array>
 </dict>
 </plist>

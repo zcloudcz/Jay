@@ -5,6 +5,10 @@
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
 <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<!-- Required on Android 13+ (API 33) to show push notifications; without it
+     FCM messages are still delivered to the app but no system notification
+     is shown. See K04 in docs/superpowers/plans/2026-09-16-beta-kontrakty.md. -->
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 <uses-feature android:name="android.hardware.camera" android:required="false" />
 <application
         android:label="CallType"
