@@ -29,6 +29,16 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
   final _passphraseController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    // Load the existing backup list on entry so the user sees what's already
+    // stored (and can delete one to free a slot) without creating a new backup first.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<BackupController>().loadBackups();
+    });
+  }
+
+  @override
   void dispose() {
     _passphraseController.dispose();
     super.dispose();
@@ -106,7 +116,37 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
                   controller.status == BackupStatus.error ||
                   controller.status == BackupStatus.done,
             ),
+            const SizedBox(height: 8),
+            Text(
+              'Max file size: ${kBackupMaxFileBytes ~/ (1024 * 1024)} MB · '
+              'Up to $kBackupMaxPerAccount backups stored at once',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
             const SizedBox(height: 24),
+
+            // -- Existing backups (delete to free a slot) -------------------------
+            if (controller.backups.isNotEmpty) ...[
+              Text('Stored backups', style: theme.textTheme.titleSmall),
+              const SizedBox(height: 8),
+              ...controller.backups.map(
+                (b) => Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.folder_zip_outlined),
+                    title: Text('${((b['sizeBytes'] as num) / 1024).round()} KB'),
+                    subtitle: Text(b['createdAt'].toString()),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: controller.isBusy
+                          ? null
+                          : () => controller.deleteBackup(b['id'] as int),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
 
             // -- Action button / status display ----------------------------------
             if (controller.status == BackupStatus.idle ||

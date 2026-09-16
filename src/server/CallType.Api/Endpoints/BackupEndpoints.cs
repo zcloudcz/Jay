@@ -12,6 +12,10 @@
 // Upload uses IFormFile (multipart) rather than raw request body streaming
 // because ASP.NET Core's model binding handles buffering, size limits, and
 // content-type validation out of the box.
+//
+// Quota enforcement (K03) reserves a slot via BackupStorageService BEFORE the
+// blob upload starts (see the state-machine comment in BackupStorageService.cs)
+// so two concurrent uploads racing for the last slot cannot both succeed.
 // ---------------------------------------------------------------------------
 
 using Azure.Storage.Blobs;
@@ -19,6 +23,9 @@ using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using CallType.Api.Data;
 using CallType.Api.Models;
+using CallType.Api.Services;
+using CallType.Api.Configuration;
+using Microsoft.Extensions.Options;
 
 namespace CallType.Api.Endpoints;
 
@@ -42,6 +49,7 @@ public static class BackupEndpoints
 
         app.MapGet("/backups/{accountId:guid}", ListBackups).RequireAuthorization().RequireRateLimiting("api");
         app.MapGet("/backups/{accountId:guid}/{backupId:long}", DownloadBackup).RequireAuthorization().RequireRateLimiting("api");
+        app.MapDelete("/backups/{accountId:guid}/{backupId:long}", DeleteBackup).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 
@@ -54,49 +62,59 @@ public static class BackupEndpoints
         ClaimsPrincipal user,
         AppDbContext db,
         BlobServiceClient blobService,
+        BackupStorageService storage,
+        IOptions<BackupLimitsOptions> limitsOptions,
         CancellationToken ct)
     {
         if (!await AccountEndpoints.IsLinkedAsync(user, accountId, db, ct)) return Results.Forbid();
 
-        // Only registered users can create backups — anonymous devices have
-        // no account to associate the backup with.
-        var accountExists = await db.Accounts.AnyAsync(a => a.AccountId == accountId, ct);
-        if (!accountExists)
-            return Results.NotFound(new { error = "Account not found." });
-
         if (file.Length <= 0)
             return Results.BadRequest(new { error = "File must not be empty." });
 
-        var now = DateTimeOffset.UtcNow;
+        var limits = limitsOptions.Value;
+        if (file.Length > limits.MaxFileBytes)
+            return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
 
-        // Deterministic blob path: timestamp + GUID prevents same-second collisions
-        // from concurrent backup uploads by the same account.
-        var timestamp = now.ToString("yyyyMMddHHmmss");
-        var blobPath = $"{accountId}/{timestamp}_{Guid.NewGuid():N}.enc";
-
-        // Create the container if it doesn't exist. CreateIfNotExistsAsync is
-        // idempotent — safe to call on every upload without a separate init step.
-        var containerClient = blobService.GetBlobContainerClient(ContainerName);
-        await containerClient.CreateIfNotExistsAsync(cancellationToken: ct);
-
-        // Upload the encrypted file as a blob. Overwrite is false because the
-        // GUID in the path guarantees uniqueness — a collision would indicate a bug.
-        var blobClient = containerClient.GetBlobClient(blobPath);
-        await using var stream = file.OpenReadStream();
-        await blobClient.UploadAsync(stream, overwrite: false, cancellationToken: ct);
-
-        // Store metadata in PostgreSQL so we can list/query backups without
-        // scanning the blob container (which is slow and costs per-operation).
-        var backup = new Backup
+        // Reserve quota BEFORE touching blob storage — see BackupStorageService
+        // state-machine comment for why (concurrency safety, crash recovery).
+        var reservation = await storage.ReserveAsync(accountId, file.Length, ct);
+        switch (reservation.Result)
         {
-            AccountId = accountId,
-            BlobPath = $"{ContainerName}/{blobPath}",
-            SizeBytes = file.Length,
-            CreatedAt = now
-        };
+            // Only registered users can create backups — anonymous devices have
+            // no account to associate the backup with.
+            case ReservationResult.AccountNotFound:
+                return Results.NotFound(new { error = "Account not found." });
+            case ReservationResult.QuotaExceeded:
+                return Results.Conflict(new { error = "Backup quota exceeded.", code = "backup_quota_exceeded" });
+        }
 
-        db.Backups.Add(backup);
-        await db.SaveChangesAsync(ct);
+        var backup = reservation.Backup!;
+        var relativePath = backup.BlobPath[(ContainerName.Length + 1)..];
+
+        try
+        {
+            // Create the container if it doesn't exist. CreateIfNotExistsAsync is
+            // idempotent — safe to call on every upload without a separate init step.
+            var containerClient = blobService.GetBlobContainerClient(ContainerName);
+            await containerClient.CreateIfNotExistsAsync(cancellationToken: ct);
+
+            // Upload the encrypted file as a blob. Overwrite is false because the
+            // GUID in the path guarantees uniqueness — a collision would indicate a bug.
+            var blobClient = containerClient.GetBlobClient(relativePath);
+            await using var stream = file.OpenReadStream();
+            await blobClient.UploadAsync(stream, overwrite: false, cancellationToken: ct);
+        }
+        catch
+        {
+            // Upload failed — release the reservation immediately rather than
+            // waiting out the TTL, so the account isn't stuck at quota for
+            // no reason. If this process crashes before even reaching here,
+            // BackupCleanupService reclaims the reservation once it expires.
+            await storage.AbortReservationAsync(backup.Id, ct);
+            throw;
+        }
+
+        await storage.ConfirmUploadAsync(backup.Id, file.Length, ct);
 
         return Results.Created(
             $"/backups/{accountId}",
@@ -114,9 +132,10 @@ public static class BackupEndpoints
     {
         if (!await AccountEndpoints.IsLinkedAsync(user, accountId, db, ct)) return Results.Forbid();
 
-        // Return newest first — most recent backup is the most likely restore target.
+        // Only completed backups are real, restorable backups — Reserved and
+        // Deleting rows are internal bookkeeping, not user-visible history.
         var backups = await db.Backups
-            .Where(b => b.AccountId == accountId)
+            .Where(b => b.AccountId == accountId && b.Status == BackupStatus.Completed)
             .OrderByDescending(b => b.CreatedAt)
             .Select(b => new BackupDto(b.Id, b.BlobPath, b.SizeBytes, b.CreatedAt))
             .ToListAsync(ct);
@@ -141,7 +160,7 @@ public static class BackupEndpoints
         // authenticated users from downloading other accounts' backups
         // by guessing backup IDs.
         var backup = await db.Backups
-            .FirstOrDefaultAsync(b => b.Id == backupId && b.AccountId == accountId, ct);
+            .FirstOrDefaultAsync(b => b.Id == backupId && b.AccountId == accountId && b.Status == BackupStatus.Completed, ct);
 
         if (backup is null)
             return Results.NotFound(new { error = "Backup not found." });
@@ -163,6 +182,55 @@ public static class BackupEndpoints
             download.Value.Content,
             contentType: "application/octet-stream",
             fileDownloadName: $"backup_{backupId}.enc");
+    }
+
+    // -----------------------------------------------------------------------
+    // DELETE /backups/{accountId}/{backupId} — Free a backup slot manually
+    // -----------------------------------------------------------------------
+    private static async Task<IResult> DeleteBackup(
+        Guid accountId,
+        long backupId,
+        ClaimsPrincipal user,
+        AppDbContext db,
+        BlobServiceClient blobService,
+        CancellationToken ct)
+    {
+        // Own account owns no such backup id at all -> still 403 for a foreign
+        // accountId (checked first, before we even look at the backup row).
+        if (!await AccountEndpoints.IsLinkedAsync(user, accountId, db, ct)) return Results.Forbid();
+
+        var backup = await db.Backups.FirstOrDefaultAsync(b => b.Id == backupId, ct);
+
+        // Backup never existed, or already fully removed by an earlier call —
+        // both are indistinguishable from "gone", and repeating the request
+        // must be idempotent per K03: 204 for the caller's own account context.
+        if (backup is null) return Results.NoContent();
+
+        // Exists, but belongs to a different account — do not leak existence
+        // details and do not delete; 404 without touching the row.
+        if (backup.AccountId != accountId) return Results.NotFound();
+
+        // Mark-for-delete first (so a crash mid-way is recovered by
+        // BackupCleanupService instead of silently losing the blob), THEN
+        // delete the blob, THEN remove the row. Quota is freed only once the
+        // row is gone (Deleting still counts), matching K03.
+        if (backup.Status != BackupStatus.Deleting)
+        {
+            backup.Status = BackupStatus.Deleting;
+            await db.SaveChangesAsync(ct);
+        }
+
+        var relativePath = backup.BlobPath.StartsWith($"{ContainerName}/")
+            ? backup.BlobPath[($"{ContainerName}/".Length)..]
+            : backup.BlobPath;
+        var containerClient = blobService.GetBlobContainerClient(ContainerName);
+        // Idempotent: a retry after a prior crash may find the blob already gone.
+        await containerClient.GetBlobClient(relativePath).DeleteIfExistsAsync(cancellationToken: ct);
+
+        db.Backups.Remove(backup);
+        await db.SaveChangesAsync(ct);
+
+        return Results.NoContent();
     }
 }
 

@@ -154,4 +154,60 @@ void main() {
       expect(await db.select(db.messages).get(), isEmpty);
     },
   );
+
+  test('loadBackups populates the list and deleteBackup refreshes it', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(db.close);
+    final dio = Dio();
+    var deleted = false;
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          if (options.method == 'DELETE') deleted = true;
+          final data = deleted
+              ? <Map<String, dynamic>>[]
+              : [
+                  {'id': 1, 'sizeBytes': 100, 'createdAt': '2026-01-01'},
+                ];
+          handler.resolve(Response(requestOptions: options, data: data));
+        },
+      ),
+    );
+    final controller = BackupController(
+      database: db,
+      apiClient: ApiClient(baseUrl: 'https://example.test', dio: dio),
+      accountId: 'account',
+    );
+    await controller.loadBackups();
+    expect(controller.backups, hasLength(1));
+
+    await controller.deleteBackup(1);
+    expect(controller.backups, isEmpty);
+  });
+
+  test('quota-exceeded response maps to an actionable error message', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(db.close);
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          handler.reject(
+            DioException(
+              requestOptions: options,
+              response: Response(requestOptions: options, statusCode: 409),
+            ),
+          );
+        },
+      ),
+    );
+    final controller = BackupController(
+      database: db,
+      apiClient: ApiClient(baseUrl: 'https://example.test', dio: dio),
+      accountId: 'account',
+    );
+    await controller.createBackup('a long enough passphrase');
+    expect(controller.status, BackupStatus.error);
+    expect(controller.error, contains('Backup limit reached'));
+  });
 }

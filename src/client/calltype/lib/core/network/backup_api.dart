@@ -25,6 +25,10 @@ extension BackupApi on ApiClient {
     return Uint8List.fromList(response.data!);
   }
 
+  Future<void> deleteBackup(String accountId, int backupId) async {
+    await transport.delete('/backups/$accountId/$backupId');
+  }
+
   Future<void> linkAccountDevice(
     String accountId,
     String deviceId,

@@ -17,6 +17,9 @@ using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using CallType.Api.Tests.TestFixtures;
+using CallType.Api.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace CallType.Api.Tests.Endpoints;
 
@@ -246,4 +249,118 @@ public class BackupEndpointsTests : IntegrationTestBase
         (await Client.GetAsync($"/backups/{accountId}/{backupId}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         using var otherContent = CreateBackupFileContent();
         (await Client.PostAsync($"/backups/{accountId}", otherContent)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
-    }}
+    }
+
+    // -----------------------------------------------------------------------
+    // Quota limits (K03)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Upload_backup_over_max_file_bytes_returns_413()
+    {
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var accountId = await RegisterAccountAsync();
+        var limits = Factory.Services.GetRequiredService<IOptions<BackupLimitsOptions>>().Value;
+
+        using var oversized = CreateBackupFileContent(new string('x', (int)limits.MaxFileBytes + 1));
+        var response = await Client.PostAsync($"/backups/{accountId}", oversized);
+
+        response.StatusCode.Should().Be((HttpStatusCode)413);
+    }
+
+    [Fact]
+    public async Task Upload_beyond_max_per_account_returns_quota_exceeded()
+    {
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var accountId = await RegisterAccountAsync();
+        var limits = Factory.Services.GetRequiredService<IOptions<BackupLimitsOptions>>().Value;
+
+        for (var i = 0; i < limits.MaxPerAccount; i++)
+        {
+            using var content = CreateBackupFileContent($"backup-{i}");
+            var resp = await Client.PostAsync($"/backups/{accountId}", content);
+            resp.StatusCode.Should().Be(HttpStatusCode.Created);
+        }
+
+        using var oneTooMany = CreateBackupFileContent("one-too-many");
+        var overResp = await Client.PostAsync($"/backups/{accountId}", oneTooMany);
+
+        overResp.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var body = await overResp.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("code").GetString().Should().Be("backup_quota_exceeded");
+    }
+
+    // -----------------------------------------------------------------------
+    // DELETE /backups/{accountId}/{backupId}
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Delete_own_backup_returns_no_content_and_is_idempotent_and_frees_quota()
+    {
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var accountId = await RegisterAccountAsync();
+        var limits = Factory.Services.GetRequiredService<IOptions<BackupLimitsOptions>>().Value;
+
+        // Fill quota, then delete one to prove the slot is actually freed.
+        long firstId = 0;
+        for (var i = 0; i < limits.MaxPerAccount; i++)
+        {
+            using var content = CreateBackupFileContent($"backup-{i}");
+            var resp = await Client.PostAsync($"/backups/{accountId}", content);
+            var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+            if (i == 0) firstId = body.GetProperty("id").GetInt64();
+        }
+
+        var deleteResp = await Client.DeleteAsync($"/backups/{accountId}/{firstId}");
+        deleteResp.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // Repeating the delete for the same (now-gone) id must still be 204.
+        var repeatResp = await Client.DeleteAsync($"/backups/{accountId}/{firstId}");
+        repeatResp.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // The freed slot allows a new upload.
+        using var newContent = CreateBackupFileContent("after-delete");
+        var newResp = await Client.PostAsync($"/backups/{accountId}", newContent);
+        newResp.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var listResp = await Client.GetAsync($"/backups/{accountId}");
+        var backups = await listResp.Content.ReadFromJsonAsync<JsonElement>();
+        backups.EnumerateArray().Select(b => b.GetProperty("id").GetInt64()).Should().NotContain(firstId);
+    }
+
+    [Fact]
+    public async Task Delete_backup_of_another_account_returns_not_found_without_deleting()
+    {
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var ownerAccountId = await RegisterAccountAsync();
+        using var content = CreateBackupFileContent();
+        var uploadResp = await Client.PostAsync($"/backups/{ownerAccountId}", content);
+        var backupId = (await uploadResp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+
+        // A second account linked to the same device tries to delete it via its own accountId.
+        var otherAccountId = await RegisterAccountAsync();
+
+        var deleteResp = await Client.DeleteAsync($"/backups/{otherAccountId}/{backupId}");
+        deleteResp.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        // Backup must still be listable/downloadable under its real owner.
+        var listResp = await Client.GetAsync($"/backups/{ownerAccountId}");
+        var backups = await listResp.Content.ReadFromJsonAsync<JsonElement>();
+        backups.EnumerateArray().Select(b => b.GetProperty("id").GetInt64()).Should().Contain(backupId);
+    }
+
+    [Fact]
+    public async Task Delete_with_foreign_accountId_returns_forbidden()
+    {
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var accountId = await RegisterAccountAsync();
+        using var content = CreateBackupFileContent();
+        var uploadResp = await Client.PostAsync($"/backups/{accountId}", content);
+        var backupId = (await uploadResp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt64();
+
+        // accountId never linked to the calling device at all.
+        var response = await Client.DeleteAsync($"/backups/{Guid.NewGuid()}/{backupId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+}
