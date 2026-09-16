@@ -239,7 +239,7 @@ jobs:
         shell: bash
         run: |
           cd build/windows/x64/runner/Release
-          7z a -tzip ../../../../calltype-windows.zip .
+          7z a -tzip ../../../../../calltype-windows.zip .
       - name: Write build manifest (commit, tool versions, API URL, artifact hash)
         shell: bash
         run: |
@@ -283,6 +283,14 @@ jobs:
       id-token: write # required for OIDC azure/login
       contents: read
     steps:
+      # The migration step below runs `dotnet ef` against the source tree, so we
+      # need the exact SHA checked out plus the SDK — the artifact alone is not enough.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
       - uses: actions/download-artifact@v4
         with:
           name: calltype-release-api-${{ inputs.commit_sha }}
@@ -329,7 +337,7 @@ jobs:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_SWA_DEPLOYMENT_TOKEN }}
           repo_token: ${{ github.token }}
           action: upload
-          app_location: web-artifact/web
+          app_location: web-artifact/build/web
           skip_app_build: true
 
   smoke-test:

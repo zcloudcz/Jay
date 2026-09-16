@@ -99,6 +99,21 @@ public class ProductionConfigurationValidatorTests
     }
 
     [Fact]
+    public void Password_that_merely_starts_with_postgres_is_accepted()
+    {
+        // Regression: a substring check rejected any password beginning with "postgres".
+        var values = new Dictionary<string, string?>(ValidProductionConfig)
+        {
+            ["ConnectionStrings:DefaultConnection"] = "Host=db.example;Port=5432;Database=calltype;Username=app;Password=postgresql-is-not-the-default-9f3a"
+        };
+        var config = BuildConfig(values);
+
+        var act = () => ProductionConfigurationValidator.Validate(config, Env(Environments.Production));
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
     public void Development_storage_emulator_blob_connection_is_rejected()
     {
         var values = new Dictionary<string, string?>(ValidProductionConfig)

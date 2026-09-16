@@ -20,6 +20,19 @@ public static class ProductionConfigurationValidator
 {
     private const int MinJwtSecretLength = 32;
 
+    private static bool IsDevPostgresPassword(string connectionString)
+    {
+        try
+        {
+            var builder = new Npgsql.NpgsqlConnectionStringBuilder(connectionString);
+            return string.Equals(builder.Password, "postgres", StringComparison.Ordinal);
+        }
+        catch (ArgumentException)
+        {
+            return false; // Malformed string fails later at DB connect with a clearer error.
+        }
+    }
+
     public static void Validate(IConfiguration configuration, IHostEnvironment environment)
     {
         if (!environment.IsProduction())
@@ -35,9 +48,10 @@ public static class ProductionConfigurationValidator
         else if (jwtSecret.StartsWith("REPLACE_ME_IN_PRODUCTION", StringComparison.Ordinal))
             violations.Add("Jwt:Secret");
 
+        // Parse instead of substring-matching so a legitimate password that merely
+        // starts with "postgres" is not rejected; only the exact dev default is.
         var dbConnection = configuration.GetConnectionString("DefaultConnection");
-        if (dbConnection is not null &&
-            dbConnection.Contains("Password=postgres", StringComparison.OrdinalIgnoreCase))
+        if (dbConnection is not null && IsDevPostgresPassword(dbConnection))
             violations.Add("ConnectionStrings:DefaultConnection");
 
         var blobConnection = configuration.GetConnectionString("BlobStorage");
