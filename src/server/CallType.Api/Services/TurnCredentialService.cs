@@ -21,10 +21,12 @@ using System.Text;
 
 namespace CallType.Api.Services;
 
-public class TurnCredentialService
+public class TurnCredentialService : ITurnCredentialProvider
 {
     private readonly byte[] _sharedSecret;
     private readonly int _ttlSeconds;
+    private readonly string[] _urls;
+    private readonly string[] _stunUrls;
 
     public TurnCredentialService(IConfiguration configuration)
     {
@@ -39,6 +41,18 @@ public class TurnCredentialService
         // Default 24h TTL — long enough for multi-hour calls, short enough to
         // limit abuse if a credential leaks.
         _ttlSeconds = int.TryParse(configuration["Turn:TtlSeconds"], out var ttl) ? ttl : 86400;
+
+        // Self-hosted TURN: relay addresses are static configuration, unlike
+        // Cloudflare where the API returns them together with the credentials.
+        _urls = configuration.GetSection("Turn:Urls").Get<string[]>() ?? [];
+        _stunUrls = configuration.GetSection("Turn:StunUrls").Get<string[]>() ?? [];
+    }
+
+    /// <inheritdoc />
+    public Task<TurnIceCredentials> IssueAsync(Guid deviceId, CancellationToken cancellationToken)
+    {
+        var c = Generate(deviceId, DateTimeOffset.UtcNow);
+        return Task.FromResult(new TurnIceCredentials(c.Username, c.Credential, c.TtlSeconds, _urls, _stunUrls));
     }
 
     /// <summary>

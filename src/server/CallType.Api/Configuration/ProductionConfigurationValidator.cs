@@ -59,10 +59,22 @@ public static class ProductionConfigurationValidator
             blobConnection.Contains("UseDevelopmentStorage=true", StringComparison.OrdinalIgnoreCase))
             violations.Add("ConnectionStrings:BlobStorage");
 
-        var turnSecret = configuration["Turn:SharedSecret"];
-        if (string.IsNullOrEmpty(turnSecret) ||
-            turnSecret.StartsWith("REPLACE_ME_IN_PRODUCTION", StringComparison.Ordinal))
-            violations.Add("Turn:SharedSecret");
+        // Only the active TURN provider's settings are required; a stale coturn
+        // secret must not block a Cloudflare deployment and vice versa.
+        if (string.Equals(configuration["Turn:Provider"], "cloudflare", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrEmpty(configuration["Turn:Cloudflare:KeyId"]))
+                violations.Add("Turn:Cloudflare:KeyId");
+            if (string.IsNullOrEmpty(configuration["Turn:Cloudflare:ApiToken"]))
+                violations.Add("Turn:Cloudflare:ApiToken");
+        }
+        else
+        {
+            var turnSecret = configuration["Turn:SharedSecret"];
+            if (string.IsNullOrEmpty(turnSecret) ||
+                turnSecret.StartsWith("REPLACE_ME_IN_PRODUCTION", StringComparison.Ordinal))
+                violations.Add("Turn:SharedSecret");
+        }
 
         var corsOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
         if (corsOrigins is not { Length: > 0 })

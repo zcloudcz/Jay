@@ -61,9 +61,21 @@ builder.Services.AddHttpClient();
 builder.Services.AddSingleton<FcmTokenProvider>();
 builder.Services.AddSingleton<PushNotificationService>();
 
-// TurnCredentialService is a singleton — it is stateless (reads config once,
-// computes HMACs). No DbContext dependency, so no scoping needed.
-builder.Services.AddSingleton<TurnCredentialService>();
+// TURN credential provider — chosen by Turn:Provider:
+//   "shared-secret" (default): HMAC credentials for self-hosted coturn/DeskShare.Turn
+//   "cloudflare":              credentials minted by the Cloudflare TURN API
+// Both are singletons: stateless, config read once, pooled HttpClient.
+if (string.Equals(builder.Configuration["Turn:Provider"], "cloudflare", StringComparison.OrdinalIgnoreCase))
+{
+    // Bounded timeout so a Cloudflare outage cannot hang call setup indefinitely.
+    builder.Services.AddHttpClient(CloudflareTurnCredentialService.HttpClientName,
+        c => c.Timeout = TimeSpan.FromSeconds(10));
+    builder.Services.AddSingleton<ITurnCredentialProvider, CloudflareTurnCredentialService>();
+}
+else
+{
+    builder.Services.AddSingleton<ITurnCredentialProvider, TurnCredentialService>();
+}
 
 // JwtService is a singleton — reads config once, generates/validates tokens.
 // No DbContext dependency, no mutable state.

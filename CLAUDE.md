@@ -27,7 +27,7 @@ A WhatsApp-like messaging app with strong privacy:
 | **Database (client)** | SQLite + SQLCipher via drift |
 | **E2EE** | Signal Protocol in pure Dart (`cryptography` package): X3DH + full Double Ratchet, X25519 + HKDF + AES-256-GCM |
 | **Voice/Video** | WebRTC (`flutter_webrtc`) |
-| **STUN/TURN** | DeskShare.Stun + DeskShare.Turn from `C:\GIT\ZCLOUD\RemoteDesktopNet` |
+| **STUN/TURN** | Pluggable via `Turn:Provider`: `cloudflare` (Cloudflare TURN, credentials minted by API — beta default) or `shared-secret` (self-hosted coturn / DeskShare.Turn from `C:\GIT\ZCLOUD\RemoteDesktopNet`) |
 | **File storage** | Azure Blob Storage (encrypted attachments + backups) |
 | **Hosting** | Azure Container Apps |
 | **Push** | FCM HTTP v1 (Android/Web) + APNs (iOS — not implemented yet) |
@@ -155,8 +155,13 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
    (`CT-XXXX-XXXX`) for human-readable discovery. QR code for contact exchange.
 4. **Backup encryption** — independent passphrase-derived key (Argon2id).
    Server never sees backup content. Only for registered users.
-5. **STUN/TURN shared with RemoteDesktopNet** — custom .NET STUN (RFC 5389)
-   and TURN (RFC 5766) servers from DeskShare project. No third-party dependency.
+5. **TURN provider is pluggable** — `ITurnCredentialProvider` with two
+   implementations: `CloudflareTurnCredentialService` (Cloudflare TURN; no
+   relay to operate, UDP/TCP/TLS included, config `Turn:Cloudflare:KeyId` +
+   `Turn:Cloudflare:ApiToken`) and `TurnCredentialService` (HMAC shared-secret
+   for self-hosted coturn / DeskShare.Turn from RemoteDesktopNet). The client
+   response shape is identical; DTLS-SRTP keeps media end-to-end encrypted
+   regardless of who relays it.
 6. **Azure Container Apps** (not Functions) — persistent WebSocket connections
    needed for SignalR. Functions have cold start + execution time limits.
 

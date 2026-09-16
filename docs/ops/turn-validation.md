@@ -5,6 +5,29 @@ s historickým TTL 3600 s (`docs/azure-beta-plan.md`; skutečná hodnota app-set
 je 86400 v `appsettings.json` výchozím configu — **rozdíl mezi vývojovým defaultem a nasazenou
 hodnotou, ověřit se skutečným nastavením před závěrem, TTL změna se koordinuje s B00**).
 
+## 0. Cloudflare TURN (preferovaná varianta od 2026-09-16)
+
+Server umí místo vlastního coturn vydávat credentials z Cloudflare TURN. Přepnutí je jen konfigurace API, klient se nemění.
+
+| App setting (Azure) | Hodnota |
+| --- | --- |
+| `Turn__Provider` | `cloudflare` |
+| `Turn__Cloudflare__KeyId` | TURN key ID z Cloudflare dashboardu (Calls → TURN) |
+| `Turn__Cloudflare__ApiToken` | API token ke stejnému klíči — **tajemství**, jen do app settings |
+| `Turn__TtlSeconds` | zachovat (např. 3600) |
+| `Turn__Urls__N`, `Turn__SharedSecret` | pro Cloudflare se nepoužívají; lze ponechat pro rychlý návrat na coturn |
+
+Chování: `GET /turn/credentials` volá `POST /v1/turn/keys/{KeyId}/credentials/generate` (timeout 10 s) a vrací
+`urls` z odpovědi Cloudflare (`stun:`, `turn:` UDP/TCP 3478, `turns:` TLS 5349). Při výpadku Cloudflare vrací
+endpoint **503** a klient jede bez TURN (chat/signalizace nedotčeny). Tělo odpovědi Cloudflare se nikdy neloguje.
+
+Co odpadá: sekce 2–4, 8 a 10 níže (provoz coturn). Co zůstává k ověření: sekce 5 (negativní scénáře — Cloudflare
+odmítne expirované credentials sám), 7 (skutečný forced-relay hovor, D04 `forceIceRelay`) a 9 (síť bez UDP — TLS 5349
+je nyní k dispozici, stále NOT_RUN). Traffic: Cloudflare uvádí zahrnutý objem měsíčně a cenu za GB nad ním — ověřit
+aktuální ceník před závazkem v I04; do té doby limit externího serveru z I03 neplatí.
+
+Návrat na coturn: `Turn__Provider=shared-secret` a restart; ostatní klíče zůstaly.
+
 ## 1. Zjištěný stav bez admin přístupu k serveru
 
 - TCP connect probe `187.127.83.154:3478`: **PASS** — port je ze sítě tohoto agenta dosažitelný

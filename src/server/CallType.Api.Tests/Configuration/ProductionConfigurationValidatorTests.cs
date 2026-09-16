@@ -99,6 +99,39 @@ public class ProductionConfigurationValidatorTests
     }
 
     [Fact]
+    public void Cloudflare_provider_requires_key_id_and_token_but_not_shared_secret()
+    {
+        var values = new Dictionary<string, string?>(ValidProductionConfig)
+        {
+            ["Turn:Provider"] = "cloudflare",
+            ["Turn:SharedSecret"] = null, // irrelevant for Cloudflare — must not be demanded
+        };
+        var config = BuildConfig(values);
+
+        var act = () => ProductionConfigurationValidator.Validate(config, Env(Environments.Production));
+
+        var ex = act.Should().Throw<InvalidOperationException>().Which;
+        ex.Message.Should().Contain("Turn:Cloudflare:KeyId").And.Contain("Turn:Cloudflare:ApiToken");
+        ex.Message.Should().NotContain("Turn:SharedSecret");
+    }
+
+    [Fact]
+    public void Cloudflare_provider_with_key_id_and_token_is_accepted()
+    {
+        var values = new Dictionary<string, string?>(ValidProductionConfig)
+        {
+            ["Turn:Provider"] = "cloudflare",
+            ["Turn:SharedSecret"] = null,
+            ["Turn:Cloudflare:KeyId"] = "0123456789abcdef",
+            ["Turn:Cloudflare:ApiToken"] = "cf-token",
+        };
+
+        var act = () => ProductionConfigurationValidator.Validate(BuildConfig(values), Env(Environments.Production));
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
     public void Password_that_merely_starts_with_postgres_is_accepted()
     {
         // Regression: a substring check rejected any password beginning with "postgres".

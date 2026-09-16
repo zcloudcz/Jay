@@ -3,8 +3,9 @@
 // ---------------------------------------------------------------------------
 // WebRTC requires TURN servers for NAT traversal when peer-to-peer connections
 // fail. This endpoint issues short-lived credentials that the client passes to
-// the ICE agent. The credentials are HMAC-based and verified by the DeskShare.Turn
-// server without any database lookup — purely cryptographic verification.
+// the ICE agent. The issuer is pluggable (ITurnCredentialProvider): either the
+// self-hosted HMAC scheme (coturn / DeskShare.Turn) or Cloudflare TURN. The
+// response shape is identical so the Flutter client does not care which.
 //
 // Security: deviceId is required to bind the credential to a specific device.
 // In production this should be authenticated (JWT), but for now the deviceId
@@ -32,22 +33,32 @@ public static class TurnCredentialEndpoints
     // -----------------------------------------------------------------------
     // GET /turn/credentials?deviceId=xxx — Get time-limited TURN credentials
     // -----------------------------------------------------------------------
-    private static IResult GetCredentials(
+    private static async Task<IResult> GetCredentials(
         Guid? deviceId,
-        TurnCredentialService turnService,
-        IConfiguration configuration)
+        ITurnCredentialProvider turnProvider,
+        CancellationToken cancellationToken)
     {
         // deviceId is mandatory — we embed it in the TURN username so the
         // server can correlate ICE sessions to specific devices for debugging.
         if (deviceId is null || deviceId == Guid.Empty)
             return Results.BadRequest(new { error = "deviceId query parameter is required." });
 
-        var credentials = turnService.Generate(deviceId.Value, DateTimeOffset.UtcNow);
+        TurnIceCredentials credentials;
+        try
+        {
+            credentials = await turnProvider.IssueAsync(deviceId.Value, cancellationToken);
+        }
+        catch (TurnUnavailableException)
+        {
+            // Client falls back to STUN-only / direct ICE; calls behind symmetric
+            // NAT will fail, but signaling and chat are unaffected.
+            return Results.Json(new { error = "TURN credentials are temporarily unavailable." },
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
 
         return Results.Ok(new {
             credentials.Username, credentials.Credential, credentials.TtlSeconds,
-            Urls = configuration.GetSection("Turn:Urls").Get<string[]>() ?? [],
-            StunUrls = configuration.GetSection("Turn:StunUrls").Get<string[]>() ?? []
+            credentials.Urls, credentials.StunUrls
         });
     }
 }
