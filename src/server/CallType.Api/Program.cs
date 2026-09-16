@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using CallType.Api.Configuration;
 using CallType.Api.Data;
 using CallType.Api.Endpoints;
 using CallType.Api.Hubs;
@@ -77,6 +78,10 @@ builder.Services.AddHostedService<MessageCleanupService>();
 // is thread-safe and maintains an internal connection pool.
 builder.Services.AddSingleton(_ =>
     new BlobServiceClient(builder.Configuration.GetConnectionString("BlobStorage")));
+
+// ReadinessService backs GET /health/ready — scoped because it depends on the
+// scoped AppDbContext (same lifetime rule as MessageQueueService above).
+builder.Services.AddScoped<ReadinessService>();
 
 // --- CORS -------------------------------------------------------------------
 // Required for browser-based clients (Flutter Web) and SignalR WebSocket
@@ -193,6 +198,11 @@ builder.Services.AddSignalR(options => options.MaximumReceiveMessageSize = 1024 
 
 var app = builder.Build();
 
+// Fail fast if Production is about to run with missing/default/known-dev
+// config (K05). No-op outside Production, so local Development (docker-compose)
+// is unaffected.
+ProductionConfigurationValidator.Validate(app.Configuration, app.Environment);
+
 // Middleware order matters:
 // 1. CORS — must be before auth so preflight OPTIONS requests are handled
 // 2. Authentication establishes the device identity used for API quotas.
@@ -203,13 +213,9 @@ app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
 
-// Health-check endpoint — lightweight probe for orchestrators (k8s, Azure App
-// Service) and integration tests. Returns 200 with a JSON body so callers can
-// verify both connectivity and basic serialization.
-// AllowAnonymous: health checks must work without authentication so
-// orchestrators can probe without credentials.
-app.MapGet("/health", () => Results.Ok(new { status = "healthy" }))
-    .AllowAnonymous();
+// Liveness (/health) and readiness (/health/ready) probes for orchestrators
+// (k8s, Azure App Service) and integration tests. See HealthEndpoints.cs.
+app.MapHealthEndpoints();
 
 // Auth endpoints use the stricter "auth" rate limiter to slow down brute-force.
 app.MapAuthEndpoints();
