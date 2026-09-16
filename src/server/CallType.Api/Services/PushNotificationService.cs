@@ -19,10 +19,71 @@
 // ---------------------------------------------------------------------------
 
 using System.Net;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using CallType.Api.Data;
 
 namespace CallType.Api.Services;
+
+/// <summary>
+/// Outcome of evaluating an FCM HTTP v1 response. Kept separate from the
+/// token/DB plumbing so the response-parsing rules from K04 — a bare 404 does
+/// NOT prove the token is dead, only a 404 carrying the FCM "UNREGISTERED"
+/// error code does — can be unit tested without a database or real HTTP call.
+/// </summary>
+internal enum FcmSendOutcome
+{
+    /// <summary>Message accepted, or a transient/unknown failure — token is untouched.</summary>
+    Ok,
+
+    /// <summary>Provider confirmed the token is dead (404 + errorCode "UNREGISTERED").</summary>
+    TokenUnregistered,
+}
+
+/// <summary>
+/// Pure response-evaluation logic for FCM HTTP v1, split out of
+/// <see cref="PushNotificationService"/> so it can be unit tested directly
+/// against canned status codes/bodies instead of a live endpoint.
+/// </summary>
+internal static class FcmResponseEvaluator
+{
+    /// <summary>
+    /// FCM HTTP v1 error responses look like:
+    /// { "error": { "code": 404, "status": "NOT_FOUND",
+    ///   "details": [{ "@type": "...FcmError", "errorCode": "UNREGISTERED" }] } }
+    /// A 404 without that specific errorCode (e.g. a malformed request, or a
+    /// generic "not found") must NOT be treated as proof the token is dead.
+    /// </summary>
+    public static FcmSendOutcome Evaluate(HttpStatusCode statusCode, string responseBody)
+    {
+        if (statusCode != HttpStatusCode.NotFound)
+            return FcmSendOutcome.Ok;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(responseBody);
+            if (doc.RootElement.TryGetProperty("error", out var error) &&
+                error.TryGetProperty("details", out var details) &&
+                details.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var detail in details.EnumerateArray())
+                {
+                    if (detail.TryGetProperty("errorCode", out var code) &&
+                        code.GetString() == "UNREGISTERED")
+                    {
+                        return FcmSendOutcome.TokenUnregistered;
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // Unparseable body — treat like any other non-UNREGISTERED failure.
+        }
+
+        return FcmSendOutcome.Ok;
+    }
+}
 
 public class PushNotificationService
 {
@@ -123,28 +184,36 @@ public class PushNotificationService
 
             using var response = await client.SendAsync(request);
 
-            if (response.StatusCode == HttpStatusCode.NotFound)
+            if (!response.IsSuccessStatusCode)
             {
-                // HTTP v1 returns 404 UNREGISTERED when the token is no longer
-                // valid (app uninstalled, token rotated). Clear it so we stop
-                // burning requests on a dead token — the client re-registers a
-                // fresh token on next startup anyway.
-                _logger.LogInformation(
-                    "FCM token for device {DeviceId} is no longer registered, clearing it",
-                    deviceId);
-
-                await db.Devices
-                    .Where(d => d.DeviceId == deviceId)
-                    .ExecuteUpdateAsync(s => s
-                        .SetProperty(d => d.PushToken, (string?)null)
-                        .SetProperty(d => d.PushPlatform, (string?)null));
-            }
-            else if (!response.IsSuccessStatusCode)
-            {
+                // Never log the raw provider body — FCM error messages have
+                // echoed back request details in the past, and we must not
+                // risk leaking the token or payload into logs (K04).
                 var body = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning(
-                    "FCM push failed with status {StatusCode}: {Body}",
-                    (int)response.StatusCode, body);
+                var outcome = FcmResponseEvaluator.Evaluate(response.StatusCode, body);
+
+                if (outcome == FcmSendOutcome.TokenUnregistered)
+                {
+                    // Provider confirmed the token is dead. Clear only the exact
+                    // token we just used — if it was rotated mid-request, the new
+                    // token (already saved by the client's re-registration) must
+                    // survive this delete.
+                    _logger.LogInformation(
+                        "FCM token for device {DeviceId} is unregistered, clearing it",
+                        deviceId);
+
+                    await db.Devices
+                        .Where(d => d.DeviceId == deviceId && d.PushToken == token)
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(d => d.PushToken, (string?)null)
+                            .SetProperty(d => d.PushPlatform, (string?)null));
+                }
+                else
+                {
+                    _logger.LogWarning(
+                        "FCM push failed with status {StatusCode}",
+                        (int)response.StatusCode);
+                }
             }
         }
         catch (Exception ex)
