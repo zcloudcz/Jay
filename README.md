@@ -56,7 +56,7 @@ The relay stores message ciphertext before online or offline delivery. It remove
 | `ConnectionStrings__DefaultConnection` | PostgreSQL connection |
 | `ConnectionStrings__BlobStorage` | Azure Blob storage or local Azurite |
 | `Jwt__Secret` | Deployment-specific JWT signing secret, at least 32 characters |
-| `Database__ApplyMigrationsOnStartup` | Explicit database migration startup switch |
+| `Database__ApplyMigrationsOnStartup` | Run EF migrations at startup (`true` on the hosted beta — single instance, no separate migration step) |
 | `Cors__AllowedOrigins__0` | Browser client origin; local Compose uses `http://localhost:8090` |
 | `Turn__Provider` | `cloudflare` (beta default) or `shared-secret` (self-hosted coturn) |
 | `Turn__Cloudflare__KeyId`, `Turn__Cloudflare__ApiToken` | Cloudflare TURN key; the token is a server-side secret |

@@ -30,9 +30,6 @@
 #     AZURE_SWA_DEPLOYMENT_TOKEN
 #                              — Static Web Apps deploy action still only supports
 #                                a deployment token, not OIDC; scope it to this SWA
-#     CALLTYPE_DB_CONNECTION_STRING
-#                              — used only for the explicit `dotnet ef database
-#                                update` step, never printed
 #   Old ACR_LOGIN_SERVER/ACR_USERNAME/ACR_PASSWORD/AZURE_CREDENTIALS secrets are
 #   no longer used by this workflow and should be removed from the repo.
 # ---------------------------------------------------------------------------
@@ -283,14 +280,6 @@ jobs:
       id-token: write # required for OIDC azure/login
       contents: read
     steps:
-      # The migration step below runs `dotnet ef` against the source tree, so we
-      # need the exact SHA checked out plus the SDK — the artifact alone is not enough.
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.commit_sha }}
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
       - uses: actions/download-artifact@v4
         with:
           name: calltype-release-api-${{ inputs.commit_sha }}
@@ -305,14 +294,10 @@ jobs:
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
             --name "${{ vars.AZURE_WEBAPP_NAME }}" \
             --query id -o tsv
-      - name: Apply EF Core migrations explicitly (Database__ApplyMigrationsOnStartup is off)
-        env:
-          ConnectionStrings__DefaultConnection: ${{ secrets.CALLTYPE_DB_CONNECTION_STRING }}
-        run: |
-          dotnet tool install --global dotnet-ef --version 10.*
-          dotnet ef database update \
-            --project src/server/CallType.Api \
-            --connection "$ConnectionStrings__DefaultConnection"
+      # EF Core migrations run inside the app on startup
+      # (Database__ApplyMigrationsOnStartup=true). Safe because the beta runs
+      # exactly one B1 instance, so there is never a concurrent migrator; the
+      # runner therefore needs no database access or connection-string secret.
       - name: Deploy API package (B1 has no slots — expect a brief outage while the app restarts)
         run: |
           az webapp deploy \

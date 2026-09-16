@@ -52,7 +52,6 @@ to fall back to.
 | Variable | `CALLTYPE_SWA_URL` | Public web URL, used only by the smoke test |
 | Secret | `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` | OIDC federated credential for `azure/login` — no client secret stored |
 | Secret | `AZURE_SWA_DEPLOYMENT_TOKEN` | Static Web Apps deploy action has no OIDC path; scope this token to the one SWA |
-| Secret | `CALLTYPE_DB_CONNECTION_STRING` | Used only by the explicit `dotnet ef database update` step |
 
 `CALLTYPE_API_BASE_URL` is intentionally a variable, not a secret — it is
 compiled in plain text into every client binary and is not sensitive.
