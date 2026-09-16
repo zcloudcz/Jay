@@ -56,6 +56,9 @@ public class BackupStorageServiceTests : IntegrationTestBase
 
         await service.ConfirmUploadAsync(outcome.Backup!.Id, 100, CancellationToken.None);
 
+        // ConfirmUploadAsync uses ExecuteUpdateAsync, which bypasses the change
+        // tracker — drop the tracked instance so we really read the DB row.
+        db.ChangeTracker.Clear();
         var reloaded = await db.Backups.SingleAsync(b => b.Id == outcome.Backup.Id);
         reloaded.Status.Should().Be(BackupStatus.Completed);
         reloaded.ReservationExpiresAt.Should().BeNull();

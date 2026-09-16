@@ -29,11 +29,15 @@ public class ReadinessService(AppDbContext db, BlobServiceClient blobService)
         try
         {
             var dbTask = db.Database.CanConnectAsync(cts.Token);
+            // ExistsAsync is a cheap authenticated round-trip to the storage
+            // account. Whether the container exists is irrelevant here — on a
+            // fresh installation it is created by the first upload — so only a
+            // thrown exception (unreachable/unauthorized) counts as not ready.
             var blobTask = blobService.GetBlobContainerClient(BackupContainerName).ExistsAsync(cts.Token);
 
             await Task.WhenAll(dbTask, blobTask);
 
-            return dbTask.Result && blobTask.Result.Value;
+            return dbTask.Result;
         }
         catch (OperationCanceledException)
         {
