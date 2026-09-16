@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main, master, develop]
-    paths: ['src/**', '.github/workflows/ci.yml']
+    paths: ['src/**', 'infra/**', '.github/workflows/ci.yml', '.github/workflows/deploy.yml']
   push:
     branches: [main, master, develop]
-    paths: ['src/**', '.github/workflows/ci.yml']
+    paths: ['src/**', 'infra/**', '.github/workflows/ci.yml', '.github/workflows/deploy.yml']
 
 permissions:
   contents: read
@@ -56,7 +56,36 @@ jobs:
       - run: flutter analyze
       - run: flutter test
 
-  beta-build:
+  # Bicep lint gate: any change under infra/ must at least compile. This does
+  # NOT run `az deployment ... what-if` or touch Azure — that stays a manual,
+  # read-only step owned by I01. `az bicep build` alone needs no Azure login.
+  infra-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find and build every Bicep template
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          files=(infra/**/*.bicep)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No .bicep files present yet — nothing to validate."
+            exit 0
+          fi
+          for f in "${files[@]}"; do
+            echo "az bicep build --file $f"
+            az bicep build --file "$f" --outfile "$(mktemp).json"
+          done
+
+  # Sanity build only — proves the app still compiles for every target platform.
+  # NOT a distributable artifact: it uses a placeholder, non-production API URL
+  # and is never picked up by deploy.yml. Real beta/release artifacts with a
+  # validated production API URL are built exclusively by deploy.yml's
+  # `build` job against an explicit, tested commit SHA (see R01 acceptance
+  # criteria in docs/superpowers/plans/2026-09-16-beta-vyvoj.md).
+  dev-build:
     needs: [backend, flutter]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
@@ -100,8 +129,8 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
-      - name: Build beta artifact
-        run: ${{ matrix.command }} --dart-define=API_BASE_URL=${{ vars.CALLTYPE_API_BASE_URL || 'http://localhost:8080' }}
+      - name: Build sanity artifact (placeholder API URL, never distributed)
+        run: ${{ matrix.command }} --dart-define=API_BASE_URL=https://ci-sanity-build.invalid
       - name: Archive macOS bundle preserving executable permissions
         if: matrix.platform == 'macos'
         run: tar -czf build/calltype-macos.tar.gz -C build/macos/Build/Products/Release .
@@ -110,7 +139,7 @@ jobs:
         run: tar -czf build/calltype-ios-unsigned.tar.gz -C build/ios/iphoneos .
       - uses: actions/upload-artifact@v4
         with:
-          name: calltype-beta-${{ matrix.platform }}-${{ github.sha }}
+          name: calltype-ci-sanity-${{ matrix.platform }}-${{ github.sha }}
           path: src/client/calltype/${{ matrix.artifact }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
