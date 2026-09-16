@@ -65,3 +65,18 @@ Pozn.: `Turn__StunUrls__0` stále ukazuje na `stun:187.127.83.154:3478`; Cloudfl
 
 - Z App Service smazány `Turn__StunUrls__0`, `Turn__Urls__0`, `Turn__Urls__1`, `Turn__SharedSecret`; zůstávají `Turn__Provider=cloudflare`, `Turn__Cloudflare__*`, `Turn__TtlSeconds`. `/health/ready` 200 po restartu.
 - Serverová část (stop/disable coturn, zavření 3478 a relay rozsahu) — provedl operátor serveru 2026-09-16; TCP 3478 z vývojářského stroje nedosažitelný (PASS, dle probe níže v commitu).
+
+## Hosted CI/CD deploy 2026-09-16 (commit `9816709`, run 35129788149)
+
+| Krok | Stav |
+| --- | --- |
+| `deploy.yml` (workflow_dispatch, SHA-pinned, `confirm_backup=true`) | PASS — run https://github.com/zcloudcz/Jay/actions/runs/35129788149 |
+| Testcontainers backend sada na hosted runneru | PASS 154/154 (první skutečný běh integračních testů D01/D02/D05) |
+| Flutter analyze + test | PASS |
+| Artefakty (stejné SHA): api 3 MiB, web 12 MiB, android 52 MiB, windows 22 MiB, macos 229 MiB, ios-unsigned 14 MiB + manifesty | PASS (retention 90 dní) |
+| `deploy-api` přes OIDC (federated credential musí mít GitHub subject s ID `repo:zcloudcz@…/Jay@…:environment:calltype-beta`) | PASS; migrace při startu (`Database__ApplyMigrationsOnStartup=true`) |
+| `deploy-web` SWA | PASS |
+| Smoke `/health` 200, `/health/ready` 200, web 200 | PASS |
+| SignalR autentizovaný smoke ve workflow | NOT_RUN (dokumentovaná mezera) |
+
+Poznámky: iOS build vyžadoval zvýšení deployment target na 14.0 (`file_picker_darwin`). Repo bylo dočasně PUBLIC kvůli vyčerpaným Actions minutám pro private repo (macOS runnery); po úspěšném runu vráceno na PRIVATE — další hosted runy vyžadují spending limit nebo public repo.
