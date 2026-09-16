@@ -15,6 +15,7 @@
 // ---------------------------------------------------------------------------
 
 using Azure.Storage.Blobs;
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using CallType.Api.Data;
 using CallType.Api.Models;
@@ -50,10 +51,13 @@ public static class BackupEndpoints
     private static async Task<IResult> UploadBackup(
         Guid accountId,
         IFormFile file,
+        ClaimsPrincipal user,
         AppDbContext db,
         BlobServiceClient blobService,
         CancellationToken ct)
     {
+        if (!await AccountEndpoints.IsLinkedAsync(user, accountId, db, ct)) return Results.Forbid();
+
         // Only registered users can create backups — anonymous devices have
         // no account to associate the backup with.
         var accountExists = await db.Accounts.AnyAsync(a => a.AccountId == accountId, ct);
@@ -104,9 +108,12 @@ public static class BackupEndpoints
     // -----------------------------------------------------------------------
     private static async Task<IResult> ListBackups(
         Guid accountId,
+        ClaimsPrincipal user,
         AppDbContext db,
         CancellationToken ct)
     {
+        if (!await AccountEndpoints.IsLinkedAsync(user, accountId, db, ct)) return Results.Forbid();
+
         // Return newest first — most recent backup is the most likely restore target.
         var backups = await db.Backups
             .Where(b => b.AccountId == accountId)
@@ -123,10 +130,13 @@ public static class BackupEndpoints
     private static async Task<IResult> DownloadBackup(
         Guid accountId,
         long backupId,
+        ClaimsPrincipal user,
         AppDbContext db,
         BlobServiceClient blobService,
         CancellationToken ct)
     {
+        if (!await AccountEndpoints.IsLinkedAsync(user, accountId, db, ct)) return Results.Forbid();
+
         // Verify the backup belongs to the requested account — prevents
         // authenticated users from downloading other accounts' backups
         // by guessing backup IDs.

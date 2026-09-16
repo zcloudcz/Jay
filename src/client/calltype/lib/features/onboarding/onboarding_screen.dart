@@ -33,11 +33,7 @@ class OnboardingScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 // -- App icon: shield with lock symbolizes E2E encryption ------
-                Icon(
-                  Icons.lock_rounded,
-                  size: 80,
-                  color: colorScheme.primary,
-                ),
+                Icon(Icons.lock_rounded, size: 80, color: colorScheme.primary),
                 const SizedBox(height: 24),
 
                 Text(
@@ -97,10 +93,7 @@ class OnboardingScreen extends StatelessWidget {
 /// The QR code encodes the device ID and user handle so a scanning
 /// peer can immediately look up the key bundle and start a session.
 class _SuccessContent extends StatelessWidget {
-  const _SuccessContent({
-    required this.userHandle,
-    required this.qrData,
-  });
+  const _SuccessContent({required this.userHandle, required this.qrData});
 
   final String userHandle;
   final String qrData;
@@ -112,10 +105,7 @@ class _SuccessContent extends StatelessWidget {
 
     return Column(
       children: [
-        Text(
-          'Your Identity',
-          style: theme.textTheme.titleMedium,
-        ),
+        Text('Your Identity', style: theme.textTheme.titleMedium),
         const SizedBox(height: 12),
 
         // SelectableText so the user can copy their handle to share
@@ -172,10 +162,7 @@ class _SuccessContent extends StatelessWidget {
 /// verbose, so we limit display to keep the UI clean while still giving
 /// the user actionable feedback.
 class _ErrorCard extends StatelessWidget {
-  const _ErrorCard({
-    required this.error,
-    required this.onRetry,
-  });
+  const _ErrorCard({required this.error, required this.onRetry});
 
   final String error;
   final VoidCallback onRetry;

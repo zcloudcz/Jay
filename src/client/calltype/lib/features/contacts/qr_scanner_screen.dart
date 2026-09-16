@@ -37,16 +37,11 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Scan QR Code'),
-      ),
+      appBar: AppBar(title: const Text('Scan QR Code')),
       body: Stack(
         children: [
           // Camera preview with barcode detection.
-          MobileScanner(
-            controller: _controller,
-            onDetect: _onDetect,
-          ),
+          MobileScanner(controller: _controller, onDetect: _onDetect),
 
           // Overlay hint text at the bottom — helps the user understand
           // what to scan without obscuring the camera viewfinder.
@@ -56,8 +51,10 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
             bottom: 48,
             child: Center(
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black54,
                   borderRadius: BorderRadius.circular(24),

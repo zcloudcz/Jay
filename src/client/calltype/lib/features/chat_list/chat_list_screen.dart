@@ -1,78 +1,165 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-
+import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
+import '../../core/network/signalr_client.dart';
 import '../../shared/widgets/avatar.dart';
+import '../contacts/contacts_controller.dart';
+import 'chat_list_controller.dart';
 
-/// Main screen showing all conversations, ordered by most recent message.
-///
-/// Currently renders sample placeholder data — the real conversation list
-/// will be populated from the local Drift database in Phase 4 when the
-/// SignalR message relay is integrated and messages start flowing.
-///
-/// Layout follows the standard messaging app pattern: scrollable list with
-/// avatar, name, last message preview, and timestamp per tile. FAB opens
-/// the contacts screen to start new conversations.
-class ChatListScreen extends StatelessWidget {
+/// Live conversations from the device database, including offline history.
+class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
+  @override
+  State<ChatListScreen> createState() => _ChatListScreenState();
+}
+
+class _ChatListScreenState extends State<ChatListScreen> {
+  bool _loading = true;
+  String? _error;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      await Future.wait([
+        context.read<ChatListController>().loadConversations(),
+        context.read<ContactsController>().loadContacts(),
+      ]);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = null;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Unable to load conversations.';
+        });
+      }
+    }
+  }
+
+  Future<void> _connect() async {
+    try {
+      await context.read<SignalRClient>().connect();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot connect. Check the network and retry.'),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
+    final controller = context.watch<ChatListController>();
+    final contacts = context.watch<ContactsController>().contacts;
+    final network = context.watch<SignalRClient>();
+    final rows = controller.conversations;
     return Scaffold(
       appBar: AppBar(
         title: const Text('CallType'),
         actions: [
-          // QR scanner for in-person contact exchange — navigates to the
-          // scan screen where the camera feed + QR decoder live.
           IconButton(
-            icon: const Icon(Icons.qr_code_scanner_rounded),
-            tooltip: 'Scan QR code',
-            onPressed: () => context.push('/contacts/scan'),
+            icon: const Icon(Icons.group_add_outlined),
+            tooltip: 'New group',
+            onPressed: () => context.push('/groups/create'),
           ),
           IconButton(
-            icon: const Icon(Icons.settings_rounded),
+            icon: const Icon(Icons.qr_code),
+            tooltip: 'My identity',
+            onPressed: () => context.push('/settings/identity'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
             tooltip: 'Settings',
             onPressed: () => context.push('/settings'),
           ),
         ],
       ),
-      body: _sampleChats.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.chat_bubble_outline_rounded,
-                    size: 64,
-                    color: colorScheme.onSurfaceVariant.withAlpha(100),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No conversations yet',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Tap + to start a new chat',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
+      body: Column(
+        children: [
+          if (!network.connected)
+            MaterialBanner(
+              content: const Text(
+                'Offline — your history is available on this device.',
               ),
-            )
-          : ListView.builder(
-              itemCount: _sampleChats.length,
-              itemBuilder: (context, index) {
-                final chat = _sampleChats[index];
-                return _ChatTile(chat: chat);
-              },
+              actions: [
+                TextButton(onPressed: _connect, child: const Text('Reconnect')),
+              ],
             ),
-      // FAB to start a new conversation from the contacts list.
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null || controller.error != null
+                ? Center(
+                    child: TextButton(
+                      onPressed: _load,
+                      child: Text(
+                        _error ?? 'Unable to load conversations. Retry',
+                      ),
+                    ),
+                  )
+                : rows.isEmpty
+                ? const Center(
+                    child: Text(
+                      'No conversations yet. Add a contact to start.',
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: rows.length,
+                    itemBuilder: (context, index) {
+                      final row = rows[index];
+                      final matches = contacts.where(
+                        (c) => c.deviceId == row.id,
+                      );
+                      final contact = matches.isEmpty ? null : matches.first;
+                      final title =
+                          row.title ??
+                          contact?.displayName ??
+                          contact?.userHandle ??
+                          row.id;
+                      return ListTile(
+                        leading: LetterAvatar(name: title),
+                        title: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          row.type == 'group'
+                              ? 'Group conversation'
+                              : 'Encrypted conversation',
+                        ),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (row.lastMessageAt != null)
+                              Text(
+                                DateFormat.Hm().format(
+                                  row.lastMessageAt!.toLocal(),
+                                ),
+                              ),
+                            if (row.unreadCount > 0)
+                              Badge(label: Text('${row.unreadCount}')),
+                          ],
+                        ),
+                        onTap: () => context.push('/chats/${row.id}'),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => context.push('/contacts'),
         tooltip: 'New chat',
@@ -81,79 +168,3 @@ class ChatListScreen extends StatelessWidget {
     );
   }
 }
-
-/// Single row in the chat list, showing contact info and last message preview.
-class _ChatTile extends StatelessWidget {
-  const _ChatTile({required this.chat});
-
-  final _SampleChat chat;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return ListTile(
-      leading: LetterAvatar(name: chat.name),
-      title: Text(
-        chat.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Text(
-        chat.lastMessage,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
-      trailing: Text(
-        chat.time,
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
-      onTap: () => context.push('/chats/${chat.id}'),
-    );
-  }
-}
-
-/// Placeholder chat data for visual development and testing.
-///
-/// These sample entries let us verify layout, scrolling, and navigation
-/// before the real database integration is ready. Will be removed when
-/// the chat list reads from [AppDatabase] in Phase 4.
-class _SampleChat {
-  const _SampleChat({
-    required this.id,
-    required this.name,
-    required this.lastMessage,
-    required this.time,
-  });
-
-  final String id;
-  final String name;
-  final String lastMessage;
-  final String time;
-}
-
-const _sampleChats = [
-  _SampleChat(
-    id: '1',
-    name: 'Alice',
-    lastMessage: 'See you tomorrow!',
-    time: '10:30',
-  ),
-  _SampleChat(
-    id: '2',
-    name: 'Bob',
-    lastMessage: 'The document is ready.',
-    time: '09:15',
-  ),
-  _SampleChat(
-    id: '3',
-    name: 'Charlie',
-    lastMessage: 'Thanks for the update.',
-    time: 'Yesterday',
-  ),
-];

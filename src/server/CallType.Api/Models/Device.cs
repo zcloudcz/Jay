@@ -31,6 +31,9 @@ public class Device
     /// </summary>
     public byte[] SignedPreKey { get; set; } = [];
 
+    public byte[]? SigningKey { get; set; }
+    public byte[]? Signature { get; set; }
+
     /// <summary>
     /// Platform-specific push notification token (APNs / FCM).
     /// Null when the device has not registered for push or has revoked it.

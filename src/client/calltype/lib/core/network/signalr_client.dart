@@ -29,12 +29,26 @@ class SignalRClient extends ChangeNotifier {
     required String baseUrl,
     required String deviceId,
     AuthService? authService,
-  })  : _baseUrl = baseUrl,
-        _deviceId = deviceId,
-        _authService = authService;
+  }) : _baseUrl = baseUrl,
+       _deviceId = deviceId,
+       _authService = authService;
 
   final String _baseUrl;
-  final String _deviceId;
+  String _deviceId;
+  bool _disposed = false;
+  Future<void>? _connecting;
+  Timer? _pendingTimer;
+
+  void setDeviceId(String value) {
+    if (connected) throw StateError('Disconnect before changing identity.');
+    _deviceId = value;
+  }
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
   final AuthService? _authService;
 
   /// This device's UUID — exposed so feature controllers (e.g. chat) can
@@ -73,6 +87,21 @@ class SignalRClient extends ChangeNotifier {
   /// connection. Queued messages are delivered by the server automatically
   /// on connect via the ReceiveMessage callback.
   Future<void> connect() async {
+    if (_disposed) throw StateError('Connection disposed.');
+    if (connected) return;
+    if (_deviceId.isEmpty) throw StateError('Register this device first.');
+    if (_connecting != null) return _connecting;
+    _connecting = _connect();
+    try {
+      await _connecting;
+    } finally {
+      _connecting = null;
+    }
+  }
+
+  Future<void> _connect() async {
+    await _hubConnection?.stop();
+    if (_disposed) return;
     // The hub is protected by [Authorize] on the server. WebSockets cannot
     // carry custom HTTP headers, so SignalR passes the JWT as the
     // `access_token` query parameter — the server moves it into the auth
@@ -114,15 +143,27 @@ class SignalRClient extends ChangeNotifier {
       notifyListeners();
     });
     _hubConnection!.onreconnected(({String? connectionId}) {
+      unawaited(requestPendingMessages().catchError((Object _) {}));
       notifyListeners();
     });
 
     await _hubConnection!.start();
+    if (_disposed) {
+      await _hubConnection!.stop();
+      return;
+    }
+    _pendingTimer?.cancel();
+    _pendingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (connected) {
+        unawaited(requestPendingMessages().catchError((Object _) {}));
+      }
+    });
     notifyListeners();
   }
 
   /// Closes the SignalR connection gracefully.
   Future<void> disconnect() async {
+    _pendingTimer?.cancel();
     await _hubConnection?.stop();
     notifyListeners();
   }
@@ -138,11 +179,12 @@ class SignalRClient extends ChangeNotifier {
   /// for later delivery if offline.
   Future<void> sendMessage(
     String recipientDeviceId,
-    String encryptedBodyBase64,
-  ) async {
-    await _hubConnection?.invoke(
-      'SendMessage',
-      args: <Object>[recipientDeviceId, encryptedBodyBase64],
+    String encryptedBodyBase64, {
+    String? messageId,
+  }) async {
+    await _requireConnection().invoke(
+      messageId == null ? 'SendMessage' : 'SendReliableMessage',
+      args: <Object>[recipientDeviceId, ?messageId, encryptedBodyBase64],
     );
   }
 
@@ -153,12 +195,29 @@ class SignalRClient extends ChangeNotifier {
   /// group member (each gets a uniquely encrypted copy).
   Future<void> sendGroupMessage(
     String groupId,
-    Map<String, String> encryptedPayloads,
-  ) async {
-    await _hubConnection?.invoke(
-      'SendGroupMessage',
-      args: <Object>[groupId, encryptedPayloads],
+    Map<String, String> encryptedPayloads, {
+    String? messageId,
+  }) async {
+    await _requireConnection().invoke(
+      messageId == null ? 'SendGroupMessage' : 'SendReliableGroupMessage',
+      args: <Object>[groupId, ?messageId, encryptedPayloads],
     );
+  }
+
+  Future<void> acknowledgeMessage(String senderId, String messageId) async {
+    await _requireConnection().invoke(
+      'AcknowledgeMessage',
+      args: <Object>[senderId, messageId],
+    );
+  }
+
+  Future<void> requestPendingMessages() async {
+    await _requireConnection().invoke('RequestPendingMessages');
+  }
+
+  HubConnection _requireConnection() {
+    if (!connected) throw StateError('Offline. Reconnect and retry.');
+    return _hubConnection!;
   }
 
   /// Sends a typing indicator to a conversation's participants.
@@ -166,7 +225,7 @@ class SignalRClient extends ChangeNotifier {
   /// Fire-and-forget — typing indicators are ephemeral and not persisted.
   /// The server broadcasts to all other connected clients.
   Future<void> sendTypingIndicator(String conversationId) async {
-    await _hubConnection?.invoke(
+    await _requireConnection().invoke(
       'TypingIndicator',
       args: <Object>[conversationId],
     );
@@ -182,7 +241,7 @@ class SignalRClient extends ChangeNotifier {
     String signalType,
     String payload,
   ) async {
-    await _hubConnection?.invoke(
+    await _requireConnection().invoke(
       'CallSignal',
       args: <Object>[targetDeviceId, signalType, payload],
     );
@@ -196,6 +255,7 @@ class SignalRClient extends ChangeNotifier {
   /// (and only) argument is an object with senderId, encryptedBody, createdAt,
   /// and optionally groupId.
   void _handleReceiveMessage(List<Object?>? arguments) {
+    if (_disposed) return;
     if (arguments == null || arguments.isEmpty) return;
 
     final data = _parseArgument(arguments[0]);
@@ -205,6 +265,7 @@ class SignalRClient extends ChangeNotifier {
   }
 
   void _handleTypingIndicator(List<Object?>? arguments) {
+    if (_disposed) return;
     if (arguments == null || arguments.isEmpty) return;
 
     final data = _parseArgument(arguments[0]);
@@ -214,6 +275,7 @@ class SignalRClient extends ChangeNotifier {
   }
 
   void _handleCallSignal(List<Object?>? arguments) {
+    if (_disposed) return;
     if (arguments == null || arguments.isEmpty) return;
 
     final data = _parseArgument(arguments[0]);
@@ -235,6 +297,8 @@ class SignalRClient extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _pendingTimer?.cancel();
     _hubConnection?.stop();
     _onMessage.close();
     _onTyping.close();

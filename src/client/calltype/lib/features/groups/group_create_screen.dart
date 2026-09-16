@@ -25,6 +25,10 @@ class GroupCreateScreen extends StatefulWidget {
 
 class _GroupCreateScreenState extends State<GroupCreateScreen> {
   final _nameController = TextEditingController();
+  late final GroupController _controller;
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
 
   /// Device IDs of selected group members.
   final Set<String> _selectedMembers = {};
@@ -36,18 +40,25 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
   @override
   void initState() {
     super.initState();
+    _controller = GroupController(
+      database: context.read<AppDatabase>(),
+      apiClient: context.read<ApiClient>(),
+    )..addListener(_refresh);
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadContacts());
-    _nameController.addListener(() => setState(() {}));
+    _nameController.addListener(_refresh);
   }
 
   @override
   void dispose() {
+    _controller.removeListener(_refresh);
+    _controller.dispose();
     _nameController.dispose();
     super.dispose();
   }
 
   /// Loads contacts from the database to populate the member selection list.
   Future<void> _loadContacts() async {
+    if (!mounted) return;
     final db = context.read<AppDatabase>();
     final contacts = await db.select(db.contacts).get();
     if (mounted) {
@@ -61,7 +72,9 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
   /// Whether the create button should be enabled.
   /// Requires both a non-empty name and at least one selected member.
   bool get _canCreate =>
-      _nameController.text.trim().isNotEmpty && _selectedMembers.isNotEmpty;
+      _nameController.text.trim().isNotEmpty &&
+      _selectedMembers.isNotEmpty &&
+      !_controller.isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +88,13 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
           // Create button — only enabled when validation passes.
           TextButton(
             onPressed: _canCreate ? _createGroup : null,
-            child: const Text('Create'),
+            child: _controller.isLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Create'),
           ),
         ],
       ),
@@ -88,6 +107,7 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
                   padding: const EdgeInsets.all(16),
                   child: TextField(
                     controller: _nameController,
+                    enabled: !_controller.isLoading,
                     decoration: const InputDecoration(
                       labelText: 'Group name',
                       hintText: 'e.g. Project Team',
@@ -100,8 +120,10 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
 
                 // -- Member selection header ----------------------------------
                 Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Row(
                     children: [
                       Text(
@@ -141,21 +163,24 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
                             final deviceId = contact.deviceId as String;
                             final name =
                                 (contact.displayName as String?) ??
-                                    contact.userHandle as String;
-                            final isSelected =
-                                _selectedMembers.contains(deviceId);
+                                contact.userHandle as String;
+                            final isSelected = _selectedMembers.contains(
+                              deviceId,
+                            );
 
                             return CheckboxListTile(
                               value: isSelected,
-                              onChanged: (checked) {
-                                setState(() {
-                                  if (checked == true) {
-                                    _selectedMembers.add(deviceId);
-                                  } else {
-                                    _selectedMembers.remove(deviceId);
-                                  }
-                                });
-                              },
+                              onChanged: _controller.isLoading
+                                  ? null
+                                  : (checked) {
+                                      setState(() {
+                                        if (checked == true) {
+                                          _selectedMembers.add(deviceId);
+                                        } else {
+                                          _selectedMembers.remove(deviceId);
+                                        }
+                                      });
+                                    },
                               secondary: LetterAvatar(name: name),
                               title: Text(
                                 name,
@@ -179,15 +204,8 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
 
   /// Creates the group via the controller and navigates to the new chat.
   Future<void> _createGroup() async {
-    final db = context.read<AppDatabase>();
-    final apiClient = context.read<ApiClient>();
-
-    final controller = GroupController(
-      database: db,
-      apiClient: apiClient,
-    );
-
-    final groupId = await controller.createGroup(
+    if (!_canCreate) return;
+    final groupId = await _controller.createGroup(
       _nameController.text,
       _selectedMembers.toList(),
     );
@@ -196,10 +214,10 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
       // Navigate to the new group chat, replacing the create screen
       // so the user can't go "back" to the creation form.
       context.go('/chats/$groupId');
-    } else if (controller.error != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(controller.error!)),
-      );
+    } else if (_controller.error != null && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_controller.error!)));
     }
   }
 }

@@ -11,10 +11,11 @@ import 'package:flutter/material.dart';
 /// avoid memory leaks — this is important because the input bar lives
 /// as long as the chat screen and the controller holds native resources.
 class MessageInput extends StatefulWidget {
-  const MessageInput({super.key, required this.onSend});
+  const MessageInput({super.key, required this.onSend, this.onAttachment});
+  final VoidCallback? onAttachment;
 
   /// Called with the non-empty trimmed message text when the user submits.
-  final ValueChanged<String> onSend;
+  final Future<void> Function(String) onSend;
 
   @override
   State<MessageInput> createState() => _MessageInputState();
@@ -26,6 +27,7 @@ class _MessageInputState extends State<MessageInput> {
   /// Track whether the text field has content so we can conditionally
   /// enable the send button — prevents sending empty messages.
   bool _hasText = false;
+  bool _sending = false;
 
   @override
   void initState() {
@@ -40,12 +42,24 @@ class _MessageInputState extends State<MessageInput> {
     }
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     final text = _controller.text.trim();
-    if (text.isEmpty) return;
-
-    widget.onSend(text);
-    _controller.clear();
+    if (text.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    try {
+      await widget.onSend(text);
+      if (mounted && _controller.text.trim() == text) _controller.clear();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Message was not saved. Your draft is still here.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 
   @override
@@ -67,9 +81,7 @@ class _MessageInputState extends State<MessageInput> {
             IconButton(
               icon: const Icon(Icons.attach_file_rounded),
               tooltip: 'Attach file',
-              onPressed: () {
-                // TODO: Implement file picker in Phase 5.
-              },
+              onPressed: widget.onAttachment,
             ),
 
             Expanded(
@@ -102,10 +114,12 @@ class _MessageInputState extends State<MessageInput> {
             IconButton(
               icon: Icon(
                 Icons.send_rounded,
-                color: _hasText ? colorScheme.primary : colorScheme.onSurfaceVariant,
+                color: _hasText
+                    ? colorScheme.primary
+                    : colorScheme.onSurfaceVariant,
               ),
               tooltip: 'Send',
-              onPressed: _hasText ? _submit : null,
+              onPressed: _hasText && !_sending ? _submit : null,
             ),
           ],
         ),

@@ -27,11 +27,14 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using CallType.Api.Services;
+using CallType.Api.Data;
+using CallType.Api.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace CallType.Api.Hubs;
 
 [Authorize]
-public class MessengerHub(MessageQueueService queueService, PushNotificationService pushService) : Hub
+public class MessengerHub(MessageQueueService queueService, PushNotificationService pushService, AppDbContext db) : Hub
 {
     // Maps DeviceId -> ConnectionId for all currently connected devices.
     // Static because SignalR creates a new Hub instance per invocation,
@@ -40,38 +43,31 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
 
     public override async Task OnConnectedAsync()
     {
-        // Ensure SignalR connection is fully initialized before application logic.
         await base.OnConnectedAsync();
-
-        // DeviceId is now extracted from the validated JWT "sub" claim — no longer
-        // from the query string, which was spoofable. The [Authorize] attribute
-        // guarantees Context.User is non-null and the token is valid by this point.
         var deviceId = GetDeviceId();
-
         if (deviceId != Guid.Empty)
         {
-            // If the same device reconnects (e.g. after a network blip),
-            // the old connection ID is overwritten — only the latest
-            // connection for a device is considered active.
             OnlineDevices[deviceId] = Context.ConnectionId;
-
-            // Deliver any messages that accumulated while the device was offline.
-            // This runs on connect so the client doesn't need a separate "fetch
-            // queued messages" API call — it just opens the hub and gets everything.
-            var queued = await queueService.DequeueAsync(deviceId);
-
-            foreach (var msg in queued)
-            {
-                await Clients.Caller.SendAsync("ReceiveMessage", new
-                {
-                    senderId = msg.SenderId,
-                    encryptedBody = Convert.ToBase64String(msg.EncryptedBody),
-                    createdAt = msg.CreatedAt
-                });
-            }
+            await SendPendingAsync(deviceId);
         }
     }
 
+    public Task RequestPendingMessages()
+        => SendPendingAsync(GetCallerDeviceId() ?? throw new HubException("Invalid device identity"));
+
+    private async Task SendPendingAsync(Guid deviceId)
+    {
+        var queued = await queueService.DequeueAsync(deviceId, Context.ConnectionAborted);
+        foreach (var msg in queued)
+            await Clients.Caller.SendAsync("ReceiveMessage", new
+            {
+                senderId = msg.SenderId,
+                encryptedBody = Convert.ToBase64String(msg.EncryptedBody),
+                createdAt = msg.CreatedAt,
+                messageId = msg.MessageId,
+                groupId = msg.GroupId
+            }, Context.ConnectionAborted);
+    }
     public override Task OnDisconnectedAsync(Exception? exception)
     {
         var deviceId = GetDeviceId();
@@ -87,81 +83,73 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
     }
 
     /// <summary>
-    /// Sends an encrypted message to a specific device. If the recipient is
-    /// online, the message is delivered immediately via SignalR. If offline,
-    /// it is queued for later delivery.
+    /// Persists encrypted messages before delivery and retains them until acknowledgement.
     /// </summary>
-    public async Task SendMessage(Guid recipientDeviceId, string encryptedBodyBase64)
+    public Task SendMessage(Guid recipientDeviceId, string encryptedBodyBase64)
+        => SendReliableMessage(recipientDeviceId, Guid.NewGuid(), encryptedBodyBase64);
+
+    public async Task SendReliableMessage(Guid recipientDeviceId, Guid messageId, string encryptedBodyBase64)
     {
-        var senderDeviceId = GetCallerDeviceId();
-        if (senderDeviceId is null) return;
-
-        if (OnlineDevices.TryGetValue(recipientDeviceId, out var connectionId))
-        {
-            // Recipient is online — deliver directly. This avoids a DB round-trip
-            // and gives sub-second latency for the common case.
-            // No need to decode Base64 — we pass the string through as-is.
-            await Clients.Client(connectionId).SendAsync("ReceiveMessage", new
-            {
-                senderId = senderDeviceId.Value,
-                encryptedBody = encryptedBodyBase64,
-                createdAt = DateTimeOffset.UtcNow
-            });
-        }
-        else
-        {
-            // Recipient is offline — decode and store for later delivery.
-            var encryptedBody = Convert.FromBase64String(encryptedBodyBase64);
-            await queueService.EnqueueAsync(recipientDeviceId, senderDeviceId.Value, encryptedBody);
-
-            // Attempt to wake the device via push notification. This is best-effort —
-            // failures are logged but never propagated to the sender. The message is
-            // already safely queued and will be delivered on next connect regardless.
-            await pushService.SendPushAsync(recipientDeviceId);
-        }
+        var sender = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
+        var body = DecodePayload(encryptedBodyBase64);
+        var message = await queueService.EnqueueReliableAsync(recipientDeviceId, sender, messageId,
+            body, cancellationToken: Context.ConnectionAborted);
+        await DeliverAsync(message);
     }
 
-    /// <summary>
-    /// Sends an encrypted group message. The caller provides a dictionary of
-    /// DeviceId -> encrypted payload (each device gets a uniquely encrypted copy
-    /// because E2E encryption uses per-device keys).
-    /// </summary>
-    public async Task SendGroupMessage(Guid groupId, Dictionary<Guid, string> encryptedPayloads)
+    public Task SendGroupMessage(Guid groupId, Dictionary<Guid, string> encryptedPayloads)
+        => SendReliableGroupMessage(groupId, Guid.NewGuid(), encryptedPayloads);
+
+    public async Task SendReliableGroupMessage(Guid groupId, Guid messageId, Dictionary<Guid, string> encryptedPayloads)
     {
         if (encryptedPayloads.Count > 256)
             throw new HubException("Group message exceeds maximum member count");
-
-        var senderDeviceId = GetCallerDeviceId();
-        if (senderDeviceId is null) return;
-
-        foreach (var (deviceId, encryptedBodyBase64) in encryptedPayloads)
+        var sender = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
+        var members = await db.GroupMembers.Where(m => m.GroupId == groupId)
+            .Select(m => m.DeviceId).ToListAsync(Context.ConnectionAborted);
+        if (!members.Contains(sender) || encryptedPayloads.Keys.Any(id => !members.Contains(id)))
+            throw new HubException("Sender and recipients must be group members");
+        var decoded = encryptedPayloads.Where(p => p.Key != sender)
+            .ToDictionary(p => p.Key, p => DecodePayload(p.Value));
+        var messages = new List<QueuedMessage>();
+        await using (var transaction = await db.Database.BeginTransactionAsync(Context.ConnectionAborted))
         {
-            // Skip sending to ourselves — the sender's client already has
-            // the plaintext and doesn't need an echo.
-            if (deviceId == senderDeviceId.Value)
-                continue;
-
-            if (OnlineDevices.TryGetValue(deviceId, out var connectionId))
-            {
-                await Clients.Client(connectionId).SendAsync("ReceiveMessage", new
-                {
-                    senderId = senderDeviceId.Value,
-                    encryptedBody = encryptedBodyBase64,
-                    createdAt = DateTimeOffset.UtcNow,
-                    groupId
-                });
-            }
-            else
-            {
-                var encryptedBody = Convert.FromBase64String(encryptedBodyBase64);
-                await queueService.EnqueueAsync(deviceId, senderDeviceId.Value, encryptedBody);
-
-                // Wake offline group members via push — same best-effort pattern as 1:1 messages.
-                await pushService.SendPushAsync(deviceId);
-            }
+            foreach (var (recipient, body) in decoded)
+                messages.Add(await queueService.EnqueueReliableAsync(recipient, sender, messageId,
+                    body, groupId, Context.ConnectionAborted));
+            await transaction.CommitAsync(Context.ConnectionAborted);
         }
+        foreach (var message in messages)
+            await DeliverAsync(message);
     }
 
+    public Task AcknowledgeMessage(Guid senderId, Guid messageId)
+        => queueService.AcknowledgeAsync(GetCallerDeviceId() ?? throw new HubException("Invalid device identity"),
+            senderId, messageId, Context.ConnectionAborted);
+
+    private async Task DeliverAsync(QueuedMessage message)
+    {
+        if (message.AcknowledgedAt != null) return;
+        if (OnlineDevices.TryGetValue(message.RecipientId, out var connectionId))
+            await Clients.Client(connectionId).SendAsync("ReceiveMessage", new
+            {
+                messageId = message.MessageId,
+                senderId = message.SenderId,
+                encryptedBody = Convert.ToBase64String(message.EncryptedBody),
+                createdAt = message.CreatedAt,
+                groupId = message.GroupId
+            }, Context.ConnectionAborted);
+        else
+            await pushService.SendPushAsync(message.RecipientId);
+    }
+
+    private static byte[] DecodePayload(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload) || payload.Length > 768 * 1024)
+            throw new HubException("Invalid encrypted payload size");
+        try { return Convert.FromBase64String(payload); }
+        catch (FormatException) { throw new HubException("Invalid encrypted payload encoding"); }
+    }
     /// <summary>
     /// Broadcasts a typing indicator to all other devices in a conversation.
     /// This is fire-and-forget — no persistence for typing signals since
@@ -172,17 +160,27 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         var senderDeviceId = GetCallerDeviceId();
         if (senderDeviceId is null) return;
 
-        // Broadcast to all connected clients except the sender.
-        // In a production system this would be scoped to conversation
-        // participants, but that requires group membership lookup.
-        // For now, use Others — the client filters by conversationId.
-        await Clients.Others.SendAsync("TypingIndicator", new
+        if (!Guid.TryParse(conversationId, out var target))
+            throw new HubException("Conversation must be a device or group UUID");
+        var members = await db.GroupMembers.Where(m => m.GroupId == target)
+            .Select(m => m.DeviceId).ToListAsync(Context.ConnectionAborted);
+        if (members.Count > 0)
         {
-            senderId = senderDeviceId.Value,
-            conversationId
-        });
+            if (!members.Contains(senderDeviceId.Value))
+                throw new HubException("Only group members may send typing indicators");
+        }
+        else
+        {
+            members.Add(target);
+        }
+        foreach (var recipient in members.Where(id => id != senderDeviceId.Value))
+            if (OnlineDevices.TryGetValue(recipient, out var connectionId))
+                await Clients.Client(connectionId).SendAsync("TypingIndicator", new
+                {
+                    senderId = senderDeviceId.Value,
+                    conversationId
+                }, Context.ConnectionAborted);
     }
-
     /// <summary>
     /// Relays WebRTC signaling messages (offer, answer, ICE candidates, hangup)
     /// between two devices for voice/video calls. These must be delivered in

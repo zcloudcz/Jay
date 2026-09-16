@@ -8,6 +8,9 @@
 // ---------------------------------------------------------------------------
 
 using System.Text;
+using System.Net;
+using Microsoft.AspNetCore.HttpOverrides;
+using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Azure.Storage.Blobs;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -20,7 +23,15 @@ using CallType.Api.Hubs;
 using CallType.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
-
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    if (!IPAddress.TryParse(builder.Configuration["Proxy:KnownProxy"], out var knownProxy)) return;
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+    options.KnownProxies.Add(knownProxy);
+});
 // --- Request size limit -----------------------------------------------------
 // 10 MB cap on request bodies. Prevents abuse (huge uploads) and protects
 // Kestrel memory. Backup uploads are expected to be under this — larger
@@ -104,17 +115,25 @@ builder.Services.AddCors(options =>
 // slow down credential brute-force attempts.
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddFixedWindowLimiter("api", opt =>
+    options.AddPolicy("api", context =>
     {
-        opt.PermitLimit = 100;
-        opt.Window = TimeSpan.FromMinutes(1);
+        var device = context.User.Identity?.IsAuthenticated == true
+            ? context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.User.FindFirstValue("sub")
+            : null;
+        var key = device is null
+            ? $"ip:{context.Connection.RemoteIpAddress?.ToString() ?? "unknown"}"
+            : $"device:{device}";
+        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 100, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+        });
     });
-
-    options.AddFixedWindowLimiter("auth", opt =>
-    {
-        opt.PermitLimit = 10;
-        opt.Window = TimeSpan.FromMinutes(1);
-    });
+    options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+        }));
 
     // 429 Too Many Requests — standard HTTP status for rate limiting.
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -170,17 +189,18 @@ builder.Services.AddAuthorization();
 // SignalR is the real-time transport for message relay, typing indicators,
 // and WebRTC call signaling. Called explicitly for clarity even though the
 // shared framework may include it.
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options => options.MaximumReceiveMessageSize = 1024 * 1024);
 
 var app = builder.Build();
 
 // Middleware order matters:
 // 1. CORS — must be before auth so preflight OPTIONS requests are handled
-// 2. Rate limiter — reject abusive traffic before burning auth CPU
-// 3. Authentication + Authorization
+// 2. Authentication establishes the device identity used for API quotas.
+// 3. Rate limiter and authorization.
+if (IPAddress.TryParse(app.Configuration["Proxy:KnownProxy"], out _)) app.UseForwardedHeaders();
 app.UseCors();
-app.UseRateLimiter();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 // Health-check endpoint — lightweight probe for orchestrators (k8s, Azure App
@@ -203,6 +223,12 @@ app.MapTurnCredentialEndpoints();
 // Map the SignalR hub at /hub. The hub is protected by [Authorize] — clients
 // must pass access_token as a query parameter during the WebSocket upgrade.
 app.MapHub<MessengerHub>("/hub");
+
+if (app.Configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup"))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+}
 
 app.Run();
 

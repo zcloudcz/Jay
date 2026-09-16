@@ -15,6 +15,7 @@
 // ---------------------------------------------------------------------------
 
 using System.Security.Cryptography;
+using System.Security.Claims;
 using Konscious.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using CallType.Api.Data;
@@ -47,7 +48,7 @@ public static class AccountEndpoints
         app.MapPost("/accounts", RegisterAccount).AllowAnonymous().RequireRateLimiting("api");
         app.MapPost("/accounts/login", Login).AllowAnonymous().RequireRateLimiting("auth");
         // Device linking and listing require an authenticated device.
-        app.MapPost("/accounts/{accountId:guid}/devices/{deviceId:guid}", LinkDevice).RequireAuthorization().RequireRateLimiting("api");
+        app.MapPost("/accounts/{accountId:guid}/devices/{deviceId:guid}", LinkDevice).RequireAuthorization().RequireRateLimiting("auth");
         app.MapGet("/accounts/{accountId:guid}/devices", ListLinkedDevices).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
@@ -156,20 +157,22 @@ public static class AccountEndpoints
     // -----------------------------------------------------------------------
     // POST /accounts/{accountId}/devices/{deviceId} — Link device to account
     // -----------------------------------------------------------------------
-    // TODO: Authentication not yet implemented. This endpoint currently accepts
-    // any accountId/deviceId without verifying the caller controls either.
-    // A future task must require proof of account ownership (auth token) and
-    // device ownership (signed challenge) before allowing device linking.
     private static async Task<IResult> LinkDevice(
         Guid accountId,
         Guid deviceId,
+        LinkAccountDeviceRequest request,
+        ClaimsPrincipal user,
         AppDbContext db,
         CancellationToken ct)
     {
-        var accountExists = await db.Accounts.AnyAsync(a => a.AccountId == accountId, ct);
-        if (!accountExists)
-            return Results.NotFound(new { error = "Account not found." });
-
+        if (CallerDeviceId(user) != deviceId) return Results.Forbid();
+        var account = await db.Accounts.AsNoTracking().SingleOrDefaultAsync(a => a.AccountId == accountId, ct);
+        if (account is null) return Results.NotFound(new { error = "Account not found." });
+        byte[] key;
+        try { key = Convert.FromBase64String(request.AuthKey ?? ""); }
+        catch (FormatException) { return Results.Forbid(); }
+        if (key.Length == 0 || !await VerifyAuthKeyAsync(key, account.AuthKeyHash))
+            return Results.Forbid();
         var deviceExists = await db.Devices.AnyAsync(d => d.DeviceId == deviceId, ct);
         if (!deviceExists)
             return Results.NotFound(new { error = "Device not found." });
@@ -177,7 +180,7 @@ public static class AccountEndpoints
         var alreadyLinked = await db.AccountDevices
             .AnyAsync(ad => ad.AccountId == accountId && ad.DeviceId == deviceId, ct);
         if (alreadyLinked)
-            return Results.Conflict(new { error = "Device is already linked to this account." });
+            return Results.Ok(new { message = "Device is already linked to this account." });
 
         db.AccountDevices.Add(new AccountDevice
         {
@@ -195,9 +198,11 @@ public static class AccountEndpoints
     // -----------------------------------------------------------------------
     private static async Task<IResult> ListLinkedDevices(
         Guid accountId,
+        ClaimsPrincipal user,
         AppDbContext db,
         CancellationToken ct)
     {
+        if (!await IsLinkedAsync(user, accountId, db, ct)) return Results.Forbid();
         var devices = await db.AccountDevices
             .Where(ad => ad.AccountId == accountId)
             .Select(ad => new LinkedDeviceDto(ad.DeviceId, ad.LinkedAt))
@@ -207,6 +212,15 @@ public static class AccountEndpoints
     }
 
     // -----------------------------------------------------------------------
+    internal static Guid? CallerDeviceId(ClaimsPrincipal user) =>
+        Guid.TryParse(user.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? user.FindFirst("sub")?.Value,
+            out var id) ? id : null;
+
+    internal static Task<bool> IsLinkedAsync(ClaimsPrincipal user, Guid accountId, AppDbContext db, CancellationToken ct)
+    {
+        var deviceId = CallerDeviceId(user);
+        return db.AccountDevices.AnyAsync(link => link.AccountId == accountId && link.DeviceId == deviceId, ct);
+    }
     // Argon2id hashing helpers
     // -----------------------------------------------------------------------
 
@@ -269,3 +283,5 @@ public record RegisterAccountResponse(Guid AccountId);
 public record LoginRequest(string Email, string AuthKey);
 public record LoginResponse(Guid AccountId);
 public record LinkedDeviceDto(Guid DeviceId, DateTimeOffset LinkedAt);
+
+public record LinkAccountDeviceRequest(string? AuthKey);

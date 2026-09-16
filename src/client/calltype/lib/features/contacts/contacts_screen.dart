@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -29,12 +30,17 @@ class _ContactsScreenState extends State<ContactsScreen> {
     // Load contacts on first render. Using addPostFrameCallback to avoid
     // calling notifyListeners during build.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ContactsController>().loadContacts();
+      if (mounted) context.read<ContactsController>().loadContacts();
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final cameraSupported =
+        kIsWeb ||
+        defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.macOS;
     final controller = context.watch<ContactsController>();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -47,9 +53,15 @@ class _ContactsScreenState extends State<ContactsScreen> {
           // metadata. Opens the camera, scans a CallType QR code, and
           // adds the contact on success.
           IconButton(
-            icon: const Icon(Icons.qr_code_scanner_rounded),
-            tooltip: 'Scan QR code',
-            onPressed: () => _openQrScanner(context, controller),
+            icon: Icon(
+              cameraSupported
+                  ? Icons.qr_code_scanner_rounded
+                  : Icons.content_paste_rounded,
+            ),
+            tooltip: cameraSupported ? 'Scan QR code' : 'Paste invite',
+            onPressed: () => cameraSupported
+                ? _openQrScanner(context, controller)
+                : _showAddDialog(context, controller),
           ),
           // Manual add — for cases where QR scanning isn't practical
           // (e.g. remote contact sharing their handle via text).
@@ -79,7 +91,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Scan a QR code or add a handle',
+                    cameraSupported
+                        ? 'Scan a QR code or add a handle'
+                        : 'Paste an invite or add a handle',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),
@@ -109,15 +123,27 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
 
     if (result != null && context.mounted) {
-      await controller.addContactByHandle(
-        result['handle']!,
-        deviceId: result['deviceId'],
-      );
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Added ${result['handle']}')),
+      try {
+        await controller.addContactByHandle(
+          result['handle']!,
+          deviceId: result['deviceId'],
         );
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Added ${result['handle']}')));
+        }
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Contact could not be added. Check the invite and connection.',
+              ),
+            ),
+          );
+        }
       }
     }
   }
@@ -137,8 +163,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
           content: TextField(
             controller: handleController,
             decoration: const InputDecoration(
-              labelText: 'Handle',
-              hintText: 'CT-XXXX-XXXX',
+              labelText: 'Handle or invite',
+              hintText: 'CT-XXXX-XXXX or ct://…',
             ),
             autofocus: true,
             textInputAction: TextInputAction.done,
@@ -153,8 +179,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
             ),
             FilledButton(
               onPressed: () {
-                Navigator.of(dialogContext)
-                    .pop(handleController.text.trim());
+                Navigator.of(dialogContext).pop(handleController.text.trim());
               },
               child: const Text('Add'),
             ),
@@ -166,12 +191,24 @@ class _ContactsScreenState extends State<ContactsScreen> {
     handleController.dispose();
 
     if (handle != null && handle.isNotEmpty && context.mounted) {
-      await controller.addContactByHandle(handle);
+      try {
+        await controller.addContactByHandle(handle);
 
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Added $handle')),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Added $handle')));
+        }
+      } catch (_) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Contact not found. Check the invite and connection.',
+              ),
+            ),
+          );
+        }
       }
     }
   }
@@ -190,16 +227,12 @@ class _ContactTile extends StatelessWidget {
 
     return ListTile(
       leading: LetterAvatar(name: name),
-      title: Text(
-        name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
+      title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         contact.userHandle,
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
       ),
       // Verified contacts show a blue checkmark — indicates the identity
       // key was verified out-of-band (e.g. safety number comparison).
@@ -215,9 +248,9 @@ class _ContactTile extends StatelessWidget {
         // sending and the chat list both rely on it (messages would send
         // fine without it, but the conversation would never appear in
         // the list).
-        await context
-            .read<ChatListController>()
-            .createDirectConversation(contact.deviceId);
+        await context.read<ChatListController>().createDirectConversation(
+          contact.deviceId,
+        );
         if (context.mounted) {
           context.push('/chats/${contact.deviceId}');
         }

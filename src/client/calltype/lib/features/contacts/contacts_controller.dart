@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../core/storage/database.dart';
+import '../../core/network/api_client.dart';
 
 /// Manages the local contact list — devices we have exchanged identity
 /// keys with or intend to communicate with.
@@ -17,7 +18,10 @@ import '../../core/storage/database.dart';
 /// performs X3DH. This means a contact can exist in the DB before any
 /// cryptographic session is established.
 class ContactsController extends ChangeNotifier {
-  ContactsController({required AppDatabase database}) : _db = database;
+  ContactsController({required AppDatabase database, ApiClient? apiClient})
+    : _db = database,
+      _api = apiClient;
+  final ApiClient? _api;
 
   final AppDatabase _db;
 
@@ -55,16 +59,34 @@ class ContactsController extends ChangeNotifier {
   /// [deviceId] is optional — if provided (e.g. from QR scan), it's used
   /// as the primary key. If not, the handle itself is used as a temporary
   /// deviceId until the server resolves it.
-  Future<void> addContactByHandle(
-    String handle, {
-    String? deviceId,
-  }) async {
-    final id = deviceId ?? handle;
+  Future<void> addContactByHandle(String handle, {String? deviceId}) async {
+    final invite = Uri.tryParse(handle);
+    if (invite?.scheme == 'ct' && invite!.pathSegments.isNotEmpty) {
+      deviceId = invite.host;
+      handle = invite.pathSegments.first;
+    }
+    if (deviceId == null) {
+      final api = _api;
+      if (api == null) {
+        throw StateError(
+          'Contact lookup is unavailable. Paste a complete invite.',
+        );
+      }
+      final result = await api.findDeviceByHandle(handle.trim().toUpperCase());
+      deviceId = result['deviceId'] as String;
+      handle = result['userHandle'] as String;
+    }
+    final id = deviceId;
+    if (!RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+    ).hasMatch(id)) {
+      throw const FormatException('Invalid contact invite.');
+    }
 
     // Check if this contact already exists to avoid duplicates.
-    final existing = await (_db.select(_db.contacts)
-          ..where((c) => c.deviceId.equals(id)))
-        .getSingleOrNull();
+    final existing = await (_db.select(
+      _db.contacts,
+    )..where((c) => c.deviceId.equals(id))).getSingleOrNull();
 
     if (existing != null) return;
 

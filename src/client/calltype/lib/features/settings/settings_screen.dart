@@ -7,7 +7,7 @@ import 'package:go_router/go_router.dart';
 ///   - Security: App Lock (PIN + biometrics)
 ///   - Account: Registration, login, multi-device
 ///   - Data: Cloud backup
-///   - Devices: Linked devices (placeholder for multi-device sync)
+///   - Identity: Contact invite and QR code
 ///   - About: Version info
 ///
 /// Each row navigates to a dedicated sub-screen. The settings screen itself
@@ -55,17 +55,9 @@ class SettingsScreen extends StatelessWidget {
           _SettingsTile(
             icon: Icons.devices_rounded,
             iconColor: colorScheme.primary,
-            title: 'Linked Devices',
-            subtitle: 'Manage your devices',
-            onTap: () {
-              // Placeholder — multi-device management requires account
-              // registration and device linking API (future phase).
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Linked Devices will be available in a future update.'),
-                ),
-              );
-            },
+            title: 'My identity',
+            subtitle: 'Share your contact invite and QR code',
+            onTap: () => context.push('/settings/identity'),
           ),
 
           const Divider(indent: 16, endIndent: 16),
@@ -77,7 +69,7 @@ class SettingsScreen extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
             child: Center(
               child: Text(
-                'About CallType v0.1.0',
+                'CallType 1.0.0 beta',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                 ),

@@ -121,8 +121,14 @@ namespace CallType.Api.Migrations
                     b.Property<string>("PushToken")
                         .HasColumnType("text");
 
+                    b.Property<byte[]>("Signature")
+                        .HasColumnType("bytea");
+
                     b.Property<byte[]>("SignedPreKey")
                         .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<byte[]>("SigningKey")
                         .HasColumnType("bytea");
 
                     b.Property<string>("UserHandle")
@@ -217,6 +223,9 @@ namespace CallType.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<DateTimeOffset?>("AcknowledgedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -227,6 +236,12 @@ namespace CallType.Api.Migrations
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("GroupId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("RecipientId")
                         .HasColumnType("uuid");
 
@@ -236,6 +251,9 @@ namespace CallType.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("RecipientId", "CreatedAt");
+
+                    b.HasIndex("RecipientId", "SenderId", "MessageId")
+                        .IsUnique();
 
                     b.ToTable("QueuedMessages");
                 });

@@ -19,13 +19,33 @@ import '../auth/auth_service.dart';
 /// without rebuilding.
 class ApiClient {
   ApiClient({required String baseUrl, AuthService? authService, Dio? dio})
-      : _dio = dio ?? Dio(BaseOptions(baseUrl: baseUrl)) {
+    : _dio = dio ?? Dio(BaseOptions(baseUrl: baseUrl)) {
     if (authService != null) {
       _dio.interceptors.add(_AuthInterceptor(authService, _dio));
     }
   }
 
   final Dio _dio;
+
+  Dio get transport => _dio;
+
+  Future<Map<String, dynamic>> createGroup(
+    String name,
+    List<String> memberDeviceIds,
+  ) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/groups',
+      data: {'name': name, 'memberDeviceIds': memberDeviceIds},
+    );
+    return response.data!;
+  }
+
+  Future<List<String>> getGroupMembers(String groupId) async {
+    final response = await _dio.get<List<dynamic>>('/groups/$groupId/members');
+    return response.data!
+        .map((member) => (member as Map)['deviceId'] as String)
+        .toList();
+  }
 
   // -- Device registration ---------------------------------------------------
 
@@ -44,6 +64,8 @@ class ApiClient {
     required String identityKey,
     required String signedPreKey,
     required List<Map<String, dynamic>> oneTimePreKeys,
+    String? signingKey,
+    String? signature,
   }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/devices',
@@ -51,7 +73,16 @@ class ApiClient {
         'identityKey': identityKey,
         'signedPreKey': signedPreKey,
         'oneTimePreKeys': oneTimePreKeys,
+        'signingKey': signingKey,
+        'signature': signature,
       },
+    );
+    return response.data!;
+  }
+
+  Future<Map<String, dynamic>> findDeviceByHandle(String handle) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/devices/by-handle/${Uri.encodeComponent(handle)}',
     );
     return response.data!;
   }
@@ -210,6 +241,9 @@ class _AuthInterceptor extends Interceptor {
 
       options.headers['Authorization'] = 'Bearer $token';
       options.extra[_retriedFlag] = true;
+      if (options.data is FormData) {
+        options.data = (options.data as FormData).clone();
+      }
 
       final response = await _dio.fetch<dynamic>(options);
       handler.resolve(response);

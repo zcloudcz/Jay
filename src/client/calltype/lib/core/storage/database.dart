@@ -23,7 +23,16 @@ class AppDatabase extends _$AppDatabase {
   ///
   /// [dbName] is the file name (without extension) used on disk.
   /// Passing different names enables isolated test databases.
-  AppDatabase(String dbName) : super(driftDatabase(name: dbName));
+  AppDatabase(String dbName)
+    : super(
+        driftDatabase(
+          name: dbName,
+          web: DriftWebOptions(
+            sqlite3Wasm: Uri.parse('sqlite3.wasm'),
+            driftWorker: Uri.parse('drift_worker.js'),
+          ),
+        ),
+      );
 
   /// Allows injecting a custom executor — useful for in-memory
   /// databases in tests or for adding SQLCipher encryption later.

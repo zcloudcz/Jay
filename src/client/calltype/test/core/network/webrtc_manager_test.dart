@@ -1,0 +1,274 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype/core/network/signalr_client.dart';
+import 'package:calltype/core/network/webrtc_manager.dart';
+
+class TestApi extends ApiClient {
+  TestApi() : super(baseUrl: 'http://unused');
+  @override
+  Future<Map<String, dynamic>> getTurnCredentials(String deviceId) async => {};
+}
+
+class TestSignal extends SignalRClient {
+  TestSignal() : super(baseUrl: 'http://unused', deviceId: 'me');
+  final signals = StreamController<Map<String, dynamic>>.broadcast();
+  final sent = <String>[];
+  final payloads = <String>[];
+  Future<void> Function(String)? onSend;
+  @override
+  Stream<Map<String, dynamic>> get onCallSignal => signals.stream;
+  @override
+  Future<void> sendCallSignal(String peer, String type, String payload) async {
+    sent.add(type);
+    payloads.add(payload);
+    await onSend?.call(type);
+  }
+}
+
+class TestRenderer implements RTCVideoRenderer {
+  @override
+  MediaStream? srcObject;
+  @override
+  Future<void> initialize() async {}
+  @override
+  Future<void> dispose() async {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class TestMedia implements MediaStream {
+  bool disposed = false;
+  @override
+  List<MediaStreamTrack> getTracks() => [];
+  @override
+  Future<void> dispose() async {
+    disposed = true;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class TestPeer implements RTCPeerConnection {
+  bool closed = false;
+  bool answered = false;
+  @override
+  void Function(RTCIceCandidate)? onIceCandidate;
+  @override
+  void Function(RTCTrackEvent)? onTrack;
+  @override
+  void Function(RTCIceConnectionState)? onIceConnectionState;
+  @override
+  Future<RTCSessionDescription> createOffer([
+    Map<String, dynamic>? constraints,
+  ]) async => RTCSessionDescription('v=0', 'offer');
+  @override
+  Future<RTCSessionDescription> createAnswer([
+    Map<String, dynamic>? constraints,
+  ]) async => RTCSessionDescription('v=0', 'answer');
+  @override
+  Future<void> setLocalDescription(RTCSessionDescription description) async {
+    onIceCandidate?.call(RTCIceCandidate('candidate', '0', 0));
+  }
+
+  @override
+  Future<void> setRemoteDescription(RTCSessionDescription description) async {
+    answered = true;
+  }
+
+  @override
+  Future<void> close() async {
+    closed = true;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+void main() {
+  test(
+    'cancelled media preparation cannot revive call or leak acquired media',
+    () async {
+      final signal = TestSignal();
+      final peer = TestPeer();
+      final media = TestMedia();
+      final requested = Completer<void>();
+      final permission = Completer<MediaStream>();
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => peer,
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) {
+          requested.complete();
+          return permission.future;
+        },
+      );
+      final starting = manager.startCall('other');
+      await requested.future;
+      await manager.endCall();
+      permission.complete(media);
+      await starting;
+      expect(manager.state, CallState.ended);
+      expect(media.disposed, isTrue);
+      expect(peer.closed, isTrue);
+      expect(signal.sent, isNot(contains('offer')));
+      manager.dispose();
+      await signal.signals.close();
+    },
+  );
+  test(
+    'offer precedes ICE and fast answer is accepted before send completes',
+    () async {
+      final signal = TestSignal();
+      final peer = TestPeer();
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => peer,
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => TestMedia(),
+      );
+      signal.onSend = (type) async {
+        if (type == 'offer') {
+          signal.signals.add({
+            'senderId': 'other',
+            'signalType': 'answer',
+            'payload': jsonEncode({
+              'v': 1,
+              'callId': (jsonDecode(signal.payloads.last) as Map)['callId'],
+              'payload': 'v=0',
+            }),
+          });
+          await Future<void>.delayed(Duration.zero);
+        }
+      };
+      await manager.startCall('other');
+      expect(peer.answered, isTrue);
+      expect(signal.sent.take(2), ['offer', 'ice-candidate']);
+      expect(manager.state, CallState.connecting);
+      await manager.endCall();
+      manager.dispose();
+      await signal.signals.close();
+    },
+  );
+  test(
+    'late preparation from cancelled call cannot dispose replacement call',
+    () async {
+      final signal = TestSignal();
+      final oldPeer = TestPeer();
+      final newPeer = TestPeer();
+      final requested = Completer<void>();
+      final permission = Completer<MediaStream>();
+      var peers = 0;
+      var captures = 0;
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => peers++ == 0 ? oldPeer : newPeer,
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) {
+          if (captures++ == 0) {
+            requested.complete();
+            return permission.future;
+          }
+          return Future.value(TestMedia());
+        },
+      );
+      final first = manager.startCall('first');
+      await requested.future;
+      await manager.endCall();
+      await manager.startCall('second');
+      permission.complete(TestMedia());
+      await first;
+      expect(manager.remoteDeviceId, 'second');
+      expect(manager.state, CallState.ringing);
+      expect(oldPeer.closed, isTrue);
+      expect(newPeer.closed, isFalse);
+      oldPeer.onIceConnectionState?.call(
+        RTCIceConnectionState.RTCIceConnectionStateFailed,
+      );
+      expect(manager.state, CallState.ringing);
+      await manager.endCall();
+      manager.dispose();
+      await signal.signals.close();
+    },
+  );
+  test('old same-peer hangup cannot end replacement call', () async {
+    final signal = TestSignal();
+    final manager = WebRTCManager(
+      signalRClient: signal,
+      apiClient: TestApi(),
+      myDeviceId: 'me',
+      peerFactory: (_) async => TestPeer(),
+      rendererFactory: TestRenderer.new,
+      mediaFactory: (_) async => TestMedia(),
+    );
+    await manager.startCall('other');
+    await manager.endCall();
+    final oldHangup = signal.payloads.last;
+    await manager.startCall('other');
+    final currentId = (jsonDecode(signal.payloads.last) as Map)['callId'];
+    signal.signals.add({
+      'senderId': 'other',
+      'signalType': 'hangup',
+      'payload': oldHangup,
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(manager.state, CallState.ringing);
+    signal.signals.add({
+      'senderId': 'other',
+      'signalType': 'hangup',
+      'payload': jsonEncode({'v': 1, 'callId': currentId, 'payload': ''}),
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(manager.state, CallState.ended);
+    manager.dispose();
+    await signal.signals.close();
+  });
+  test(
+    'incoming call captures UUID and ignores legacy or retired offers',
+    () async {
+      final signal = TestSignal();
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => TestPeer(),
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => TestMedia(),
+      );
+      signal.signals.add({
+        'senderId': 'other',
+        'signalType': 'offer',
+        'payload': 'v=0',
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.state, CallState.idle);
+      const id = '11223344-5566-4788-9900-aabbccddeeff';
+      final incoming = {
+        'senderId': 'other',
+        'signalType': 'offer',
+        'payload': jsonEncode({'v': 1, 'callId': id, 'payload': 'v=0'}),
+      };
+      signal.signals.add(incoming);
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.isIncoming, isTrue);
+      await manager.acceptCall();
+      expect(signal.sent.first, 'answer');
+      expect((jsonDecode(signal.payloads.first) as Map)['callId'], id);
+      await manager.endCall();
+      signal.signals.add(incoming);
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.state, CallState.ended);
+      manager.dispose();
+      await signal.signals.close();
+    },
+  );
+}

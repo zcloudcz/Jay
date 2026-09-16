@@ -35,6 +35,7 @@ public static class DeviceEndpoints
         // Key bundle fetch requires auth — only registered devices should be able
         // to look up other devices' keys to prevent key-bundle enumeration.
         app.MapGet("/devices/{id:guid}/key-bundle", GetKeyBundle).RequireAuthorization().RequireRateLimiting("api");
+        app.MapGet("/devices/by-handle/{handle}", FindDeviceByHandle).RequireAuthorization().RequireRateLimiting("api");
         // Push token registration requires auth — only the device owner should be
         // able to set its push token. Uses PUT because the token is idempotent
         // (setting the same token twice is a no-op).
@@ -79,6 +80,23 @@ public static class DeviceEndpoints
             return Results.BadRequest(new { error = "IdentityKey and SignedPreKey must not be empty." });
         }
 
+        byte[]? signingKey = null;
+        byte[]? signature = null;
+        if (request.SigningKey is not null || request.Signature is not null)
+        {
+            try
+            {
+                signingKey = Convert.FromBase64String(request.SigningKey ?? "");
+                signature = Convert.FromBase64String(request.Signature ?? "");
+            }
+            catch (FormatException)
+            {
+                return Results.BadRequest(new { error = "Signing key and signature must be base64." });
+            }
+            if (signingKey.Length != 32 || signature.Length != 64 || identityKeyBytes.Length != 32 || signedPreKeyBytes.Length != 32)
+                return Results.BadRequest(new { error = "Invalid signed identity bundle lengths." });
+        }
+
         // --- Handle generation --------------------------------------------
         var userHandle = await GenerateUniqueHandle(db, ct);
 
@@ -97,6 +115,8 @@ public static class DeviceEndpoints
             UserHandle = userHandle,
             IdentityKey = identityKeyBytes,
             SignedPreKey = signedPreKeyBytes,
+            SigningKey = signingKey,
+            Signature = signature,
             DeviceSecretHash = deviceSecretHash,
             CreatedAt = now,
             LastSeenAt = now
@@ -215,7 +235,17 @@ public static class DeviceEndpoints
             device.DeviceId,
             Convert.ToBase64String(device.IdentityKey),
             Convert.ToBase64String(device.SignedPreKey),
-            oneTimePreKeyDto));
+            oneTimePreKeyDto,
+            device.SigningKey is null ? null : Convert.ToBase64String(device.SigningKey),
+            device.Signature is null ? null : Convert.ToBase64String(device.Signature)));
+    }
+
+    private static async Task<IResult> FindDeviceByHandle(string handle, AppDbContext db, CancellationToken ct)
+    {
+        var normalized = handle.Trim().ToUpperInvariant();
+        var device = await db.Devices.Where(d => d.UserHandle == normalized)
+            .Select(d => new { d.DeviceId, d.UserHandle }).SingleOrDefaultAsync(ct);
+        return device is null ? Results.NotFound() : Results.Ok(device);
     }
 
     // -----------------------------------------------------------------------
@@ -339,7 +369,9 @@ public static class DeviceEndpoints
 public record RegisterDeviceRequest(
     string IdentityKey,
     string SignedPreKey,
-    List<OneTimePreKeyInput>? OneTimePreKeys);
+    List<OneTimePreKeyInput>? OneTimePreKeys,
+    string? SigningKey = null,
+    string? Signature = null);
 
 public record OneTimePreKeyInput(int KeyId, string PublicKey);
 
@@ -349,7 +381,9 @@ public record KeyBundleResponse(
     Guid DeviceId,
     string IdentityKey,
     string SignedPreKey,
-    OneTimePreKeyDto? OneTimePreKey);
+    OneTimePreKeyDto? OneTimePreKey,
+    string? SigningKey = null,
+    string? Signature = null);
 
 public record OneTimePreKeyDto(int KeyId, string PublicKey);
 

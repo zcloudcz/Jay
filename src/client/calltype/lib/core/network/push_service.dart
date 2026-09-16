@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'api_client.dart';
@@ -24,7 +27,7 @@ class PushService {
 
   final ApiClient _api;
   final String _deviceId;
-  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+  StreamSubscription<String>? _refresh;
 
   /// Request notification permissions and register the FCM token with the server.
   ///
@@ -33,18 +36,20 @@ class PushService {
   /// block the main app flow.
   Future<void> initialize() async {
     try {
+      if (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux) {
+        return;
+      }
+      await Firebase.initializeApp();
+      final messaging = FirebaseMessaging.instance;
       // iOS requires an explicit permission prompt. On Android this is
       // auto-granted but calling requestPermission is harmless (returns
       // immediately with authorized status).
-      await _messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
+      await messaging.requestPermission(alert: true, badge: true, sound: true);
 
       // Get the current FCM registration token. This token identifies
       // this app instance and is used by the server to target push messages.
-      final token = await _messaging.getToken();
+      final token = await messaging.getToken();
       if (token != null) {
         await _registerToken(token);
       }
@@ -52,12 +57,17 @@ class PushService {
       // FCM periodically rotates tokens (e.g. after app restore, OS update,
       // or manual token deletion). Listen for refreshes so the server always
       // has the current token — a stale token means silent push failures.
-      _messaging.onTokenRefresh.listen(_registerToken);
+      await _refresh?.cancel();
+      _refresh = messaging.onTokenRefresh.listen(_registerToken);
     } catch (e) {
       // Firebase not configured or permissions denied — push won't work
       // but the app is fully functional without it. Messages are still
       // delivered via the store-and-forward queue on next SignalR connect.
     }
+  }
+
+  Future<void> dispose() async {
+    await _refresh?.cancel();
   }
 
   /// Sends the FCM token to the backend so it can send push notifications

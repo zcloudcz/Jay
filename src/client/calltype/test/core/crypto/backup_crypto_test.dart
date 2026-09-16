@@ -6,6 +6,16 @@ import 'package:calltype/core/crypto/backup_crypto.dart';
 void main() {
   group('BackupCrypto', () {
     group('deriveKey', () {
+      test('Unicode passphrase matches UTF-8 PBKDF2 reference vector', () {
+        final key = BackupCrypto.deriveKey(
+          'žluťoučký🔐',
+          Uint8List.fromList(List.generate(16, (i) => i + 1)),
+        );
+        expect(
+          key.map((b) => b.toRadixString(16).padLeft(2, '0')).join(),
+          'dc98fb2cb051ba497237394eda72210fd86cbc346c2b35c371cb0488cc5a68a2',
+        );
+      });
       test('produces 32-byte key', () {
         // AES-256 requires exactly 32 bytes. Verify the output length
         // matches regardless of passphrase or salt length.
@@ -126,18 +136,20 @@ void main() {
         );
       });
 
-      test('encrypted output has correct format (nonce + ciphertext + tag)',
-          () async {
-        // Wire format: [12-byte nonce][N-byte ciphertext][16-byte GCM tag]
-        // AES-GCM in CTR mode produces ciphertext the same length as plaintext.
-        final key = testKey(0x42);
-        final plaintext = Uint8List.fromList([1, 2, 3, 4, 5]);
+      test(
+        'encrypted output has correct format (nonce + ciphertext + tag)',
+        () async {
+          // Wire format: [12-byte nonce][N-byte ciphertext][16-byte GCM tag]
+          // AES-GCM in CTR mode produces ciphertext the same length as plaintext.
+          final key = testKey(0x42);
+          final plaintext = Uint8List.fromList([1, 2, 3, 4, 5]);
 
-        final encrypted = await BackupCrypto.encrypt(key, plaintext);
+          final encrypted = await BackupCrypto.encrypt(key, plaintext);
 
-        // 12 (nonce) + 5 (plaintext length = ciphertext length) + 16 (tag)
-        expect(encrypted.length, equals(12 + plaintext.length + 16));
-      });
+          // 12 (nonce) + 5 (plaintext length = ciphertext length) + 16 (tag)
+          expect(encrypted.length, equals(12 + plaintext.length + 16));
+        },
+      );
 
       test('wrong key fails decryption (wrong passphrase scenario)', () async {
         // Simulates a user entering the wrong passphrase during restore.

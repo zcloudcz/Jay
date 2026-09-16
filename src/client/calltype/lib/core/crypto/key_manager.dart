@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:cryptography/cryptography.dart';
 
 import '../storage/secure_storage.dart';
 import 'signal_protocol.dart';
@@ -26,9 +27,70 @@ import 'signal_protocol.dart';
 /// matching private key for our side of the X3DH computation.
 class KeyManager {
   KeyManager({required SecureStorage secureStorage})
-      : _secureStorage = secureStorage;
+    : _secureStorage = secureStorage;
 
   final SecureStorage _secureStorage;
+
+  Future<Map<String, String>> getSignedIdentityBundle() async {
+    final algorithm = Ed25519();
+    var seed = await _secureStorage.read('ct_signing_seed');
+    if (seed == null) {
+      final generated = await algorithm.newKeyPair();
+      seed = base64Encode(await generated.extractPrivateKeyBytes());
+      await _secureStorage.write('ct_signing_seed', seed);
+    }
+    final signing = await algorithm.newKeyPairFromSeed(base64Decode(seed));
+    final identityKey = await getPublicIdentityKey();
+    final signedPreKey =
+        (await getOrCreateSignedPreKey())['publicKey'] as String;
+    final signature = await algorithm.sign(
+      signedIdentityPayload(identityKey, signedPreKey),
+      keyPair: signing,
+    );
+    return {
+      'identityKey': identityKey,
+      'signedPreKey': signedPreKey,
+      'signingKey': base64Encode((await signing.extractPublicKey()).bytes),
+      'signature': base64Encode(signature.bytes),
+    };
+  }
+
+  static List<int> signedIdentityPayload(
+    String identityKey,
+    String signedPreKey,
+  ) => [
+    ...utf8.encode('CallType-SignedIdentity-v1\u0000'),
+    ...base64Decode(identityKey),
+    ...base64Decode(signedPreKey),
+  ];
+
+  static Future<void> verifyIdentityBundle(Map<String, dynamic> bundle) async {
+    if (bundle['signingKey'] is! String || bundle['signature'] is! String) {
+      throw StateError(
+        'This contact uses an unsigned legacy identity. Set up a new beta device identity.',
+      );
+    }
+    final identity = base64Decode(bundle['identityKey'] as String);
+    final prekey = base64Decode(bundle['signedPreKey'] as String);
+    final signing = base64Decode(bundle['signingKey'] as String);
+    final signature = base64Decode(bundle['signature'] as String);
+    if (identity.length != 32 ||
+        prekey.length != 32 ||
+        signing.length != 32 ||
+        signature.length != 64 ||
+        !await Ed25519().verify(
+          signedIdentityPayload(
+            bundle['identityKey'] as String,
+            bundle['signedPreKey'] as String,
+          ),
+          signature: Signature(
+            signature,
+            publicKey: SimplePublicKey(signing, type: KeyPairType.ed25519),
+          ),
+        )) {
+      throw StateError('Invalid identity/prekey signature. Session rejected.');
+    }
+  }
 
   // Storage keys — prefixed to avoid collisions with other secure values.
   static const _publicKeyKey = 'ct_identity_public_key';
@@ -164,5 +226,17 @@ class KeyManager {
     await _secureStorage.write(_oneTimePreKeysKey, jsonEncode(preKeys));
 
     return privateKey;
+  }
+
+  /// Authentication must succeed before deleting a key: forged first
+  /// messages must not destroy the key needed for a legitimate retry.
+  Future<String?> peekOneTimePreKey(int keyId) async {
+    final stored = await _secureStorage.read(_oneTimePreKeysKey);
+    if (stored == null) return null;
+    for (final item
+        in (jsonDecode(stored) as List).cast<Map<String, dynamic>>()) {
+      if (item['keyId'] == keyId) return item['privateKey'] as String;
+    }
+    return null;
   }
 }

@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/network/api_client.dart';
+import '../../core/network/backup_api.dart';
+import '../../core/storage/secure_storage.dart';
 
 /// Account registration and login screen.
 ///
@@ -12,14 +14,10 @@ import '../../core/network/api_client.dart';
 ///   - **Register** — create a new account with email + passphrase
 ///   - **Login** — authenticate an existing account
 ///
-/// The passphrase is never sent to the server in plaintext. Instead, it is
-/// hashed with SHA-256 to derive an auth key. In production this should use
-/// Argon2id for proper password hashing, but SHA-256 serves as a functional
-/// placeholder until the Argon2 FFI bridge is integrated.
-///
-/// On success, the server returns an account ID that enables cloud features
-/// (backup, multi-device sync). The account is optional — the app works
-/// fully without one.
+/// The client sends the existing SHA-256 credential format over TLS;
+/// the server hashes this credential with salted Argon2id.
+/// A successful login is followed by authenticated device linking before
+/// cloud backups become available locally.
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
 
@@ -51,9 +49,7 @@ class _AccountScreenState extends State<AccountScreen> {
     final colorScheme = theme.colorScheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_isRegister ? 'Create Account' : 'Log In'),
-      ),
+      appBar: AppBar(title: Text(_isRegister ? 'Create Account' : 'Log In')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Form(
@@ -82,7 +78,7 @@ class _AccountScreenState extends State<AccountScreen> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'An account enables cloud backup and multi-device sync. '
+                        'An account enables encrypted cloud backups. '
                         'CallType works fully without one — registration is '
                         'completely optional.',
                         style: theme.textTheme.bodyMedium?.copyWith(
@@ -186,8 +182,10 @@ class _AccountScreenState extends State<AccountScreen> {
                     padding: const EdgeInsets.all(16),
                     child: Row(
                       children: [
-                        Icon(Icons.check_circle,
-                            color: colorScheme.onPrimaryContainer),
+                        Icon(
+                          Icons.check_circle,
+                          color: colorScheme.onPrimaryContainer,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
@@ -236,13 +234,6 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 
-  /// Submits the form — either registers or logs in depending on mode.
-  ///
-  /// Derives an auth key from the passphrase via SHA-256 before sending to
-  /// the server. The raw passphrase never leaves the device.
-  ///
-  /// TODO: Replace SHA-256 with Argon2id for proper password hashing once
-  /// the Argon2 FFI bridge is available. SHA-256 is a functional placeholder.
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -258,27 +249,26 @@ class _AccountScreenState extends State<AccountScreen> {
       final passphrase = _passphraseController.text;
 
       // Derive auth key from passphrase — server never sees the raw passphrase.
-      // SHA-256 is used as a placeholder; production should use Argon2id.
+      // Retain the credential encoding used by existing registered accounts.
       final authKey = sha256.convert(utf8.encode(passphrase)).toString();
 
-      if (_isRegister) {
-        await apiClient.registerAccount(email: email, authKey: authKey);
-        if (mounted) {
-          setState(() {
-            _successMessage =
-                'Account created. Cloud backup enabled.';
-            _isLoading = false;
-          });
-        }
-      } else {
-        await apiClient.login(email: email, authKey: authKey);
-        if (mounted) {
-          setState(() {
-            _successMessage =
-                'Logged in. Cloud backup enabled.';
-            _isLoading = false;
-          });
-        }
+      final storage = context.read<SecureStorage>();
+      final deviceId = await storage.getDeviceId();
+      if (deviceId == null) {
+        throw StateError('Set up this device before linking an account.');
+      }
+      final response = _isRegister
+          ? await apiClient.registerAccount(email: email, authKey: authKey)
+          : await apiClient.login(email: email, authKey: authKey);
+      final accountId = response['accountId'] as String;
+      await apiClient.linkAccountDevice(accountId, deviceId, authKey);
+      await storage.setAccountId(accountId);
+      if (mounted) {
+        _passphraseController.clear();
+        setState(() {
+          _successMessage = 'Account linked. Cloud backup enabled.';
+          _isLoading = false;
+        });
       }
     } catch (e) {
       if (mounted) {

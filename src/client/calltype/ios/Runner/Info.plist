@@ -66,5 +66,6 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+<key>NSCameraUsageDescription</key><string>Scan contact QR codes and make video calls.</string><key>NSMicrophoneUsageDescription</key><string>Use the microphone during voice and video calls.</string><key>NSFaceIDUsageDescription</key><string>Unlock your private conversations.</string>
 </dict>
 </plist>

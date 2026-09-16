@@ -31,6 +31,8 @@ public class BackupEndpointsTests : IntegrationTestBase
     /// Helper: registers an account and returns its accountId.
     /// Backups require an existing account — anonymous devices cannot back up.
     /// </summary>
+    private Guid _deviceId;
+
     private async Task<Guid> RegisterAccountAsync()
     {
         var email = $"backup-test-{Guid.NewGuid():N}@example.com";
@@ -41,7 +43,10 @@ public class BackupEndpointsTests : IntegrationTestBase
         });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        return Guid.Parse(body.GetProperty("accountId").GetString()!);
+        var accountId = Guid.Parse(body.GetProperty("accountId").GetString()!);
+        var link = await Client.PostAsJsonAsync($"/accounts/{accountId}/devices/{_deviceId}", new { authKey = ValidAuthKey });
+        link.StatusCode.Should().Be(HttpStatusCode.OK);
+        return accountId;
     }
 
     /// <summary>
@@ -65,7 +70,7 @@ public class BackupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Upload_backup_returns_created_with_blob_path()
     {
-        await RegisterAndAuthenticateAsync();
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
 
         // Arrange
         var accountId = await RegisterAccountAsync();
@@ -85,22 +90,22 @@ public class BackupEndpointsTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task Upload_backup_for_nonexistent_account_returns_not_found()
+    public async Task Upload_backup_for_unlinked_account_returns_forbidden()
     {
-        await RegisterAndAuthenticateAsync();
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
 
         // Act — use a random GUID that was never registered as an account
         using var formContent = CreateBackupFileContent();
         var response = await Client.PostAsync($"/backups/{Guid.NewGuid()}", formContent);
 
         // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]
     public async Task Upload_backup_with_empty_file_returns_bad_request()
     {
-        await RegisterAndAuthenticateAsync();
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
 
         // Arrange
         var accountId = await RegisterAccountAsync();
@@ -120,7 +125,7 @@ public class BackupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task List_backups_returns_ordered_by_date_desc()
     {
-        await RegisterAndAuthenticateAsync();
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
 
         // Arrange — create two backups for the same account
         var accountId = await RegisterAccountAsync();
@@ -157,7 +162,7 @@ public class BackupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task List_backups_for_account_with_no_backups_returns_empty()
     {
-        await RegisterAndAuthenticateAsync();
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
 
         var accountId = await RegisterAccountAsync();
 
@@ -175,7 +180,7 @@ public class BackupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Download_backup_returns_file_content()
     {
-        await RegisterAndAuthenticateAsync();
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
 
         // Arrange — upload a backup first
         var accountId = await RegisterAccountAsync();
@@ -199,7 +204,7 @@ public class BackupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Download_backup_for_wrong_account_returns_not_found()
     {
-        await RegisterAndAuthenticateAsync();
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
 
         // Arrange — upload a backup under one account
         var accountId = await RegisterAccountAsync();
@@ -220,11 +225,25 @@ public class BackupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Download_nonexistent_backup_returns_not_found()
     {
-        await RegisterAndAuthenticateAsync();
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
         var accountId = await RegisterAccountAsync();
 
         var response = await Client.GetAsync($"/backups/{accountId}/999999");
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
-}
+    [Fact]
+    public async Task Unlinked_device_cannot_list_download_or_upload_another_accounts_backups()
+    {
+        (_deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var accountId = await RegisterAccountAsync();
+        using var content = CreateBackupFileContent();
+        var uploaded = await Client.PostAsync($"/backups/{accountId}", content);
+        var backup = await uploaded.Content.ReadFromJsonAsync<JsonElement>();
+        var backupId = backup.GetProperty("id").GetInt64();
+        await RegisterAndAuthenticateAsync();
+        (await Client.GetAsync($"/backups/{accountId}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.GetAsync($"/backups/{accountId}/{backupId}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using var otherContent = CreateBackupFileContent();
+        (await Client.PostAsync($"/backups/{accountId}", otherContent)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }}

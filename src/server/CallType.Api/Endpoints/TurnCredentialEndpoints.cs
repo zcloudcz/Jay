@@ -34,7 +34,8 @@ public static class TurnCredentialEndpoints
     // -----------------------------------------------------------------------
     private static IResult GetCredentials(
         Guid? deviceId,
-        TurnCredentialService turnService)
+        TurnCredentialService turnService,
+        IConfiguration configuration)
     {
         // deviceId is mandatory — we embed it in the TURN username so the
         // server can correlate ICE sessions to specific devices for debugging.
@@ -43,6 +44,10 @@ public static class TurnCredentialEndpoints
 
         var credentials = turnService.Generate(deviceId.Value, DateTimeOffset.UtcNow);
 
-        return Results.Ok(credentials);
+        return Results.Ok(new {
+            credentials.Username, credentials.Credential, credentials.TtlSeconds,
+            Urls = configuration.GetSection("Turn:Urls").Get<string[]>() ?? [],
+            StunUrls = configuration.GetSection("Turn:StunUrls").Get<string[]>() ?? []
+        });
     }
 }

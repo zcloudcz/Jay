@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -25,6 +26,7 @@ import '../features/onboarding/onboarding_screen.dart';
 import '../features/settings/account_screen.dart';
 import '../features/settings/app_lock_settings_screen.dart';
 import '../features/settings/settings_screen.dart';
+import '../features/settings/identity_screen.dart';
 
 /// Central route configuration for the whole app.
 ///
@@ -47,6 +49,19 @@ import '../features/settings/settings_screen.dart';
 ///   /settings/backup    — encrypted backup settings
 final router = GoRouter(
   initialLocation: '/chats',
+  redirect: (context, state) async {
+    final storage = context.read<SecureStorage>();
+    final id = await storage.getDeviceId();
+    final secret = await storage.getDeviceSecret();
+    if ((id == null || secret == null) && state.uri.path != '/onboarding') {
+      return '/onboarding';
+    }
+    if (state.uri.path.startsWith('/settings/backup') &&
+        await storage.getAccountId() == null) {
+      return '/settings/account';
+    }
+    return null;
+  },
   routes: [
     GoRoute(
       path: '/onboarding',
@@ -61,6 +76,14 @@ final router = GoRouter(
             // KeyManager is cheap to construct — it's a thin wrapper over
             // SecureStorage, so a route-scoped instance is fine here.
             keyManager: KeyManager(secureStorage: ctx.read<SecureStorage>()),
+            onRegistered: (id) async {
+              final connection = ctx.read<SignalRClient>();
+              connection.setDeviceId(id);
+              // Registration is complete even if the first socket attempt fails.
+              try {
+                await connection.connect();
+              } catch (_) {}
+            },
           ),
           child: const OnboardingScreen(),
         );
@@ -104,7 +127,12 @@ final router = GoRouter(
       routes: [
         GoRoute(
           path: 'scan',
-          builder: (context, state) => const QrScannerScreen(),
+          builder: (context, state) =>
+              !kIsWeb &&
+                  (defaultTargetPlatform == TargetPlatform.windows ||
+                      defaultTargetPlatform == TargetPlatform.linux)
+              ? const ContactsScreen()
+              : const QrScannerScreen(),
         ),
       ],
     ),
@@ -119,9 +147,8 @@ final router = GoRouter(
         // The call screen reads it from context rather than creating a new
         // instance, ensuring a single peer connection lifecycle.
         return Builder(
-          builder: (context) => CallScreen(
-            webrtcManager: context.read<WebRTCManager>(),
-          ),
+          builder: (context) =>
+              CallScreen(webrtcManager: context.read<WebRTCManager>()),
         );
       },
     ),
@@ -137,6 +164,10 @@ final router = GoRouter(
           },
         ),
         GoRoute(
+          path: 'identity',
+          builder: (context, state) => const IdentityScreen(),
+        ),
+        GoRoute(
           path: 'account',
           builder: (context, state) {
             // AccountScreen reads ApiClient from the provider tree.
@@ -149,27 +180,13 @@ final router = GoRouter(
             // BackupController is scoped to this route because it holds
             // operation-specific state (progress, errors) that should reset
             // when the user navigates away and back.
-            return ChangeNotifierProvider(
-              create: (ctx) => BackupController(
-                database: ctx.read<AppDatabase>(),
-                apiClient: ctx.read<ApiClient>(),
-                accountId: 'placeholder-account',
-              ),
-              child: const BackupSettingsScreen(),
-            );
+            return const _BackupRoute(restore: false);
           },
           routes: [
             GoRoute(
               path: 'restore',
               builder: (context, state) {
-                return ChangeNotifierProvider(
-                  create: (ctx) => BackupController(
-                    database: ctx.read<AppDatabase>(),
-                    apiClient: ctx.read<ApiClient>(),
-                    accountId: 'placeholder-account',
-                  ),
-                  child: const RestoreScreen(),
-                );
+                return const _BackupRoute(restore: true);
               },
             ),
           ],
@@ -178,3 +195,42 @@ final router = GoRouter(
     ),
   ],
 );
+
+class _BackupRoute extends StatefulWidget {
+  const _BackupRoute({required this.restore});
+  final bool restore;
+  @override
+  State<_BackupRoute> createState() => _BackupRouteState();
+}
+
+class _BackupRouteState extends State<_BackupRoute> {
+  late Future<String?> _account;
+  @override
+  void initState() {
+    super.initState();
+    _account = context.read<SecureStorage>().getAccountId();
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<String?>(
+    future: _account,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      }
+      if (snapshot.hasError || snapshot.data == null) {
+        return const AccountScreen();
+      }
+      return ChangeNotifierProvider(
+        create: (ctx) => BackupController(
+          database: ctx.read<AppDatabase>(),
+          apiClient: ctx.read<ApiClient>(),
+          accountId: snapshot.data!,
+        ),
+        child: widget.restore
+            ? const RestoreScreen()
+            : const BackupSettingsScreen(),
+      );
+    },
+  );
+}

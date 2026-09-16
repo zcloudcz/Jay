@@ -1,0 +1,116 @@
+name: calltype-beta
+services:
+  api:
+    image: calltype-api:beta
+    pull_policy: never
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Proxy__KnownProxy: 172.30.0.10
+      Database__ApplyMigrationsOnStartup: 'true'
+      ConnectionStrings__DefaultConnection: Host=db;Port=5432;Database=calltype;Username=calltype;Password=${POSTGRES_PASSWORD:?required};Maximum Pool Size=20
+      ConnectionStrings__BlobStorage: ${BLOB_CONNECTION_STRING:?required}
+      Jwt__Secret: ${JWT_SECRET:?required}
+      Jwt__Issuer: CallType.Api
+      Turn__SharedSecret: ${TURN_SHARED_SECRET:?required}
+      Turn__TtlSeconds: '3600'
+      Turn__Urls__0: turn:${AZURE_FQDN:?required}:3478?transport=udp
+      Turn__Urls__1: turn:${AZURE_FQDN:?required}:3478?transport=tcp
+      Turn__StunUrls__0: stun:${AZURE_FQDN:?required}:3478
+      Cors__AllowedOrigins__0: https://${AZURE_FQDN:?required}
+      AllowedHosts: ${AZURE_FQDN:?required}
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: &logging
+      driver: json-file
+      options: { max-size: '10m', max-file: '3' }
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: calltype
+      POSTGRES_USER: calltype
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+    command: ['postgres', '-c', 'max_connections=30', '-c', 'shared_buffers=128MB']
+    volumes: ['pgdata:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U calltype -d calltype']
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    logging: *logging
+  turn:
+    image: coturn/coturn:4.6.3
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SHARED_SECRET:?required}
+      - --realm=${AZURE_FQDN:?required}
+      - --external-ip=${PUBLIC_IPV4:?required}
+      - --listening-ip=${PRIVATE_IPV4:?required}
+      - --relay-ip=${PRIVATE_IPV4:?required}
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --user-quota=4
+      - --total-quota=40
+      - --no-multicast-peers
+      - --denied-peer-ip=0.0.0.0-0.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=100.64.0.0-100.127.255.255
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+      - --denied-peer-ip=::1
+      - --denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+      - --denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+      - --log-file=stdout
+    logging: *logging
+  web:
+    image: caddy:2-alpine
+    networks:
+      default:
+        ipv4_address: 172.30.0.10
+    restart: unless-stopped
+    ports: ['80:80', '443:443']
+    configs: [{ source: caddyfile, target: /etc/caddy/Caddyfile }]
+    volumes: ['caddydata:/data', 'caddyconfig:/config', './web:/srv:ro']
+    depends_on: [api]
+    logging: *logging
+configs:
+  caddyfile:
+    content: |
+      ${AZURE_FQDN:?required} {
+        @api {
+          path /hub* /health /auth/* /devices* /accounts* /groups* /backups* /turn*
+          not path /groups/create
+        }
+        handle @api {
+          reverse_proxy api:8080
+        }
+        handle {
+          root * /srv
+          try_files {path} /index.html
+          file_server
+        }
+      }
+volumes:
+  pgdata:
+  caddydata:
+  caddyconfig:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+

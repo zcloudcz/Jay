@@ -1,133 +1,186 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:calltype/features/chat/attachment.dart';
 
+import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype/core/network/api_client.dart';
 import 'package:calltype/features/chat/message_inbox_service.dart';
-
 import '../../helpers/test_device.dart';
 
-/// Tests for the app-wide [MessageInboxService] — the component that
-/// guarantees no incoming message is lost, even with no chat screen open.
-///
-/// Real crypto end to end: Alice (a full [TestDevice]) encrypts envelopes
-/// exactly as production does; the inbox runs on Bob's device and must
-/// decrypt, create conversations, persist messages, and maintain unread
-/// counters. The SignalR transport is replaced by a plain StreamController
-/// pushing the same payload shape the hub delivers
-/// ({senderId, encryptedBody, groupId?}).
+class GroupApi extends ApiClient {
+  GroupApi() : super(baseUrl: 'http://unused');
+  List<String> members = ['alice', 'bob'];
+  @override
+  Future<List<String>> getGroupMembers(String groupId) async => members;
+}
+
 void main() {
   late TestDevice alice;
   late TestDevice bob;
   late StreamController<Map<String, dynamic>> transport;
   late MessageInboxService inbox;
-
+  late GroupApi groupApi;
+  late List<String> acknowledgements;
+  var nextId = 0;
   setUp(() async {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
     alice = await TestDevice.create('alice');
     bob = await TestDevice.create('bob');
-    transport = StreamController<Map<String, dynamic>>.broadcast();
+    transport = StreamController<Map<String, dynamic>>();
+    acknowledgements = [];
+    groupApi = GroupApi();
     inbox = MessageInboxService(
       database: bob.db,
       sessionManager: bob.sessions,
       incomingMessages: transport.stream,
+      apiClient: groupApi,
+      acknowledge: (sender, id) async {
+        final row = await (bob.db.select(
+          bob.db.messages,
+        )..where((m) => m.id.equals(id))).getSingle();
+        expect(row.senderId, sender);
+        acknowledgements.add(id);
+      },
     );
     inbox.start();
-
-    // Alice has a live session towards Bob, as after a key-bundle fetch.
     await alice.sessions.initiateSession(bob.id, await bob.keyBundle());
   });
-
   tearDown(() async {
     await inbox.dispose();
     await transport.close();
     await alice.close();
     await bob.close();
   });
-
-  /// Encrypts [text] on Alice's side and returns the hub payload Bob's
-  /// inbox would receive for it.
-  Future<Map<String, dynamic>> alicePayload(String text,
-      {String? groupId}) async {
-    final envelope = await alice.sessions.encryptMessage(bob.id, text);
+  Future<Map<String, dynamic>> payload(
+    String body, {
+    String? groupId,
+    String type = 'text',
+  }) async {
+    final id = 'message-${nextId++}';
+    final envelope = await alice.sessions.encryptMessage(
+      bob.id,
+      jsonEncode({
+        'v': 1,
+        'id': id,
+        'body': body,
+        'groupId': groupId,
+        'type': type,
+      }),
+    );
     return {
+      'messageId': id,
       'senderId': alice.id,
       'encryptedBody': base64Encode(utf8.encode(envelope)),
-      'groupId': ?groupId,
+      'groupId': groupId,
     };
   }
 
-  /// Pushes a payload through the fake transport and waits until the inbox
-  /// has fully persisted it.
-  Future<Message> deliver(Map<String, dynamic> payload) {
-    final persisted = inbox.persistedMessages.first;
-    transport.add(payload);
-    return persisted;
+  Future<void> settle() async =>
+      MessageProcessingQueue.forDatabase(bob.db).run(() async {});
+  Future<void> add(Map<String, dynamic> data) async {
+    transport.add(data);
+    await Future<void>.delayed(Duration.zero);
+    await settle();
   }
 
-  test('decrypts and persists a message with no chat screen involved',
-      () async {
-    final message = await deliver(await alicePayload('hello'));
-
-    expect(message.body, equals('hello'));
-    expect(message.senderId, equals(alice.id));
-    expect(message.conversationId, equals(alice.id));
-    expect(message.status, equals('delivered'));
-
-    // The row really is in Bob's database, not just on the stream.
-    final stored = await bob.db.select(bob.db.messages).get();
-    expect(stored, hasLength(1));
-    expect(stored.single.body, equals('hello'));
+  test('persists and acknowledges direct message with closed chat', () async {
+    await add(await payload('hello'));
+    final rows = await bob.db.select(bob.db.messages).get();
+    expect(rows.single.body, 'hello');
+    expect(rows.single.conversationId, alice.id);
+    expect(rows.single.status, 'delivered');
+    expect(acknowledgements, [rows.single.id]);
   });
-
-  test('creates the direct conversation on first message from a stranger',
-      () async {
-    await deliver(await alicePayload('hi, you do not know me'));
-
-    final conversations = await bob.db.select(bob.db.conversations).get();
-    expect(conversations, hasLength(1));
-    expect(conversations.single.id, equals(alice.id));
-    expect(conversations.single.type, equals('direct'));
-    expect(conversations.single.lastMessageAt, isNotNull);
+  test(
+    'redelivery retains sender UUID and increments unread only once',
+    () async {
+      final data = await payload('once');
+      await add(data);
+      await add(data);
+      final rows = await bob.db.select(bob.db.messages).get();
+      expect(rows, hasLength(1));
+      expect(rows.single.id, data['messageId']);
+      expect(
+        (await bob.db.select(bob.db.conversations).get()).single.unreadCount,
+        1,
+      );
+      expect(acknowledgements, [data['messageId'], data['messageId']]);
+    },
+  );
+  test('concurrent deliveries serialize ratchet updates', () async {
+    final data = await Future.wait([payload('one')]);
+    final second = await payload('two');
+    transport.add(data.single);
+    transport.add(second);
+    await Future<void>.delayed(Duration.zero);
+    await settle();
+    expect((await bob.db.select(bob.db.messages).get()).map((m) => m.body), [
+      'one',
+      'two',
+    ]);
+    expect(
+      (await bob.db.select(bob.db.conversations).get()).single.unreadCount,
+      2,
+    );
   });
-
-  test('increments unread count per message', () async {
-    await deliver(await alicePayload('one'));
-    await deliver(await alicePayload('two'));
-
-    final conversation = await (bob.db.select(bob.db.conversations)
-          ..where((c) => c.id.equals(alice.id)))
-        .getSingle();
-    expect(conversation.unreadCount, equals(2));
+  test('group context survives encryption into group conversation', () async {
+    await add(await payload('hi all', groupId: 'g1'));
+    expect(
+      (await bob.db.select(bob.db.messages).get()).single.conversationId,
+      'g1',
+    );
+    expect(
+      (await bob.db.select(bob.db.conversations).get()).single.type,
+      'group',
+    );
   });
-
-  test('group message lands in the group conversation', () async {
-    final message = await deliver(await alicePayload('hi all', groupId: 'g1'));
-
-    expect(message.conversationId, equals('g1'));
-    final conversation = await (bob.db.select(bob.db.conversations)
-          ..where((c) => c.id.equals('g1')))
-        .getSingle();
-    expect(conversation.type, equals('group'));
+  test(
+    'authorized queued group message survives later membership removal',
+    () async {
+      final queued = await payload('before removal', groupId: 'g1');
+      groupApi.members = ['bob'];
+      await add(queued);
+      expect(
+        (await bob.db.select(bob.db.messages).get()).single.body,
+        'before removal',
+      );
+      expect(acknowledgements, [queued['messageId']]);
+    },
+  );
+  test('encrypted attachment bytes persist with file type', () async {
+    final attachment = Attachment(
+      name: 'sample.bin',
+      bytes: Uint8List.fromList([0, 255, 42]),
+    );
+    await add(await payload(attachment.encode(), type: 'file'));
+    final message = await bob.db.select(bob.db.messages).getSingle();
+    expect(message.type, 'file');
+    expect(Attachment.decode(message.body!).bytes, attachment.bytes);
+    expect(acknowledgements, [message.id]);
   });
-
-  test('undecryptable payload is preserved with the [encrypted] marker',
-      () async {
-    final message = await deliver({
-      'senderId': alice.id,
-      'encryptedBody': base64Encode(utf8.encode('garbage, not an envelope')),
-    });
-
-    // Nothing is silently dropped: the raw body is kept and marked so the
-    // UI can show "message could not be decrypted".
-    expect(message.body, startsWith('[encrypted] '));
+  test('tampered group context is rejected without acknowledgment', () async {
+    final data = await payload('private');
+    data['groupId'] = 'g1';
+    await add(data);
+    expect(await bob.db.select(bob.db.messages).get(), isEmpty);
+    expect(acknowledgements, isEmpty);
   });
-
-  test('malformed payload does not kill the subscription', () async {
-    // No senderId → handler returns early; a later valid message must
-    // still be processed (the subscription survived).
-    transport.add({'encryptedBody': 'whatever'});
-
-    final message = await deliver(await alicePayload('still alive'));
-    expect(message.body, equals('still alive'));
-  });
+  test(
+    'corrupt ciphertext is not falsely delivered and next message survives',
+    () async {
+      await add({
+        'messageId': 'bad',
+        'senderId': alice.id,
+        'encryptedBody': base64Encode(utf8.encode('bad')),
+      });
+      expect(await bob.db.select(bob.db.messages).get(), isEmpty);
+      expect(acknowledgements, isEmpty);
+      await add(await payload('still alive'));
+      expect(
+        (await bob.db.select(bob.db.messages).get()).single.body,
+        'still alive',
+      );
+    },
+  );
 }

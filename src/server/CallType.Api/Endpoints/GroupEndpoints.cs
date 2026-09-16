@@ -1,17 +1,4 @@
-// ---------------------------------------------------------------------------
-// GroupEndpoints.cs — Group creation and membership management
-// ---------------------------------------------------------------------------
-// Groups are a server-side construct for message fan-out: when a member sends
-// a group message, the server knows which devices to relay it to. The group
-// name is encrypted client-side — the server stores the blob but cannot read
-// it. Membership is per-device (not per-account) because each device holds
-// its own key material for the group session.
-//
-// Role model is intentionally simple: "admin" (creator, can manage members)
-// and "member" (can send/receive). Stored as a short string for extensibility
-// without schema migrations.
-// ---------------------------------------------------------------------------
-
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using CallType.Api.Data;
 using CallType.Api.Models;
@@ -20,14 +7,8 @@ namespace CallType.Api.Endpoints;
 
 public static class GroupEndpoints
 {
-    /// <summary>
-    /// Registers all group-related routes on the application pipeline.
-    /// Called from Program.cs to keep the entry point lean.
-    /// </summary>
     public static WebApplication MapGroupEndpoints(this WebApplication app)
     {
-        // All group operations require authentication — only known devices
-        // should be able to create groups or manage membership.
         app.MapPost("/groups", CreateGroup).RequireAuthorization().RequireRateLimiting("api");
         app.MapGet("/groups/{groupId:guid}/members", ListMembers).RequireAuthorization().RequireRateLimiting("api");
         app.MapPut("/groups/{groupId:guid}/members", AddMember).RequireAuthorization().RequireRateLimiting("api");
@@ -35,149 +16,83 @@ public static class GroupEndpoints
         return app;
     }
 
-    // -----------------------------------------------------------------------
-    // POST /groups — Create a new group
-    // -----------------------------------------------------------------------
-    private static async Task<IResult> CreateGroup(
-        CreateGroupRequest request,
-        AppDbContext db,
-        CancellationToken ct)
+    private static Guid Caller(ClaimsPrincipal user) => Guid.TryParse(
+        user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub"), out var id) ? id : Guid.Empty;
+
+    private static async Task<IResult> CreateGroup(CreateGroupRequest request, ClaimsPrincipal user,
+        AppDbContext db, CancellationToken ct)
     {
-        // The creator must be a known device — prevents phantom groups created
-        // by non-existent devices from polluting the database.
-        var deviceExists = await db.Devices.AnyAsync(d => d.DeviceId == request.CreatedBy, ct);
-        if (!deviceExists)
+        var creator = Caller(user);
+        if (creator == Guid.Empty) return Results.Unauthorized();
+        var members = (request.MemberDeviceIds ?? []).Append(creator).Distinct().ToArray();
+        if (members.Length > 100 || members.Contains(Guid.Empty))
+            return Results.BadRequest(new { error = "Groups support up to 100 valid devices." });
+        if (await db.Devices.CountAsync(d => members.Contains(d.DeviceId), ct) != members.Length)
             return Results.BadRequest(new { error = "Device not found." });
-
-        // Decode optional encrypted group name. Null is fine (ad-hoc chats).
-        byte[]? nameEncryptedBytes = null;
-        if (!string.IsNullOrWhiteSpace(request.NameEncrypted))
-        {
-            try
-            {
-                nameEncryptedBytes = Convert.FromBase64String(request.NameEncrypted);
-            }
-            catch (FormatException)
-            {
-                return Results.BadRequest(new { error = "NameEncrypted must be valid base64." });
-            }
-        }
-
         var now = DateTimeOffset.UtcNow;
-        var group = new Group
-        {
-            GroupId = Guid.NewGuid(),
-            CreatedBy = request.CreatedBy,
-            NameEncrypted = nameEncryptedBytes,
-            CreatedAt = now
-        };
-
-        // The creator is automatically added as admin. Without this, the group
-        // would have no admin and no one could manage membership.
-        var creatorMember = new GroupMember
-        {
-            GroupId = group.GroupId,
-            DeviceId = request.CreatedBy,
-            Role = "admin",
-            JoinedAt = now
-        };
-
+        var group = new Group { GroupId = Guid.NewGuid(), CreatedBy = creator, CreatedAt = now };
         db.Groups.Add(group);
-        db.GroupMembers.Add(creatorMember);
+        db.GroupMembers.AddRange(members.Select(device => new GroupMember {
+            GroupId = group.GroupId, DeviceId = device,
+            Role = device == creator ? "admin" : "member", JoinedAt = now
+        }));
         await db.SaveChangesAsync(ct);
-
-        return Results.Created(
-            $"/groups/{group.GroupId}",
-            new CreateGroupResponse(group.GroupId));
+        return Results.Created($"/groups/{group.GroupId}", new CreateGroupResponse(group.GroupId));
     }
 
-    // -----------------------------------------------------------------------
-    // GET /groups/{groupId}/members — List group members
-    // -----------------------------------------------------------------------
-    private static async Task<IResult> ListMembers(
-        Guid groupId,
-        AppDbContext db,
-        CancellationToken ct)
+    private static async Task<IResult?> Authorize(Guid groupId, ClaimsPrincipal user,
+        AppDbContext db, bool admin, CancellationToken ct)
     {
-        // If there are no members, the group effectively doesn't exist
-        // (groups are always created with at least one member — the creator).
-        var members = await db.GroupMembers
-            .Where(gm => gm.GroupId == groupId)
-            .Select(gm => new GroupMemberDto(gm.DeviceId, gm.Role, gm.JoinedAt))
-            .ToListAsync(ct);
+        if (!await db.Groups.AnyAsync(g => g.GroupId == groupId, ct)) return Results.NotFound();
+        var caller = Caller(user);
+        var role = await db.GroupMembers.Where(m => m.GroupId == groupId && m.DeviceId == caller)
+            .Select(m => m.Role).SingleOrDefaultAsync(ct);
+        return role == null || (admin && role != "admin") ? Results.Forbid() : null;
+    }
 
-        if (members.Count == 0)
-            return Results.NotFound(new { error = "Group not found." });
-
+    private static async Task<IResult> ListMembers(Guid groupId, ClaimsPrincipal user,
+        AppDbContext db, CancellationToken ct)
+    {
+        var denial = await Authorize(groupId, user, db, false, ct);
+        if (denial != null) return denial;
+        var members = await db.GroupMembers.Where(m => m.GroupId == groupId)
+            .Select(m => new GroupMemberDto(m.DeviceId, m.Role, m.JoinedAt)).ToListAsync(ct);
         return Results.Ok(members);
     }
 
-    // -----------------------------------------------------------------------
-    // PUT /groups/{groupId}/members — Add a member
-    // -----------------------------------------------------------------------
-    private static async Task<IResult> AddMember(
-        Guid groupId,
-        AddGroupMemberRequest request,
-        AppDbContext db,
-        CancellationToken ct)
+    private static async Task<IResult> AddMember(Guid groupId, AddGroupMemberRequest request,
+        ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
     {
-        // Verify the group exists by checking for at least one member
-        // (cheaper than loading the Group entity; same semantic).
-        var groupExists = await db.GroupMembers.AnyAsync(gm => gm.GroupId == groupId, ct);
-        if (!groupExists)
-            return Results.NotFound(new { error = "Group not found." });
-
-        // The device must exist in the Devices table — we don't want to add phantom
-        // members that have no key material and can never actually decrypt messages.
+        var denial = await Authorize(groupId, user, db, true, ct);
+        if (denial != null) return denial;
         if (!await db.Devices.AnyAsync(d => d.DeviceId == request.DeviceId, ct))
             return Results.BadRequest(new { error = "Device not found." });
-
-        // Prevent duplicate membership — the composite PK would reject it anyway,
-        // but returning 409 is a better client experience than a 500 from a DB error.
-        var alreadyMember = await db.GroupMembers
-            .AnyAsync(gm => gm.GroupId == groupId && gm.DeviceId == request.DeviceId, ct);
-        if (alreadyMember)
-            return Results.Conflict(new { error = "Device is already a member of this group." });
-
-        db.GroupMembers.Add(new GroupMember
-        {
-            GroupId = groupId,
-            DeviceId = request.DeviceId,
-            Role = "member",
-            JoinedAt = DateTimeOffset.UtcNow
-        });
-
+        if (await db.GroupMembers.AnyAsync(m => m.GroupId == groupId && m.DeviceId == request.DeviceId, ct))
+            return Results.Conflict(new { error = "Device is already a member." });
+        if (await db.GroupMembers.CountAsync(m => m.GroupId == groupId, ct) >= 100)
+            return Results.BadRequest(new { error = "Group is full." });
+        db.GroupMembers.Add(new GroupMember { GroupId = groupId, DeviceId = request.DeviceId,
+            Role = "member", JoinedAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(ct);
         return Results.Ok(new { message = "Member added." });
     }
 
-    // -----------------------------------------------------------------------
-    // DELETE /groups/{groupId}/members/{deviceId} — Remove a member
-    // -----------------------------------------------------------------------
-    private static async Task<IResult> RemoveMember(
-        Guid groupId,
-        Guid deviceId,
-        AppDbContext db,
-        CancellationToken ct)
+    private static async Task<IResult> RemoveMember(Guid groupId, Guid deviceId, ClaimsPrincipal user,
+        AppDbContext db, CancellationToken ct)
     {
-        var member = await db.GroupMembers
-            .FirstOrDefaultAsync(gm => gm.GroupId == groupId && gm.DeviceId == deviceId, ct);
-
-        if (member is null)
-            return Results.NotFound(new { error = "Member not found in this group." });
-
+        var denial = await Authorize(groupId, user, db, true, ct);
+        if (denial != null) return denial;
+        var member = await db.GroupMembers.SingleOrDefaultAsync(m => m.GroupId == groupId && m.DeviceId == deviceId, ct);
+        if (member == null) return Results.NotFound();
+        if (member.Role == "admin" && await db.GroupMembers.CountAsync(m => m.GroupId == groupId && m.Role == "admin", ct) <= 1)
+            return Results.Conflict(new { error = "The last administrator cannot be removed." });
         db.GroupMembers.Remove(member);
         await db.SaveChangesAsync(ct);
-
         return Results.Ok(new { message = "Member removed." });
     }
 }
 
-// ---------------------------------------------------------------------------
-// Request / Response DTOs
-// ---------------------------------------------------------------------------
-
-public record CreateGroupRequest(Guid CreatedBy, string? NameEncrypted);
+public record CreateGroupRequest(Guid[]? MemberDeviceIds);
 public record CreateGroupResponse(Guid GroupId);
 public record AddGroupMemberRequest(Guid DeviceId);
 public record GroupMemberDto(Guid DeviceId, string Role, DateTimeOffset JoinedAt);

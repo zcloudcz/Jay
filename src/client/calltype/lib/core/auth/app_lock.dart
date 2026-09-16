@@ -20,11 +20,9 @@ import '../storage/secure_storage.dart';
 ///   - [SecureStorage] for persisting the PIN hash and biometric preference
 ///   - [LocalAuthentication] for biometric checks
 class AppLock {
-  AppLock({
-    SecureStorage? secureStorage,
-    LocalAuthentication? localAuth,
-  })  : _secureStorage = secureStorage ?? SecureStorage(),
-        _localAuth = localAuth ?? LocalAuthentication();
+  AppLock({SecureStorage? secureStorage, LocalAuthentication? localAuth})
+    : _secureStorage = secureStorage ?? SecureStorage(),
+      _localAuth = localAuth ?? LocalAuthentication();
 
   final SecureStorage _secureStorage;
   final LocalAuthentication _localAuth;
@@ -92,9 +90,14 @@ class AppLock {
   /// Returns false if the hardware is not available or no biometrics are
   /// enrolled. The user must enroll biometrics in the device settings first.
   Future<bool> isBiometricAvailable() async {
-    final canCheck = await _localAuth.canCheckBiometrics;
-    final isSupported = await _localAuth.isDeviceSupported();
-    return canCheck && isSupported;
+    try {
+      final canCheck = await _localAuth.canCheckBiometrics;
+      final isSupported = await _localAuth.isDeviceSupported();
+      return canCheck && isSupported;
+    } catch (_) {
+      // Unsupported platforms (including web) still support the app PIN.
+      return false;
+    }
   }
 
   /// Whether the user has opted in to biometric unlock.

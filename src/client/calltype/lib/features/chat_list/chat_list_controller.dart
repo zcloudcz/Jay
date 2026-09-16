@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
@@ -15,6 +16,9 @@ class ChatListController extends ChangeNotifier {
   ChatListController({required AppDatabase database}) : _db = database;
 
   final AppDatabase _db;
+  StreamSubscription<List<Conversation>>? _subscription;
+  bool _disposed = false;
+  String? error;
 
   /// All conversations, ordered by lastMessageAt descending.
   List<Conversation> get conversations => List.unmodifiable(_conversations);
@@ -27,13 +31,25 @@ class ChatListController extends ChangeNotifier {
   Future<void> loadConversations() async {
     final query = _db.select(_db.conversations)
       ..orderBy([
-        (c) => OrderingTerm(
-              expression: c.lastMessageAt,
-              mode: OrderingMode.desc,
-            ),
+        (c) =>
+            OrderingTerm(expression: c.lastMessageAt, mode: OrderingMode.desc),
       ]);
 
     _conversations = await query.get();
+    if (_disposed) return;
+    _subscription ??= query.watch().listen(
+      (rows) {
+        if (_disposed) return;
+        _conversations = rows;
+        error = null;
+        notifyListeners();
+      },
+      onError: (Object failure) {
+        if (_disposed) return;
+        error = failure.toString();
+        notifyListeners();
+      },
+    );
     notifyListeners();
   }
 
@@ -48,9 +64,9 @@ class ChatListController extends ChangeNotifier {
   /// Returns the conversation ID (existing or newly created).
   Future<String> createDirectConversation(String deviceId) async {
     // Check if a conversation with this device already exists.
-    final existing = await (_db.select(_db.conversations)
-          ..where((c) => c.id.equals(deviceId)))
-        .getSingleOrNull();
+    final existing = await (_db.select(
+      _db.conversations,
+    )..where((c) => c.id.equals(deviceId))).getSingleOrNull();
 
     if (existing != null) return existing.id;
 
@@ -66,5 +82,12 @@ class ChatListController extends ChangeNotifier {
     await loadConversations();
 
     return deviceId;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _subscription?.cancel();
+    super.dispose();
   }
 }

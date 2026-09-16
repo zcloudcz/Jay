@@ -4,33 +4,14 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
-
+import '../../core/crypto/group_cipher.dart';
 import '../../core/crypto/session_manager.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/signalr_client.dart';
 import '../../core/storage/database.dart';
 import 'message_inbox_service.dart';
+import 'attachment.dart';
 
-/// Manages state for a single conversation — loads messages from DB and
-/// sends new messages.
-///
-/// The flow is:
-///   1. User sends message → store locally with status 'sending'
-///   2. Encrypt via [SessionManager] → send via SignalR
-///   3. Update status to 'sent' on success / 'failed' on error
-///   4. Incoming messages are decrypted + persisted by the app-wide
-///      [MessageInboxService] (so nothing is lost while this screen is
-///      closed); this controller only listens to its [persistedMessages]
-///      stream and reloads the visible list.
-///
-/// Session establishment happens lazily on first send: if no E2E session
-/// exists with the peer, we fetch their key bundle from the API and perform
-/// X3DH before encrypting. This avoids pre-establishing sessions with
-/// contacts we never message.
-///
-/// Uses [ChangeNotifier] so the chat screen rebuilds reactively when
-/// messages change. The controller is scoped to a single conversation
-/// and should be disposed when the user navigates away.
 class ChatController extends ChangeNotifier {
   ChatController({
     required AppDatabase database,
@@ -40,165 +21,192 @@ class ChatController extends ChangeNotifier {
     required ApiClient apiClient,
     required this.conversationId,
     required this.myDeviceId,
-  })  : _db = database,
-        _signalR = signalRClient,
-        _sessionManager = sessionManager,
-        _apiClient = apiClient {
-    _loadMessages();
-    _listenForIncoming(inbox);
-    // Opening the chat means the user is reading it — clear the unread
-    // badge that the inbox service has been incrementing.
-    _markConversationRead();
+  }) : _db = database,
+       _signalR = signalRClient,
+       _sessions = sessionManager,
+       _api = apiClient {
+    _subscription =
+        (_db.select(_db.messages)
+              ..where((m) => m.conversationId.equals(conversationId))
+              ..orderBy([(m) => OrderingTerm.desc(m.createdAt)]))
+            .watch()
+            .listen((rows) {
+              _messages = rows;
+              if (!_disposed) notifyListeners();
+            });
+    _incoming = inbox.persistedMessages.listen((message) {
+      if (message.conversationId == conversationId) _markRead();
+    });
+    _markRead();
   }
-
   final AppDatabase _db;
   final SignalRClient _signalR;
-  final SessionManager _sessionManager;
-  final ApiClient _apiClient;
-
-  /// The conversation this controller manages.
+  final SessionManager _sessions;
+  final ApiClient _api;
   final String conversationId;
-
-  /// This device's UUID — used to determine message direction (mine vs. theirs)
-  /// and as the senderId for outgoing messages.
   final String myDeviceId;
-
-  StreamSubscription<Message>? _messageSubscription;
-
-  /// Current message list, ordered newest-first (for reversed ListView).
-  List<Message> get messages => List.unmodifiable(_messages);
+  late StreamSubscription<List<Message>> _subscription;
+  late StreamSubscription<Message> _incoming;
+  bool _disposed = false;
   List<Message> _messages = [];
-
+  List<Message> get messages => List.unmodifiable(_messages);
   static const _uuid = Uuid();
 
-  /// Loads all messages for this conversation from the local database.
-  ///
-  /// Ordered by createdAt descending (newest first) because the chat UI
-  /// uses a reversed ListView that renders from the bottom up.
-  Future<void> _loadMessages() async {
-    final query = _db.select(_db.messages)
-      ..where((m) => m.conversationId.equals(conversationId))
-      ..orderBy([
-        (m) => OrderingTerm(
-              expression: m.createdAt,
-              mode: OrderingMode.desc,
-            ),
-      ]);
-
-    _messages = await query.get();
-    notifyListeners();
-  }
-
-  /// Subscribes to the inbox's persisted-message stream and reloads the
-  /// visible list when a message for THIS conversation lands in the DB.
-  ///
-  /// Decryption and persistence already happened in [MessageInboxService] —
-  /// re-doing either here would double-process every message.
-  void _listenForIncoming(MessageInboxService inbox) {
-    _messageSubscription = inbox.persistedMessages.listen((message) async {
-      // Other conversations have their own ChatController instances.
-      if (message.conversationId != conversationId) return;
-
-      await _loadMessages();
-      // The user is looking at this chat, so the message the inbox just
-      // counted as unread has effectively been read already.
-      await _markConversationRead();
-    });
-  }
-
-  /// Clears the unread badge for this conversation.
-  Future<void> _markConversationRead() async {
+  Future<void> _markRead() async {
     await (_db.update(_db.conversations)
           ..where((c) => c.id.equals(conversationId)))
         .write(const ConversationsCompanion(unreadCount: Value(0)));
   }
 
-  /// Sends a text message in this conversation.
-  ///
-  /// The message is stored locally first (optimistic insert with status
-  /// 'sending'), then encrypted via [SessionManager] and sent via SignalR.
-  /// On success the status updates to 'sent'; on failure it becomes 'failed'
-  /// so the UI can show a retry option.
-  ///
-  /// If no E2E session exists with the peer, automatically fetches their
-  /// key bundle from the API and establishes a session via X3DH before
-  /// encrypting. This lazy initialization avoids wasting resources on
-  /// sessions that may never be used.
-  Future<void> sendMessage(String text) async {
-    final messageId = _uuid.v4();
+  Future<void> sendMessage(String text) => _send(text, 'text');
+
+  Future<void> sendAttachment(String name, Uint8List bytes) =>
+      _send(Attachment(name: name, bytes: bytes).encode(), 'file');
+
+  Future<void> _send(String text, String type) async {
+    if (text.trim().isEmpty) return;
+    final id = _uuid.v4();
     final now = DateTime.now();
-
-    // Optimistic local insert — the message appears immediately in the UI
-    // with a clock icon (status='sending') while the network call happens.
-    final companion = MessagesCompanion.insert(
-      id: messageId,
-      conversationId: conversationId,
-      senderId: myDeviceId,
-      body: Value(text),
-      status: const Value('sending'),
-      createdAt: now,
-    );
-
-    await _db.into(_db.messages).insert(companion);
-
-    // Update conversation timestamp so it bubbles to the top of the chat list.
-    await (_db.update(_db.conversations)
-          ..where((c) => c.id.equals(conversationId)))
-        .write(ConversationsCompanion(lastMessageAt: Value(now)));
-
-    await _loadMessages();
-
-    try {
-      // Ensure we have an E2E session with the peer. If not, fetch their
-      // key bundle and perform X3DH to establish one.
-      await _ensureSession(conversationId);
-
-      // Encrypt the message — returns a JSON envelope with the Double
-      // Ratchet header and ciphertext.
-      final envelope = await _sessionManager.encryptMessage(
-        conversationId,
-        text,
-      );
-
-      // Send the envelope as base64(UTF-8 JSON) — the server treats this
-      // as an opaque blob and never attempts to parse or decrypt it.
-      final encryptedBase64 = base64Encode(utf8.encode(envelope));
-      await _signalR.sendMessage(conversationId, encryptedBase64);
-
-      // Network send succeeded — update status to 'sent'.
-      await (_db.update(_db.messages)
-            ..where((m) => m.id.equals(messageId)))
-          .write(const MessagesCompanion(status: Value('sent')));
-    } catch (_) {
-      // Encryption or network failure — mark as 'failed' so the UI
-      // can offer retry.
-      await (_db.update(_db.messages)
-            ..where((m) => m.id.equals(messageId)))
-          .write(const MessagesCompanion(status: Value('failed')));
-    }
-
-    await _loadMessages();
+    await _db.transaction(() async {
+      await _db
+          .into(_db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: id,
+              conversationId: conversationId,
+              senderId: myDeviceId,
+              body: Value(text),
+              type: Value(type),
+              status: const Value('sending'),
+              createdAt: now,
+            ),
+          );
+      await (_db.update(_db.conversations)
+            ..where((c) => c.id.equals(conversationId)))
+          .write(ConversationsCompanion(lastMessageAt: Value(now)));
+    });
+    await retryMessage(id);
   }
 
-  /// Ensures an E2E session exists with the given peer device.
-  ///
-  /// If no session exists, fetches the peer's X3DH key bundle from the
-  /// server API and initializes a new session. This is the "lazy X3DH"
-  /// pattern — sessions are established on first message, not on contact add.
-  Future<void> _ensureSession(String peerDeviceId) async {
-    if (await _sessionManager.hasSession(peerDeviceId)) return;
+  Future<void> retryMessage(
+    String messageId,
+  ) => MessageProcessingQueue.forDatabase(_db).run(() async {
+    final message = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(messageId))).getSingle();
+    if (message.senderId != myDeviceId ||
+        message.conversationId != conversationId ||
+        (message.status != 'failed' && message.status != 'sending')) {
+      return;
+    }
+    await _status(messageId, 'sending');
+    try {
+      var stored = await (_db.select(
+        _db.backupState,
+      )..where((s) => s.key.equals('outbox:$messageId'))).getSingleOrNull();
+      if (stored == null) {
+        final conversation = await (_db.select(
+          _db.conversations,
+        )..where((c) => c.id.equals(conversationId))).getSingle();
+        final groupId = conversation.type == 'group' ? conversationId : null;
+        final recipients = groupId == null
+            ? [conversationId]
+            : (await _api.getGroupMembers(
+                groupId,
+              )).where((id) => id != myDeviceId).toList();
+        if (recipients.isEmpty) {
+          throw StateError('No recipients in this conversation');
+        }
+        final payload = jsonEncode({
+          'v': 1,
+          'id': messageId,
+          'body': message.body,
+          'type': message.type,
+          'groupId': groupId,
+          'groupName': groupId == null ? null : conversation.title,
+          'createdAt': message.createdAt.toUtc().toIso8601String(),
+        });
+        await _db.transaction(() async {
+          final envelopes = <String, String>{};
+          if (groupId != null) {
+            final encrypted = await GroupCipher(
+              sessionManager: _sessions,
+              ensureSession: _ensureSession,
+            ).encryptForGroup(groupId, recipients, payload);
+            envelopes.addAll(
+              encrypted.map((id, bytes) => MapEntry(id, base64Encode(bytes))),
+            );
+          } else {
+            await _ensureSession(conversationId);
+            envelopes[conversationId] = base64Encode(
+              utf8.encode(
+                await _sessions.encryptMessage(conversationId, payload),
+              ),
+            );
+          }
+          await _db
+              .into(_db.backupState)
+              .insert(
+                BackupStateCompanion.insert(
+                  key: 'outbox:$messageId',
+                  value: jsonEncode({
+                    'groupId': groupId,
+                    'envelopes': envelopes,
+                  }),
+                ),
+              );
+        });
+        stored = await (_db.select(
+          _db.backupState,
+        )..where((s) => s.key.equals('outbox:$messageId'))).getSingle();
+      }
+      final outbox = jsonDecode(stored.value) as Map<String, dynamic>;
+      final envelopes = (outbox['envelopes'] as Map<String, dynamic>)
+          .cast<String, String>();
+      final groupId = outbox['groupId'] as String?;
+      if (groupId != null) {
+        for (final entry in envelopes.entries) {
+          await _signalR.sendGroupMessage(groupId, {
+            entry.key: entry.value,
+          }, messageId: messageId);
+        }
+      } else {
+        await _signalR.sendMessage(
+          envelopes.keys.single,
+          envelopes.values.single,
+          messageId: messageId,
+        );
+      }
+      await _db.transaction(() async {
+        await _status(messageId, 'sent');
+        await (_db.delete(
+          _db.backupState,
+        )..where((s) => s.key.equals('outbox:$messageId'))).go();
+      });
+    } catch (_) {
+      await _status(messageId, 'failed');
+    }
+  });
 
-    // Fetch peer's key bundle: identity key + signed pre-key + OTK.
-    // The server consumes the OTK atomically — subsequent fetches for
-    // the same peer return a different OTK (or none if depleted).
-    final keyBundle = await _apiClient.getKeyBundle(peerDeviceId);
+  Future<void> _status(String id, String status) =>
+      (_db.update(_db.messages)..where((m) => m.id.equals(id)))
+          .write(MessagesCompanion(status: Value(status)))
+          .then((_) {});
 
-    await _sessionManager.initiateSession(peerDeviceId, keyBundle);
+  Future<void> _ensureSession(String recipient) async {
+    if (!await _sessions.hasSession(recipient)) {
+      await _sessions.initiateSession(
+        recipient,
+        await _api.getKeyBundle(recipient),
+      );
+    }
   }
 
   @override
   void dispose() {
-    _messageSubscription?.cancel();
+    _disposed = true;
+    _subscription.cancel();
+    _incoming.cancel();
     super.dispose();
   }
 }

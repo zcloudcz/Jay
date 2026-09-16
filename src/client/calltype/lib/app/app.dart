@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'router.dart';
 import 'theme.dart';
+import 'session_overlay.dart';
 
 /// Root application widget.
 ///
@@ -20,6 +21,7 @@ class CallTypeApp extends StatelessWidget {
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
       routerConfig: router,
+      builder: (context, child) => SessionOverlay(child: child!),
       debugShowCheckedModeBanner: false,
     );
   }

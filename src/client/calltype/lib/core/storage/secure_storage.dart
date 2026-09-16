@@ -14,7 +14,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// secure storage namespace is shared with other Flutter plugins.
 class SecureStorage {
   SecureStorage({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   final FlutterSecureStorage _storage;
 
@@ -84,6 +84,11 @@ class SecureStorage {
 
   /// Removes the PIN hash, effectively disabling PIN lock.
   Future<void> deletePinHash() => _storage.delete(key: _keyPinHash);
+
+  Future<String?> getAccountId() => _storage.read(key: 'ct_account_id');
+
+  Future<void> setAccountId(String id) =>
+      _storage.write(key: 'ct_account_id', value: id);
 
   // -- Generic access ------------------------------------------------------
 

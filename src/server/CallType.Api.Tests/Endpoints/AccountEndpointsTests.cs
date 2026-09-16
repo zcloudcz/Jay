@@ -203,130 +203,47 @@ public class AccountEndpointsTests : IntegrationTestBase
     // -----------------------------------------------------------------------
 
     [Fact]
-    public async Task Link_device_to_account_succeeds()
+    public async Task Link_own_device_with_proof_is_idempotent_and_lists_device()
     {
-        // Authenticate — device linking requires JWT.
-        await RegisterAndAuthenticateAsync();
-
-        // Arrange
-        var email = $"test-{Guid.NewGuid():N}@example.com";
-        var accountId = await RegisterAccountAsync(email);
-        var deviceId = await RegisterDeviceAsync();
-
-        // Act
-        var response = await Client.PostAsync(
-            $"/accounts/{accountId}/devices/{deviceId}", null);
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-    }
-
-    [Fact]
-    public async Task Link_device_twice_returns_409_conflict()
-    {
-        // Authenticate — device linking requires JWT.
-        await RegisterAndAuthenticateAsync();
-
-        // Arrange
-        var email = $"test-{Guid.NewGuid():N}@example.com";
-        var accountId = await RegisterAccountAsync(email);
-        var deviceId = await RegisterDeviceAsync();
-
-        // Link once — should succeed
-        var firstResponse = await Client.PostAsync(
-            $"/accounts/{accountId}/devices/{deviceId}", null);
-        firstResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        // Act — link same device again
-        var secondResponse = await Client.PostAsync(
-            $"/accounts/{accountId}/devices/{deviceId}", null);
-
-        // Assert
-        secondResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
-    }
-
-    [Fact]
-    public async Task Link_device_to_nonexistent_account_returns_404()
-    {
-        // Authenticate — device linking requires JWT.
-        await RegisterAndAuthenticateAsync();
-
-        var deviceId = await RegisterDeviceAsync();
-
-        var response = await Client.PostAsync(
-            $"/accounts/{Guid.NewGuid()}/devices/{deviceId}", null);
-
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-    }
-
-    [Fact]
-    public async Task Link_nonexistent_device_to_account_returns_404()
-    {
-        // Authenticate — device linking requires JWT.
-        await RegisterAndAuthenticateAsync();
-
-        var email = $"test-{Guid.NewGuid():N}@example.com";
-        var accountId = await RegisterAccountAsync(email);
-
-        var response = await Client.PostAsync(
-            $"/accounts/{accountId}/devices/{Guid.NewGuid()}", null);
-
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
-    }
-
-    // -----------------------------------------------------------------------
-    // GET /accounts/{accountId}/devices — List linked devices
-    // -----------------------------------------------------------------------
-
-    [Fact]
-    public async Task List_linked_devices_returns_linked_devices()
-    {
-        // Authenticate — listing linked devices requires JWT.
-        await RegisterAndAuthenticateAsync();
-
-        // Arrange — register account, register 2 devices, link both
-        var email = $"test-{Guid.NewGuid():N}@example.com";
-        var accountId = await RegisterAccountAsync(email);
-        var deviceId1 = await RegisterDeviceAsync();
-        var deviceId2 = await RegisterDeviceAsync();
-
-        await Client.PostAsync($"/accounts/{accountId}/devices/{deviceId1}", null);
-        await Client.PostAsync($"/accounts/{accountId}/devices/{deviceId2}", null);
-
-        // Act
-        var response = await Client.GetAsync($"/accounts/{accountId}/devices");
-
-        // Assert
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var devices = await response.Content.ReadFromJsonAsync<JsonElement>();
-        devices.GetArrayLength().Should().Be(2);
-
-        // Verify both deviceIds are present in the response.
-        var returnedIds = new HashSet<string>();
-        foreach (var device in devices.EnumerateArray())
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var accountId = await RegisterAccountAsync($"test-{Guid.NewGuid():N}@example.com");
+        for (var i = 0; i < 2; i++)
         {
-            returnedIds.Add(device.GetProperty("deviceId").GetString()!);
-            // linkedAt should be a valid timestamp
-            device.GetProperty("linkedAt").GetString().Should().NotBeNullOrEmpty();
+            var response = await Client.PostAsJsonAsync($"/accounts/{accountId}/devices/{deviceId}", new { authKey = ValidAuthKey });
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
         }
-
-        returnedIds.Should().Contain(deviceId1.ToString());
-        returnedIds.Should().Contain(deviceId2.ToString());
+        var list = await Client.GetAsync($"/accounts/{accountId}/devices");
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await list.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetArrayLength().Should().Be(1);
+        body[0].GetProperty("deviceId").GetGuid().Should().Be(deviceId);
     }
 
     [Fact]
-    public async Task List_linked_devices_for_account_with_no_devices_returns_empty()
+    public async Task Link_without_correct_account_proof_is_forbidden()
     {
-        // Authenticate — listing linked devices requires JWT.
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var accountId = await RegisterAccountAsync($"test-{Guid.NewGuid():N}@example.com");
+        var response = await Client.PostAsJsonAsync($"/accounts/{accountId}/devices/{deviceId}", new { authKey = Convert.ToBase64String(new byte[32]) });
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.GetAsync($"/accounts/{accountId}/devices")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Link_another_device_even_with_account_proof_is_forbidden()
+    {
         await RegisterAndAuthenticateAsync();
+        var otherDevice = await RegisterDeviceAsync();
+        var accountId = await RegisterAccountAsync($"test-{Guid.NewGuid():N}@example.com");
+        var response = await Client.PostAsJsonAsync($"/accounts/{accountId}/devices/{otherDevice}", new { authKey = ValidAuthKey });
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
 
-        var email = $"test-{Guid.NewGuid():N}@example.com";
-        var accountId = await RegisterAccountAsync(email);
-
-        var response = await Client.GetAsync($"/accounts/{accountId}/devices");
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var devices = await response.Content.ReadFromJsonAsync<JsonElement>();
-        devices.GetArrayLength().Should().Be(0);
+    [Fact]
+    public async Task Link_nonexistent_account_returns_not_found()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var response = await Client.PostAsJsonAsync($"/accounts/{Guid.NewGuid()}/devices/{deviceId}", new { authKey = ValidAuthKey });
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }

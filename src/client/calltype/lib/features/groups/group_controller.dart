@@ -1,6 +1,5 @@
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/storage/database.dart';
@@ -15,20 +14,28 @@ import '../../core/storage/database.dart';
 /// In a full implementation, group management (add/remove members, rename,
 /// leave) would also live here. For the MVP, only creation is supported.
 class GroupController extends ChangeNotifier {
-  GroupController({
-    required AppDatabase database,
-    required ApiClient apiClient,
-  })  : _db = database,
-        _apiClient = apiClient;
+  GroupController({required AppDatabase database, required ApiClient apiClient})
+    : _db = database,
+      _apiClient = apiClient;
 
   final AppDatabase _db;
 
-  // Needed for server-side group creation (POST /groups) once the endpoint
-  // is implemented. Kept to preserve the constructor contract.
-  // ignore: unused_field
   final ApiClient _apiClient;
 
   bool _isLoading = false;
+  bool _disposed = false;
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
   String? _error;
 
   /// Whether a group creation request is in flight.
@@ -36,8 +43,6 @@ class GroupController extends ChangeNotifier {
 
   /// Error from the last failed creation attempt, or null.
   String? get error => _error;
-
-  static const _uuid = Uuid();
 
   /// Creates a new group chat with the given name and member device IDs.
   ///
@@ -50,10 +55,8 @@ class GroupController extends ChangeNotifier {
   /// [name] is the human-readable group name displayed in the chat list.
   /// [memberDeviceIds] are the device UUIDs of the group members (excluding
   /// the local device, which is added server-side automatically).
-  Future<String?> createGroup(
-    String name,
-    List<String> memberDeviceIds,
-  ) async {
+  Future<String?> createGroup(String name, List<String> memberDeviceIds) async {
+    if (_isLoading || _disposed) return null;
     if (name.trim().isEmpty || memberDeviceIds.isEmpty) {
       _error = 'Group name and at least one member are required';
       notifyListeners();
@@ -65,15 +68,15 @@ class GroupController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Generate a local UUID for the group. In production the server would
-      // assign the group ID — for now we generate it client-side because
-      // the group API endpoint is not yet implemented on the server.
-      // TODO: Use server-assigned group ID once POST /groups is implemented.
-      final groupId = _uuid.v4();
+      final result = await _apiClient.createGroup(
+        name.trim(),
+        memberDeviceIds.toSet().toList(),
+      );
+      final groupId = result['groupId'] as String;
 
       // Create a local conversation so the group appears in the chat list
       // immediately. The type 'group' tells the UI to render a group avatar
-      // and use Sender Keys encryption instead of pairwise Double Ratchet.
+      // and use pairwise encryption for each recipient.
       final companion = ConversationsCompanion.insert(
         id: groupId,
         type: 'group',

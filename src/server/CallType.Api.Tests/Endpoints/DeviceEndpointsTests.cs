@@ -443,4 +443,39 @@ public class DeviceEndpointsTests : IntegrationTestBase
 
         handle1.Should().NotBe(handle2, "two devices should get different handles");
     }
-}
+    [Fact]
+    public async Task Signed_bundle_and_handle_lookup_roundtrip_without_consuming_prekeys()
+    {
+        await RegisterAndAuthenticateAsync();
+        var signingKey = Convert.ToBase64String(new byte[32]);
+        var signature = Convert.ToBase64String(new byte[64]);
+        var response = await Client.PostAsJsonAsync("/devices", new {
+            identityKey = Convert.ToBase64String(new byte[32]),
+            signedPreKey = Convert.ToBase64String(new byte[32]), signingKey, signature,
+            oneTimePreKeys = new[] { new { keyId = 1, publicKey = Convert.ToBase64String(new byte[32]) } }
+        });
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var id = body.GetProperty("deviceId").GetGuid();
+        var handle = body.GetProperty("userHandle").GetString();
+        var lookup = await Client.GetAsync($"/devices/by-handle/{handle}");
+        lookup.StatusCode.Should().Be(HttpStatusCode.OK);
+        var found = await lookup.Content.ReadFromJsonAsync<JsonElement>();
+        found.GetProperty("deviceId").GetGuid().Should().Be(id);
+        found.EnumerateObject().Should().HaveCount(2);
+        var bundleResponse = await Client.GetAsync($"/devices/{id}/key-bundle");
+        var bundle = await bundleResponse.Content.ReadFromJsonAsync<JsonElement>();
+        bundle.GetProperty("signingKey").GetString().Should().Be(signingKey);
+        bundle.GetProperty("signature").GetString().Should().Be(signature);
+        bundle.GetProperty("oneTimePreKey").GetProperty("keyId").GetInt32().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Registration_rejects_incomplete_signing_bundle()
+    {
+        var response = await Client.PostAsJsonAsync("/devices", new {
+            identityKey = ValidIdentityKey, signedPreKey = ValidSignedPreKey,
+            signingKey = Convert.ToBase64String(new byte[32])
+        });
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }}

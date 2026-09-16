@@ -52,6 +52,7 @@ class TestDevice {
     }
 
     return {
+      ...await keys.getSignedIdentityBundle(),
       'identityKey': identityKey,
       'signedPreKey': signedPreKey['publicKey'],
       'oneTimePreKey': ?oneTime,

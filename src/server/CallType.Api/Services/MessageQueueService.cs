@@ -1,32 +1,16 @@
-// ---------------------------------------------------------------------------
-// MessageQueueService.cs — Store-and-forward queue for encrypted messages
-// ---------------------------------------------------------------------------
-// When a recipient device is offline, messages are stored as opaque encrypted
-// blobs in the database. When the device reconnects, the hub drains the queue
-// and delivers everything in FIFO order. A 30-day TTL prevents unbounded
-// storage growth from abandoned devices — expired messages are filtered out
-// at read time (a background cleanup job can purge them separately).
-//
-// The server never decrypts EncryptedBody; it is a pass-through relay.
-// ---------------------------------------------------------------------------
-
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using CallType.Api.Data;
 using CallType.Api.Models;
 
 namespace CallType.Api.Services;
 
-/// <summary>
-/// Result type for the atomic DELETE ... RETURNING dequeue query.
-/// Must be a class with a parameterless constructor for EF Core's
-/// SqlQueryRaw materialization.
-/// </summary>
 public class DequeuedMessage
 {
     public long Id { get; set; }
+    public Guid MessageId { get; set; }
     public Guid SenderId { get; set; }
-    public byte[] EncryptedBody { get; set; } = null!;
+    public Guid? GroupId { get; set; }
+    public byte[] EncryptedBody { get; set; } = [];
     public DateTimeOffset CreatedAt { get; set; }
 }
 
@@ -34,63 +18,48 @@ public class MessageQueueService(AppDbContext db)
 {
     private static readonly TimeSpan MessageTtl = TimeSpan.FromDays(30);
 
-    /// <summary>
-    /// Stores an encrypted message for a device that is currently offline.
-    /// The message will sit in the queue until the recipient connects and
-    /// calls <see cref="DequeueAsync"/>, or until it expires after 30 days.
-    /// </summary>
     public async Task EnqueueAsync(Guid recipientId, Guid senderId, byte[] encryptedBody)
+        => await EnqueueReliableAsync(recipientId, senderId, Guid.NewGuid(), encryptedBody);
+
+    public async Task<QueuedMessage> EnqueueReliableAsync(Guid recipientId, Guid senderId,
+        Guid messageId, byte[] encryptedBody, Guid? groupId = null, CancellationToken cancellationToken = default)
     {
+        if (recipientId == Guid.Empty || senderId == Guid.Empty || messageId == Guid.Empty)
+            throw new ArgumentException("Device and message IDs must be non-empty UUIDs");
         var now = DateTimeOffset.UtcNow;
-
-        var message = new QueuedMessage
-        {
-            RecipientId = recipientId,
-            SenderId = senderId,
-            EncryptedBody = encryptedBody,
-            CreatedAt = now,
-            ExpiresAt = now + MessageTtl
-        };
-
-        db.QueuedMessages.Add(message);
-        await db.SaveChangesAsync();
+        var expiresAt = now + MessageTtl;
+        // The unique key plus ON CONFLICT makes concurrent sender retries idempotent.
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO "QueuedMessages" ("RecipientId", "SenderId", "MessageId", "GroupId", "EncryptedBody", "CreatedAt", "ExpiresAt")
+            VALUES ({recipientId}, {senderId}, {messageId}, {groupId}, {encryptedBody}, {now}, {expiresAt})
+            ON CONFLICT ("RecipientId", "SenderId", "MessageId") DO NOTHING
+            """, cancellationToken);
+        return await db.QueuedMessages.AsNoTracking().SingleAsync(m =>
+            m.RecipientId == recipientId && m.SenderId == senderId && m.MessageId == messageId, cancellationToken);
     }
 
-    /// <summary>
-    /// Retrieves and deletes all pending messages for a recipient in FIFO order.
-    /// Expired messages are excluded — they will be cleaned up separately.
-    /// </summary>
-    /// <remarks>
-    /// Uses a single DELETE ... RETURNING statement (same pattern as OTK
-    /// consumption in DeviceEndpoints.cs) so the read and delete are atomic
-    /// without an explicit transaction. FOR UPDATE SKIP LOCKED prevents
-    /// concurrent dequeue calls from returning the same messages.
-    /// </remarks>
-    public async Task<List<DequeuedMessage>> DequeueAsync(Guid recipientId)
+    // Retain the legacy method name for callers; fetching no longer removes messages.
+    public async Task<List<DequeuedMessage>> DequeueAsync(Guid recipientId, CancellationToken cancellationToken = default)
     {
-        // DELETE ... RETURNING does not guarantee row order, so we sort in
-        // application code after the atomic delete to ensure FIFO delivery.
-        var messages = await db.Database.SqlQueryRaw<DequeuedMessage>("""
-            DELETE FROM "QueuedMessages"
-            WHERE "Id" IN (
-                SELECT "Id" FROM "QueuedMessages"
-                WHERE "RecipientId" = @recipientId AND "ExpiresAt" > now()
-                ORDER BY "CreatedAt"
-                FOR UPDATE SKIP LOCKED
-            )
-            RETURNING "Id", "SenderId", "EncryptedBody", "CreatedAt"
-            """, new NpgsqlParameter("@recipientId", recipientId))
-            .ToListAsync();
+        var now = DateTimeOffset.UtcNow;
+        await db.QueuedMessages.Where(m => m.RecipientId == recipientId && m.ExpiresAt <= now)
+            .ExecuteDeleteAsync(cancellationToken);
+        return await db.QueuedMessages.AsNoTracking()
+            .Where(m => m.RecipientId == recipientId && m.AcknowledgedAt == null && m.ExpiresAt > now)
+            .OrderBy(m => m.CreatedAt).ThenBy(m => m.Id)
+            .Select(m => new DequeuedMessage { Id = m.Id, MessageId = m.MessageId,
+                SenderId = m.SenderId, GroupId = m.GroupId, EncryptedBody = m.EncryptedBody, CreatedAt = m.CreatedAt })
+            .ToListAsync(cancellationToken);
+    }
 
-        messages.Sort((a, b) => a.CreatedAt.CompareTo(b.CreatedAt));
-
-        // Clean up any expired messages for this recipient as a side effect.
-        // This runs as a separate statement — it won't affect the returned
-        // result set and keeps abandoned devices from accumulating stale rows.
-        await db.QueuedMessages
-            .Where(m => m.RecipientId == recipientId && m.ExpiresAt <= DateTimeOffset.UtcNow)
-            .ExecuteDeleteAsync();
-
-        return messages;
+    public Task<int> AcknowledgeAsync(Guid recipientId, Guid senderId, Guid messageId,
+        CancellationToken cancellationToken = default)
+    {
+        // Ciphertext is removed only on recipient acknowledgement. Keep a small
+        // receipt until TTL so a sender retry cannot resurrect delivered content.
+        return db.QueuedMessages.Where(m => m.RecipientId == recipientId && m.SenderId == senderId
+                && m.MessageId == messageId && m.AcknowledgedAt == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(m => m.AcknowledgedAt, DateTimeOffset.UtcNow)
+                .SetProperty(m => m.EncryptedBody, Array.Empty<byte>()), cancellationToken);
     }
 }

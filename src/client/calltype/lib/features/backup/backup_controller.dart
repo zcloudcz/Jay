@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/crypto/backup_crypto.dart';
 import '../../core/network/api_client.dart';
+import '../../core/network/backup_api.dart';
+import 'backup_import.dart';
 import '../../core/storage/database.dart';
 
 /// Tracks the progress of a backup or restore operation.
@@ -13,7 +15,15 @@ import '../../core/storage/database.dart';
 ///   idle -> encrypting -> error (encryption failed)
 ///   idle -> encrypting -> uploading -> error (upload failed)
 ///   error -> idle (user dismisses or retries)
-enum BackupStatus { idle, encrypting, uploading, done, error }
+enum BackupStatus {
+  idle,
+  encrypting,
+  uploading,
+  downloading,
+  restoring,
+  done,
+  error,
+}
 
 /// Manages client-side encrypted backup creation and restoration.
 ///
@@ -42,8 +52,8 @@ class BackupController extends ChangeNotifier {
     required AppDatabase database,
     required ApiClient apiClient,
     required this.accountId,
-  })  : _db = database,
-        _apiClient = apiClient;
+  }) : _db = database,
+       _apiClient = apiClient;
 
   final AppDatabase _db;
   final ApiClient _apiClient;
@@ -54,6 +64,8 @@ class BackupController extends ChangeNotifier {
 
   BackupStatus _status = BackupStatus.idle;
   String? _error;
+  bool _disposed = false;
+  String completionMessage = 'Backup created successfully!';
   double _progress = 0.0;
 
   /// Current status of the backup/restore operation.
@@ -81,10 +93,11 @@ class BackupController extends ChangeNotifier {
   /// ephemeral by design — restoring a backup on a new device starts fresh
   /// sessions with all contacts (re-keying via X3DH).
   Future<void> createBackup(String passphrase) async {
+    if (isBusy) return;
     if (passphrase.isEmpty) {
       _error = 'Passphrase cannot be empty';
       _status = BackupStatus.error;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
       return;
     }
 
@@ -92,62 +105,75 @@ class BackupController extends ChangeNotifier {
       _status = BackupStatus.encrypting;
       _progress = 0.0;
       _error = null;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
 
       // -- Step 1: Serialize local data to JSON --------------------------------
       // Fetch all records from the three content tables. Session data is
       // excluded intentionally (see class doc).
-      final contacts = await _db.select(_db.contacts).get();
-      final conversations = await _db.select(_db.conversations).get();
-      final messages = await _db.select(_db.messages).get();
+      final snapshot = await _db.transaction(
+        () async => (
+          await _db.select(_db.contacts).get(),
+          await _db.select(_db.conversations).get(),
+          await _db.select(_db.messages).get(),
+        ),
+      );
+      final contacts = snapshot.$1;
+      final conversations = snapshot.$2;
+      final messages = snapshot.$3;
 
       final backupData = {
         'version': 1,
         'createdAt': DateTime.now().toUtc().toIso8601String(),
         'contacts': contacts
-            .map((c) => {
-                  'deviceId': c.deviceId,
-                  'userHandle': c.userHandle,
-                  'displayName': c.displayName,
-                  // Identity key stored as base64 for JSON compatibility.
-                  'identityKey': base64Encode(c.identityKey),
-                  'verified': c.verified,
-                  'addedAt': c.addedAt.toIso8601String(),
-                })
+            .map(
+              (c) => {
+                'deviceId': c.deviceId,
+                'userHandle': c.userHandle,
+                'displayName': c.displayName,
+                // Identity key stored as base64 for JSON compatibility.
+                'identityKey': base64Encode(c.identityKey),
+                'verified': c.verified,
+                'addedAt': c.addedAt.toIso8601String(),
+              },
+            )
             .toList(),
         'conversations': conversations
-            .map((c) => {
-                  'id': c.id,
-                  'type': c.type,
-                  'title': c.title,
-                  'lastMessageAt': c.lastMessageAt?.toIso8601String(),
-                  'unreadCount': c.unreadCount,
-                })
+            .map(
+              (c) => {
+                'id': c.id,
+                'type': c.type,
+                'title': c.title,
+                'lastMessageAt': c.lastMessageAt?.toIso8601String(),
+                'unreadCount': c.unreadCount,
+              },
+            )
             .toList(),
         'messages': messages
-            .map((m) => {
-                  'id': m.id,
-                  'conversationId': m.conversationId,
-                  'senderId': m.senderId,
-                  'body': m.body,
-                  'type': m.type,
-                  'status': m.status,
-                  'createdAt': m.createdAt.toIso8601String(),
-                  'receivedAt': m.receivedAt?.toIso8601String(),
-                })
+            .map(
+              (m) => {
+                'id': m.id,
+                'conversationId': m.conversationId,
+                'senderId': m.senderId,
+                'body': m.body,
+                'type': m.type,
+                'status': m.status,
+                'createdAt': m.createdAt.toIso8601String(),
+                'receivedAt': m.receivedAt?.toIso8601String(),
+              },
+            )
             .toList(),
       };
 
       final jsonString = jsonEncode(backupData);
       _progress = 0.3;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
 
       // -- Step 2: Derive encryption key from passphrase -----------------------
       final salt = BackupCrypto.generateSalt();
-      final encryptionKey = BackupCrypto.deriveKey(passphrase, salt);
+      final encryptionKey = await compute(_deriveBackupKey, (passphrase, salt));
 
       _progress = 0.5;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
 
       // -- Step 3: Encrypt with AES-256-GCM ------------------------------------
       // The encrypted payload contains the salt prepended so the restore flow
@@ -163,54 +189,80 @@ class BackupController extends ChangeNotifier {
       // The salt is not secret (it's stored in plaintext), but it must
       // be unique per backup to prevent rainbow table attacks.
       final payload = Uint8List.fromList([...salt, ...encryptedData]);
-      final encryptedPayload = base64Encode(payload);
 
       _status = BackupStatus.uploading;
       _progress = 0.7;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
 
       // -- Step 4: Upload to server --------------------------------------------
       // The server's BackupEndpoints.cs stores metadata in PostgreSQL and
       // the encrypted blob in Azure Blob Storage.
-      await _apiClient.registerAccount(
-        email: accountId,
-        authKey: encryptedPayload,
-      );
-      // TODO: Use a dedicated backup upload endpoint when available.
-      // Currently using registerAccount as a placeholder because the
-      // backup endpoint needs the encrypted blob upload via multipart.
+      await _apiClient.uploadBackup(accountId, payload);
+      completionMessage = 'Backup created successfully!';
 
       _progress = 1.0;
       _status = BackupStatus.done;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     } catch (e) {
       _error = e.toString();
       _status = BackupStatus.error;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 
-  /// Restores data from an encrypted cloud backup.
-  ///
-  /// [passphrase] must be the same passphrase used during [createBackup].
-  /// If the wrong passphrase is provided, the AES-256-GCM authentication
-  /// tag check will fail, producing a clear authentication error rather
-  /// than silently importing corrupted data.
-  ///
-  /// TODO: Implement full restore flow. This requires:
-  ///   1. A backup list/download endpoint on the server
-  ///   2. AES-256-GCM decryption with the derived key
-  ///   3. JSON deserialization and DB import with conflict resolution
-  ///   4. Re-establishing Signal Protocol sessions with all contacts
+  bool get isBusy =>
+      _status == BackupStatus.encrypting ||
+      _status == BackupStatus.uploading ||
+      _status == BackupStatus.downloading ||
+      _status == BackupStatus.restoring;
+
   Future<void> restore(String passphrase) async {
-    // Placeholder — full implementation in a future phase.
-    // The restore flow is the inverse of createBackup but more complex
-    // because it needs to handle conflicts with existing local data
-    // (merge vs. overwrite strategy).
-    _status = BackupStatus.error;
-    _error = 'Restore is not yet implemented. '
-        'This feature will be available in a future update.';
-    notifyListeners();
+    if (isBusy) return;
+    try {
+      if (passphrase.isEmpty) {
+        throw const FormatException('Enter your backup passphrase.');
+      }
+      _status = BackupStatus.downloading;
+      _error = null;
+      _progress = 0;
+      if (!_disposed) notifyListeners();
+      final backups = await _apiClient.listBackups(accountId);
+      if (backups.isEmpty) {
+        throw const FormatException('No cloud backups found.');
+      }
+      final payload = await _apiClient.downloadBackup(
+        accountId,
+        backups.first['id'] as int,
+      );
+      if (payload.length < 44) {
+        throw const FormatException('Invalid backup file.');
+      }
+      _status = BackupStatus.restoring;
+      _progress = 0.5;
+      if (!_disposed) notifyListeners();
+      final key = await compute(_deriveBackupKey, (
+        passphrase,
+        Uint8List.sublistView(payload, 0, 16),
+      ));
+      final plaintext = await BackupCrypto.decrypt(
+        key,
+        Uint8List.sublistView(payload, 16),
+      );
+      await importBackup(_db, jsonDecode(utf8.decode(plaintext)));
+      completionMessage = 'Backup restored. Existing records were kept.';
+      _progress = 1;
+      _status = BackupStatus.done;
+    } catch (e) {
+      _error = 'Restore failed. Check the passphrase and backup file. $e';
+      _status = BackupStatus.error;
+    }
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   /// Resets the controller state to idle, clearing any error.
@@ -220,6 +272,9 @@ class BackupController extends ChangeNotifier {
     _status = BackupStatus.idle;
     _error = null;
     _progress = 0.0;
-    notifyListeners();
+    if (!_disposed) notifyListeners();
   }
 }
+
+Uint8List _deriveBackupKey((String, Uint8List) input) =>
+    BackupCrypto.deriveKey(input.$1, input.$2);

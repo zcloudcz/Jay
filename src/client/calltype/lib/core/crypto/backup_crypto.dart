@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -53,7 +54,7 @@ class BackupCrypto {
   /// [salt] must be stored alongside the encrypted backup so decryption
   /// can re-derive the same key.
   static Uint8List deriveKey(String passphrase, Uint8List salt) {
-    final hmac = Hmac(sha256, passphrase.codeUnits);
+    final hmac = Hmac(sha256, utf8.encode(passphrase));
 
     // PBKDF2 iteratively applies HMAC to stretch the passphrase into
     // a key that is computationally expensive to brute-force.
@@ -94,10 +95,7 @@ class BackupCrypto {
   /// rather than silently producing corrupted data.
   static Future<Uint8List> encrypt(Uint8List key, Uint8List plaintext) async {
     final secretKey = aes.SecretKey(key);
-    final secretBox = await _aesGcm.encrypt(
-      plaintext,
-      secretKey: secretKey,
-    );
+    final secretBox = await _aesGcm.encrypt(plaintext, secretKey: secretKey);
 
     // Concatenate: nonce + ciphertext + MAC tag.
     // This wire format is self-describing: the receiver knows the nonce

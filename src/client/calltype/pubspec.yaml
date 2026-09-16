@@ -24,7 +24,7 @@ dependencies:
   firebase_core: ^3.13.0
 
   # WebRTC (voice/video calls)
-  flutter_webrtc: ^1.4.1
+  flutter_webrtc: 1.5.2
 
   # Local storage & security
   flutter_secure_storage: ^10.3.1
@@ -40,7 +40,7 @@ dependencies:
 
   # Sharing / file handling
   share_plus: ^13.1.0
-  file_picker: ^3.0.4
+  file_picker: ^12.3.0
   image_picker: ^1.2.2
 
   # Utilities

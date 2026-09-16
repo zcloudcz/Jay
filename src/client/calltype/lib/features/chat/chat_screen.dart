@@ -1,102 +1,198 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-
+import 'package:file_picker/file_picker.dart';
+import '../../core/network/webrtc_manager.dart';
+import '../../core/network/signalr_client.dart';
 import '../contacts/contacts_controller.dart';
+import '../chat_list/chat_list_controller.dart';
 import 'chat_controller.dart';
 import 'message_bubble.dart';
 import 'message_input.dart';
+import 'attachment.dart';
 
-/// Full-screen chat view for a single conversation.
-///
-/// Shows messages in a reversed ListView (newest at bottom, scroll up for
-/// history) with a message input bar pinned at the bottom. The AppBar
-/// displays the contact name and action buttons for voice/video calls.
-///
-/// All state lives in [ChatController] (provided route-scoped by the
-/// router): it loads message history from the local encrypted database,
-/// decrypts incoming SignalR messages, and encrypts + sends outgoing ones.
-/// This widget only renders the controller's message list and forwards
-/// the user's input to it.
 class ChatScreen extends StatelessWidget {
   const ChatScreen({super.key, required this.contactId});
-
-  /// The device ID of the chat partner (doubles as the conversation ID
-  /// for direct chats).
   final String contactId;
-
-  /// Resolves a human-readable title for the conversation: the contact's
-  /// display name, falling back to their handle, falling back to a
-  /// shortened device ID for peers not (yet) in the contact list.
-  String _contactName(BuildContext context) {
-    final contacts = context.watch<ContactsController>().contacts;
-    for (final contact in contacts) {
-      if (contact.deviceId == contactId) {
-        return contact.displayName ?? contact.userHandle;
+  Future<void> _call(BuildContext context, bool video) async {
+    try {
+      await context.read<WebRTCManager>().startCall(contactId, video: video);
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Unable to start the call. Check connection and permissions.',
+            ),
+          ),
+        );
       }
     }
-    // Unknown peer — show enough of the ID to be recognizable without
-    // overflowing the AppBar.
-    return contactId.length > 13 ? '${contactId.substring(0, 13)}…' : contactId;
+  }
+
+  Future<void> _attach(BuildContext context) async {
+    final controller = context.read<ChatController>();
+    try {
+      final file = await FilePicker.pickFile();
+      if (file == null) return;
+      if (await file.length() > Attachment.maxBytes) {
+        throw const FormatException('Beta attachments support up to 256 KiB.');
+      }
+      await controller.sendAttachment(file.name, await file.readAsBytes());
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+  }
+
+  Future<void> _save(BuildContext context, Attachment attachment) async {
+    try {
+      await FilePicker.saveFile(
+        fileName: attachment.name,
+        bytes: attachment.bytes,
+      );
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to save attachment.')),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<ChatController>();
-    final messages = controller.messages;
-
+    final contacts = context.watch<ContactsController>().contacts.where(
+      (c) => c.deviceId == contactId,
+    );
+    final conversations = context
+        .watch<ChatListController>()
+        .conversations
+        .where((c) => c.id == contactId);
+    final conversation = conversations.isEmpty ? null : conversations.first;
+    final group = conversation?.type == 'group';
+    final contact = contacts.isEmpty ? null : contacts.first;
+    final name =
+        conversation?.title ??
+        contact?.displayName ??
+        contact?.userHandle ??
+        contactId;
     return Scaffold(
       appBar: AppBar(
-        title: Text(_contactName(context)),
+        title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
-          // Voice call — will trigger WebRTC offer flow in Phase 6.
-          IconButton(
-            icon: const Icon(Icons.call_rounded),
-            tooltip: 'Voice call',
-            onPressed: () {
-              // TODO: Initiate WebRTC voice call in Phase 6.
-            },
-          ),
-          // Video call — same WebRTC flow but with video track enabled.
-          IconButton(
-            icon: const Icon(Icons.videocam_rounded),
-            tooltip: 'Video call',
-            onPressed: () {
-              // TODO: Initiate WebRTC video call in Phase 6.
-            },
-          ),
+          if (!group) ...[
+            IconButton(
+              icon: const Icon(Icons.call_rounded),
+              tooltip: 'Voice call',
+              onPressed: () => _call(context, false),
+            ),
+            IconButton(
+              icon: const Icon(Icons.videocam_rounded),
+              tooltip: 'Video call',
+              onPressed: () => _call(context, true),
+            ),
+          ],
         ],
       ),
       body: Column(
         children: [
-          // Message list fills available space. Using Expanded ensures
-          // the input bar stays at the bottom even with few messages.
+          if (!context.watch<SignalRClient>().connected)
+            const Padding(
+              padding: EdgeInsets.all(8),
+              child: Text('Offline. Failed messages can be retried.'),
+            ),
           Expanded(
-            child: messages.isEmpty
-                ? const Center(
-                    child: Text('No messages yet. Say hello!'),
-                  )
+            child: controller.messages.isEmpty
+                ? const Center(child: Text('No messages yet. Say hello!'))
                 : ListView.builder(
-                    // Reversed so new messages appear at the bottom and
-                    // the list auto-scrolls to show them. The controller
-                    // orders messages newest-first to match.
                     reverse: true,
                     padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: messages.length,
+                    itemCount: controller.messages.length,
                     itemBuilder: (context, index) {
-                      final msg = messages[index];
-                      return MessageBubble(
-                        // body is null only for non-text messages
-                        // (attachments — Phase 5); render a placeholder.
-                        text: msg.body ?? '[attachment]',
-                        time: DateFormat.Hm().format(msg.createdAt),
-                        isMine: msg.senderId == controller.myDeviceId,
+                      final message = controller.messages[index];
+                      final mine = message.senderId == controller.myDeviceId;
+                      Attachment? attachment;
+                      if (message.type == 'file') {
+                        try {
+                          attachment = Attachment.decode(message.body ?? '');
+                        } catch (_) {}
+                      }
+                      final file = attachment;
+                      return Column(
+                        crossAxisAlignment: mine
+                            ? CrossAxisAlignment.end
+                            : CrossAxisAlignment.start,
+                        children: [
+                          if (group && !mine)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              child: Text(
+                                message.senderId,
+                                style: Theme.of(context).textTheme.labelSmall,
+                              ),
+                            ),
+                          if (file != null)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 4,
+                              ),
+                              child: OutlinedButton.icon(
+                                onPressed: () => _save(context, file),
+                                icon: const Icon(Icons.download),
+                                label: Text(
+                                  '${file.name} (${file.bytes.length} bytes)',
+                                ),
+                              ),
+                            )
+                          else
+                            MessageBubble(
+                              text: message.body ?? '',
+                              time: DateFormat.Hm().format(
+                                message.createdAt.toLocal(),
+                              ),
+                              isMine: mine,
+                            ),
+                          if (mine)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              child:
+                                  message.status == 'failed' ||
+                                      message.status == 'sending'
+                                  ? TextButton(
+                                      onPressed: () =>
+                                          controller.retryMessage(message.id),
+                                      child: Text(
+                                        message.status == 'failed'
+                                            ? 'Failed — retry'
+                                            : 'Sending — retry',
+                                      ),
+                                    )
+                                  : Text(
+                                      'Sent',
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.labelSmall,
+                                    ),
+                            ),
+                        ],
                       );
                     },
                   ),
           ),
-          // Input bar pinned at bottom of the screen.
-          MessageInput(onSend: controller.sendMessage),
+          MessageInput(
+            onSend: controller.sendMessage,
+            onAttachment: () => _attach(context),
+          ),
         ],
       ),
     );

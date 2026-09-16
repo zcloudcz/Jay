@@ -5,16 +5,6 @@ import 'backup_controller.dart';
 
 /// Screen for restoring data from an encrypted cloud backup.
 ///
-/// Currently a placeholder — the full restore flow requires server-side
-/// backup listing and download endpoints that are not yet implemented.
-/// The UI is functional: it accepts a passphrase and calls the controller's
-/// restore method, which returns a "not yet implemented" message.
-///
-/// Future implementation will:
-///   1. List available backups (date, size) from the server
-///   2. Let the user select which backup to restore
-///   3. Download + decrypt + import into local DB
-///   4. Re-establish Signal Protocol sessions with all contacts
 class RestoreScreen extends StatefulWidget {
   const RestoreScreen({super.key});
 
@@ -53,8 +43,7 @@ class _RestoreScreenState extends State<RestoreScreen> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.restore_rounded,
-                            color: colorScheme.primary),
+                        Icon(Icons.restore_rounded, color: colorScheme.primary),
                         const SizedBox(width: 8),
                         Text(
                           'Restore from Backup',
@@ -94,15 +83,17 @@ class _RestoreScreenState extends State<RestoreScreen> {
 
             // Restore button — triggers the restore flow in the controller.
             FilledButton.icon(
-              onPressed: controller.status == BackupStatus.idle
+              onPressed: !controller.isBusy
                   ? () => controller.restore(_passphraseController.text)
                   : null,
               icon: const Icon(Icons.cloud_download_rounded),
               label: const Text('Restore'),
             ),
 
-            // Error display — currently always shown because restore is
-            // not yet implemented. Will show real errors in the future.
+            if (controller.isBusy)
+              LinearProgressIndicator(value: controller.progress),
+            if (controller.status == BackupStatus.done)
+              Text(controller.completionMessage),
             if (controller.status == BackupStatus.error &&
                 controller.error != null) ...[
               const SizedBox(height: 16),
@@ -112,8 +103,10 @@ class _RestoreScreenState extends State<RestoreScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      Icon(Icons.info_outline,
-                          color: colorScheme.onErrorContainer),
+                      Icon(
+                        Icons.info_outline,
+                        color: colorScheme.onErrorContainer,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(

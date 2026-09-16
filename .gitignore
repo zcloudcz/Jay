@@ -49,3 +49,9 @@ MEMORY.md
 ## Misc
 *.log
 *.tmp
+# Runtime credentials and local release bundles.
+.env
+.env.*
+!.env.example
+artifacts/
+TestResults/

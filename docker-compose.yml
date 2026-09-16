@@ -20,6 +20,9 @@ services:
       - "8080:8080"
     environment:
       - ASPNETCORE_URLS=http://+:8080
+      - Database__ApplyMigrationsOnStartup=true
+      - Cors__AllowedOrigins__0=http://localhost:8090
+      - Cors__AllowedOrigins__1=http://127.0.0.1:8090
       # Connection to the postgres service by container name (Docker DNS).
       - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=calltype;Username=calltype;Password=calltype_dev_password
       # Azurite connection string — uses the well-known development account key
@@ -31,6 +34,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      azurite:
+        condition: service_started
     restart: unless-stopped
 
   db:
@@ -39,8 +44,6 @@ services:
       POSTGRES_DB: calltype
       POSTGRES_USER: calltype
       POSTGRES_PASSWORD: calltype_dev_password
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

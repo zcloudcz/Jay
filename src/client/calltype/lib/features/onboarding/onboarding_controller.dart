@@ -14,13 +14,27 @@ class OnboardingController extends ChangeNotifier {
     required ApiClient apiClient,
     required SecureStorage secureStorage,
     required KeyManager keyManager,
-  })  : _apiClient = apiClient,
-        _secureStorage = secureStorage,
-        _keyManager = keyManager;
+    this.onRegistered,
+  }) : _apiClient = apiClient,
+       _secureStorage = secureStorage,
+       _keyManager = keyManager;
 
   final ApiClient _apiClient;
   final SecureStorage _secureStorage;
   final KeyManager _keyManager;
+  final Future<void> Function(String deviceId)? onRegistered;
+  bool _disposed = false;
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
 
   String? _deviceId;
   String? _userHandle;
@@ -58,6 +72,7 @@ class OnboardingController extends ChangeNotifier {
   /// device — they stay in platform-secure storage, where the session
   /// manager finds them when a peer initiates an E2E session with us.
   Future<void> register() async {
+    if (_isLoading) return;
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -65,18 +80,18 @@ class OnboardingController extends ChangeNotifier {
     try {
       final identityKey = await _keyManager.getPublicIdentityKey();
       final signedPreKey = await _keyManager.getOrCreateSignedPreKey();
+      final signedBundle = await _keyManager.getSignedIdentityBundle();
       final oneTimePreKeys = await _keyManager.getOrCreateOneTimePreKeys();
 
       final result = await _apiClient.registerDevice(
         identityKey: identityKey,
         signedPreKey: signedPreKey['publicKey'] as String,
+        signingKey: signedBundle['signingKey'],
+        signature: signedBundle['signature'],
         // Upload only keyId + public half — see KeyManager docs.
         oneTimePreKeys: [
           for (final preKey in oneTimePreKeys)
-            {
-              'keyId': preKey['keyId'],
-              'publicKey': preKey['publicKey'],
-            },
+            {'keyId': preKey['keyId'], 'publicKey': preKey['publicKey']},
         ],
       );
 
@@ -93,6 +108,8 @@ class OnboardingController extends ChangeNotifier {
       if (deviceSecret != null) {
         await _secureStorage.setDeviceSecret(deviceSecret);
       }
+      await _secureStorage.write('ct_user_handle', _userHandle!);
+      await onRegistered?.call(_deviceId!);
 
       _isLoading = false;
       notifyListeners();

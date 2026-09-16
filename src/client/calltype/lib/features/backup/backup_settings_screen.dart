@@ -71,6 +71,8 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
+                      'Message history, embedded attachments and contacts are backed up; '
+                      'external files and live encryption sessions are not included. '
                       'Your backup is encrypted with a passphrase that only '
                       'you know. The server never sees your messages or contacts '
                       'in plaintext.\n\n'
@@ -99,7 +101,8 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
               ),
               // Disable input while a backup is in progress to prevent
               // changing the passphrase mid-operation.
-              enabled: controller.status == BackupStatus.idle ||
+              enabled:
+                  controller.status == BackupStatus.idle ||
                   controller.status == BackupStatus.error ||
                   controller.status == BackupStatus.done,
             ),
@@ -115,17 +118,23 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
                 icon: const Icon(Icons.backup_rounded),
                 label: const Text('Create Backup'),
               ),
+              OutlinedButton.icon(
+                onPressed: () => controller.restore(_passphraseController.text),
+                icon: const Icon(Icons.restore),
+                label: const Text('Restore latest backup'),
+              ),
             ],
 
             // Progress indicator during encrypt/upload phases.
-            if (controller.status == BackupStatus.encrypting ||
-                controller.status == BackupStatus.uploading) ...[
+            if (controller.isBusy) ...[
               LinearProgressIndicator(value: controller.progress),
               const SizedBox(height: 12),
               Text(
                 controller.status == BackupStatus.encrypting
                     ? 'Encrypting your data...'
-                    : 'Uploading encrypted backup...',
+                    : controller.status == BackupStatus.uploading
+                    ? 'Uploading encrypted backup...'
+                    : 'Restoring encrypted backup...',
                 style: theme.textTheme.bodyMedium,
                 textAlign: TextAlign.center,
               ),
@@ -140,12 +149,14 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      Icon(Icons.check_circle,
-                          color: colorScheme.onPrimaryContainer),
+                      Icon(
+                        Icons.check_circle,
+                        color: colorScheme.onPrimaryContainer,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          'Backup created successfully!',
+                          controller.completionMessage,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onPrimaryContainer,
                           ),

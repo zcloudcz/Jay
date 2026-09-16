@@ -135,13 +135,13 @@ public class MessengerHubTests : IntegrationTestBase
         Convert.FromBase64String(bodyBase64!).Should()
             .BeEquivalentTo(messageBody, "the encrypted body must round-trip through the queue");
 
-        // Verify the message was removed from the queue after delivery.
+        // Delivery retains ciphertext until the recipient confirms persistence.
         using var verifyScope = Factory.Services.CreateScope();
         var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
         var remaining = await verifyDb.QueuedMessages
             .Where(m => m.RecipientId == recipientId)
             .CountAsync();
-        remaining.Should().Be(0, "queued messages should be deleted after delivery on connect");
+        remaining.Should().Be(1, "delivery must wait for recipient acknowledgement");
 
         await connection.StopAsync();
     }
@@ -179,13 +179,13 @@ public class MessengerHubTests : IntegrationTestBase
         // For online delivery, the hub passes base64 through as-is (no decode/re-encode).
         received.GetProperty("encryptedBody").GetString().Should().Be(payload);
 
-        // The message should NOT be in the database — it was delivered directly.
+        // Online messages are durable too, until acknowledged.
         using var scope = Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var queued = await db.QueuedMessages
             .Where(m => m.RecipientId == deviceB && m.SenderId == deviceA)
             .CountAsync();
-        queued.Should().Be(0, "online delivery should skip the database queue");
+        queued.Should().Be(1, "online delivery must also persist until acknowledgement");
 
         await connectionA.StopAsync();
         await connectionB.StopAsync();
@@ -258,13 +258,13 @@ public class MessengerHubTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task TypingIndicator_broadcasts_to_others()
+    public async Task TypingIndicator_delivers_to_selected_recipient()
     {
         // Arrange — two devices in a conversation. Client A starts typing,
         // Client B should see the typing indicator.
         var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
         var (deviceB, tokenB) = await RegisterDeviceAndGetTokenAsync();
-        var conversationId = "conv-" + Guid.NewGuid().ToString("N");
+        var conversationId = deviceB.ToString();
 
         var typingTcs = new TaskCompletionSource<JsonElement>();
 
@@ -329,4 +329,90 @@ public class MessengerHubTests : IntegrationTestBase
 
         await connectionA.StopAsync();
     }
-}
+    [Fact]
+    public async Task Reliable_online_message_replays_after_reconnect_until_recipient_acknowledges()
+    {
+        var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
+        var (recipient, recipientToken) = await RegisterDeviceAndGetTokenAsync();
+        var id = Guid.NewGuid();
+        await using var sending = CreateHubConnection(sender, senderToken);
+        await using var receiving = CreateHubConnection(recipient, recipientToken);
+        var first = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        receiving.On<JsonElement>("ReceiveMessage", m => first.TrySetResult(m));
+        await sending.StartAsync();
+        await receiving.StartAsync();
+        await sending.InvokeAsync("SendReliableMessage", recipient, id, "AQI=");
+        (await first.Task.WaitAsync(TimeSpan.FromSeconds(10))).GetProperty("messageId").GetGuid().Should().Be(id);
+        var retry = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var retryHandler = receiving.On<JsonElement>("ReceiveMessage", m => retry.TrySetResult(m));
+        await receiving.InvokeAsync("RequestPendingMessages");
+        (await retry.Task.WaitAsync(TimeSpan.FromSeconds(10))).GetProperty("messageId").GetGuid().Should().Be(id);
+        await receiving.StopAsync();
+        await sending.InvokeAsync("AcknowledgeMessage", sender, id);
+        await using var reconnected = CreateHubConnection(recipient, recipientToken);
+        var replay = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        reconnected.On<JsonElement>("ReceiveMessage", m => replay.TrySetResult(m));
+        await reconnected.StartAsync();
+        (await replay.Task.WaitAsync(TimeSpan.FromSeconds(10))).GetProperty("messageId").GetGuid().Should().Be(id);
+        await reconnected.InvokeAsync("AcknowledgeMessage", sender, id);
+        await sending.InvokeAsync("SendReliableMessage", recipient, id, "AQI=");
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var stored = await db.QueuedMessages.AsNoTracking().SingleAsync(m => m.MessageId == id);
+        stored.AcknowledgedAt.Should().NotBeNull();
+        stored.EncryptedBody.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Group_send_checks_membership_and_offline_delivery_retains_group_id()
+    {
+        var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
+        var (recipient, recipientToken) = await RegisterDeviceAndGetTokenAsync();
+        var (outsider, outsiderToken) = await RegisterDeviceAndGetTokenAsync();
+        var group = Guid.NewGuid();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Groups.Add(new Group { GroupId = group, CreatedBy = sender, CreatedAt = DateTimeOffset.UtcNow });
+            db.GroupMembers.AddRange(new GroupMember { GroupId = group, DeviceId = sender },
+                new GroupMember { GroupId = group, DeviceId = recipient });
+            await db.SaveChangesAsync();
+        }
+        await using var sending = CreateHubConnection(sender, senderToken);
+        await using var intruder = CreateHubConnection(outsider, outsiderToken);
+        await sending.StartAsync();
+        await intruder.StartAsync();
+        var badSender = () => intruder.InvokeAsync("SendReliableGroupMessage", group, Guid.NewGuid(),
+            new Dictionary<Guid, string> { [recipient] = "AQI=" });
+        await badSender.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>();
+        var badRecipient = () => sending.InvokeAsync("SendReliableGroupMessage", group, Guid.NewGuid(),
+            new Dictionary<Guid, string> { [outsider] = "AQI=" });
+        await badRecipient.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>();
+        var id = Guid.NewGuid();
+        await sending.InvokeAsync("SendReliableGroupMessage", group, id,
+            new Dictionary<Guid, string> { [recipient] = "AQI=" });
+        await using var receiving = CreateHubConnection(recipient, recipientToken);
+        var delivered = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        receiving.On<JsonElement>("ReceiveMessage", m => delivered.TrySetResult(m));
+        await receiving.StartAsync();
+        var message = await delivered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        message.GetProperty("groupId").GetGuid().Should().Be(group);
+        message.GetProperty("messageId").GetGuid().Should().Be(id);
+    }    [Fact]
+    public async Task Attachment_sized_encoded_payload_is_queued_and_oversize_is_rejected()
+    {
+        var (sender, token) = await RegisterDeviceAndGetTokenAsync();
+        var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
+        await using var connection = CreateHubConnection(sender, token);
+        await connection.StartAsync();
+        var id = Guid.NewGuid();
+        var payload = Convert.ToBase64String(new byte[512 * 1024]);
+        await connection.InvokeAsync("SendReliableMessage", recipient, id, payload);
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var stored = await db.QueuedMessages.SingleAsync(m => m.MessageId == id);
+        stored.EncryptedBody.Should().HaveCount(512 * 1024);
+        var oversized = Convert.ToBase64String(new byte[576 * 1024 + 1]);
+        var send = () => connection.InvokeAsync("SendReliableMessage", recipient, Guid.NewGuid(), oversized);
+        await send.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>();
+    }}

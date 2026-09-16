@@ -3,9 +3,9 @@
 // ---------------------------------------------------------------------------
 // The server acts as a store-and-forward relay. Messages are opaque
 // encrypted blobs (EncryptedBody) — the server cannot read them. They sit
-// in the queue until the recipient device pulls them, after which the
-// server deletes them. ExpiresAt enables automatic cleanup of messages
-// that were never fetched (e.g. abandoned devices).
+// in the queue until the recipient device acknowledges persistence; the
+// server then wipes ciphertext but retains deduplication metadata until expiry.
+// ExpiresAt also bounds storage for abandoned devices.
 // ---------------------------------------------------------------------------
 
 namespace CallType.Api.Models;
@@ -17,6 +17,9 @@ public class QueuedMessage
     /// order for delivery within a recipient's queue.
     /// </summary>
     public long Id { get; set; }
+    public Guid MessageId { get; set; } = Guid.NewGuid();
+    public Guid? GroupId { get; set; }
+    public DateTimeOffset? AcknowledgedAt { get; set; }
 
     /// <summary>
     /// The DeviceId of the intended recipient. Indexed together with

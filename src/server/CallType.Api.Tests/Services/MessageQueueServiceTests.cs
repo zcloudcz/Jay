@@ -9,6 +9,8 @@
 
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using CallType.Api.Data;
 using CallType.Api.Models;
@@ -30,6 +32,31 @@ public class MessageQueueServiceTests : IntegrationTestBase
         return new MessageQueueService(db);
     }
 
+    [Fact]
+    public async Task Reliable_resend_and_recipient_scoped_ack_preserve_idempotency()
+    {
+        using var scope = Factory.Services.CreateScope();
+        var service = CreateService(scope);
+        var recipient = Guid.NewGuid();
+        var sender = Guid.NewGuid();
+        var id = Guid.NewGuid();
+        var group = Guid.NewGuid();
+        await service.EnqueueReliableAsync(recipient, sender, id, [1, 2], group);
+        await service.EnqueueReliableAsync(recipient, sender, id, [1, 2], group);
+        var pending = await service.DequeueAsync(recipient);
+        pending.Should().ContainSingle();
+        pending[0].MessageId.Should().Be(id);
+        pending[0].GroupId.Should().Be(group);
+        await service.AcknowledgeAsync(Guid.NewGuid(), sender, id);
+        (await service.DequeueAsync(recipient)).Should().ContainSingle();
+        await service.AcknowledgeAsync(recipient, sender, id);
+        (await service.DequeueAsync(recipient)).Should().BeEmpty();
+        var retry = await service.EnqueueReliableAsync(recipient, sender, id, [1, 2], group);
+        retry.AcknowledgedAt.Should().NotBeNull();
+        (await service.DequeueAsync(recipient)).Should().BeEmpty();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.QueuedMessages.AsNoTracking().SingleAsync(m => m.MessageId == id)).EncryptedBody.Should().BeEmpty();
+    }
     [Fact]
     public async Task Enqueue_stores_encrypted_message()
     {
@@ -56,7 +83,7 @@ public class MessageQueueServiceTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task Dequeue_returns_and_deletes_messages()
+    public async Task Dequeue_returns_messages_without_deleting_before_ack()
     {
         // Arrange — enqueue two messages for the same recipient.
         var recipientId = Guid.NewGuid();
@@ -80,14 +107,14 @@ public class MessageQueueServiceTests : IntegrationTestBase
         // Assert — got 2 messages back.
         result.Should().HaveCount(2);
 
-        // Verify the database is now empty for this recipient.
+        // Fetching must not remove messages before recipient persistence.
         using var verifyScope = Factory.Services.CreateScope();
         var db = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
         var remaining = await db.QueuedMessages
             .Where(m => m.RecipientId == recipientId)
             .CountAsync();
 
-        remaining.Should().Be(0, "dequeue should delete all messages for the recipient");
+        remaining.Should().Be(2, "delivery must retain messages until recipient acknowledgement");
     }
 
     [Fact]
@@ -194,4 +221,38 @@ public class MessageQueueServiceTests : IntegrationTestBase
         result.Select(m => m.EncryptedBody[0]).Should().BeInAscendingOrder(
             "messages must be delivered in FIFO order based on CreatedAt");
     }
-}
+    [Fact]
+    public async Task Concurrent_retries_store_only_one_message()
+    {
+        var recipient = Guid.NewGuid();
+        var sender = Guid.NewGuid();
+        var id = Guid.NewGuid();
+        await Task.WhenAll(Enumerable.Range(0, 8).Select(async _ =>
+        {
+            using var scope = Factory.Services.CreateScope();
+            await CreateService(scope).EnqueueReliableAsync(recipient, sender, id, [1]);
+        }));
+        using var verify = Factory.Services.CreateScope();
+        (await CreateService(verify).DequeueAsync(recipient)).Should().ContainSingle();
+    }    [Fact]
+    public async Task Migration_preserves_existing_queued_messages_with_distinct_ids()
+    {
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        await db.Database.ExecuteSqlRawAsync("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+        var migrator = db.GetService<IMigrator>();
+        await migrator.MigrateAsync("20260604064437_AddDeviceSecretHash");
+        var recipient = Guid.NewGuid();
+        var sender = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var expiry = now.AddDays(30);
+        for (var i = 0; i < 2; i++)
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO "QueuedMessages" ("RecipientId", "SenderId", "EncryptedBody", "CreatedAt", "ExpiresAt")
+                VALUES ({recipient}, {sender}, {new byte[] { 1 }}, {now}, {expiry})
+                """);
+        await migrator.MigrateAsync();
+        var messages = await CreateService(scope).DequeueAsync(recipient);
+        messages.Should().HaveCount(2);
+        messages.Select(m => m.MessageId).Should().OnlyHaveUniqueItems().And.NotContain(Guid.Empty);
+    }}

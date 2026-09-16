@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 
 import 'package:drift/drift.dart';
 
@@ -36,10 +36,9 @@ import 'signal_protocol.dart';
 /// understanding it) but is bound to the ciphertext as AES-GCM additional
 /// authenticated data — tampering with it breaks decryption.
 ///
-/// KNOWN LIMITATION: the signed pre-key signature is not verified because
-/// the server does not yet store/serve it. Identity authenticity therefore
-/// rests on out-of-band verification (QR contact exchange). Header
-/// encryption (a Signal extension) is also not implemented.
+/// Signed identity bundles bind the X25519 identity and pre-key to an
+/// Ed25519 signing key. Both identity keys are pinned on first use.
+/// Out-of-band comparison is still needed to authenticate first contact.
 ///
 /// ## Wire format
 ///
@@ -54,8 +53,8 @@ class SessionManager {
   SessionManager({
     required AppDatabase database,
     required KeyManager keyManager,
-  })  : _db = database,
-        _keyManager = keyManager;
+  }) : _db = database,
+       _keyManager = keyManager;
 
   final AppDatabase _db;
   final KeyManager _keyManager;
@@ -96,6 +95,8 @@ class SessionManager {
     String peerDeviceId,
     Map<String, dynamic> keyBundle,
   ) async {
+    await _verifyPeerIdentity(peerDeviceId, keyBundle);
+    final ownBundle = await _keyManager.getSignedIdentityBundle();
     final identity = await _keyManager.getOrCreateIdentityKeyPair();
     final peerIdentityKey = keyBundle['identityKey'] as String;
     final peerSignedPreKey = keyBundle['signedPreKey'] as String;
@@ -112,11 +113,17 @@ class SessionManager {
     //   DH3 = DH(EK_a,  SPK_b) — fresh entropy from the ephemeral key
     //   DH4 = DH(EK_a,  OPK_b) — replay protection (if an OPK was available)
     final dh1 = await SignalProtocol.keyAgreement(
-        identity['privateKey']!, peerSignedPreKey);
+      identity['privateKey']!,
+      peerSignedPreKey,
+    );
     final dh2 = await SignalProtocol.keyAgreement(
-        ephemeral['privateKey']!, peerIdentityKey);
+      ephemeral['privateKey']!,
+      peerIdentityKey,
+    );
     final dh3 = await SignalProtocol.keyAgreement(
-        ephemeral['privateKey']!, peerSignedPreKey);
+      ephemeral['privateKey']!,
+      peerSignedPreKey,
+    );
 
     final dhConcat = <int>[
       // 32 bytes of 0xFF prefix per the X3DH spec ("F") — domain-separates
@@ -129,12 +136,18 @@ class SessionManager {
     if (peerOneTime != null) {
       usedPreKeyId = peerOneTime['keyId'] as int;
       final dh4 = await SignalProtocol.keyAgreement(
-          ephemeral['privateKey']!, peerOneTime['publicKey'] as String);
+        ephemeral['privateKey']!,
+        peerOneTime['publicKey'] as String,
+      );
       dhConcat.addAll(dh4);
     }
 
     final sk = await SignalProtocol.deriveKey(
-        dhConcat, List<int>.filled(32, 0), _x3dhInfo, 32);
+      dhConcat,
+      List<int>.filled(32, 0),
+      _x3dhInfo,
+      32,
+    );
 
     // Double Ratchet init (initiator): the peer's signed pre-key acts as
     // their first ratchet key. We generate our first ratchet pair and
@@ -142,10 +155,13 @@ class SessionManager {
     // send before the peer ever comes online.
     final ratchetPair = await SignalProtocol.generateKeyPair();
     final dhOut = await SignalProtocol.keyAgreement(
-        ratchetPair['privateKey']!, peerSignedPreKey);
+      ratchetPair['privateKey']!,
+      peerSignedPreKey,
+    );
     final derived = await _kdfRoot(sk, dhOut);
 
     final state = <String, dynamic>{
+      'sid': _sessionId(identity['publicKey']!, ephemeral['publicKey']!),
       'rk': base64Encode(derived.rootKey),
       'dhsPub': ratchetPair['publicKey'],
       'dhsPriv': ratchetPair['privateKey'],
@@ -159,13 +175,17 @@ class SessionManager {
       // X3DH prologue replayed in every outgoing message until the peer's
       // first reply proves the session is established on both ends.
       'pending': {
+        'identityBundle': ownBundle,
         'ik': identity['publicKey'],
         'ek': ephemeral['publicKey'],
         'pkid': ?usedPreKeyId,
       },
     };
 
-    await _saveSession(peerDeviceId, state);
+    await _db.transaction(() async {
+      await _pinPeerIdentity(peerDeviceId, keyBundle);
+      await _saveSession(peerDeviceId, state);
+    });
   }
 
   // ===========================================================================
@@ -196,13 +216,23 @@ class SessionManager {
     state['ns'] = n + 1;
 
     // Bind the plaintext header to the ciphertext via AAD — see class docs.
-    final aad = _headerAad(ratchetPub, pn, n);
-    final ciphertext = await SignalProtocol.encrypt(
-        messageKey, utf8.encode(plaintext), aad: aad);
-
+    final sid = state['sid'] as String?;
+    if (sid == null) {
+      throw StateError(
+        'Legacy session must be re-established with a beta identity.',
+      );
+    }
     final pending = state['pending'] as Map<String, dynamic>?;
+    final aad = _headerAad(sid, ratchetPub, pn, n, preKey: pending);
+    final ciphertext = await SignalProtocol.encrypt(
+      messageKey,
+      utf8.encode(plaintext),
+      aad: aad,
+    );
+
     final envelope = <String, dynamic>{
-      'v': 1,
+      'v': 2,
+      'sid': sid,
       't': pending != null ? 'pk' : 'm',
       if (pending != null) ...pending,
       'rk': ratchetPub,
@@ -226,10 +256,24 @@ class SessionManager {
   /// responder side of X3DH runs first, consuming the referenced one-time
   /// pre-key. Throws on unknown sessions for normal messages, on AEAD
   /// failures (tampering), and on malformed envelopes.
-  Future<String> decryptMessage(String peerDeviceId, String envelopeJson) async {
+  Future<String> decryptMessage(
+    String peerDeviceId,
+    String envelopeJson, {
+    bool deferPreKeyCleanup = false,
+  }) async {
     final envelope = jsonDecode(envelopeJson) as Map<String, dynamic>;
+    if (envelope['t'] != 'pk' && envelope['t'] != 'm') {
+      throw const FormatException('Unsupported message type.');
+    }
 
-    var state = await _loadSession(peerDeviceId);
+    final sid = envelope['sid'];
+    if (envelope['v'] != 2 ||
+        sid is! String ||
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(sid)) {
+      throw StateError('Unsupported or malformed session identity.');
+    }
+    var state = await _loadSession('$peerDeviceId:$sid');
+    final establishing = state == null;
     if (state == null) {
       if (envelope['t'] != 'pk') {
         throw StateError(
@@ -237,14 +281,33 @@ class SessionManager {
           'pre-key message — cannot establish a session from it.',
         );
       }
+      final bundle = envelope['identityBundle'];
+      if (bundle is! Map<String, dynamic> ||
+          bundle['identityKey'] != envelope['ik']) {
+        throw StateError('Missing or mismatched signed sender identity.');
+      }
+      if (envelope['ek'] is! String ||
+          _sessionId(envelope['ik'] as String, envelope['ek'] as String) !=
+              sid) {
+        throw StateError('Session identity does not match handshake.');
+      }
+      await _verifyPeerIdentity(peerDeviceId, bundle);
       state = await _establishFromPreKeyMessage(envelope);
     }
 
     final ratchetPub = envelope['rk'] as String;
     final pn = envelope['pn'] as int;
     final n = envelope['n'] as int;
-    final ciphertext = Uint8List.fromList(base64Decode(envelope['c'] as String));
-    final aad = _headerAad(ratchetPub, pn, n);
+    final ciphertext = Uint8List.fromList(
+      base64Decode(envelope['c'] as String),
+    );
+    final aad = _headerAad(
+      sid,
+      ratchetPub,
+      pn,
+      n,
+      preKey: envelope['t'] == 'pk' ? envelope : null,
+    );
 
     // 1. Out-of-order message from an older chain? Its key was stored when
     //    we skipped past it — decrypt with the stored key and we're done.
@@ -253,7 +316,10 @@ class SessionManager {
     final storedKey = skipped.remove(skippedKeyId);
     if (storedKey != null) {
       final plaintext = await SignalProtocol.decrypt(
-          base64Decode(storedKey as String), ciphertext, aad: aad);
+        base64Decode(storedKey as String),
+        ciphertext,
+        aad: aad,
+      );
       await _saveSession(peerDeviceId, state);
       return utf8.decode(plaintext);
     }
@@ -278,16 +344,97 @@ class SessionManager {
 
     // Decrypt BEFORE persisting — a failed (tampered/garbled) message must
     // not advance our state, or we would lose sync with the sender.
-    final plaintext =
-        await SignalProtocol.decrypt(messageKey, ciphertext, aad: aad);
+    final plaintext = await SignalProtocol.decrypt(
+      messageKey,
+      ciphertext,
+      aad: aad,
+    );
 
     // Receiving any message proves the peer has our session — stop sending
     // the X3DH prologue (relevant when BOTH sides initiated simultaneously;
     // the regular case clears it on the initiator side).
     state['pending'] = null;
 
-    await _saveSession(peerDeviceId, state);
+    await _db.transaction(() async {
+      if (establishing) {
+        await _pinPeerIdentity(
+          peerDeviceId,
+          envelope['identityBundle'] as Map<String, dynamic>,
+        );
+      }
+      await _saveSession(peerDeviceId, state!);
+      if (establishing && envelope['pkid'] is int) {
+        await _db
+            .into(_db.backupState)
+            .insertOnConflictUpdate(
+              BackupStateCompanion.insert(
+                key: 'consumed_prekey:${envelope['pkid']}',
+                value: peerDeviceId,
+              ),
+            );
+      }
+    });
+    if (establishing && !deferPreKeyCleanup) await finalizePreKeyCleanup();
     return utf8.decode(plaintext);
+  }
+
+  Future<void> _verifyPeerIdentity(
+    String peer,
+    Map<String, dynamic> bundle,
+  ) async {
+    await KeyManager.verifyIdentityBundle(bundle);
+    final known = await (_db.select(
+      _db.backupState,
+    )..where((r) => r.key.equals('peer_identity:$peer'))).getSingleOrNull();
+    final fingerprint = '${bundle['identityKey']}|${bundle['signingKey']}';
+    if (known != null && known.value != fingerprint) {
+      throw StateError(
+        'Contact identity changed. Verify the contact before starting a new session.',
+      );
+    }
+    final contact = await (_db.select(
+      _db.contacts,
+    )..where((r) => r.deviceId.equals(peer))).getSingleOrNull();
+    if (contact != null &&
+        contact.identityKey.isNotEmpty &&
+        base64Encode(contact.identityKey) != bundle['identityKey']) {
+      throw StateError('Contact identity does not match the stored key.');
+    }
+  }
+
+  Future<void> _pinPeerIdentity(
+    String peer,
+    Map<String, dynamic> bundle,
+  ) async {
+    await _verifyPeerIdentity(peer, bundle);
+    await (_db.update(
+      _db.contacts,
+    )..where((row) => row.deviceId.equals(peer))).write(
+      ContactsCompanion(
+        identityKey: Value(base64Decode(bundle['identityKey'] as String)),
+      ),
+    );
+    await _db
+        .into(_db.backupState)
+        .insertOnConflictUpdate(
+          BackupStateCompanion.insert(
+            key: 'peer_identity:$peer',
+            value: '${bundle['identityKey']}|${bundle['signingKey']}',
+          ),
+        );
+  }
+
+  /// Call after the inbox transaction commits. A crash leaves a durable
+  /// consumption marker, so retry can finish erasing secure key material.
+  Future<void> finalizePreKeyCleanup() async {
+    final rows = await (_db.select(
+      _db.backupState,
+    )..where((row) => row.key.like('consumed_prekey:%'))).get();
+    for (final row in rows) {
+      await _keyManager.consumeOneTimePreKey(
+        int.parse(row.key.split(':').last),
+      );
+    }
   }
 
   /// Responder side of X3DH — builds session state from the prologue of an
@@ -300,7 +447,8 @@ class SessionManager {
     final senderEphemeralKey = envelope['ek'] as String?;
     if (senderIdentityKey == null || senderEphemeralKey == null) {
       throw const FormatException(
-          'Pre-key message is missing the X3DH prologue (ik/ek).');
+        'Pre-key message is missing the X3DH prologue (ik/ek).',
+      );
     }
 
     final identity = await _keyManager.getOrCreateIdentityKeyPair();
@@ -311,31 +459,48 @@ class SessionManager {
     // computed from the opposite private keys. Order must match exactly.
     final dh1 = await SignalProtocol.keyAgreement(spkPriv, senderIdentityKey);
     final dh2 = await SignalProtocol.keyAgreement(
-        identity['privateKey']!, senderEphemeralKey);
+      identity['privateKey']!,
+      senderEphemeralKey,
+    );
     final dh3 = await SignalProtocol.keyAgreement(spkPriv, senderEphemeralKey);
 
     final dhConcat = <int>[
       ...List<int>.filled(32, 0xFF),
-      ...dh1, ...dh2, ...dh3,
+      ...dh1,
+      ...dh2,
+      ...dh3,
     ];
 
     final preKeyId = envelope['pkid'] as int?;
     if (preKeyId != null) {
-      final otkPriv = await _keyManager.consumeOneTimePreKey(preKeyId);
+      final consumed =
+          await (_db.select(_db.backupState)
+                ..where((row) => row.key.equals('consumed_prekey:$preKeyId')))
+              .getSingleOrNull();
+      final otkPriv = consumed == null
+          ? await _keyManager.peekOneTimePreKey(preKeyId)
+          : null;
       if (otkPriv == null) {
         // Already consumed (or never existed) — likely a replayed initial
         // message. Refusing to proceed is exactly the protection one-time
         // pre-keys exist to provide.
         throw StateError(
-            'One-time pre-key $preKeyId is unknown or already consumed.');
+          'One-time pre-key $preKeyId is unknown or already consumed.',
+        );
       }
-      final dh4 =
-          await SignalProtocol.keyAgreement(otkPriv, senderEphemeralKey);
+      final dh4 = await SignalProtocol.keyAgreement(
+        otkPriv,
+        senderEphemeralKey,
+      );
       dhConcat.addAll(dh4);
     }
 
     final sk = await SignalProtocol.deriveKey(
-        dhConcat, List<int>.filled(32, 0), _x3dhInfo, 32);
+      dhConcat,
+      List<int>.filled(32, 0),
+      _x3dhInfo,
+      32,
+    );
 
     // Double Ratchet init (responder): our signed pre-key pair IS our first
     // ratchet pair — the initiator already used its public half for their
@@ -343,6 +508,7 @@ class SessionManager {
     // triggers the receive-side ratchet step, and our first send triggers
     // the send side.
     return <String, dynamic>{
+      'sid': envelope['sid'],
       'rk': base64Encode(sk),
       'dhsPub': signedPreKey['publicKey'],
       'dhsPriv': spkPriv,
@@ -375,7 +541,9 @@ class SessionManager {
 
     // Receiving chain: root key absorbs DH(our current pair, their new key).
     var dhOut = await SignalProtocol.keyAgreement(
-        state['dhsPriv'] as String, newRemoteRatchetKey);
+      state['dhsPriv'] as String,
+      newRemoteRatchetKey,
+    );
     var derived = await _kdfRoot(base64Decode(state['rk'] as String), dhOut);
     state['rk'] = base64Encode(derived.rootKey);
     state['ckr'] = base64Encode(derived.chainKey);
@@ -387,7 +555,9 @@ class SessionManager {
     state['dhsPriv'] = newPair['privateKey'];
 
     dhOut = await SignalProtocol.keyAgreement(
-        newPair['privateKey']!, newRemoteRatchetKey);
+      newPair['privateKey']!,
+      newRemoteRatchetKey,
+    );
     derived = await _kdfRoot(base64Decode(state['rk'] as String), dhOut);
     state['rk'] = base64Encode(derived.rootKey);
     state['cks'] = base64Encode(derived.chainKey);
@@ -405,8 +575,9 @@ class SessionManager {
     final nr = state['nr'] as int;
     if (until - nr > _maxSkip) {
       throw StateError(
-          'Message number jumps too far ahead ($nr -> $until) — refusing to '
-          'derive more than $_maxSkip skipped keys.');
+        'Message number jumps too far ahead ($nr -> $until) — refusing to '
+        'derive more than $_maxSkip skipped keys.',
+      );
     }
 
     final skipped = state['skipped'] as Map<String, dynamic>;
@@ -434,17 +605,47 @@ class SessionManager {
     List<int> rootKey,
     List<int> dhOutput,
   ) async {
-    final derived =
-        await SignalProtocol.deriveKey(dhOutput, rootKey, _rootInfo, 64);
+    final derived = await SignalProtocol.deriveKey(
+      dhOutput,
+      rootKey,
+      _rootInfo,
+      64,
+    );
     return (rootKey: derived.sublist(0, 32), chainKey: derived.sublist(32, 64));
   }
 
   /// Canonical AAD encoding of the message header. Sender and receiver must
-  /// produce identical bytes, so the format is a fixed-order pipe join —
+  /// produce identical bytes, so the format is a fixed-order JSON array —
   /// never reuse the (key-order-sensitive) envelope JSON for this.
-  List<int> _headerAad(String ratchetPub, int pn, int n) =>
-      utf8.encode('v1|$ratchetPub|$pn|$n');
+  String _sessionId(String identity, String ephemeral) => sha256
+      .convert(utf8.encode('CallType-session-v2|$identity|$ephemeral'))
+      .toString();
 
+  List<int> _headerAad(
+    String sid,
+    String ratchetPub,
+    int pn,
+    int n, {
+    Map<String, dynamic>? preKey,
+  }) {
+    List<dynamic>? prologue;
+    if (preKey != null) {
+      final bundle = preKey['identityBundle'];
+      if (bundle is! Map<String, dynamic>) {
+        throw const FormatException('Missing signed identity bundle.');
+      }
+      prologue = [
+        preKey['ik'],
+        preKey['ek'],
+        preKey['pkid'],
+        bundle['identityKey'],
+        bundle['signedPreKey'],
+        bundle['signingKey'],
+        bundle['signature'],
+      ];
+    }
+    return utf8.encode(jsonEncode(['v2', sid, ratchetPub, pn, n, prologue]));
+  }
   // ===========================================================================
   // Persistence
   // ===========================================================================
@@ -476,13 +677,62 @@ class SessionManager {
     String peerDeviceId,
     Map<String, dynamic> sessionState,
   ) async {
+    sessionState.putIfAbsent(
+      'establishedAt',
+      () => DateTime.now().toUtc().toIso8601String(),
+    );
     final jsonBytes = Uint8List.fromList(utf8.encode(jsonEncode(sessionState)));
 
-    await _db.into(_db.signalSessions).insertOnConflictUpdate(
-          SignalSessionsCompanion.insert(
-            address: peerDeviceId,
-            sessionData: jsonBytes,
-          ),
-        );
+    final sid = sessionState['sid'] as String;
+    await _db.transaction(() async {
+      await _db
+          .into(_db.signalSessions)
+          .insertOnConflictUpdate(
+            SignalSessionsCompanion.insert(
+              address: '$peerDeviceId:$sid',
+              sessionData: jsonBytes,
+            ),
+          );
+      final active = await _loadSession(peerDeviceId);
+      final activeId = active?['sid'] as String?;
+      if (activeId == null || sid.compareTo(activeId) <= 0) {
+        await _db
+            .into(_db.signalSessions)
+            .insertOnConflictUpdate(
+              SignalSessionsCompanion.insert(
+                address: peerDeviceId,
+                sessionData: jsonBytes,
+              ),
+            );
+      }
+      final chosenId = activeId == null || sid.compareTo(activeId) <= 0
+          ? sid
+          : activeId;
+      final archives = await (_db.select(
+        _db.signalSessions,
+      )..where((row) => row.address.like('$peerDeviceId:%'))).get();
+      if (archives.length > 16) {
+        final candidates = archives
+            .where(
+              (row) =>
+                  row.address != '$peerDeviceId:$chosenId' &&
+                  row.address != '$peerDeviceId:$sid',
+            )
+            .toList();
+        String established(SignalSession row) =>
+            (jsonDecode(utf8.decode(row.sessionData))
+                    as Map<String, dynamic>)['establishedAt']
+                as String? ??
+            '';
+        candidates.sort((a, b) => established(a).compareTo(established(b)));
+        final expired = candidates
+            .take(archives.length - 16)
+            .map((row) => row.address)
+            .toList();
+        await (_db.delete(
+          _db.signalSessions,
+        )..where((row) => row.address.isIn(expired))).go();
+      }
+    });
   }
 }

@@ -115,6 +115,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // ordered by arrival time." This composite index covers that
             // query as an index-only scan on RecipientId with CreatedAt sort.
             entity.HasIndex(m => new { m.RecipientId, m.CreatedAt });
+            entity.HasIndex(m => new { m.RecipientId, m.SenderId, m.MessageId }).IsUnique();
         });
 
         // -----------------------------------------------------------------

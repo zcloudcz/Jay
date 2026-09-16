@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -40,7 +41,10 @@ void main() async {
 
   // Base URL for all backend communication. Defaults to localhost for
   // development; production builds should override via environment config.
-  const baseUrl = 'http://localhost:5000';
+  const baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://localhost:8080',
+  );
 
   final db = AppDatabase('calltype');
 
@@ -48,7 +52,10 @@ void main() async {
   // short-lived JWTs. ApiClient attaches them as Bearer headers; SignalR
   // passes them as access_token during the WebSocket handshake. Without
   // this, every protected endpoint returns 401.
-  final authService = AuthService(secureStorage: secureStorage, baseUrl: baseUrl);
+  final authService = AuthService(
+    secureStorage: secureStorage,
+    baseUrl: baseUrl,
+  );
 
   final apiClient = ApiClient(baseUrl: baseUrl, authService: authService);
   final signalRClient = SignalRClient(
@@ -71,8 +78,14 @@ void main() async {
     database: db,
     sessionManager: sessionManager,
     incomingMessages: signalRClient.onMessage,
+    apiClient: apiClient,
+    acknowledge: signalRClient.acknowledgeMessage,
   );
   inbox.start();
+  await sessionManager.finalizePreKeyCleanup();
+  if (deviceId.isNotEmpty) {
+    unawaited(signalRClient.connect().catchError((Object _) {}));
+  }
 
   // Initialize push notifications if the device is registered.
   // Fire-and-forget — push is best-effort and must never block app startup.
@@ -101,6 +114,7 @@ void main() async {
         // connection state changes (offline banner, call state).
         ChangeNotifierProvider.value(value: signalRClient),
         ChangeNotifierProvider(
+          lazy: false,
           create: (ctx) => WebRTCManager(
             signalRClient: ctx.read<SignalRClient>(),
             apiClient: apiClient,
@@ -112,11 +126,9 @@ void main() async {
         // Chat list and contacts controllers are app-wide singletons because
         // multiple screens reference them (e.g. group create reads contacts,
         // chat screen updates chat list timestamps).
+        ChangeNotifierProvider(create: (_) => ChatListController(database: db)),
         ChangeNotifierProvider(
-          create: (_) => ChatListController(database: db),
-        ),
-        ChangeNotifierProvider(
-          create: (_) => ContactsController(database: db),
+          create: (_) => ContactsController(database: db, apiClient: apiClient),
         ),
 
         // -- Auth / security ------------------------------------------------
