@@ -64,4 +64,4 @@ Pozn.: `Turn__StunUrls__0` stále ukazuje na `stun:187.127.83.154:3478`; Cloudfl
 ## Vyřazení coturn 2026-09-16
 
 - Z App Service smazány `Turn__StunUrls__0`, `Turn__Urls__0`, `Turn__Urls__1`, `Turn__SharedSecret`; zůstávají `Turn__Provider=cloudflare`, `Turn__Cloudflare__*`, `Turn__TtlSeconds`. `/health/ready` 200 po restartu.
-- Serverová část (stop/disable coturn, zavření 3478/UDP+TCP a relay rozsahu na firewallu) — provádí operátor serveru, zde NOT_RUN.
+- Serverová část (stop/disable coturn, zavření 3478 a relay rozsahu) — provedl operátor serveru 2026-09-16; TCP 3478 z vývojářského stroje nedosažitelný (PASS, dle probe níže v commitu).
