@@ -4,7 +4,7 @@
 
 | | |
 | --- | --- |
-| Nasazený commit (API + web) | `e88620d` (run https://github.com/zcloudcz/Jay/actions/runs/35207819763) |
+| Nasazený commit (API + web) | `fbfdd76` (run https://github.com/zcloudcz/Jay/actions/runs/35216664524) |
 | Web | https://jay.zcloud.cz (také https://orange-bush-07e1b5803.6.azurestaticapps.net) |
 | API | https://calltype-beta-zahy.azurewebsites.net |
 | Artefakty stejného SHA | api, web, android (APK), windows (zip), macos (tar.gz), ios-unsigned (tar.gz) + `build-manifest.json` se SHA256 |
