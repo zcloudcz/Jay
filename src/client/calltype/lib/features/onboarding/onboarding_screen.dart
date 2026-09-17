@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../l10n/l10n.dart';
 import 'onboarding_controller.dart';
 
 /// First-run screen that registers the device with the server and shows
@@ -23,6 +24,7 @@ class OnboardingScreen extends StatelessWidget {
     final controller = context.watch<OnboardingController>();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l10n = context.l10n;
 
     return Scaffold(
       body: SafeArea(
@@ -56,7 +58,8 @@ class OnboardingScreen extends StatelessWidget {
                 const SizedBox(height: 8),
 
                 Text(
-                  'Secure. Anonymous. Simple.',
+                  l10n.onboardingTagline,
+                  textAlign: TextAlign.center,
                   style: theme.textTheme.titleMedium?.copyWith(
                     color: colorScheme.onSurfaceVariant,
                   ),
@@ -68,7 +71,7 @@ class OnboardingScreen extends StatelessWidget {
                   const CircularProgressIndicator(),
                   const SizedBox(height: 16),
                   Text(
-                    'Setting up your device...',
+                    l10n.onboardingSettingUp,
                     style: theme.textTheme.bodyLarge,
                   ),
                 ] else if (controller.error != null) ...[
@@ -86,7 +89,7 @@ class OnboardingScreen extends StatelessWidget {
                   FilledButton.icon(
                     onPressed: controller.register,
                     icon: const Icon(Icons.rocket_launch_rounded),
-                    label: const Text('Get Started'),
+                    label: Text(l10n.onboardingGetStarted),
                   ),
                 ],
               ],
@@ -115,7 +118,7 @@ class _SuccessContent extends StatelessWidget {
 
     return Column(
       children: [
-        Text('Your Identity', style: theme.textTheme.titleMedium),
+        Text(context.l10n.onboardingYourIdentity, style: theme.textTheme.titleMedium),
         const SizedBox(height: 12),
 
         // SelectableText so the user can copy their handle to share
@@ -149,7 +152,8 @@ class _SuccessContent extends StatelessWidget {
         const SizedBox(height: 8),
 
         Text(
-          'Share this QR code to add contacts',
+          context.l10n.onboardingShareQr,
+          textAlign: TextAlign.center,
           style: theme.textTheme.bodySmall?.copyWith(
             color: colorScheme.onSurfaceVariant,
           ),
@@ -159,7 +163,7 @@ class _SuccessContent extends StatelessWidget {
         FilledButton.icon(
           onPressed: () => context.go('/chats'),
           icon: const Icon(Icons.chat_rounded),
-          label: const Text('Start Messaging'),
+          label: Text(context.l10n.onboardingStartMessaging),
         ),
       ],
     );
@@ -167,6 +171,10 @@ class _SuccessContent extends StatelessWidget {
 }
 
 /// Error display with retry button.
+///
+/// The title is localized; the detail line is the raw exception text —
+/// developer-facing diagnostics that beta testers screenshot into bug
+/// reports, deliberately not translated.
 ///
 /// Shows a condensed error message — the full exception toString() can be
 /// verbose, so we limit display to keep the UI clean while still giving
@@ -191,7 +199,7 @@ class _ErrorCard extends StatelessWidget {
             Icon(Icons.error_outline, color: colorScheme.error, size: 32),
             const SizedBox(height: 8),
             Text(
-              'Registration failed',
+              context.l10n.onboardingFailed,
               style: theme.textTheme.titleSmall?.copyWith(
                 color: colorScheme.onErrorContainer,
               ),
@@ -210,7 +218,7 @@ class _ErrorCard extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onRetry,
               icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
+              label: Text(context.l10n.commonRetry),
             ),
           ],
         ),

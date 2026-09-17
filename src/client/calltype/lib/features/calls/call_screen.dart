@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/network/webrtc_manager.dart';
+import '../../l10n/l10n.dart';
 
 class CallScreen extends StatelessWidget {
   const CallScreen({super.key, required this.webrtcManager});
@@ -10,6 +11,23 @@ class CallScreen extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: webrtcManager, builder: (context, _) {
       final manager = webrtcManager;
+      final l10n = context.l10n;
+      // Error first, then the incoming prompt, then the plain call state.
+      final status = switch (manager.error) {
+        CallError.connectionFailed => l10n.callErrorConnectionFailed,
+        CallError.noAnswer => l10n.callErrorNoAnswer,
+        CallError.cannotStart => l10n.callErrorCannotStart,
+        CallError.cannotAccept => l10n.callErrorCannotAccept,
+        CallError.userOffline => l10n.callErrorUserOffline,
+        null when manager.isIncoming =>
+          manager.isVideo ? l10n.callIncomingVideo : l10n.callIncomingVoice,
+        null => switch (manager.state) {
+          CallState.ringing => l10n.callStateCalling,
+          CallState.connecting => l10n.callStateConnecting,
+          CallState.connected => l10n.callStateConnected,
+          CallState.idle || CallState.ended => l10n.callEnded,
+        },
+      };
       final ended = manager.state == CallState.ended || manager.state == CallState.idle;
       Future<void> close() async {
         await manager.endCall();
@@ -18,7 +36,7 @@ class CallScreen extends StatelessWidget {
       return PopScope(canPop: ended, onPopInvokedWithResult: (didPop, _) {
         if (!didPop) close();
       }, child: Scaffold(
-        appBar: AppBar(title: const Text('Call')),
+        appBar: AppBar(title: Text(l10n.callTitle)),
         body: SafeArea(child: Column(children: [
           Expanded(child: manager.isVideo && manager.remoteRenderer != null
             ? Stack(children: [
@@ -29,29 +47,32 @@ class CallScreen extends StatelessWidget {
             : Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
                 const Icon(Icons.person_outline, size: 80),
                 const SizedBox(height: 16),
-                Text(manager.remoteDeviceId ?? 'Call ended'),
+                Text(manager.remoteDeviceId ?? l10n.callEnded),
               ]))),
-          Text(manager.error ?? (manager.isIncoming ? 'Incoming ${manager.isVideo ? 'video' : 'voice'} call' : manager.state.name)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(status, textAlign: TextAlign.center),
+          ),
           const SizedBox(height: 20),
           Wrap(spacing: 16, runSpacing: 12, alignment: WrapAlignment.center, children: [
             if (manager.isIncoming) FilledButton.icon(onPressed: manager.acceptCall,
-              icon: const Icon(Icons.call), label: const Text('Accept')),
+              icon: const Icon(Icons.call), label: Text(l10n.callAccept)),
             // Labeled, state-coloured toggles: beta testers did not notice the
             // bare mic icon and there was no way to silence the other side.
             if (!ended && !manager.isIncoming) _CallToggle(
               active: manager.isMuted, onPressed: manager.toggleMute,
               icon: Icons.mic, activeIcon: Icons.mic_off,
-              label: 'Mic', activeLabel: 'Mic off'),
+              label: l10n.callMic, activeLabel: l10n.callMicOff),
             if (!ended && !manager.isIncoming) _CallToggle(
               active: manager.isSpeakerMuted, onPressed: manager.toggleSpeaker,
               icon: Icons.volume_up, activeIcon: Icons.volume_off,
-              label: 'Sound', activeLabel: 'Sound off'),
+              label: l10n.callSound, activeLabel: l10n.callSoundOff),
             FilledButton.icon(onPressed: close, icon: const Icon(Icons.call_end),
-              label: Text(ended ? 'Close' : manager.isIncoming ? 'Decline' : 'End call')),
+              label: Text(ended ? l10n.callClose : manager.isIncoming ? l10n.callDecline : l10n.callEnd)),
             if (manager.isVideo && !manager.isIncoming && !ended) _CallToggle(
               active: manager.isCameraOff, onPressed: manager.toggleCamera,
               icon: Icons.videocam, activeIcon: Icons.videocam_off,
-              label: 'Camera', activeLabel: 'Camera off'),
+              label: l10n.callCamera, activeLabel: l10n.callCameraOff),
             // Diagnostics only: shows which ICE candidate type carries the
             // media (expect "relay" when the force-relay switch is on). The
             // summary is redacted — no IPs or SDP — so it is safe to screenshot
@@ -59,14 +80,15 @@ class CallScreen extends StatelessWidget {
             if (manager.forceIceRelay && !ended && !manager.isIncoming)
               TextButton.icon(
                 icon: const Icon(Icons.alt_route_rounded),
-                label: const Text('Route'),
+                label: Text(l10n.callRoute),
                 onPressed: () async {
                   final summary = await manager.getSelectedCandidateSummary();
                   if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
                     summary == null
-                        ? 'No selected candidate yet'
-                        : 'Route: ${summary['type']} / ${summary['protocol']}')));
+                        ? l10n.callRouteNone
+                        : l10n.callRouteSummary(
+                            '${summary['type']}', '${summary['protocol']}'))));
                 }),
           ]),
           const SizedBox(height: 32),

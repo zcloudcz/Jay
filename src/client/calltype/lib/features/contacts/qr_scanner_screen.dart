@@ -2,6 +2,8 @@ import 'package:calltype_core/network/channel_dtos.dart' show parseChannelLink;
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../l10n/l10n.dart';
+
 /// Full-screen QR code scanner for adding contacts.
 ///
 /// Scans for QR codes containing the CallType contact URI:
@@ -38,7 +40,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Scan QR Code')),
+      appBar: AppBar(title: Text(context.l10n.qrScanTitle)),
       body: Stack(
         children: [
           // Camera preview with barcode detection.
@@ -61,7 +63,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                   borderRadius: BorderRadius.circular(24),
                 ),
                 child: Text(
-                  'Point at a Jay QR code',
+                  context.l10n.qrScanHint,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: Colors.white,
                   ),

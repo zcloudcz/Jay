@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
+
 /// Shown on EVERY channel screen. Everything else in Jay is end-to-end
 /// encrypted, so a user would reasonably assume channels are too. They are
 /// not: the server stores channel posts as readable text. The app must never
-/// pretend otherwise (project rule: be honest about crypto limits).
-const channelPublicNotice =
-    'Channel posts are public and NOT end-to-end encrypted.';
-
+/// pretend otherwise (project rule: be honest about crypto limits). The text
+/// is the `channelPublicNotice` message in lib/l10n.
 class ChannelPublicNotice extends StatelessWidget {
   const ChannelPublicNotice({super.key});
 
@@ -27,7 +27,7 @@ class ChannelPublicNotice extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              channelPublicNotice,
+              context.l10n.channelPublicNotice,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: scheme.onTertiaryContainer,
               ),

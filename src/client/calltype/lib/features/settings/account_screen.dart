@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/backup_api.dart';
 import '../../core/storage/secure_storage.dart';
+import '../../l10n/l10n.dart';
 
 /// Account registration and login screen.
 ///
@@ -33,8 +34,10 @@ class _AccountScreenState extends State<AccountScreen> {
   /// True = register mode, false = login mode.
   bool _isRegister = true;
   bool _isLoading = false;
-  String? _error;
-  String? _successMessage;
+  // Flags, not texts: the messages are looked up in build() so they follow
+  // the current locale.
+  bool _error = false;
+  bool _success = false;
 
   @override
   void dispose() {
@@ -47,9 +50,14 @@ class _AccountScreenState extends State<AccountScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l10n = context.l10n;
 
     return Scaffold(
-      appBar: AppBar(title: Text(_isRegister ? 'Create Account' : 'Log In')),
+      appBar: AppBar(
+        title: Text(
+          _isRegister ? l10n.accountCreateTitle : l10n.accountLoginTitle,
+        ),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Form(
@@ -68,19 +76,20 @@ class _AccountScreenState extends State<AccountScreen> {
                         children: [
                           Icon(Icons.info_outline, color: colorScheme.primary),
                           const SizedBox(width: 8),
-                          Text(
-                            'Optional Account',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
+                          // Expanded: translated headings may need to wrap.
+                          Expanded(
+                            child: Text(
+                              l10n.accountOptionalTitle,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'An account enables encrypted cloud backups. '
-                        'Jay works fully without one — registration is '
-                        'completely optional.',
+                        l10n.accountOptionalBody,
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
@@ -95,19 +104,19 @@ class _AccountScreenState extends State<AccountScreen> {
               TextFormField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  hintText: 'your@email.com',
-                  prefixIcon: Icon(Icons.email_outlined),
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.accountEmailLabel,
+                  hintText: l10n.accountEmailHint,
+                  prefixIcon: const Icon(Icons.email_outlined),
+                  border: const OutlineInputBorder(),
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Email is required';
+                    return l10n.accountEmailRequired;
                   }
                   // Basic email format check — server validates more thoroughly.
                   if (!value.contains('@') || !value.contains('.')) {
-                    return 'Enter a valid email address';
+                    return l10n.accountEmailInvalid;
                   }
                   return null;
                 },
@@ -119,18 +128,18 @@ class _AccountScreenState extends State<AccountScreen> {
               TextFormField(
                 controller: _passphraseController,
                 obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Passphrase',
-                  hintText: 'Choose a strong passphrase',
-                  prefixIcon: Icon(Icons.lock_outline),
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.accountPassphraseLabel,
+                  hintText: l10n.accountPassphraseHint,
+                  prefixIcon: const Icon(Icons.lock_outline),
+                  border: const OutlineInputBorder(),
                 ),
                 validator: (value) {
                   if (value == null || value.isEmpty) {
-                    return 'Passphrase is required';
+                    return l10n.accountPassphraseRequired;
                   }
                   if (value.length < 8) {
-                    return 'Passphrase must be at least 8 characters';
+                    return l10n.accountPassphraseTooShort;
                   }
                   return null;
                 },
@@ -147,7 +156,11 @@ class _AccountScreenState extends State<AccountScreen> {
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text(_isRegister ? 'Create Account' : 'Log In'),
+                    : Text(
+                        _isRegister
+                            ? l10n.accountCreateTitle
+                            : l10n.accountLoginTitle,
+                      ),
               ),
               const SizedBox(height: 16),
 
@@ -161,20 +174,21 @@ class _AccountScreenState extends State<AccountScreen> {
                       : () {
                           setState(() {
                             _isRegister = !_isRegister;
-                            _error = null;
-                            _successMessage = null;
+                            _error = false;
+                            _success = false;
                           });
                         },
                   child: Text(
                     _isRegister
-                        ? 'Already have an account? Log in'
-                        : 'Need an account? Register',
+                        ? l10n.accountSwitchToLogin
+                        : l10n.accountSwitchToRegister,
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ),
 
               // -- Success message -------------------------------------------
-              if (_successMessage != null) ...[
+              if (_success) ...[
                 const SizedBox(height: 16),
                 Card(
                   color: colorScheme.primaryContainer,
@@ -189,7 +203,7 @@ class _AccountScreenState extends State<AccountScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            _successMessage!,
+                            l10n.accountLinked,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: colorScheme.onPrimaryContainer,
                             ),
@@ -202,7 +216,7 @@ class _AccountScreenState extends State<AccountScreen> {
               ],
 
               // -- Error message ---------------------------------------------
-              if (_error != null) ...[
+              if (_error) ...[
                 const SizedBox(height: 16),
                 Card(
                   color: colorScheme.errorContainer,
@@ -214,7 +228,7 @@ class _AccountScreenState extends State<AccountScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            _error!,
+                            l10n.accountFailed,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: colorScheme.onErrorContainer,
                             ),
@@ -239,8 +253,8 @@ class _AccountScreenState extends State<AccountScreen> {
 
     setState(() {
       _isLoading = true;
-      _error = null;
-      _successMessage = null;
+      _error = false;
+      _success = false;
     });
 
     try {
@@ -266,14 +280,16 @@ class _AccountScreenState extends State<AccountScreen> {
       if (mounted) {
         _passphraseController.clear();
         setState(() {
-          _successMessage = 'Account linked. Cloud backup enabled.';
+          _success = true;
           _isLoading = false;
         });
       }
-    } catch (e) {
+    } catch (_) {
+      // The exception text (Dio / StateError) is developer-facing; the user
+      // gets one localized, actionable message.
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = true;
           _isLoading = false;
         });
       }

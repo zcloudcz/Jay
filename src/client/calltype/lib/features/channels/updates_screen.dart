@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/main_navigation_bar.dart';
 import 'channel_notice.dart';
@@ -19,27 +20,28 @@ class UpdatesScreen extends StatelessWidget {
     // Plain variable, not a TextEditingController: a controller would have
     // to be disposed while the dialog's exit animation still uses it.
     var typed = '';
+    final l10n = context.l10n;
     final value = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Open channel'),
+        title: Text(l10n.channelOpenTitle),
         content: TextField(
           onChanged: (v) => typed = v,
           autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Channel handle or link',
-            hintText: 'CH-XXXX-XXXX or calltype://channel/…',
+          decoration: InputDecoration(
+            labelText: l10n.channelOpenLabel,
+            hintText: l10n.channelOpenHint,
           ),
           onSubmitted: (v) => Navigator.of(dialogContext).pop(v),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.commonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(typed),
-            child: const Text('Open'),
+            child: Text(l10n.commonOpen),
           ),
         ],
       ),
@@ -54,13 +56,14 @@ class UpdatesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<ChannelsController>();
     final channels = controller.channels;
+    final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Updates'),
+        title: Text(l10n.navUpdates),
         actions: [
           IconButton(
             icon: const Icon(Icons.link_rounded),
-            tooltip: 'Open channel by handle or link',
+            tooltip: l10n.channelOpenTooltip,
             onPressed: () => _openByHandle(context),
           ),
         ],
@@ -76,16 +79,15 @@ class UpdatesScreen extends StatelessWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text(
-                            'You do not follow any channels yet. Open a '
-                            'channel from a link, QR code or handle.',
+                          Text(
+                            l10n.channelUpdatesEmpty,
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 16),
                           FilledButton.icon(
                             onPressed: () => _openByHandle(context),
                             icon: const Icon(Icons.link_rounded),
-                            label: const Text('Open channel'),
+                            label: Text(l10n.channelOpenTitle),
                           ),
                         ],
                       ),
@@ -104,9 +106,11 @@ class UpdatesScreen extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text(
+                          // The role is a server code; unknown future
+                          // roles are shown as "admin" rather than raw.
                           channel.role == null
                               ? channel.handle
-                              : '${channel.handle} · ${channel.role}',
+                              : '${channel.handle} · ${channel.role == 'owner' ? l10n.channelRoleOwner : l10n.channelRoleAdmin}',
                         ),
                         trailing: channel.unreadCount > 0
                             ? Badge(label: Text('${channel.unreadCount}'))
@@ -123,7 +127,7 @@ class UpdatesScreen extends StatelessWidget {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/channels/create'),
         icon: const Icon(Icons.add_rounded),
-        label: const Text('New channel'),
+        label: Text(l10n.channelNew),
       ),
     );
   }

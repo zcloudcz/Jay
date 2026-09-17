@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/l10n.dart';
 import 'router.dart';
 import 'theme.dart';
 import 'session_overlay.dart';
@@ -17,6 +18,11 @@ class CallTypeApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp.router(
       title: 'Jay',
+      // No `locale:` on purpose: Flutter resolves the UI language from the
+      // OS / browser preference list against supportedLocales and falls back
+      // to the first entry (English). There is no in-app language switch.
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,

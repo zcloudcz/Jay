@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../l10n/l10n.dart';
 import 'channel_notice.dart';
 import 'channels_controller.dart';
 
@@ -15,13 +16,13 @@ class BlockedChannelsScreen extends StatelessWidget {
     final controller = context.watch<ChannelsController>();
     final blocked = controller.blocked;
     return Scaffold(
-      appBar: AppBar(title: const Text('Blocked channels')),
+      appBar: AppBar(title: Text(context.l10n.settingsBlockedChannels)),
       body: Column(
         children: [
           const ChannelPublicNotice(),
           Expanded(
             child: blocked.isEmpty
-                ? const Center(child: Text('No blocked channels.'))
+                ? Center(child: Text(context.l10n.channelBlockedEmpty))
                 : ListView.builder(
                     itemCount: blocked.length,
                     itemBuilder: (context, index) {
@@ -34,7 +35,7 @@ class BlockedChannelsScreen extends StatelessWidget {
                         trailing: TextButton(
                           onPressed: () =>
                               controller.unblock(channel.channelId),
-                          child: const Text('Unblock'),
+                          child: Text(context.l10n.channelUnblock),
                         ),
                       );
                     },

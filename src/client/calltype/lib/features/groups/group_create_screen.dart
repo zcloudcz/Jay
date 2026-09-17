@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/storage/database.dart';
+import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import 'group_controller.dart';
 
@@ -80,10 +81,11 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l10n = context.l10n;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('New Group'),
+        title: Text(l10n.groupNewTitle),
         actions: [
           // Create button — only enabled when validation passes.
           TextButton(
@@ -94,7 +96,7 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Create'),
+                : Text(l10n.groupCreate),
           ),
         ],
       ),
@@ -108,11 +110,11 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
                   child: TextField(
                     controller: _nameController,
                     enabled: !_controller.isLoading,
-                    decoration: const InputDecoration(
-                      labelText: 'Group name',
-                      hintText: 'e.g. Project Team',
-                      prefixIcon: Icon(Icons.group_rounded),
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: l10n.groupNameLabel,
+                      hintText: l10n.groupNameHint,
+                      prefixIcon: const Icon(Icons.group_rounded),
+                      border: const OutlineInputBorder(),
                     ),
                     textCapitalization: TextCapitalization.words,
                   ),
@@ -127,7 +129,7 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
                   child: Row(
                     children: [
                       Text(
-                        'Select members',
+                        l10n.groupSelectMembers,
                         style: theme.textTheme.titleSmall?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
@@ -137,7 +139,9 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
                       // how many members are chosen without scrolling.
                       if (_selectedMembers.isNotEmpty)
                         Chip(
-                          label: Text('${_selectedMembers.length}'),
+                          label: Text(
+                            l10n.groupSelectedCount(_selectedMembers.length),
+                          ),
                           visualDensity: VisualDensity.compact,
                         ),
                     ],
@@ -149,7 +153,7 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
                   child: _contacts.isEmpty
                       ? Center(
                           child: Text(
-                            'No contacts yet.\nAdd contacts first to create a group.',
+                            l10n.groupNoContacts,
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: colorScheme.onSurfaceVariant,
@@ -215,9 +219,11 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
       // so the user can't go "back" to the creation form.
       context.go('/chats/$groupId');
     } else if (_controller.error != null && mounted) {
+      // The controller's error is raw exception text meant for developers;
+      // the user gets a localized, actionable line instead.
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(_controller.error!)));
+      ).showSnackBar(SnackBar(content: Text(context.l10n.groupCreateFailed)));
     }
   }
 }

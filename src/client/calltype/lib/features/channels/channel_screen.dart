@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/storage/database.dart';
+import '../../l10n/l10n.dart';
 import 'channel_notice.dart';
 import 'channels_controller.dart';
 
@@ -22,30 +23,35 @@ Future<void> reportChannelDialog(
 }) async {
   final controller = context.read<ChannelsController>();
   final messenger = ScaffoldMessenger.of(context);
+  final l10n = context.l10n;
   // Plain variable, not a TextEditingController: a controller would have to
   // be disposed while the dialog's exit animation still uses it.
   var typed = '';
   final reason = await showDialog<String>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      title: Text(postId == null ? 'Report channel' : 'Report post'),
+      title: Text(
+        postId == null ? l10n.channelReportChannel : l10n.channelReportPost,
+      ),
       content: TextField(
         onChanged: (v) => typed = v,
         autofocus: true,
         maxLength: 500,
-        decoration: const InputDecoration(
-          labelText: 'What is wrong?',
-          helperText: 'The channel admins will not learn who reported.',
+        decoration: InputDecoration(
+          labelText: l10n.channelReportReasonLabel,
+          helperText: l10n.channelReportReasonHelper,
+          // Translations are longer than the English line.
+          helperMaxLines: 3,
         ),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(),
-          child: const Text('Cancel'),
+          child: Text(l10n.commonCancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(dialogContext).pop(typed.trim()),
-          child: const Text('Report'),
+          child: Text(l10n.channelReportSubmit),
         ),
       ],
     ),
@@ -53,10 +59,12 @@ Future<void> reportChannelDialog(
   if (reason == null || reason.isEmpty) return;
   try {
     await controller.report(channelId, reason, postId: postId);
-    messenger.showSnackBar(const SnackBar(content: Text('Report sent.')));
+    messenger.showSnackBar(SnackBar(content: Text(l10n.channelReportSent)));
   } catch (error) {
     // Notably the daily report budget (429 report_limit_reached).
-    messenger.showSnackBar(SnackBar(content: Text(channelErrorMessage(error))));
+    messenger.showSnackBar(
+      SnackBar(content: Text(channelErrorMessage(l10n, error))),
+    );
   }
 }
 
@@ -102,7 +110,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Older posts could not be loaded.')),
+          SnackBar(content: Text(context.l10n.channelLoadOlderFailed)),
         );
       }
     }
@@ -115,10 +123,11 @@ class _ChannelScreenState extends State<ChannelScreen> {
     final channel = context.select<ChannelsController, Channel?>(
       (c) => c.channel(widget.channelId),
     );
+    final l10n = context.l10n;
     if (channel == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Channel')),
-        body: const Center(child: Text('This channel is not available.')),
+        appBar: AppBar(title: Text(l10n.channelTitle)),
+        body: Center(child: Text(l10n.channelNotAvailable)),
       );
     }
     final canPublish = channel.role != null;
@@ -128,7 +137,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.info_outline_rounded),
-            tooltip: 'Channel info',
+            tooltip: l10n.channelInfo,
             onPressed: () => context.push(
               '/channels/profile/${Uri.encodeComponent(channel.handle)}',
             ),
@@ -144,7 +153,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
               builder: (context, snapshot) {
                 final posts = snapshot.data ?? const <ChannelPost>[];
                 if (posts.isEmpty) {
-                  return const Center(child: Text('No posts yet.'));
+                  return Center(child: Text(l10n.channelNoPosts));
                 }
                 // reverse + builder: opens scrolled to the newest post and
                 // only builds visible items; per-post keys keep widget state
@@ -157,7 +166,7 @@ class _ChannelScreenState extends State<ChannelScreen> {
                     if (index == posts.length) {
                       return TextButton(
                         onPressed: _loadOlder,
-                        child: const Text('Load older posts'),
+                        child: Text(l10n.channelLoadOlder),
                       );
                     }
                     final post = posts[posts.length - 1 - index];
@@ -187,6 +196,7 @@ class _PostCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.read<ChannelsController>();
     final theme = Theme.of(context);
+    final l10n = context.l10n;
     final poll = post.kind == 'poll' ? ChannelPoll.tryParse(post.body) : null;
     final reactions = (jsonDecode(post.reactions) as Map)
         .cast<String, dynamic>();
@@ -194,7 +204,7 @@ class _PostCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+        padding: const EdgeInsetsDirectional.fromSTEB(12, 8, 4, 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -207,7 +217,7 @@ class _PostCard extends StatelessWidget {
               _PollView(post: post, poll: poll)
             else if (post.body.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.only(right: 8, top: 4),
+                padding: const EdgeInsetsDirectional.only(end: 8, top: 4),
                 child: SelectableText(post.body),
               ),
             Row(
@@ -231,13 +241,13 @@ class _PostCard extends StatelessWidget {
                 ),
                 if (created != null)
                   Text(
-                    DateFormat.MMMd().add_Hm().format(created),
+                    DateFormat.MMMd(l10n.localeName).add_Hm().format(created),
                     style: theme.textTheme.labelSmall,
                   ),
                 // Only the six whitelisted emoji — anything else is a 422.
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.add_reaction_outlined, size: 20),
-                  tooltip: 'React',
+                  tooltip: l10n.channelReact,
                   onSelected: (emoji) =>
                       _guard(context, () => controller.react(post, emoji)),
                   itemBuilder: (_) => [
@@ -247,7 +257,7 @@ class _PostCard extends StatelessWidget {
                 ),
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert_rounded, size: 20),
-                  tooltip: 'Post options',
+                  tooltip: l10n.channelPostOptions,
                   onSelected: (action) => action == 'report'
                       ? reportChannelDialog(
                           context,
@@ -262,14 +272,14 @@ class _PostCard extends StatelessWidget {
                           ),
                         ),
                   itemBuilder: (_) => [
-                    const PopupMenuItem(
+                    PopupMenuItem(
                       value: 'report',
-                      child: Text('Report post'),
+                      child: Text(l10n.channelReportPost),
                     ),
                     if (canDelete)
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'delete',
-                        child: Text('Delete post'),
+                        child: Text(l10n.channelDeletePost),
                       ),
                   ],
                 ),
@@ -289,10 +299,14 @@ Future<void> _guard(
   Future<void> Function() action,
 ) async {
   final messenger = ScaffoldMessenger.of(context);
+  // Captured before the await — the context may be unmounted afterwards.
+  final l10n = context.l10n;
   try {
     await action();
   } catch (error) {
-    messenger.showSnackBar(SnackBar(content: Text(channelErrorMessage(error))));
+    messenger.showSnackBar(
+      SnackBar(content: Text(channelErrorMessage(l10n, error))),
+    );
   }
 }
 
@@ -315,14 +329,14 @@ class _PostImageState extends State<_PostImage> {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(right: 8, bottom: 4),
+    padding: const EdgeInsetsDirectional.only(end: 8, bottom: 4),
     child: FutureBuilder<Uint8List>(
       future: _bytes,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return const ListTile(
-            leading: Icon(Icons.broken_image_outlined),
-            title: Text('Image could not be loaded.'),
+          return ListTile(
+            leading: const Icon(Icons.broken_image_outlined),
+            title: Text(context.l10n.channelImageFailed),
           );
         }
         final bytes = snapshot.data;
@@ -363,7 +377,7 @@ class _PollView extends StatelessWidget {
     final total = votes.fold(0, (sum, v) => sum + v);
     final showResults = post.myVote != null || poll.closed;
     return Padding(
-      padding: const EdgeInsets.only(right: 8, top: 4),
+      padding: const EdgeInsetsDirectional.only(end: 8, top: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -387,7 +401,10 @@ class _PollView extends StatelessWidget {
                     : () => _guard(context, () => controller.vote(post, i)),
               ),
           if (poll.closed)
-            Text('Poll closed', style: Theme.of(context).textTheme.labelSmall),
+            Text(
+              context.l10n.channelPollClosed,
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
         ],
       ),
     );
@@ -419,7 +436,11 @@ class _PollResult extends StatelessWidget {
               Expanded(child: Text(label)),
               if (mine) const Icon(Icons.check_circle_rounded, size: 16),
               const SizedBox(width: 4),
-              Text('${(share * 100).round()} %'),
+              Text(
+                NumberFormat.percentPattern(
+                  context.l10n.localeName,
+                ).format(share),
+              ),
             ],
           ),
           LinearProgressIndicator(value: share),
@@ -487,24 +508,26 @@ class _ComposeBarState extends State<_ComposeBar> {
     // Plain variables instead of controllers — see reportChannelDialog.
     var question = '';
     var options = '';
+    final l10n = context.l10n;
     final poll = await showDialog<ChannelPoll>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('New poll'),
+        title: Text(l10n.channelNewPoll),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               onChanged: (v) => question = v,
-              decoration: const InputDecoration(labelText: 'Question'),
+              decoration: InputDecoration(labelText: l10n.channelPollQuestion),
             ),
             TextField(
               onChanged: (v) => options = v,
               minLines: 2,
               maxLines: 6,
-              decoration: const InputDecoration(
-                labelText: 'Options',
-                helperText: 'One option per line, at least two.',
+              decoration: InputDecoration(
+                labelText: l10n.channelPollOptions,
+                helperText: l10n.channelPollOptionsHelper,
+                helperMaxLines: 3,
               ),
             ),
           ],
@@ -512,7 +535,7 @@ class _ComposeBarState extends State<_ComposeBar> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cancel'),
+            child: Text(l10n.commonCancel),
           ),
           FilledButton(
             onPressed: () {
@@ -525,7 +548,7 @@ class _ComposeBarState extends State<_ComposeBar> {
                 dialogContext,
               ).pop(ChannelPoll(question: question.trim(), options: lines));
             },
-            child: const Text('Publish'),
+            child: Text(l10n.channelPublish),
           ),
         ],
       ),
@@ -546,12 +569,12 @@ class _ComposeBarState extends State<_ComposeBar> {
         children: [
           IconButton(
             icon: const Icon(Icons.image_outlined),
-            tooltip: 'Post image (max 2 MiB)',
+            tooltip: context.l10n.channelPostImage,
             onPressed: _busy ? null : _sendImage,
           ),
           IconButton(
             icon: const Icon(Icons.poll_outlined),
-            tooltip: 'Post poll',
+            tooltip: context.l10n.channelPostPoll,
             onPressed: _busy ? null : _sendPoll,
           ),
           Expanded(
@@ -560,15 +583,15 @@ class _ComposeBarState extends State<_ComposeBar> {
               minLines: 1,
               maxLines: 4,
               maxLength: 4096,
-              decoration: const InputDecoration(
-                hintText: 'Public post — not encrypted',
+              decoration: InputDecoration(
+                hintText: context.l10n.channelComposeHint,
                 counterText: '',
               ),
             ),
           ),
           IconButton(
             icon: const Icon(Icons.send_rounded),
-            tooltip: 'Publish',
+            tooltip: context.l10n.channelPublish,
             onPressed: _busy ? null : _sendText,
           ),
         ],

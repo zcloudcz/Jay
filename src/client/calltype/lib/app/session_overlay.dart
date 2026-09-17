@@ -3,7 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/auth/app_lock.dart';
 import '../core/network/webrtc_manager.dart';
+import '../l10n/l10n.dart';
 import 'router.dart';
+
+/// Why unlocking failed. Kept as a code (not text) so the message follows the
+/// current locale and is built where a BuildContext exists.
+enum _LockError { storageUnavailable, rejected, unavailable }
 
 /// Keeps call invitations and the local privacy lock active across routes.
 class SessionOverlay extends StatefulWidget {
@@ -19,7 +24,7 @@ class _SessionOverlayState extends State<SessionOverlay>
   bool _checking = true;
   bool _locked = false;
   bool _callOpen = false;
-  String? _error;
+  _LockError? _error;
   late WebRTCManager _calls;
   @override
   void initState() {
@@ -44,7 +49,7 @@ class _SessionOverlayState extends State<SessionOverlay>
         setState(() {
           _checking = false;
           _locked = true;
-          _error = 'Secure storage is unavailable. Try unlocking again.';
+          _error = _LockError.storageUnavailable;
         });
       }
     }
@@ -78,9 +83,11 @@ class _SessionOverlayState extends State<SessionOverlay>
   Future<void> _unlock({bool biometric = false}) async {
     try {
       final lock = context.read<AppLock>();
+      // Read before the first await: the OS prompt shows this reason.
+      final reason = context.l10n.lockUnlockTitle;
       final accepted = biometric
           ? await lock.isBiometricEnabled() &&
-                await lock.authenticateWithBiometrics()
+                await lock.authenticateWithBiometrics(reason: reason)
           : await lock.verifyPin(_pin.text);
       if (!mounted) return;
       if (accepted) {
@@ -91,16 +98,17 @@ class _SessionOverlayState extends State<SessionOverlay>
         });
         _callChanged();
       } else {
-        setState(() => _error = 'Could not unlock. Try again.');
+        setState(() => _error = _LockError.rejected);
       }
     } catch (_) {
-      if (mounted) setState(() => _error = 'Unlock is unavailable. Try again.');
+      if (mounted) setState(() => _error = _LockError.unavailable);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     if (!_checking && !_locked) return widget.child;
+    final l10n = context.l10n;
     return Material(
       child: SafeArea(
         child: Center(
@@ -115,25 +123,32 @@ class _SessionOverlayState extends State<SessionOverlay>
                       children: [
                         const Icon(Icons.lock_outline, size: 48),
                         const SizedBox(height: 16),
-                        const Text('Unlock Jay'),
+                        Text(l10n.lockUnlockTitle),
                         TextField(
                           controller: _pin,
                           obscureText: true,
                           keyboardType: TextInputType.number,
                           maxLength: 6,
                           decoration: InputDecoration(
-                            labelText: 'PIN',
-                            errorText: _error,
+                            labelText: l10n.lockPinLabel,
+                            errorText: switch (_error) {
+                              null => null,
+                              _LockError.storageUnavailable =>
+                                l10n.lockErrorStorageUnavailable,
+                              _LockError.rejected => l10n.lockErrorRejected,
+                              _LockError.unavailable =>
+                                l10n.lockErrorUnavailable,
+                            },
                           ),
                           onSubmitted: (_) => _unlock(),
                         ),
                         FilledButton(
                           onPressed: _unlock,
-                          child: const Text('Unlock'),
+                          child: Text(l10n.lockUnlockButton),
                         ),
                         TextButton(
                           onPressed: () => _unlock(biometric: true),
-                          child: const Text('Use biometrics'),
+                          child: Text(l10n.lockUseBiometrics),
                         ),
                       ],
                     ),

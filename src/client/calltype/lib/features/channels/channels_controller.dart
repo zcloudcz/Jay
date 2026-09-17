@@ -9,42 +9,50 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/storage/database.dart';
+import '../../l10n/l10n.dart';
 
 /// Thrown when a blocked channel is opened from a link / QR code. Blocking
 /// is client-side only, so this check IS the block — it must not be skipped.
 class ChannelBlockedException implements Exception {
   const ChannelBlockedException(this.handle);
   final String handle;
+}
+
+/// A publish rejected on the device before any upload. Carries the same
+/// `code` the server would answer with, so [channelErrorMessage] words the
+/// local and the server-side rejection identically.
+class ChannelValidationException implements Exception {
+  const ChannelValidationException(this.code);
+  final String code;
   @override
-  String toString() => 'This channel is blocked. Unblock it in Settings first.';
+  String toString() => 'ChannelValidationException($code)';
 }
 
 /// User-facing text for a failed channel call, from the server's
 /// `{error, code}` body. Role / non-follower 403s carry no body, so anything
 /// unknown falls back to a generic line. One place, so every channel screen
-/// words the same failure the same way.
-String channelErrorMessage(Object error) {
-  if (error is ChannelBlockedException) return '$error';
-  if (error is FormatException) return error.message;
+/// words the same failure the same way. Takes [l10n] from the calling widget
+/// — read it BEFORE an await, a BuildContext may be gone afterwards.
+String channelErrorMessage(AppLocalizations l10n, Object error) {
+  if (error is ChannelBlockedException) return l10n.channelErrorBlocked;
   final response = error is DioException ? error.response : null;
-  return switch (parseErrorCode(response?.data)) {
-    'account_required' =>
-      'A registered account is required to create a channel.',
-    'channel_limit_reached' =>
-      'You have reached the limit of channels you can own.',
-    'poll_closed' => 'This poll is closed.',
-    'emoji_not_allowed' => 'This reaction is not allowed.',
-    'invalid_option_index' || 'not_a_poll' => 'This poll option is not valid.',
-    'report_limit_reached' =>
-      'You have sent too many reports today. Try again tomorrow.',
-    'image_too_large' => 'Images can be at most 2 MiB.',
-    'unsupported_image_type' =>
-      'Only JPEG, PNG, WebP and GIF images are allowed.',
-    'post_id_conflict' => 'The post could not be published. Try again.',
+  final code = error is ChannelValidationException
+      ? error.code
+      : parseErrorCode(response?.data);
+  return switch (code) {
+    'account_required' => l10n.channelErrorAccountRequired,
+    'channel_limit_reached' => l10n.channelErrorLimitReached,
+    'poll_closed' => l10n.channelErrorPollClosed,
+    'emoji_not_allowed' => l10n.channelErrorEmojiNotAllowed,
+    'invalid_option_index' || 'not_a_poll' => l10n.channelErrorInvalidPollOption,
+    'report_limit_reached' => l10n.channelErrorReportLimit,
+    'image_too_large' => l10n.channelErrorImageTooLarge,
+    'unsupported_image_type' => l10n.channelErrorImageType,
+    'post_id_conflict' => l10n.channelErrorPostConflict,
     _ =>
       response?.statusCode == 403
-          ? 'You are not allowed to do this.'
-          : 'That did not work. Check the connection.',
+          ? l10n.channelErrorForbidden
+          : l10n.channelErrorGeneric,
   };
 }
 
@@ -381,12 +389,10 @@ class ChannelsController extends ChangeNotifier {
       // Checked here as well as on the server (413 / 415) so the user gets
       // a clear message before a pointless upload.
       if (channelImageContentType(imageName ?? '') == null) {
-        throw const FormatException(
-          'Only JPEG, PNG, WebP and GIF images are allowed.',
-        );
+        throw const ChannelValidationException('unsupported_image_type');
       }
       if (imageBytes.length > channelImageMaxBytes) {
-        throw const FormatException('Images can be at most 2 MiB.');
+        throw const ChannelValidationException('image_too_large');
       }
       blobPath = await _api.uploadChannelAttachment(
         channelId,

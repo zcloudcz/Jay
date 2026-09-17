@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../core/network/signalr_client.dart';
+import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
 import '../../shared/widgets/main_navigation_bar.dart';
@@ -18,7 +19,7 @@ class ChatListScreen extends StatefulWidget {
 
 class _ChatListScreenState extends State<ChatListScreen> {
   bool _loading = true;
-  String? _error;
+  bool _error = false;
   @override
   void initState() {
     super.initState();
@@ -34,14 +35,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = null;
+          _error = false;
         });
       }
     } catch (_) {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = 'Unable to load conversations.';
+          _error = true;
         });
       }
     }
@@ -53,9 +54,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Cannot connect. Check the network and retry.'),
-          ),
+          SnackBar(content: Text(context.l10n.chatListCannotConnect)),
         );
       }
     }
@@ -67,23 +66,24 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final contacts = context.watch<ContactsController>().contacts;
     final network = context.watch<SignalRClient>();
     final rows = controller.conversations;
+    final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Jay'),
         actions: [
           IconButton(
             icon: const Icon(Icons.group_add_outlined),
-            tooltip: 'New group',
+            tooltip: l10n.chatListNewGroup,
             onPressed: () => context.push('/groups/create'),
           ),
           IconButton(
             icon: const Icon(Icons.qr_code),
-            tooltip: 'My identity',
+            tooltip: l10n.chatListMyIdentity,
             onPressed: () => context.push('/settings/identity'),
           ),
           IconButton(
             icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Settings',
+            tooltip: l10n.settingsTitle,
             onPressed: () => context.push('/settings'),
           ),
         ],
@@ -92,22 +92,21 @@ class _ChatListScreenState extends State<ChatListScreen> {
         children: [
           if (!network.connected)
             MaterialBanner(
-              content: const Text(
-                'Offline — your history is available on this device.',
-              ),
+              content: Text(l10n.chatListOffline),
               actions: [
-                TextButton(onPressed: _connect, child: const Text('Reconnect')),
+                TextButton(onPressed: _connect, child: Text(l10n.chatListReconnect)),
               ],
             ),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
-                : _error != null || controller.error != null
+                : _error || controller.error != null
                 ? Center(
                     child: TextButton(
                       onPressed: _load,
                       child: Text(
-                        _error ?? 'Unable to load conversations. Retry',
+                        l10n.chatListLoadFailed,
+                        textAlign: TextAlign.center,
                       ),
                     ),
                   )
@@ -119,14 +118,18 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text(
-                          'No conversations yet. Add a contact to start.',
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            l10n.chatListEmpty,
+                            textAlign: TextAlign.center,
+                          ),
                         ),
                         const SizedBox(height: 16),
                         FilledButton.icon(
                           onPressed: () => context.push('/contacts'),
                           icon: const Icon(Icons.person_add_rounded),
-                          label: const Text('Add contact'),
+                          label: Text(l10n.chatListAddContact),
                         ),
                       ],
                     ),
@@ -152,15 +155,15 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         ),
                         subtitle: Text(
                           row.type == 'group'
-                              ? 'Group conversation'
-                              : 'Encrypted conversation',
+                              ? l10n.chatListGroupConversation
+                              : l10n.chatListEncryptedConversation,
                         ),
                         trailing: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             if (row.lastMessageAt != null)
                               Text(
-                                DateFormat.Hm().format(
+                                DateFormat.Hm(l10n.localeName).format(
                                   row.lastMessageAt!.toLocal(),
                                 ),
                               ),
@@ -180,9 +183,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
       bottomNavigationBar: const MainNavigationBar(current: MainTab.chats),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/contacts'),
-        tooltip: 'New chat',
+        tooltip: l10n.chatListNewChat,
         icon: const Icon(Icons.chat_rounded),
-        label: const Text('New chat'),
+        label: Text(l10n.chatListNewChat),
       ),
     );
   }

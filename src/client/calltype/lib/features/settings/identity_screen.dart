@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+
+import '../../l10n/l10n.dart';
 import '../../core/storage/secure_storage.dart';
 
 class IdentityScreen extends StatefulWidget {
@@ -33,7 +35,7 @@ class _IdentityScreenState extends State<IdentityScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('My identity')),
+    appBar: AppBar(title: Text(context.l10n.identityTitle)),
     body: Center(
       child: SingleChildScrollView(
         child: Column(
@@ -51,12 +53,12 @@ class _IdentityScreenState extends State<IdentityScreen> {
               SelectableText(_handle ?? ''),
               TextButton.icon(
                 icon: const Icon(Icons.copy),
-                label: const Text('Copy invite'),
+                label: Text(context.l10n.identityCopyInvite),
                 onPressed: () async {
                   await Clipboard.setData(ClipboardData(text: _identity!));
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Invite copied')),
+                      SnackBar(content: Text(context.l10n.identityInviteCopied)),
                     );
                   }
                 },
