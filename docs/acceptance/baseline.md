@@ -80,3 +80,9 @@ Pozn.: `Turn__StunUrls__0` stále ukazuje na `stun:187.127.83.154:3478`; Cloudfl
 | SignalR autentizovaný smoke ve workflow | NOT_RUN (dokumentovaná mezera) |
 
 Poznámky: iOS build vyžadoval zvýšení deployment target na 14.0 (`file_picker_darwin`). Repo bylo dočasně PUBLIC kvůli vyčerpaným Actions minutám pro private repo (macOS runnery); po úspěšném runu vráceno na PRIVATE — další hosted runy vyžadují spending limit nebo public repo.
+
+## Vlastní doména 2026-09-17
+
+- `https://calltype.zcloud.cz` → SWA `calltype-beta-web` (CNAME na `orange-bush-07e1b5803.6.azurestaticapps.net`, validace TXT `_dnsauth.calltype`; CNAME validace dvakrát selhala s "unknown error"). Stav Ready, spravovaný certifikát, web 200, `sqlite3.wasm` `application/wasm` — PASS.
+- API CORS: `Cors__AllowedOrigins__1=https://calltype.zcloud.cz` (slot 0 zůstává výchozí SWA hostname); preflight vrací `Access-Control-Allow-Origin` — PASS.
+- Funkční test klienta z nové domény (registrace, chat, SignalR) — NOT_RUN. Pozn.: browserová identita je vázaná na origin, takže zařízení vytvořená na `*.azurestaticapps.net` se na nové doméně neobjeví.
