@@ -1,0 +1,27 @@
+[package]
+name = "mls_core"
+version = "0.1.0"
+edition = "2021"
+# Spike only — not part of the production build, see spikes/mls/REPORT.md.
+publish = false
+
+[lib]
+# cdylib: so wasm-bindgen / flutter_rust_bridge can link this as a shared
+# object on native targets and as a .wasm module on wasm32-unknown-unknown.
+# rlib: so the Rust integration test in tests/ can link it directly.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+openmls = "0.9.0"
+openmls_basic_credential = "0.6.0"
+openmls_rust_crypto = "0.6.0"
+openmls_traits = "0.6.0"
+
+[dev-dependencies]
+
+[target.wasm32-unknown-unknown.dependencies]
+# openmls's own "js" feature wires it up to browser-provided randomness/time
+# (see openmls-0.9.0/src/lib.rs compile_error message) — required for wasm32.
+openmls = { version = "0.9.0", features = ["js"] }
+getrandom02 = { version = "0.2", package = "getrandom", features = ["js"] }
+getrandom04 = { version = "0.4", package = "getrandom", features = ["wasm_js"] }
