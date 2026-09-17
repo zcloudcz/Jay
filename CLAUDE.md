@@ -24,12 +24,12 @@ A WhatsApp-like messaging app with strong privacy:
 | **Backend API** | ASP.NET Core 10 minimal API (net10.0) |
 | **Real-time** | SignalR (WebSocket) |
 | **Database (server)** | PostgreSQL via EF Core (Npgsql) |
-| **Database (client)** | SQLite + SQLCipher via drift |
+| **Database (client)** | SQLite via drift (plaintext under OS/browser protection — **not** SQLCipher yet; web uses sqlite3 WASM + drift worker) |
 | **E2EE** | Signal Protocol in pure Dart (`cryptography` package): X3DH + full Double Ratchet, X25519 + HKDF + AES-256-GCM |
 | **Voice/Video** | WebRTC (`flutter_webrtc`) |
 | **STUN/TURN** | Pluggable via `Turn:Provider`: `cloudflare` (Cloudflare TURN, credentials minted by API — beta default) or `shared-secret` (self-hosted coturn / DeskShare.Turn from `C:\GIT\ZCLOUD\RemoteDesktopNet`) |
 | **File storage** | Azure Blob Storage (encrypted attachments + backups) |
-| **Hosting** | Azure Container Apps |
+| **Hosting** | Azure App Service Linux B1, **exactly one instance** (API + SignalR) · Static Web Apps Free (Flutter web, `https://calltype.zcloud.cz`) · PostgreSQL on an external server · private Blob Storage |
 | **Push** | FCM HTTP v1 (Android/Web) + APNs (iOS — not implemented yet) |
 
 ## Project structure
@@ -54,7 +54,7 @@ CallType/
 │       └── lib/
 │           ├── core/crypto/                    # E2EE (pure Dart, `cryptography` pkg)
 │           ├── core/network/                   # API client, SignalR, WebRTC
-│           ├── core/storage/                   # SQLCipher DB, secure storage
+│           ├── core/storage/                   # drift SQLite DB, secure storage
 │           ├── features/                       # Feature-first UI modules
 │           └── shared/                         # Reusable widgets, models
 └── CallType.sln
@@ -113,7 +113,8 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 
 | Endpoint | Purpose | Status |
 |----------|---------|--------|
-| `GET /health` | Health check | ✅ Done |
+| `GET /health` | Liveness (200 while the process is up) | ✅ Done |
+| `GET /health/ready` | Readiness: PostgreSQL + Blob reachable, else 503 | ✅ Done |
 | `POST /devices` | Register device + upload keys | ✅ Done |
 | `GET /devices/{id}/key-bundle` | Fetch key bundle for X3DH | ✅ Done |
 | `POST /accounts` | Register account (Argon2id) | ✅ Done |
@@ -126,6 +127,7 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `DELETE /groups/{id}/members/{id}` | Remove member | ✅ Done |
 | `POST /backups` | Upload backup metadata | ✅ Done |
 | `GET /backups/{accountId}` | List backups | ✅ Done |
+| `DELETE /backups/{accountId}/{backupId}` | Free a backup slot (quota: 3 per account, 8 MiB each, 256 MiB total) | ✅ Done |
 | `GET /turn/credentials` | Time-limited TURN credentials | ✅ Done |
 | `SignalR /hub` | Message relay, typing, call signaling | ✅ Done |
 
@@ -162,8 +164,14 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
    for self-hosted coturn / DeskShare.Turn from RemoteDesktopNet). The client
    response shape is identical; DTLS-SRTP keeps media end-to-end encrypted
    regardless of who relays it.
-6. **Azure Container Apps** (not Functions) — persistent WebSocket connections
-   needed for SignalR. Functions have cold start + execution time limits.
+6. **Single App Service instance** (not Functions, not scaled out) — SignalR
+   needs persistent WebSockets and call/message routing is in-process memory.
+   Scaling beyond one instance needs a backplane and is a separate task. For
+   the same reason EF migrations run at startup
+   (`Database__ApplyMigrationsOnStartup=true`) — there is never a second migrator.
+7. **Production config is validated at startup** —
+   `ProductionConfigurationValidator` refuses to boot with dev secrets, a short
+   JWT secret or missing CORS origins, naming the key but never the value.
 
 ## Related projects
 
@@ -175,4 +183,15 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 ## Spec & plan
 
 - Full design spec: `docs/superpowers/specs/2026-05-28-calltype-design.md`
-- Implementation plan (26 tasks, 7 phases): `docs/superpowers/plans/2026-05-28-calltype-implementation.md`
+- Original implementation plan (26 tasks, 7 phases): `docs/superpowers/plans/2026-05-28-calltype-implementation.md`
+- **Current work — beta completion:** `docs/superpowers/plans/2026-09-16-beta-zadani.md` (+ `-kontrakty`, `-vyvoj`, `-infrastruktura`); status and evidence in `docs/acceptance/` and `docs/ops/`.
+- Next feature (not started): Channels — `docs/superpowers/plans/2026-09-16-channels.md`.
+
+## Deploy
+
+Manual, SHA-pinned GitHub Actions workflow `.github/workflows/deploy.yml`
+(`gh workflow run deploy.yml -f commit_sha=<full sha> -f confirm_backup=true`):
+tests → API + five client builds with manifests → OIDC deploy to the existing
+App Service / Static Web App → smoke. It never provisions infrastructure; IaC
+lives in `infra/beta-appservice.bicep`. `infra/main.bicep`, `infra/beta-vm.bicep`
+and `infra/beta-compose.yml` are historical and must not be deployed.
