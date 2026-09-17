@@ -46,3 +46,14 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO calltype_audit_app;
 CREATE ROLE calltype_audit_ops LOGIN PASSWORD 'REPLACE_ME_OPS';
 GRANT ALL PRIVILEGES ON DATABASE calltype_audit TO calltype_audit_ops;
 ALTER DATABASE calltype_audit OWNER TO calltype_audit_ops;
+
+-- GRANT ... ON ALL TABLES only covers tables that exist right now. Every later
+-- EF migration (run as calltype_audit_ops) creates new tables, and without
+-- default privileges the app role could not even read them.
+ALTER DEFAULT PRIVILEGES FOR ROLE calltype_audit_ops IN SCHEMA public
+    GRANT SELECT, INSERT ON TABLES TO calltype_audit_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE calltype_audit_ops IN SCHEMA public
+    GRANT USAGE ON SEQUENCES TO calltype_audit_app;
+-- The migrations history table is bookkeeping for the ops role only.
+REVOKE INSERT ON TABLE "__EFMigrationsHistory" FROM calltype_audit_app;
+

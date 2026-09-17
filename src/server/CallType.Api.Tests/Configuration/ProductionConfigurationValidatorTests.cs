@@ -225,6 +225,23 @@ public class ProductionConfigurationValidatorTests
     }
 
     [Fact]
+    public void Audit_connection_reusing_the_delivery_database_user_is_rejected()
+    {
+        // Same login role, different database and parameter order: a raw string
+        // comparison would let this through, yet a leaked Delivery credential
+        // would still open the audit archive (KB3).
+        var values = new Dictionary<string, string?>(ValidProductionConfig)
+        {
+            ["ConnectionStrings:DefaultConnection"] = "Host=db;Port=5432;Database=calltype;Username=calltype;Password=S3cure-Prod-Pass",
+            ["ConnectionStrings:Audit"] = "Password=S3cure-Prod-Pass;Username=calltype;Database=calltype_audit;Port=5432;Host=db"
+        };
+
+        var act = () => ProductionConfigurationValidator.Validate(BuildConfig(values), Env(Environments.Production));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*ConnectionStrings:Audit*");
+    }
+
+    [Fact]
     public void Audit_connection_with_separate_valid_credentials_is_accepted()
     {
         var values = new Dictionary<string, string?>(ValidProductionConfig)

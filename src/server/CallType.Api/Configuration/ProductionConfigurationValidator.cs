@@ -20,6 +20,20 @@ public static class ProductionConfigurationValidator
 {
     private const int MinJwtSecretLength = 32;
 
+    private static bool SameDatabaseUser(string a, string b)
+    {
+        try
+        {
+            var ua = new Npgsql.NpgsqlConnectionStringBuilder(a).Username;
+            var ub = new Npgsql.NpgsqlConnectionStringBuilder(b).Username;
+            return !string.IsNullOrEmpty(ua) && string.Equals(ua, ub, StringComparison.Ordinal);
+        }
+        catch (ArgumentException)
+        {
+            return false; // Malformed string fails later at connect with a clearer error.
+        }
+    }
+
     private static bool IsDevPostgresPassword(string connectionString)
     {
         try
@@ -66,7 +80,9 @@ public static class ProductionConfigurationValidator
             // Delivery connection must not also unlock the audit DB. Reusing
             // DefaultConnection verbatim defeats that even if the password
             // itself isn't the well-known dev default.
-            else if (dbConnection is not null && string.Equals(auditConnection, dbConnection, StringComparison.Ordinal))
+            // Comparing raw strings would miss the same role written with different
+            // formatting/parameter order, so compare the login role itself.
+            else if (dbConnection is not null && SameDatabaseUser(auditConnection, dbConnection))
                 violations.Add("ConnectionStrings:Audit");
         }
 

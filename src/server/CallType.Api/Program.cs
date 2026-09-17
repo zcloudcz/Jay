@@ -280,8 +280,24 @@ if (app.Configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup"))
     await using var scope = app.Services.CreateAsyncScope();
     await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
 
-    if (businessModeEnabled)
-        await scope.ServiceProvider.GetRequiredService<AuditDbContext>().Database.MigrateAsync();
+    // The audit APP role may only INSERT/SELECT (KB3), so it must never run
+    // DDL. Startup migration therefore uses a separate schema-owner connection
+    // (ConnectionStrings:AuditMigrations). Without it the audit schema is left
+    // to the operator (`dotnet ef database update --context AuditDbContext`)
+    // rather than quietly granting the app role DDL rights.
+    var auditMigrationsConnection = app.Configuration.GetConnectionString("AuditMigrations");
+    if (businessModeEnabled && !string.IsNullOrEmpty(auditMigrationsConnection))
+    {
+        var migrationOptions = new DbContextOptionsBuilder<AuditDbContext>()
+            .UseNpgsql(auditMigrationsConnection).Options;
+        await using var migrationContext = new AuditDbContext(migrationOptions);
+        await migrationContext.Database.MigrateAsync();
+    }
+    else if (businessModeEnabled)
+    {
+        app.Logger.LogWarning(
+            "Business mode is enabled but ConnectionStrings:AuditMigrations is not set; audit schema migrations were NOT applied at startup.");
+    }
 }
 
 app.Run();

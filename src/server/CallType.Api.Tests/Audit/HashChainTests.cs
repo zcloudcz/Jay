@@ -61,12 +61,24 @@ public class HashChainTests
     }
 
     [Fact]
-    public void Canonicalize_treats_null_fields_as_empty_string()
+    public void Canonicalize_distinguishes_null_from_empty_string()
     {
+        // If null and "" hashed the same, swapping one for the other in a stored
+        // row would not break the chain — i.e. tampering would go undetected.
         string? nullField = null;
-        var canonical = HashChain.Canonicalize([nullField]);
 
-        canonical.Should().Be(string.Empty);
+        HashChain.Canonicalize([nullField]).Should().NotBe(HashChain.Canonicalize([string.Empty]));
+    }
+
+    [Theory]
+    [InlineData("ab")]
+    [InlineData("a\0b")]
+    public void Canonicalize_rejects_values_containing_reserved_control_characters(string value)
+    {
+        // Otherwise ("ab") would canonicalize identically to ("a","b").
+        var act = () => HashChain.Canonicalize([value]);
+
+        act.Should().Throw<ArgumentException>();
     }
 
     [Fact]

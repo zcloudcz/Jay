@@ -103,8 +103,9 @@ public static class HashChain
 - `BusinessModeOptions { bool Enabled }` (`CallType.Api.Configuration`) — singleton, `Enabled = !string.IsNullOrEmpty(ConnectionStrings:Audit)`. Inject this and short-circuit with `503 business_mode_disabled` in any E01+/E04/E07 endpoint before touching `AuditDbContext` — it is only registered in DI when `Enabled` is true.
 - `AuditDbContext` registered via `AddDbContext<AuditDbContext>` only when `ConnectionStrings:Audit` is set (Npgsql).
 - Config key: `ConnectionStrings:Audit` / env `ConnectionStrings__Audit`.
+- Config key: `ConnectionStrings:AuditMigrations` / env `ConnectionStrings__AuditMigrations` — schema-owner (ops) role, used ONLY for startup migration of the audit DB when `Database:ApplyMigrationsOnStartup=true`. The app role in `ConnectionStrings:Audit` has INSERT/SELECT only and never runs DDL; without `AuditMigrations` the API logs a warning and leaves the audit schema to the operator.
 - `Database:ApplyMigrationsOnStartup` (existing key) now also runs `AuditDbContext.Database.MigrateAsync()` when business mode is enabled.
-- `ProductionConfigurationValidator` rejects (by key name only, per existing convention): the well-known dev Postgres password on `ConnectionStrings:Audit`, and `ConnectionStrings:Audit` being byte-identical to `ConnectionStrings:DefaultConnection`. Both are no-ops when `ConnectionStrings:Audit` is absent.
+- `ProductionConfigurationValidator` rejects (by key name only, per existing convention): the well-known dev Postgres password on `ConnectionStrings:Audit`, and `ConnectionStrings:Audit` using the same database login role (`Username`) as `ConnectionStrings:DefaultConnection`, regardless of formatting. Both are no-ops when `ConnectionStrings:Audit` is absent.
 
 ## Migrations — how to run them
 
@@ -177,3 +178,8 @@ at runtime.
   `AppDbContext` convention (e.g. table `"AuditRecords"`, column `"Kind"`).
   `audit-roles.sql`'s quoted identifiers assume this; keep it that way, or
   update both together.
+
+## HashChain rules added in B00 review
+
+- `Canonicalize` encodes `null` as U+0000 (distinct from `""`) and **throws `ArgumentException`** if a value contains U+001F or U+0000. Validate/sanitize free-text input (organization name, access-request reason) at the API boundary and return 422 rather than letting this surface as 500.
+- `infra/postgres/audit-roles.sql` sets `ALTER DEFAULT PRIVILEGES` so tables from later migrations are readable/insertable by the app role; migrations must therefore be run as `calltype_audit_ops`.
