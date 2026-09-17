@@ -54,6 +54,22 @@ public static class ProductionConfigurationValidator
         if (dbConnection is not null && IsDevPostgresPassword(dbConnection))
             violations.Add("ConnectionStrings:DefaultConnection");
 
+        // Audit connection is only checked if configured at all — Business mode
+        // is opt-in (BusinessModeOptions), so an anonymous-only deployment must
+        // not be forced to set it just to pass this validator.
+        var auditConnection = configuration.GetConnectionString("Audit");
+        if (!string.IsNullOrEmpty(auditConnection))
+        {
+            if (IsDevPostgresPassword(auditConnection))
+                violations.Add("ConnectionStrings:Audit");
+            // Separate credentials are the whole point (KB3): a compromised
+            // Delivery connection must not also unlock the audit DB. Reusing
+            // DefaultConnection verbatim defeats that even if the password
+            // itself isn't the well-known dev default.
+            else if (dbConnection is not null && string.Equals(auditConnection, dbConnection, StringComparison.Ordinal))
+                violations.Add("ConnectionStrings:Audit");
+        }
+
         var blobConnection = configuration.GetConnectionString("BlobStorage");
         if (blobConnection is not null &&
             blobConnection.Contains("UseDevelopmentStorage=true", StringComparison.OrdinalIgnoreCase))

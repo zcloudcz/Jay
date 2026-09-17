@@ -27,6 +27,14 @@ public class Group
 
     public DateTimeOffset CreatedAt { get; set; }
 
+    /// <summary>
+    /// Null for anonymous groups (the vast majority — never changes). Set only
+    /// for a business group owned by an organization (plan §1); Delivery knows
+    /// organizations only by this id — no FK into the separate Audit database
+    /// (KB3: the two databases stay independent, different credentials).
+    /// </summary>
+    public Guid? OrganizationId { get; set; }
+
     // Navigation property
     public List<GroupMember> Members { get; set; } = [];
 }

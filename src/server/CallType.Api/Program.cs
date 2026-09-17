@@ -22,6 +22,7 @@ using CallType.Api.Data;
 using CallType.Api.Endpoints;
 using CallType.Api.Hubs;
 using CallType.Api.Services;
+using CallType.Audit.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -107,6 +108,20 @@ builder.Services.AddScoped<ChannelService>();
 // is thread-safe and maintains an internal connection pool.
 builder.Services.AddSingleton(_ =>
     new BlobServiceClient(builder.Configuration.GetConnectionString("BlobStorage")));
+
+// Business mode (organizations + audit archive, docs/superpowers/plans/2026-09-18-business-mode.md)
+// is entirely optional: it activates only when ConnectionStrings:Audit is
+// configured. Without it, the anonymous product must keep working completely
+// unchanged — later packages (E01+) check BusinessModeOptions.Enabled and
+// return 503 instead of assuming AuditDbContext exists.
+var auditConnectionString = builder.Configuration.GetConnectionString("Audit");
+var businessModeEnabled = !string.IsNullOrEmpty(auditConnectionString);
+builder.Services.AddSingleton(new BusinessModeOptions { Enabled = businessModeEnabled });
+if (businessModeEnabled)
+{
+    builder.Services.AddDbContext<AuditDbContext>(options =>
+        options.UseNpgsql(auditConnectionString));
+}
 
 // ReadinessService backs GET /health/ready — scoped because it depends on the
 // scoped AppDbContext (same lifetime rule as MessageQueueService above).
@@ -264,6 +279,9 @@ if (app.Configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup"))
 {
     await using var scope = app.Services.CreateAsyncScope();
     await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+
+    if (businessModeEnabled)
+        await scope.ServiceProvider.GetRequiredService<AuditDbContext>().Database.MigrateAsync();
 }
 
 app.Run();

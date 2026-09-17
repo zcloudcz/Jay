@@ -184,6 +184,61 @@ public class ProductionConfigurationValidatorTests
     }
 
     [Fact]
+    public void Missing_audit_connection_does_not_block_startup()
+    {
+        // Business mode is opt-in — an anonymous-only deployment must not be
+        // forced to configure ConnectionStrings:Audit.
+        var config = BuildConfig(ValidProductionConfig);
+        var act = () => ProductionConfigurationValidator.Validate(config, Env(Environments.Production));
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Audit_connection_with_dev_password_is_rejected()
+    {
+        var values = new Dictionary<string, string?>(ValidProductionConfig)
+        {
+            ["ConnectionStrings:Audit"] = "Host=db;Port=5432;Database=calltype_audit;Username=calltype_audit;Password=postgres"
+        };
+        var config = BuildConfig(values);
+
+        var act = () => ProductionConfigurationValidator.Validate(config, Env(Environments.Production));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*ConnectionStrings:Audit*");
+    }
+
+    [Fact]
+    public void Audit_connection_identical_to_default_connection_is_rejected()
+    {
+        // Separate credentials are the whole point of KB3 — reusing the
+        // Delivery connection string defeats the blast-radius isolation even
+        // when the password isn't the well-known dev default.
+        var values = new Dictionary<string, string?>(ValidProductionConfig)
+        {
+            ["ConnectionStrings:Audit"] = ValidProductionConfig["ConnectionStrings:DefaultConnection"]
+        };
+        var config = BuildConfig(values);
+
+        var act = () => ProductionConfigurationValidator.Validate(config, Env(Environments.Production));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*ConnectionStrings:Audit*");
+    }
+
+    [Fact]
+    public void Audit_connection_with_separate_valid_credentials_is_accepted()
+    {
+        var values = new Dictionary<string, string?>(ValidProductionConfig)
+        {
+            ["ConnectionStrings:Audit"] = "Host=audit-db;Port=5432;Database=calltype_audit;Username=calltype_audit;Password=S3cure-Audit-Pass"
+        };
+        var config = BuildConfig(values);
+
+        var act = () => ProductionConfigurationValidator.Validate(config, Env(Environments.Production));
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
     public void Missing_firebase_config_does_not_block_startup()
     {
         // Push:FcmServiceAccountJson intentionally absent — Firebase is optional.

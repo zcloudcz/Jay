@@ -25,6 +25,10 @@ services:
       - Cors__AllowedOrigins__1=http://127.0.0.1:8090
       # Connection to the postgres service by container name (Docker DNS).
       - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=calltype;Username=calltype;Password=calltype_dev_password
+      # Business mode (organizations + audit archive) — separate database and
+      # role, per KB3. Presence of this variable is what turns business mode
+      # on (BusinessModeOptions); leave it unset to run anonymous-only.
+      - ConnectionStrings__Audit=Host=db;Port=5432;Database=calltype_audit;Username=calltype_audit;Password=calltype_audit_dev_password
       # Azurite connection string — uses the well-known development account key
       # with the azurite hostname resolved by Docker DNS.
       - ConnectionStrings__BlobStorage=DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1
@@ -46,6 +50,12 @@ services:
       POSTGRES_PASSWORD: calltype_dev_password
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Creates the second (Audit) database + its own dev role on first boot.
+      # See infra/postgres/audit-roles.sql for the production role split this
+      # local setup deliberately does NOT replicate (local dev has no
+      # attacker model; that script is exercised instead by the integration
+      # test fixture against a disposable Testcontainers database).
+      - ./infra/postgres/init-audit-db.sh:/docker-entrypoint-initdb.d/init-audit-db.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U calltype"]
       interval: 5s
