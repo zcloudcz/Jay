@@ -45,7 +45,9 @@ public class DatabaseSchemaTests : IntegrationTestBase
         var expectedTables = new[]
         {
             "AccountDevices", "Accounts", "Backups", "Devices",
-            "GroupMembers", "Groups", "OneTimePreKeys", "QueuedMessages"
+            "GroupMembers", "Groups", "OneTimePreKeys", "QueuedMessages",
+            "Channels", "ChannelAdmins", "ChannelPosts", "ChannelFollowers",
+            "ChannelReactions", "ChannelPollVotes", "ChannelReports"
         };
 
         foreach (var table in expectedTables)

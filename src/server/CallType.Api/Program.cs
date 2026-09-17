@@ -93,6 +93,13 @@ builder.Services.Configure<CallType.Api.Configuration.BackupLimitsOptions>(
 builder.Services.AddScoped<BackupStorageService>();
 builder.Services.AddHostedService<BackupCleanupService>();
 
+// Public channels — limits and retention, see ChannelsOptions for defaults.
+// ChannelPostCleanupService hard-deletes posts (and their images) older than
+// Channels:PostRetentionDays; it is the only place retention is enforced.
+builder.Services.Configure<ChannelsOptions>(
+    builder.Configuration.GetSection(ChannelsOptions.SectionName));
+builder.Services.AddHostedService<ChannelPostCleanupService>();
+
 // BlobServiceClient for Azure Blob Storage — used by backup endpoints to upload
 // and download encrypted backup files. Registered as singleton because the client
 // is thread-safe and maintains an internal connection pool.
