@@ -188,6 +188,7 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 - Original implementation plan (26 tasks, 7 phases): `docs/superpowers/plans/2026-05-28-calltype-implementation.md`
 - **Current work — beta completion:** `docs/superpowers/plans/2026-09-16-beta-zadani.md` (+ `-kontrakty`, `-vyvoj`, `-infrastruktura`); status and evidence in `docs/acceptance/` and `docs/ops/`.
 - Next feature (not started): Channels — `docs/superpowers/plans/2026-09-16-channels.md`.
+- Next feature (not started): Bots as E2E clients, first bot = Hermes Agent — `docs/superpowers/plans/2026-09-17-bots.md`.
 
 ## Deploy
 
