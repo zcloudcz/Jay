@@ -55,3 +55,8 @@ MEMORY.md
 !.env.example
 artifacts/
 TestResults/
+
+## Dart bots: bin/ holds SOURCE entry points there (the .NET rule above
+## would hide them); build/ is `dart build cli` output.
+!src/bots/*/bin/
+src/bots/*/build/

@@ -1,0 +1,16 @@
+name: calltype_bot
+description: "Headless CallType (Jay) bot runtime: an ordinary E2E device driven by a message handler. Pure Dart, no Flutter SDK."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  calltype_core:
+    path: ../../client/calltype_core
+  drift: ^2.33.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^6.0.0
