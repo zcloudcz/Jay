@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../auth/auth_service.dart';
+import 'channel_dtos.dart';
 
 /// REST client for the CallType backend API.
 ///
@@ -180,6 +181,156 @@ class ApiClient {
       '/devices/$deviceId/push-token',
       data: {'token': token, 'platform': platform},
     );
+  }
+
+  // -- Channels ---------------------------------------------------------------
+  // Public one-way broadcast channels. Unlike everything above, channel
+  // content is plaintext on the server (NOT end-to-end encrypted). All JSON
+  // field names are kept in channel_dtos.dart — do not inline them here.
+
+  /// POST /channels — 403 when the device has no linked registered account.
+  Future<({String channelId, String handle})> createChannel(
+    String name,
+    String description,
+  ) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/channels',
+      data: createChannelBody(name, description),
+    );
+    return parseCreatedChannel(response.data!);
+  }
+
+  /// GET /channels/{idOrHandle} — public profile, never a follower list.
+  Future<ChannelInfo> getChannel(String idOrHandle) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/channels/${Uri.encodeComponent(idOrHandle)}',
+    );
+    return ChannelInfo.fromJson(response.data!);
+  }
+
+  /// GET /channels/mine — followed + administered channels with unread counts.
+  Future<List<ChannelInfo>> getMyChannels() async {
+    final response = await _dio.get<dynamic>('/channels/mine');
+    return parseList(response.data).map(ChannelInfo.fromJson).toList();
+  }
+
+  /// POST /channels/{id}/follow — idempotent.
+  Future<void> followChannel(String channelId) =>
+      _dio.post<void>('/channels/$channelId/follow');
+
+  /// DELETE /channels/{id}/follow — idempotent.
+  Future<void> unfollowChannel(String channelId) =>
+      _dio.delete<void>('/channels/$channelId/follow');
+
+  /// GET /channels/{id}/posts — [before] / [after] are UTC ISO-8601 cursors.
+  Future<List<ChannelPostDto>> getChannelPosts(
+    String channelId, {
+    String? before,
+    String? after,
+    int? limit,
+  }) async {
+    final response = await _dio.get<dynamic>(
+      '/channels/$channelId/posts',
+      queryParameters: postsQuery(before: before, after: after, limit: limit),
+    );
+    return parseList(response.data)
+        .map((json) => ChannelPostDto.fromJson(json, channelId: channelId))
+        .toList();
+  }
+
+  /// POST /channels/{id}/posts — repeating the same [postId] is a no-op on
+  /// the server, so a retry after a timeout cannot publish twice.
+  Future<void> createChannelPost(
+    String channelId, {
+    required String postId,
+    required String kind,
+    required String body,
+    String? attachmentBlobPath,
+  }) => _dio.post<void>(
+    '/channels/$channelId/posts',
+    data: createPostBody(
+      postId: postId,
+      kind: kind,
+      body: body,
+      attachmentBlobPath: attachmentBlobPath,
+    ),
+  );
+
+  /// DELETE /channels/{id}/posts/{postId} — admin soft delete (tombstone).
+  Future<void> deleteChannelPost(String channelId, String postId) =>
+      _dio.delete<void>('/channels/$channelId/posts/$postId');
+
+  /// PUT / DELETE /channels/{id}/posts/{postId}/reaction — null removes it.
+  Future<void> setChannelReaction(
+    String channelId,
+    String postId,
+    String? emoji,
+  ) {
+    final path = '/channels/$channelId/posts/$postId/reaction';
+    return emoji == null
+        ? _dio.delete<void>(path)
+        : _dio.put<void>(path, data: reactionBody(emoji));
+  }
+
+  /// PUT /channels/{id}/posts/{postId}/vote
+  Future<void> voteChannelPoll(
+    String channelId,
+    String postId,
+    int optionIndex,
+  ) => _dio.put<void>(
+    '/channels/$channelId/posts/$postId/vote',
+    data: voteBody(optionIndex),
+  );
+
+  /// POST /channels/{id}/attachments (multipart field `file`) → blob path.
+  Future<String> uploadChannelAttachment(
+    String channelId,
+    List<int> bytes,
+    String fileName,
+  ) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/channels/$channelId/attachments',
+      data: FormData.fromMap({
+        'file': MultipartFile.fromBytes(bytes, filename: fileName),
+      }),
+    );
+    return parseUploadedBlobPath(response.data!);
+  }
+
+  /// GET /channels/{id}/attachments/{name} — needs the Bearer header, so the
+  /// UI cannot simply hand the URL to an image widget.
+  Future<List<int>> getChannelAttachment(
+    String channelId,
+    String blobPath,
+  ) async {
+    // The route takes the file name; the post carries the full blob path.
+    final name = blobPath.split('/').last;
+    final response = await _dio.get<List<int>>(
+      '/channels/$channelId/attachments/${Uri.encodeComponent(name)}',
+      options: Options(responseType: ResponseType.bytes),
+    );
+    return response.data!;
+  }
+
+  /// POST /channels/{id}/report → 204. The reporter's identity is never
+  /// shown to the channel's admins.
+  Future<void> reportChannel(
+    String channelId,
+    String reason, {
+    String? postId,
+  }) => _dio.post<void>(
+    '/channels/$channelId/report',
+    data: reportBody(reason, postId: postId),
+  );
+
+  /// PUT / DELETE /channels/{id}/admins/{deviceId} — owner only.
+  Future<void> setChannelAdmin(
+    String channelId,
+    String deviceId, {
+    required bool admin,
+  }) {
+    final path = '/channels/$channelId/admins/$deviceId';
+    return admin ? _dio.put<void>(path) : _dio.delete<void>(path);
   }
 }
 

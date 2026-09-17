@@ -63,6 +63,17 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => context.push('/settings/identity'),
           ),
 
+          // -- Channels section -----------------------------------------------
+          // Blocking a channel is local to this device, so the only place
+          // to undo it has to be reachable without the (blocked) channel.
+          _SettingsTile(
+            icon: Icons.block_rounded,
+            iconColor: colorScheme.primary,
+            title: 'Blocked channels',
+            subtitle: 'Review and unblock channels',
+            onTap: () => context.push('/channels/blocked'),
+          ),
+
           const Divider(indent: 16, endIndent: 16),
 
           // -- Diagnostics section --------------------------------------------

@@ -1,0 +1,541 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:calltype_core/network/channel_dtos.dart';
+import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
+
+import '../../core/network/api_client.dart';
+import '../../core/storage/database.dart';
+
+/// Thrown when a blocked channel is opened from a link / QR code. Blocking
+/// is client-side only, so this check IS the block — it must not be skipped.
+class ChannelBlockedException implements Exception {
+  const ChannelBlockedException(this.handle);
+  final String handle;
+  @override
+  String toString() => 'This channel is blocked. Unblock it in Settings first.';
+}
+
+/// App-wide state of public channels: followed/administered channels, the
+/// local post cache, unread counts, blocking.
+///
+/// Channels are deliberately kept apart from chats: posts are PUBLIC
+/// plaintext (not end-to-end encrypted), so this controller only ever
+/// touches the `channels`, `channel_posts` and `blocked_channels` tables —
+/// never `messages` or `conversations`.
+///
+/// App-wide (started in main.dart, like the message inbox) rather than
+/// route-scoped, because hub events must be stored and counted as unread
+/// even while no channel screen is open.
+///
+/// The hub is injected as plain streams/callbacks (same style as
+/// MessageInboxService) so tests can drive it without a SignalR connection.
+class ChannelsController extends ChangeNotifier {
+  ChannelsController({
+    required AppDatabase database,
+    required ApiClient apiClient,
+    required Stream<Map<String, dynamic>> channelPosts,
+    required Stream<Map<String, dynamic>> channelDeleted,
+    required Future<void> Function() joinChannels,
+    required Future<void> Function(String channelId) leaveChannel,
+  }) : _db = database,
+       _api = apiClient,
+       _joinChannels = joinChannels,
+       _leaveChannel = leaveChannel {
+    _subscriptions = [
+      channelPosts.listen(_enqueue(_onPostEvent)),
+      channelDeleted.listen(_enqueue(_onChannelDeleted)),
+    ];
+  }
+
+  final AppDatabase _db;
+  final ApiClient _api;
+  final Future<void> Function() _joinChannels;
+  final Future<void> Function(String channelId) _leaveChannel;
+  late final List<StreamSubscription<Map<String, dynamic>>> _subscriptions;
+  bool _disposed = false;
+  static const _uuid = Uuid();
+
+  /// Posts fetched per page / on opening a feed.
+  static const pageSize = 50;
+
+  List<Channel> get channels => List.unmodifiable(_channels);
+  List<Channel> _channels = [];
+
+  List<BlockedChannel> get blocked => List.unmodifiable(_blocked);
+  List<BlockedChannel> _blocked = [];
+
+  /// Badge on the Updates tab.
+  int get totalUnread => _channels.fold(0, (sum, c) => sum + c.unreadCount);
+
+  /// The feed currently on screen: its new posts are read immediately and
+  /// must not bump the unread badge.
+  String? _openChannelId;
+
+  // Hub events are handled strictly one after another. Two copies of the
+  // same post arriving back-to-back (reconnect replay) would otherwise both
+  // pass the "already stored?" check before either insert lands, and the
+  // unread badge would count the post twice.
+  Future<void> _queue = Future.value();
+  void Function(Map<String, dynamic>) _enqueue(
+    Future<void> Function(Map<String, dynamic>) handler,
+  ) => (event) {
+    _queue = _queue.then((_) => handler(event)).catchError((Object _) {});
+  };
+
+  /// Completes when every hub event received so far has been processed.
+  @visibleForTesting
+  Future<void> get idle => _queue;
+
+  /// Loads local state. Call once at startup, before [sync].
+  Future<void> load() async {
+    _channels = await (_db.select(
+      _db.channels,
+    )..orderBy([(c) => OrderingTerm(expression: c.name)])).get();
+    _blocked = await _db.select(_db.blockedChannels).get();
+    if (!_disposed) notifyListeners();
+  }
+
+  bool isBlocked({String? channelId, String? handle}) => _blocked.any(
+    (b) =>
+        b.channelId == channelId ||
+        (handle != null && b.handle.toUpperCase() == handle.toUpperCase()),
+  );
+
+  Channel? channel(String channelId) {
+    for (final c in _channels) {
+      if (c.channelId == channelId) return c;
+    }
+    return null;
+  }
+
+  // -- Offline sync ----------------------------------------------------------
+
+  /// Catch-up after app start / reconnect.
+  ///
+  /// The server keeps NO per-follower queue for channels (a channel with
+  /// 10 000 followers would explode it), so the client pulls: one
+  /// `GET /channels/mine`, then posts only for channels that report unread
+  /// items. There is deliberately no per-channel polling loop — live posts
+  /// arrive over the hub once [_joinChannels] has subscribed the connection.
+  Future<void> sync() async {
+    final mine = await _api.getMyChannels();
+    final keep = <String>{};
+    for (final info in mine) {
+      if (isBlocked(channelId: info.channelId)) continue;
+      keep.add(info.channelId);
+      // A listed channel without a publishing role can only be listed
+      // because this device follows it, even if the flag was omitted.
+      await _upsertChannel(
+        info,
+        isFollowing: info.isFollowing || info.role == null,
+      );
+      if (info.unreadCount > 0) {
+        await _storePosts(
+          await _api.getChannelPosts(
+            info.channelId,
+            after: await _newestCursor(info.channelId),
+          ),
+        );
+      }
+    }
+    // Unfollowed on another device of the account, or deleted while offline.
+    for (final local in List.of(_channels)) {
+      if (!keep.contains(local.channelId)) await _forget(local.channelId);
+    }
+    await load();
+    // Group membership lives on the connection → renew after every connect.
+    try {
+      await _joinChannels();
+    } catch (_) {
+      // Offline again already; the next reconnect calls sync() anew.
+    }
+  }
+
+  Future<String?> _newestCursor(String channelId) async {
+    final newest =
+        await (_db.select(_db.channelPosts)
+              ..where((p) => p.channelId.equals(channelId))
+              ..orderBy([(p) => OrderingTerm.desc(p.createdAt)])
+              ..limit(1))
+            .getSingleOrNull();
+    return newest?.createdAt;
+  }
+
+  // -- Discovery / follow ----------------------------------------------------
+
+  /// Resolves a channel from a link, QR code or typed handle. Refuses
+  /// blocked channels: a block that a link could bypass would be no block.
+  Future<ChannelInfo> openByHandle(String handle) async {
+    if (isBlocked(handle: handle)) throw ChannelBlockedException(handle);
+    final info = await _api.getChannel(handle);
+    if (isBlocked(channelId: info.channelId)) {
+      throw ChannelBlockedException(handle);
+    }
+    return info;
+  }
+
+  /// Following is always an explicit user action — nothing follows a
+  /// channel automatically.
+  Future<void> follow(ChannelInfo info) async {
+    if (isBlocked(channelId: info.channelId)) {
+      throw ChannelBlockedException(info.handle);
+    }
+    await _api.followChannel(info.channelId);
+    await _upsertChannel(info, isFollowing: true);
+    await load();
+    try {
+      await _joinChannels();
+    } catch (_) {}
+    await refresh(info.channelId);
+  }
+
+  Future<void> unfollow(String channelId) async {
+    await _api.unfollowChannel(channelId);
+    await _stopLocally(channelId);
+  }
+
+  /// Local part of unfollow. An owner/admin keeps the channel listed (they
+  /// still have to manage it); a plain follower's copy is removed.
+  Future<void> _stopLocally(String channelId) async {
+    if (channel(channelId)?.role == null) {
+      try {
+        await _leaveChannel(channelId);
+      } catch (_) {}
+      await _forget(channelId);
+    } else {
+      await (_db.update(_db.channels)
+            ..where((c) => c.channelId.equals(channelId)))
+          .write(const ChannelsCompanion(isFollowing: Value(false)));
+    }
+    await load();
+  }
+
+  // -- Block (client-side only, plan §7.5) -----------------------------------
+
+  /// Unfollow + remember locally. The server is never told about the block.
+  /// Unfollow is best effort: blocking must also work offline, and
+  /// [_onPostEvent] drops posts of blocked channels regardless.
+  Future<void> block({
+    required String channelId,
+    required String handle,
+    required String name,
+  }) async {
+    await _db
+        .into(_db.blockedChannels)
+        .insertOnConflictUpdate(
+          BlockedChannelsCompanion.insert(
+            channelId: channelId,
+            handle: handle,
+            name: name,
+            blockedAt: DateTime.now(),
+          ),
+        );
+    try {
+      await _api.unfollowChannel(channelId);
+    } catch (_) {}
+    try {
+      await _leaveChannel(channelId);
+    } catch (_) {}
+    await _forget(channelId);
+    await load();
+  }
+
+  Future<void> unblock(String channelId) async {
+    await (_db.delete(
+      _db.blockedChannels,
+    )..where((b) => b.channelId.equals(channelId))).go();
+    await load();
+  }
+
+  Future<void> report(String channelId, String reason, {String? postId}) =>
+      _api.reportChannel(channelId, reason, postId: postId);
+
+  // -- Feed ------------------------------------------------------------------
+
+  /// Oldest first — the feed shows the newest post at the bottom.
+  Stream<List<ChannelPost>> watchPosts(String channelId) =>
+      (_db.select(_db.channelPosts)
+            ..where((p) => p.channelId.equals(channelId))
+            ..orderBy([(p) => OrderingTerm.asc(p.createdAt)]))
+          .watch();
+
+  /// Marks the feed as on screen and read. Pass null when leaving it.
+  Future<void> setOpenChannel(String? channelId) async {
+    _openChannelId = channelId;
+    if (channelId == null) return;
+    await (_db.update(_db.channels)
+          ..where((c) => c.channelId.equals(channelId)))
+        .write(const ChannelsCompanion(unreadCount: Value(0)));
+    await load();
+  }
+
+  /// One fetch of the newest page when a feed is opened: refreshes reaction
+  /// and vote totals, which are not pushed over the hub.
+  Future<void> refresh(String channelId) async => _storePosts(
+    await _api.getChannelPosts(channelId, limit: pageSize),
+    overwrite: true,
+  );
+
+  /// Loads one page of history above the oldest cached post.
+  /// Returns false when there is nothing older.
+  Future<bool> loadOlder(String channelId) async {
+    final oldest =
+        await (_db.select(_db.channelPosts)
+              ..where((p) => p.channelId.equals(channelId))
+              ..orderBy([(p) => OrderingTerm.asc(p.createdAt)])
+              ..limit(1))
+            .getSingleOrNull();
+    final page = await _api.getChannelPosts(
+      channelId,
+      before: oldest?.createdAt,
+      limit: pageSize,
+    );
+    await _storePosts(page, overwrite: true);
+    return page.length >= pageSize;
+  }
+
+  // -- Publishing (owner / admin) ---------------------------------------------
+
+  /// Publishes a post. For an image, [imageBytes] is uploaded first.
+  ///
+  /// The post id is generated HERE so a retry after a lost response cannot
+  /// publish twice (the server treats a repeated id as a no-op) and so the
+  /// hub echo of our own post is recognised as a duplicate.
+  Future<void> publish(
+    String channelId, {
+    required String kind,
+    required String body,
+    Uint8List? imageBytes,
+    String? imageName,
+  }) async {
+    String? blobPath;
+    if (imageBytes != null) {
+      if (imageBytes.length > channelImageMaxBytes) {
+        throw const FormatException('Images can be at most 2 MiB.');
+      }
+      blobPath = await _api.uploadChannelAttachment(
+        channelId,
+        imageBytes,
+        imageName ?? 'image',
+      );
+    }
+    final postId = _uuid.v4();
+    await _api.createChannelPost(
+      channelId,
+      postId: postId,
+      kind: kind,
+      body: body,
+      attachmentBlobPath: blobPath,
+    );
+    await _storePosts([
+      ChannelPostDto(
+        channelId: channelId,
+        postId: postId,
+        kind: kind,
+        body: body,
+        attachmentBlobPath: blobPath,
+        createdAt: DateTime.now().toUtc(),
+      ),
+    ]);
+  }
+
+  /// Admin delete. Followers receive a tombstone event; locally the row is
+  /// simply removed.
+  Future<void> deletePost(String channelId, String postId) async {
+    await _api.deleteChannelPost(channelId, postId);
+    await _deletePost(postId);
+  }
+
+  Future<Uint8List> loadAttachment(String channelId, String blobPath) async =>
+      Uint8List.fromList(await _api.getChannelAttachment(channelId, blobPath));
+
+  // -- Reactions / polls -----------------------------------------------------
+
+  /// Sets, changes or (same emoji again) removes this device's reaction.
+  /// Totals are adjusted locally; the next [refresh] brings server truth.
+  Future<void> react(ChannelPost post, String emoji) async {
+    final next = post.myReaction == emoji ? null : emoji;
+    await _api.setChannelReaction(post.channelId, post.postId, next);
+    final counts = (jsonDecode(post.reactions) as Map).map(
+      (k, v) => MapEntry(k as String, (v as num).toInt()),
+    );
+    final previous = post.myReaction;
+    if (previous != null) {
+      final left = (counts[previous] ?? 1) - 1;
+      left > 0 ? counts[previous] = left : counts.remove(previous);
+    }
+    if (next != null) counts[next] = (counts[next] ?? 0) + 1;
+    await (_db.update(
+      _db.channelPosts,
+    )..where((p) => p.postId.equals(post.postId))).write(
+      ChannelPostsCompanion(
+        reactions: Value(jsonEncode(counts)),
+        myReaction: Value(next),
+      ),
+    );
+  }
+
+  Future<void> vote(ChannelPost post, int optionIndex) async {
+    await _api.voteChannelPoll(post.channelId, post.postId, optionIndex);
+    final votes = [
+      for (final v in jsonDecode(post.pollVotes) as List) (v as num).toInt(),
+    ];
+    while (votes.length <= optionIndex) {
+      votes.add(0);
+    }
+    final previous = post.myVote;
+    if (previous != null && previous < votes.length && votes[previous] > 0) {
+      votes[previous]--;
+    }
+    votes[optionIndex]++;
+    await (_db.update(
+      _db.channelPosts,
+    )..where((p) => p.postId.equals(post.postId))).write(
+      ChannelPostsCompanion(
+        pollVotes: Value(jsonEncode(votes)),
+        myVote: Value(optionIndex),
+      ),
+    );
+  }
+
+  // -- Create / admins -------------------------------------------------------
+
+  /// Creates a channel. The server answers 403 unless this device is linked
+  /// to a registered account; the create screen explains that up front.
+  Future<Channel> createChannel(String name, String description) async {
+    final created = await _api.createChannel(name, description);
+    await _upsertChannel(
+      ChannelInfo(
+        channelId: created.channelId,
+        handle: created.handle,
+        name: name,
+        description: description,
+        role: 'owner',
+      ),
+      isFollowing: false,
+    );
+    await load();
+    try {
+      await _joinChannels();
+    } catch (_) {}
+    return channel(created.channelId)!;
+  }
+
+  Future<void> setAdmin(String channelId, String deviceId, bool admin) =>
+      _api.setChannelAdmin(channelId, deviceId, admin: admin);
+
+  // -- Hub events ------------------------------------------------------------
+
+  Future<void> _onPostEvent(Map<String, dynamic> event) async {
+    final post = ChannelPostDto.fromJson(event);
+    // Blocked or not (any longer) followed: drop. The server may still
+    // deliver for a moment after unfollow/block until LeaveChannel lands.
+    if (isBlocked(channelId: post.channelId) ||
+        channel(post.channelId) == null) {
+      return;
+    }
+    if (post.deleted) {
+      await _deletePost(post.postId);
+      return;
+    }
+    final isNew = await _storePosts([post]);
+    if (isNew > 0 && post.channelId != _openChannelId) {
+      await _db.customUpdate(
+        'UPDATE channels SET unread_count = unread_count + 1 '
+        'WHERE channel_id = ?',
+        variables: [Variable.withString(post.channelId)],
+        updates: {_db.channels},
+      );
+      await load();
+    }
+  }
+
+  Future<void> _onChannelDeleted(Map<String, dynamic> event) async {
+    final channelId = parseChannelDeleted(event);
+    if (channelId == null) return;
+    await _forget(channelId);
+    await load();
+  }
+
+  // -- Storage helpers -------------------------------------------------------
+
+  /// Stores posts and returns how many were NEW. Tombstones delete.
+  /// Without [overwrite] an existing row is left untouched (a bare hub event
+  /// must not wipe cached reaction totals); with it, server truth wins.
+  Future<int> _storePosts(
+    List<ChannelPostDto> posts, {
+    bool overwrite = false,
+  }) async {
+    var added = 0;
+    for (final post in posts) {
+      if (post.deleted) {
+        await _deletePost(post.postId);
+        continue;
+      }
+      final exists =
+          await (_db.select(
+            _db.channelPosts,
+          )..where((p) => p.postId.equals(post.postId))).getSingleOrNull() !=
+          null;
+      if (exists && !overwrite) continue;
+      await _db
+          .into(_db.channelPosts)
+          .insertOnConflictUpdate(
+            ChannelPostsCompanion.insert(
+              postId: post.postId,
+              channelId: post.channelId,
+              kind: post.kind,
+              body: Value(post.body),
+              attachmentBlobPath: Value(post.attachmentBlobPath),
+              createdAt: post.createdAt.toUtc().toIso8601String(),
+              reactions: Value(jsonEncode(post.reactions)),
+              myReaction: Value(post.myReaction),
+              pollVotes: Value(jsonEncode(post.pollVotes)),
+              myVote: Value(post.myVote),
+            ),
+          );
+      if (!exists) added++;
+    }
+    return added;
+  }
+
+  Future<void> _deletePost(String postId) => (_db.delete(
+    _db.channelPosts,
+  )..where((p) => p.postId.equals(postId))).go();
+
+  Future<void> _upsertChannel(ChannelInfo info, {bool? isFollowing}) => _db
+      .into(_db.channels)
+      .insertOnConflictUpdate(
+        ChannelsCompanion.insert(
+          channelId: info.channelId,
+          handle: info.handle,
+          name: info.name,
+          description: Value(info.description),
+          followerCount: Value(info.followerCount),
+          role: Value(info.role),
+          isFollowing: Value(isFollowing ?? info.isFollowing),
+          unreadCount: Value(info.unreadCount),
+        ),
+      );
+
+  Future<void> _forget(String channelId) async {
+    await (_db.delete(
+      _db.channelPosts,
+    )..where((p) => p.channelId.equals(channelId))).go();
+    await (_db.delete(
+      _db.channels,
+    )..where((c) => c.channelId.equals(channelId))).go();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    for (final subscription in _subscriptions) {
+      subscription.cancel();
+    }
+    super.dispose();
+  }
+}

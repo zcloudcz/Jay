@@ -10,6 +10,62 @@ import 'chat_controller.dart';
 import 'message_bubble.dart';
 import 'message_input.dart';
 import 'attachment.dart';
+import '../../core/storage/database.dart';
+import '../../shared/widgets/bot_badge.dart';
+
+/// One-time notice shown the first time a chat with a bot is opened: the
+/// conversation is end-to-end encrypted, but the other end is an automated
+/// program run by a third party who can read everything sent to it.
+///
+/// "Seen" is remembered per contact in the local key-value table so the
+/// notice returns for every NEW bot but never nags twice about the same one.
+class _BotNotice extends StatefulWidget {
+  const _BotNotice({required this.contactId});
+  final String contactId;
+
+  @override
+  State<_BotNotice> createState() => _BotNoticeState();
+}
+
+class _BotNoticeState extends State<_BotNotice> {
+  bool _visible = false;
+  String get _key => 'bot_notice_seen:${widget.contactId}';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final db = context.read<AppDatabase>();
+    final seen = await (db.select(
+      db.backupState,
+    )..where((s) => s.key.equals(_key))).getSingleOrNull();
+    if (mounted && seen == null) setState(() => _visible = true);
+  }
+
+  Future<void> _dismiss() async {
+    setState(() => _visible = false);
+    final db = context.read<AppDatabase>();
+    await db
+        .into(db.backupState)
+        .insertOnConflictUpdate(
+          BackupStateCompanion.insert(key: _key, value: '1'),
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) => !_visible
+      ? const SizedBox.shrink()
+      : MaterialBanner(
+          leading: const Icon(Icons.smart_toy_outlined),
+          content: const Text(botNotice),
+          actions: [
+            TextButton(onPressed: _dismiss, child: const Text('Got it')),
+          ],
+        );
+}
 
 class ChatScreen extends StatelessWidget {
   const ChatScreen({super.key, required this.contactId});
@@ -81,11 +137,14 @@ class ChatScreen extends StatelessWidget {
         contact?.displayName ??
         contact?.userHandle ??
         contactId;
+    final isBot = contact?.isBot ?? false;
     return Scaffold(
       appBar: AppBar(
-        title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        title: NameWithBotBadge(name: name, isBot: isBot),
         actions: [
-          if (!group) ...[
+          // A bot is a headless program with no WebRTC stack — a call could
+          // only ever ring out, so the buttons are not offered at all.
+          if (!group && !isBot) ...[
             IconButton(
               icon: const Icon(Icons.call_rounded),
               tooltip: 'Voice call',
@@ -106,6 +165,7 @@ class ChatScreen extends StatelessWidget {
               padding: EdgeInsets.all(8),
               child: Text('Offline. Failed messages can be retried.'),
             ),
+          if (isBot) _BotNotice(contactId: contactId),
           Expanded(
             child: controller.messages.isEmpty
                 ? const Center(child: Text('No messages yet. Say hello!'))

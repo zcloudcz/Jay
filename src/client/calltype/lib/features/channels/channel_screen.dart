@@ -1,0 +1,583 @@
+import 'dart:convert';
+
+import 'package:calltype_core/network/channel_dtos.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+
+import '../../core/storage/database.dart';
+import 'channel_notice.dart';
+import 'channels_controller.dart';
+
+/// Asks for a free-text reason and files a report. Shared by the feed (per
+/// post) and the profile (whole channel). The reporter stays anonymous to
+/// the channel's admins — only the operator sees the report.
+Future<void> reportChannelDialog(
+  BuildContext context,
+  String channelId, {
+  String? postId,
+}) async {
+  final controller = context.read<ChannelsController>();
+  final messenger = ScaffoldMessenger.of(context);
+  // Plain variable, not a TextEditingController: a controller would have to
+  // be disposed while the dialog's exit animation still uses it.
+  var typed = '';
+  final reason = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(postId == null ? 'Report channel' : 'Report post'),
+      content: TextField(
+        onChanged: (v) => typed = v,
+        autofocus: true,
+        maxLength: 500,
+        decoration: const InputDecoration(
+          labelText: 'What is wrong?',
+          helperText: 'The channel admins will not learn who reported.',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(typed.trim()),
+          child: const Text('Report'),
+        ),
+      ],
+    ),
+  );
+  if (reason == null || reason.isEmpty) return;
+  try {
+    await controller.report(channelId, reason, postId: postId);
+    messenger.showSnackBar(const SnackBar(content: Text('Report sent.')));
+  } catch (_) {
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Report could not be sent. Try again.')),
+    );
+  }
+}
+
+/// Feed of one channel: newest post at the bottom (WhatsApp style).
+///
+/// Followers get NO input field — a channel is one-way. Only an owner/admin
+/// sees the compose bar.
+class ChannelScreen extends StatefulWidget {
+  const ChannelScreen({super.key, required this.channelId});
+  final String channelId;
+
+  @override
+  State<ChannelScreen> createState() => _ChannelScreenState();
+}
+
+class _ChannelScreenState extends State<ChannelScreen> {
+  late final ChannelsController _controller;
+  late final Stream<List<ChannelPost>> _posts;
+  bool _hasOlder = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = context.read<ChannelsController>();
+    // The stream is created once: a new stream per build would resubscribe
+    // to the database on every rebuild.
+    _posts = _controller.watchPosts(widget.channelId);
+    _controller.setOpenChannel(widget.channelId);
+    // Best effort — the cached feed stays readable offline.
+    _controller.refresh(widget.channelId).catchError((Object _) {});
+  }
+
+  @override
+  void dispose() {
+    _controller.setOpenChannel(null);
+    super.dispose();
+  }
+
+  Future<void> _loadOlder() async {
+    try {
+      final more = await _controller.loadOlder(widget.channelId);
+      if (mounted) setState(() => _hasOlder = more);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Older posts could not be loaded.')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // select: the feed must not rebuild for unrelated controller changes
+    // (e.g. another channel's unread badge).
+    final channel = context.select<ChannelsController, Channel?>(
+      (c) => c.channel(widget.channelId),
+    );
+    if (channel == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Channel')),
+        body: const Center(child: Text('This channel is not available.')),
+      );
+    }
+    final canPublish = channel.role != null;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(channel.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline_rounded),
+            tooltip: 'Channel info',
+            onPressed: () => context.push(
+              '/channels/profile/${Uri.encodeComponent(channel.handle)}',
+            ),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          const ChannelPublicNotice(),
+          Expanded(
+            child: StreamBuilder<List<ChannelPost>>(
+              stream: _posts,
+              builder: (context, snapshot) {
+                final posts = snapshot.data ?? const <ChannelPost>[];
+                if (posts.isEmpty) {
+                  return const Center(child: Text('No posts yet.'));
+                }
+                // reverse + builder: opens scrolled to the newest post and
+                // only builds visible items; per-post keys keep widget state
+                // (loaded image, scroll position) stable when a post arrives.
+                return ListView.builder(
+                  reverse: true,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: posts.length + (_hasOlder ? 1 : 0),
+                  itemBuilder: (context, index) {
+                    if (index == posts.length) {
+                      return TextButton(
+                        onPressed: _loadOlder,
+                        child: const Text('Load older posts'),
+                      );
+                    }
+                    final post = posts[posts.length - 1 - index];
+                    return _PostCard(
+                      key: ValueKey(post.postId),
+                      post: post,
+                      canDelete: canPublish,
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          if (canPublish) _ComposeBar(channelId: widget.channelId),
+        ],
+      ),
+    );
+  }
+}
+
+class _PostCard extends StatelessWidget {
+  const _PostCard({super.key, required this.post, required this.canDelete});
+  final ChannelPost post;
+  final bool canDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.read<ChannelsController>();
+    final theme = Theme.of(context);
+    final poll = post.kind == 'poll' ? ChannelPoll.tryParse(post.body) : null;
+    final reactions = (jsonDecode(post.reactions) as Map)
+        .cast<String, dynamic>();
+    final created = DateTime.tryParse(post.createdAt)?.toLocal();
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (post.kind == 'image' && post.attachmentBlobPath != null)
+              _PostImage(
+                channelId: post.channelId,
+                blobPath: post.attachmentBlobPath!,
+              ),
+            if (poll != null)
+              _PollView(post: post, poll: poll)
+            else if (post.body.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(right: 8, top: 4),
+                child: SelectableText(post.body),
+              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Wrap(
+                    spacing: 4,
+                    children: [
+                      for (final entry in reactions.entries)
+                        ChoiceChip(
+                          visualDensity: VisualDensity.compact,
+                          label: Text('${entry.key} ${entry.value}'),
+                          selected: post.myReaction == entry.key,
+                          onSelected: (_) => _guard(
+                            context,
+                            () => controller.react(post, entry.key),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (created != null)
+                  Text(
+                    DateFormat.MMMd().add_Hm().format(created),
+                    style: theme.textTheme.labelSmall,
+                  ),
+                // Only the six whitelisted emoji — anything else is a 422.
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.add_reaction_outlined, size: 20),
+                  tooltip: 'React',
+                  onSelected: (emoji) =>
+                      _guard(context, () => controller.react(post, emoji)),
+                  itemBuilder: (_) => [
+                    for (final emoji in channelReactionEmojis)
+                      PopupMenuItem(value: emoji, child: Text(emoji)),
+                  ],
+                ),
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert_rounded, size: 20),
+                  tooltip: 'Post options',
+                  onSelected: (action) => action == 'report'
+                      ? reportChannelDialog(
+                          context,
+                          post.channelId,
+                          postId: post.postId,
+                        )
+                      : _guard(
+                          context,
+                          () => controller.deletePost(
+                            post.channelId,
+                            post.postId,
+                          ),
+                        ),
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'report',
+                      child: Text('Report post'),
+                    ),
+                    if (canDelete)
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Text('Delete post'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Runs a network action and turns a failure into a snackbar instead of an
+/// unhandled async error.
+Future<void> _guard(
+  BuildContext context,
+  Future<void> Function() action,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await action();
+  } on FormatException catch (error) {
+    messenger.showSnackBar(SnackBar(content: Text(error.message)));
+  } catch (_) {
+    messenger.showSnackBar(
+      const SnackBar(content: Text('That did not work. Check the connection.')),
+    );
+  }
+}
+
+/// Channel images need the device's Bearer token, so they are fetched through
+/// the API client instead of `Image.network`. Stateful so the download runs
+/// once per post, not on every rebuild of the feed.
+class _PostImage extends StatefulWidget {
+  const _PostImage({required this.channelId, required this.blobPath});
+  final String channelId;
+  final String blobPath;
+
+  @override
+  State<_PostImage> createState() => _PostImageState();
+}
+
+class _PostImageState extends State<_PostImage> {
+  late final Future<Uint8List> _bytes = context
+      .read<ChannelsController>()
+      .loadAttachment(widget.channelId, widget.blobPath);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(right: 8, bottom: 4),
+    child: FutureBuilder<Uint8List>(
+      future: _bytes,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const ListTile(
+            leading: Icon(Icons.broken_image_outlined),
+            title: Text('Image could not be loaded.'),
+          );
+        }
+        final bytes = snapshot.data;
+        if (bytes == null) {
+          return const SizedBox(
+            height: 160,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.memory(
+            bytes,
+            fit: BoxFit.cover,
+            // Public, untrusted content: a corrupt file must not throw.
+            errorBuilder: (_, _, _) => const Icon(Icons.broken_image_outlined),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+/// Poll: options as buttons until this device voted, percentages afterwards
+/// (showing totals first would bias the vote). Only totals exist — who voted
+/// for what is never exposed by the API.
+class _PollView extends StatelessWidget {
+  const _PollView({required this.post, required this.poll});
+  final ChannelPost post;
+  final ChannelPoll poll;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.read<ChannelsController>();
+    final votes = [
+      for (final v in jsonDecode(post.pollVotes) as List) (v as num).toInt(),
+    ];
+    final total = votes.fold(0, (sum, v) => sum + v);
+    final showResults = post.myVote != null || poll.closed;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8, top: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(poll.question, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 4),
+          for (var i = 0; i < poll.options.length; i++)
+            if (!showResults)
+              OutlinedButton(
+                onPressed: () =>
+                    _guard(context, () => controller.vote(post, i)),
+                child: Text(poll.options[i]),
+              )
+            else
+              _PollResult(
+                label: poll.options[i],
+                share: total == 0 || i >= votes.length ? 0 : votes[i] / total,
+                mine: post.myVote == i,
+                // The vote may be changed until the poll closes.
+                onTap: poll.closed
+                    ? null
+                    : () => _guard(context, () => controller.vote(post, i)),
+              ),
+          if (poll.closed)
+            Text('Poll closed', style: Theme.of(context).textTheme.labelSmall),
+        ],
+      ),
+    );
+  }
+}
+
+class _PollResult extends StatelessWidget {
+  const _PollResult({
+    required this.label,
+    required this.share,
+    required this.mine,
+    required this.onTap,
+  });
+  final String label;
+  final double share;
+  final bool mine;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(label)),
+              if (mine) const Icon(Icons.check_circle_rounded, size: 16),
+              const SizedBox(width: 4),
+              Text('${(share * 100).round()} %'),
+            ],
+          ),
+          LinearProgressIndicator(value: share),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Admin-only compose bar: text, image (≤ 2 MiB) or poll.
+class _ComposeBar extends StatefulWidget {
+  const _ComposeBar({required this.channelId});
+  final String channelId;
+
+  @override
+  State<_ComposeBar> createState() => _ComposeBarState();
+}
+
+class _ComposeBarState extends State<_ComposeBar> {
+  final _text = TextEditingController();
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  /// [_busy] blocks a second tap while the first publish is in flight —
+  /// each publish gets a fresh post id, so a double tap WOULD post twice.
+  Future<void> _publish(Future<void> Function(ChannelsController) send) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await _guard(context, () => send(context.read<ChannelsController>()));
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _sendText() async {
+    final body = _text.text.trim();
+    if (body.isEmpty) return;
+    await _publish((c) async {
+      await c.publish(widget.channelId, kind: 'text', body: body);
+      _text.clear();
+    });
+  }
+
+  Future<void> _sendImage() async {
+    final file = await FilePicker.pickFile(type: FileType.image);
+    if (file == null) return;
+    final bytes = await file.readAsBytes();
+    final caption = _text.text.trim();
+    await _publish((c) async {
+      await c.publish(
+        widget.channelId,
+        kind: 'image',
+        body: caption,
+        imageBytes: bytes,
+        imageName: file.name,
+      );
+      _text.clear();
+    });
+  }
+
+  Future<void> _sendPoll() async {
+    // Plain variables instead of controllers — see reportChannelDialog.
+    var question = '';
+    var options = '';
+    final poll = await showDialog<ChannelPoll>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('New poll'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              onChanged: (v) => question = v,
+              decoration: const InputDecoration(labelText: 'Question'),
+            ),
+            TextField(
+              onChanged: (v) => options = v,
+              minLines: 2,
+              maxLines: 6,
+              decoration: const InputDecoration(
+                labelText: 'Options',
+                helperText: 'One option per line, at least two.',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final lines = [
+                for (final line in options.split('\n'))
+                  if (line.trim().isNotEmpty) line.trim(),
+              ];
+              if (question.trim().isEmpty || lines.length < 2) return;
+              Navigator.of(
+                dialogContext,
+              ).pop(ChannelPoll(question: question.trim(), options: lines));
+            },
+            child: const Text('Publish'),
+          ),
+        ],
+      ),
+    );
+    if (poll == null) return;
+    await _publish(
+      (c) => c.publish(widget.channelId, kind: 'poll', body: poll.encode()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    key: const Key('channel-compose-bar'),
+    top: false,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.image_outlined),
+            tooltip: 'Post image (max 2 MiB)',
+            onPressed: _busy ? null : _sendImage,
+          ),
+          IconButton(
+            icon: const Icon(Icons.poll_outlined),
+            tooltip: 'Post poll',
+            onPressed: _busy ? null : _sendPoll,
+          ),
+          Expanded(
+            child: TextField(
+              controller: _text,
+              minLines: 1,
+              maxLines: 4,
+              maxLength: 4096,
+              decoration: const InputDecoration(
+                hintText: 'Public post — not encrypted',
+                counterText: '',
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.send_rounded),
+            tooltip: 'Publish',
+            onPressed: _busy ? null : _sendText,
+          ),
+        ],
+      ),
+    ),
+  );
+}

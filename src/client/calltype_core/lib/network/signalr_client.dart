@@ -81,6 +81,8 @@ class SignalRClient {
   final _onMessage = StreamController<Map<String, dynamic>>.broadcast();
   final _onTyping = StreamController<Map<String, dynamic>>.broadcast();
   final _onCallSignal = StreamController<Map<String, dynamic>>.broadcast();
+  final _onChannelPost = StreamController<Map<String, dynamic>>.broadcast();
+  final _onChannelDeleted = StreamController<Map<String, dynamic>>.broadcast();
 
   /// Fires when a new encrypted message arrives from the server.
   /// Payload: {senderId, encryptedBody, createdAt, groupId?}
@@ -93,6 +95,14 @@ class SignalRClient {
   /// Fires for WebRTC call signaling events (offer/answer/ICE/hangup).
   /// Payload: {senderId, signalType, payload}
   Stream<Map<String, dynamic>> get onCallSignal => _onCallSignal.stream;
+
+  /// Fires for a new (or deleted — `deleted: true`) public channel post.
+  /// Plaintext by design: channels are NOT end-to-end encrypted. The payload
+  /// is parsed by `ChannelPostDto.fromJson` (channel_dtos.dart).
+  Stream<Map<String, dynamic>> get onChannelPost => _onChannelPost.stream;
+
+  /// Fires when a followed channel was deleted. Payload: {channelId}
+  Stream<Map<String, dynamic>> get onChannelDeleted => _onChannelDeleted.stream;
 
   /// Whether the hub connection is currently active.
   bool get connected => _hubConnection?.isConnected ?? false;
@@ -141,6 +151,14 @@ class SignalRClient {
     _hubConnection!.on('ReceiveMessage', _handleReceiveMessage);
     _hubConnection!.on('TypingIndicator', _handleTypingIndicator);
     _hubConnection!.on('CallSignal', _handleCallSignal);
+    _hubConnection!.on(
+      'ReceiveChannelPost',
+      (arguments) => _forward(arguments, _onChannelPost),
+    );
+    _hubConnection!.on(
+      'ChannelDeleted',
+      (arguments) => _forward(arguments, _onChannelDeleted),
+    );
 
     // Notify UI when connection state changes (e.g. for offline banner).
     _hubConnection!.onClose(_notify);
@@ -218,6 +236,16 @@ class SignalRClient {
     await _requireConnection().invoke('RequestPendingMessages');
   }
 
+  /// Subscribes this connection to the SignalR groups of every channel the
+  /// device follows or administers. Group membership belongs to the
+  /// connection, so it must be re-invoked after each (re)connect and after
+  /// following a new channel.
+  Future<void> joinChannels() => _requireConnection().invoke('JoinChannels');
+
+  /// Stops live delivery for one channel after unfollowing it.
+  Future<void> leaveChannel(String channelId) =>
+      _requireConnection().invoke('LeaveChannel', <Object>[channelId]);
+
   HubTransport _requireConnection() {
     if (!connected) throw StateError('Offline. Reconnect and retry.');
     return _hubConnection!;
@@ -287,6 +315,15 @@ class SignalRClient {
     }
   }
 
+  void _forward(
+    List<Object?>? arguments,
+    StreamController<Map<String, dynamic>> target,
+  ) {
+    if (_disposed || arguments == null || arguments.isEmpty) return;
+    final data = _parseArgument(arguments[0]);
+    if (data != null) target.add(data);
+  }
+
   /// Safely casts a hub callback argument to a typed map.
   ///
   /// SignalR payloads arrive as dynamic objects — this normalizes them
@@ -309,6 +346,8 @@ class SignalRClient {
     _onMessage.close();
     _onTyping.close();
     _onCallSignal.close();
+    _onChannelPost.close();
+    _onChannelDeleted.close();
   }
 
   void dispose() => close();

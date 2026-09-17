@@ -13,6 +13,7 @@ import 'core/network/signalr_client.dart';
 import 'core/network/webrtc_manager.dart';
 import 'core/storage/database.dart';
 import 'core/storage/secure_storage.dart';
+import 'features/channels/channels_controller.dart';
 import 'features/chat/message_inbox_service.dart';
 import 'features/chat_list/chat_list_controller.dart';
 import 'features/contacts/contacts_controller.dart';
@@ -82,6 +83,32 @@ void main() async {
     acknowledge: signalRClient.acknowledgeMessage,
   );
   inbox.start();
+
+  // Channels (public posts, NOT end-to-end encrypted — kept apart from the
+  // inbox above on purpose). Created before SignalR connects for the same
+  // reason as the inbox: hub events must find a subscriber.
+  final channels = ChannelsController(
+    database: db,
+    apiClient: apiClient,
+    channelPosts: signalRClient.onChannelPost,
+    channelDeleted: signalRClient.onChannelDeleted,
+    joinChannels: signalRClient.joinChannels,
+    leaveChannel: signalRClient.leaveChannel,
+  );
+  await channels.load();
+  // The server keeps no offline queue for channels, so every transition to
+  // "connected" (app start, reconnect, first connect after onboarding) pulls
+  // what was missed and re-joins the hub groups. One sync per transition —
+  // not a polling loop.
+  var wasConnected = false;
+  signalRClient.addListener(() {
+    final connected = signalRClient.connected;
+    if (connected && !wasConnected) {
+      unawaited(channels.sync().catchError((Object _) {}));
+    }
+    wasConnected = connected;
+  });
+
   await sessionManager.finalizePreKeyCleanup();
   if (deviceId.isNotEmpty) {
     unawaited(signalRClient.connect().catchError((Object _) {}));
@@ -130,6 +157,7 @@ void main() async {
         ChangeNotifierProvider(
           create: (_) => ContactsController(database: db, apiClient: apiClient),
         ),
+        ChangeNotifierProvider.value(value: channels),
 
         // -- Auth / security ------------------------------------------------
         Provider(create: (_) => AppLock(secureStorage: secureStorage)),

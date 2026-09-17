@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../core/network/signalr_client.dart';
 import '../../shared/widgets/avatar.dart';
+import '../../shared/widgets/bot_badge.dart';
+import '../../shared/widgets/main_navigation_bar.dart';
 import '../contacts/contacts_controller.dart';
 import 'chat_list_controller.dart';
 
@@ -144,10 +146,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                           row.id;
                       return ListTile(
                         leading: LetterAvatar(name: title),
-                        title: Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        title: NameWithBotBadge(
+                          name: title,
+                          isBot: contact?.isBot ?? false,
                         ),
                         subtitle: Text(
                           row.type == 'group'
@@ -176,6 +177,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
       ),
       // Labeled FAB: an icon-only bubble did not read as "add contact / start
       // chat" next to the similar-looking "New group" action in the app bar.
+      bottomNavigationBar: const MainNavigationBar(current: MainTab.chats),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/contacts'),
         tooltip: 'New chat',
