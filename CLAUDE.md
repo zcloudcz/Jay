@@ -108,8 +108,16 @@ dotnet ef database update --project src/server/CallType.Api
 | `Group` | Group chat metadata | `GroupId` (Guid) |
 | `GroupMember` | Group membership + roles | Composite(GroupId, DeviceId) |
 | `Backup` | Backup metadata (blobs in Azure) | `Id` (auto) |
+| `Channel` | Public one-way channel; owned by an account (`OwnerAccountId`), soft delete, denormalized `FollowerCount` | `ChannelId` (Guid), unique Handle (`CH-XXXX-XXXX`) |
+| `ChannelAdmin` | Delegated admins (owner rights come from the account, not from a row here) | Composite(ChannelId, DeviceId) |
+| `ChannelPost` | **Plaintext** post (`Kind` text/image/poll), soft delete, 90-day retention | `PostId` (Guid, client-generated), index(ChannelId, CreatedAt DESC) |
+| `ChannelFollower` | Follow link + `LastSeenPostAt`; never exposed by the API | Composite(ChannelId, DeviceId) |
+| `ChannelReaction` | One whitelisted emoji per device per post; API returns totals only | Composite(PostId, DeviceId) |
+| `ChannelPollVote` | One vote per device per poll; API returns totals only | Composite(PostId, DeviceId) |
+| `ChannelReport` | Abuse report for the operator; reporter never exposed | `Id` (auto) |
 
-All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content.
+All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
+— with the single deliberate exception of channels, which are public and not E2E.
 
 ## API endpoints
 
@@ -131,7 +139,19 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `GET /backups/{accountId}` | List backups | ✅ Done |
 | `DELETE /backups/{accountId}/{backupId}` | Free a backup slot (quota: 3 per account, 8 MiB each, 256 MiB total) | ✅ Done |
 | `GET /turn/credentials` | Time-limited TURN credentials | ✅ Done |
-| `SignalR /hub` | Message relay, typing, call signaling | ✅ Done |
+| `POST /channels` | Create channel (device must be linked to an account, else 403; 409 over `Channels:MaxOwnedPerDevice` per account) | ✅ Done |
+| `GET /channels/mine` | Followed + owned + administered channels with `unreadCount` | ✅ Done |
+| `GET /channels/{idOrHandle}` | Public profile (`followerCount`, `isFollowing`, `role`) — never a follower list | ✅ Done |
+| `PATCH` / `DELETE /channels/{id}` | Edit (owner/admin) / soft delete (owner, hub `ChannelDeleted`) | ✅ Done |
+| `GET /channels/{id}/admins`, `PUT` / `DELETE /channels/{id}/admins/{deviceId}` | Admin management (owner only) | ✅ Done |
+| `POST` / `DELETE /channels/{id}/follow` | Follow / unfollow, idempotent, 204 | ✅ Done |
+| `POST /channels/{id}/posts` | Publish text/image/poll (owner/admin); same `postId` again = 200, no second event | ✅ Done |
+| `GET /channels/{id}/posts?before=&after=&limit=` | Feed with reaction/vote totals (follower or admin); marks posts as seen | ✅ Done |
+| `DELETE /channels/{id}/posts/{postId}` | Soft delete + tombstone event | ✅ Done |
+| `PUT` / `DELETE /channels/{id}/posts/{postId}/reaction`, `PUT …/vote` | One reaction / vote per device (follower); 422 bad emoji / option index | ✅ Done |
+| `POST /channels/{id}/report` | Abuse report (follower, 5 per device per day), 204 | ✅ Done |
+| `POST /channels/{id}/attachments`, `GET /channels/{id}/attachments/{name}` | Unencrypted image ≤ `Channels:MaxImageBytes` in Blob container `channel-media` (413 over limit) | ✅ Done |
+| `SignalR /hub` | Message relay, typing, call signaling; channels: `JoinChannels`, `LeaveChannel`, events `ReceiveChannelPost`, `ChannelDeleted` | ✅ Done |
 
 ## Conventions
 
@@ -187,7 +207,7 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 - Full design spec: `docs/superpowers/specs/2026-05-28-calltype-design.md`
 - Original implementation plan (26 tasks, 7 phases): `docs/superpowers/plans/2026-05-28-calltype-implementation.md`
 - **Current work — beta completion:** `docs/superpowers/plans/2026-09-16-beta-zadani.md` (+ `-kontrakty`, `-vyvoj`, `-infrastruktura`); status and evidence in `docs/acceptance/` and `docs/ops/`.
-- Next feature (not started): Channels — `docs/superpowers/plans/2026-09-16-channels.md`.
+- Channels — `docs/superpowers/plans/2026-09-16-channels.md` (§7 overrides §1–§6). Server API + hub done; client and acceptance (C03/C04) pending.
 - Next feature (not started): Bots as E2E clients, first bot = Hermes Agent — `docs/superpowers/plans/2026-09-17-bots.md`.
 
 ## Deploy

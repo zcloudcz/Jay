@@ -221,6 +221,52 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Channels (public one-way broadcast — plaintext by design, see Channel.cs)
+    // -----------------------------------------------------------------------
+
+    /// <summary>SignalR group that receives the events of one channel.</summary>
+    internal static string ChannelGroup(Guid channelId) => $"channel:{channelId}";
+
+    /// <summary>
+    /// Lets ChannelService decide who needs a push without exposing the map.
+    /// </summary>
+    internal static bool IsOnline(Guid deviceId) => OnlineDevices.ContainsKey(deviceId);
+
+    /// <summary>
+    /// Subscribes THIS connection to every channel the caller follows, owns or
+    /// administers. Group membership belongs to a connection, not a device, and
+    /// REST endpoints cannot reach the connection — so the client calls this
+    /// after every (re)connect and again after following a channel.
+    /// Returns the joined channel ids (the caller's own data, nobody else's).
+    /// </summary>
+    public async Task<List<Guid>> JoinChannels()
+    {
+        var deviceId = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
+
+        var channelIds = await db.Channels
+            .Where(c => c.DeletedAt == null && (
+                c.Followers.Any(f => f.DeviceId == deviceId) ||
+                c.Admins.Any(a => a.DeviceId == deviceId) ||
+                db.AccountDevices.Any(ad => ad.DeviceId == deviceId && ad.AccountId == c.OwnerAccountId)))
+            .Select(c => c.ChannelId)
+            .ToListAsync(Context.ConnectionAborted);
+
+        foreach (var channelId in channelIds)
+            await Groups.AddToGroupAsync(Context.ConnectionId, ChannelGroup(channelId), Context.ConnectionAborted);
+
+        return channelIds;
+    }
+
+    /// <summary>
+    /// Counterpart for unfollow: DELETE /channels/{id}/follow cannot touch the
+    /// connection, so the client leaves the group itself. No membership check —
+    /// leaving a group you are not in is a no-op. A client that "forgets" to
+    /// leave keeps receiving posts until it reconnects; they are public anyway.
+    /// </summary>
+    public Task LeaveChannel(Guid channelId) =>
+        Groups.RemoveFromGroupAsync(Context.ConnectionId, ChannelGroup(channelId), Context.ConnectionAborted);
+
     /// <summary>
     /// Extracts the caller's DeviceId from the JWT "sub" claim.
     /// Returns null if the claim is missing or malformed.

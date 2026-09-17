@@ -18,6 +18,7 @@
 // scoped-in-singleton anti-pattern.
 // ---------------------------------------------------------------------------
 
+using System.Collections.Concurrent;
 using System.Net;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -85,8 +86,44 @@ internal static class FcmResponseEvaluator
     }
 }
 
+/// <summary>
+/// "At most one push per channel per window" (channels plan §3). Split out of
+/// <see cref="PushNotificationService"/> and given an explicit clock so the
+/// rule can be unit tested without a database, FCM or real waiting.
+/// </summary>
+internal sealed class ChannelPushThrottle
+{
+    // ponytail: in-memory, per-process state. Correct only because the API runs
+    // as exactly ONE App Service instance (CLAUDE.md design decision 6); a
+    // restart merely allows one extra push. Move to a shared store (DB column /
+    // Redis) together with the SignalR backplane if the API is ever scaled out.
+    // Grows by one small entry per channel that ever posted — bounded by the
+    // number of channels, so no eviction.
+    private readonly ConcurrentDictionary<Guid, DateTimeOffset> _lastPush = new();
+
+    /// <summary>True = the caller may push now (and the window restarts).</summary>
+    public bool TryAcquire(Guid channelId, DateTimeOffset now, TimeSpan window)
+    {
+        // Compare-and-swap loop instead of a lock: two posts published at the
+        // same moment must not BOTH see "window elapsed" and both push.
+        while (true)
+        {
+            if (!_lastPush.TryGetValue(channelId, out var last))
+            {
+                if (_lastPush.TryAdd(channelId, now)) return true;
+            }
+            else
+            {
+                if (now - last < window) return false;
+                if (_lastPush.TryUpdate(channelId, now, last)) return true;
+            }
+        }
+    }
+}
+
 public class PushNotificationService
 {
+    private readonly ChannelPushThrottle _channelThrottle = new();
     private readonly IHttpClientFactory _httpFactory;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly FcmTokenProvider _fcmTokens;
@@ -145,12 +182,56 @@ public class PushNotificationService
     }
 
     /// <summary>
+    /// Wakes the offline followers of a channel after a new post — one
+    /// content-free "channel_post" data message each (K04: no channel name, no
+    /// text; the client pulls GET /channels/mine itself). Throttled per channel
+    /// so a chatty channel cannot spam lock screens.
+    /// </summary>
+    /// <param name="isOnline">
+    /// Supplied by the caller (the hub's connection map) so this service does
+    /// not depend on the hub. Online followers already got the SignalR event.
+    /// </param>
+    public async Task SendChannelPostPushAsync(Guid channelId, TimeSpan throttleWindow, Func<Guid, bool> isOnline)
+    {
+        if (!_channelThrottle.TryAcquire(channelId, DateTimeOffset.UtcNow, throttleWindow)) return;
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            // ONE joined query returning only (id, token) of followers that can
+            // be pushed at all — not a device lookup per follower. APNs is not
+            // implemented (see SendPushAsync), so only FCM tokens are fetched.
+            var targets = await db.ChannelFollowers
+                .Where(f => f.ChannelId == channelId)
+                .Join(db.Devices.Where(d => d.PushToken != null && d.PushPlatform == "fcm"),
+                    f => f.DeviceId, d => d.DeviceId,
+                    (f, d) => new { d.DeviceId, Token = d.PushToken! })
+                .ToListAsync();
+
+            // ponytail: sequential sends on one DbContext. Fine for beta-sized
+            // channels and it runs in the background; switch to FCM topics (one
+            // call per post) before channels reach tens of thousands of followers.
+            foreach (var target in targets)
+                if (!isOnline(target.DeviceId))
+                    await SendFcmAsync(db, target.DeviceId, target.Token, "channel_post");
+        }
+        catch (Exception ex)
+        {
+            // The caller does not await this task (fire-and-forget), so an
+            // escaping exception would go unobserved. Push stays best-effort.
+            _logger.LogWarning(ex, "Channel post push for channel {ChannelId} failed", channelId);
+        }
+    }
+
+    /// <summary>
     /// Sends a data-only FCM message via the HTTP v1 API.
     /// Data-only (no "notification" block) means the message is always delivered
     /// to the app's message handler — even in the foreground. The client decides
     /// whether and how to show a local notification.
     /// </summary>
-    private async Task SendFcmAsync(AppDbContext db, Guid deviceId, string token)
+    private async Task SendFcmAsync(AppDbContext db, Guid deviceId, string token, string type = "new_message")
     {
         if (!_fcmTokens.IsConfigured)
         {
@@ -178,7 +259,7 @@ public class PushNotificationService
                 message = new
                 {
                     token,
-                    data = new { type = "new_message" }
+                    data = new { type }
                 }
             });
 
