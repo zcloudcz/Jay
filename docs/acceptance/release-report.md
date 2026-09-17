@@ -4,7 +4,7 @@
 
 | | |
 | --- | --- |
-| Nasazený commit (API + web) | `9816709` (run https://github.com/zcloudcz/Jay/actions/runs/35129788149) |
+| Nasazený commit (API + web) | `6f4802a` (run https://github.com/zcloudcz/Jay/actions/runs/35193671677) |
 | Web | https://calltype.zcloud.cz (také https://orange-bush-07e1b5803.6.azurestaticapps.net) |
 | API | https://calltype-beta-zahy.azurewebsites.net |
 | Artefakty stejného SHA | api, web, android (APK), windows (zip), macos (tar.gz), ios-unsigned (tar.gz) + `build-manifest.json` se SHA256 |

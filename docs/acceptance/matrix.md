@@ -1,12 +1,12 @@
 # Q01 — přejímací matice (K06)
 
 Statusy: PASS / FAIL / BLOCKED / NOT_RUN / UNSUPPORTED. PASS jen pro skutečně provedený scénář na dané platformě.
-Commit klientů/artefaktů: `9816709` (run 35129788149); web z domény `https://calltype.zcloud.cz`. API: `https://calltype-beta-zahy.azurewebsites.net`.
+Commit klientů/artefaktů: `6f4802a` (run 35193671677; předchozí `9816709`, run 35129788149); web z domény `https://calltype.zcloud.cz`. API: `https://calltype-beta-zahy.azurewebsites.net`.
 
 | Scénář | Web | Android | Windows | macOS | iOS |
 | --- | --- | --- | --- | --- | --- |
-| Q01-01 start (onboarding → restart, stejná identita) | PASS¹ (restart NOT_RUN) | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
-| Q01-02 chat A↔B, český text, restart | **FAIL → opraveno, čeká na retest**³ | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
+| Q01-01 start (onboarding → restart, stejná identita) | PASS¹ | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
+| Q01-02 chat A↔B, český text, restart | **FAIL → opraveno a nasazeno, čeká na retest dvěma identitami**³ | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
 | Q01-03 offline 10 zpráv | NOT_RUN | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
 | Q01-04 reconnect při odesílání | NOT_RUN | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
 | Q01-05 skupina A/B/C, odebrání C | NOT_RUN | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
@@ -19,7 +19,7 @@ Commit klientů/artefaktů: `9816709` (run 35129788149); web z domény `https://
 | Q01-12 push | BLOCKED⁵ | BLOCKED⁵ | UNSUPPORTED (bez FCM) | BLOCKED⁵ | BLOCKED²⁵ |
 | Q01-13 konfigurace (HTTPS API, žádný localhost) | PASS⁶ | PASS⁶ (manifest) | PASS⁶ (manifest) | PASS⁶ (manifest) | PASS⁶ (manifest, unsigned) |
 
-¹ 2026-09-17, vestavěný prohlížeč Claude (Chromium), `https://calltype.zcloud.cz`: onboarding vytvořil identitu `CT-X7JQ-MTJV`, přechod do seznamu konverzací OK. Ověřovatel: Claude (B00). Restart/perzistence neprovedeno.
+¹ 2026-09-17, vestavěný prohlížeč Claude (Chromium), `https://calltype.zcloud.cz`: onboarding vytvořil identitu `CT-X7JQ-MTJV`, přechod do seznamu konverzací OK. Po nasazení nového webu (`6f4802a`) a reloadu stránky aplikace přeskočila onboarding a *My identity* ukazuje stejný handle `CT-X7JQ-MTJV` → identita perzistuje. Ověřovatel: Claude (B00).
 ² Chybí Apple tým, podpisová identita a fyzický iPhone; k dispozici jen unsigned build.
 ³ Viz `evidence/Q01-02-add-contact.md`.
 ⁴ Připraveno: Settings → Diagnostics → *Force TURN relay* + tlačítko *Route* v hovoru (commit `c7048e9`). Vyžaduje dvě zařízení ve dvou sítích.
