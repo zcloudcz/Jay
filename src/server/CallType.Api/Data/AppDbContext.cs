@@ -256,6 +256,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // and therefore not usable from the PK index.
             entity.HasIndex(f => f.DeviceId);
 
+            // WARNING for a future device-deletion feature: the Device FK below
+            // cascades, which removes follower rows behind ChannelService's back
+            // and leaves Channel.FollowerCount too high. Whoever adds device
+            // deletion must decrement (or recount) FollowerCount in the same
+            // transaction. No device is ever deleted today.
             entity.HasOne(f => f.Channel)
                   .WithMany(c => c.Followers)
                   .HasForeignKey(f => f.ChannelId)

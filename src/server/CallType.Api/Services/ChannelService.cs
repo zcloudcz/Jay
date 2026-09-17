@@ -309,7 +309,18 @@ public class ChannelService(
             try
             {
                 await db.SaveChangesAsync(ct);
-                await BroadcastPostAsync(post);
+                try
+                {
+                    await BroadcastPostAsync(post);
+                }
+                catch (Exception ex)
+                {
+                    // The post is already committed. A failed live fan-out must not
+                    // turn into a 500, because the admin's retry would then get
+                    // "200 duplicate" and never learn the first call succeeded.
+                    // Followers still receive the post via the posts?after= sync.
+                    logger.LogError(ex, "Channel post {PostId} saved but live broadcast failed", post.PostId);
+                }
                 NotifyOfflineFollowers(channel.ChannelId);
                 return (true, post);
             }
