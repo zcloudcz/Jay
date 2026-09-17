@@ -188,17 +188,35 @@ class ApiClient {
   // content is plaintext on the server (NOT end-to-end encrypted). All JSON
   // field names are kept in channel_dtos.dart — do not inline them here.
 
-  /// POST /channels — 403 when the device has no linked registered account.
-  Future<({String channelId, String handle})> createChannel(
-    String name,
-    String description,
-  ) async {
+  /// POST /channels → 201 with the full channel profile. 403
+  /// `account_required` when the device has no linked registered account,
+  /// 409 `channel_limit_reached` over the per-account limit.
+  Future<ChannelInfo> createChannel(String name, String description) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/channels',
       data: createChannelBody(name, description),
     );
-    return parseCreatedChannel(response.data!);
+    return ChannelInfo.fromJson(response.data!);
   }
+
+  /// PATCH /channels/{id} (owner/admin) — null = leave unchanged. Returns
+  /// the updated profile.
+  Future<ChannelInfo> updateChannel(
+    String channelId, {
+    String? name,
+    String? description,
+  }) async {
+    final response = await _dio.patch<Map<String, dynamic>>(
+      '/channels/$channelId',
+      data: updateChannelBody(name: name, description: description),
+    );
+    return ChannelInfo.fromJson(response.data!);
+  }
+
+  /// DELETE /channels/{id} (owner) — soft delete; followers get the
+  /// `ChannelDeleted` hub event.
+  Future<void> deleteChannel(String channelId) =>
+      _dio.delete<void>('/channels/$channelId');
 
   /// GET /channels/{idOrHandle} — public profile, never a follower list.
   Future<ChannelInfo> getChannel(String idOrHandle) async {
@@ -238,49 +256,58 @@ class ApiClient {
         .toList();
   }
 
-  /// POST /channels/{id}/posts — repeating the same [postId] is a no-op on
-  /// the server, so a retry after a timeout cannot publish twice.
-  Future<void> createChannelPost(
+  /// POST /channels/{id}/posts → the stored post (201). Repeating the same
+  /// [postId] answers 200 with the ALREADY stored post, so a retry after a
+  /// timeout cannot publish twice and still learns the server's createdAt.
+  Future<ChannelPostDto> createChannelPost(
     String channelId, {
     required String postId,
     required String kind,
     required String body,
     String? attachmentBlobPath,
-  }) => _dio.post<void>(
-    '/channels/$channelId/posts',
-    data: createPostBody(
-      postId: postId,
-      kind: kind,
-      body: body,
-      attachmentBlobPath: attachmentBlobPath,
-    ),
-  );
+  }) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/channels/$channelId/posts',
+      data: createPostBody(
+        postId: postId,
+        kind: kind,
+        body: body,
+        attachmentBlobPath: attachmentBlobPath,
+      ),
+    );
+    return ChannelPostDto.fromJson(response.data!, channelId: channelId);
+  }
 
   /// DELETE /channels/{id}/posts/{postId} — admin soft delete (tombstone).
   Future<void> deleteChannelPost(String channelId, String postId) =>
       _dio.delete<void>('/channels/$channelId/posts/$postId');
 
   /// PUT / DELETE /channels/{id}/posts/{postId}/reaction — null removes it.
-  Future<void> setChannelReaction(
+  /// Returns the post's fresh totals.
+  Future<ChannelPostTotals> setChannelReaction(
     String channelId,
     String postId,
     String? emoji,
-  ) {
+  ) async {
     final path = '/channels/$channelId/posts/$postId/reaction';
-    return emoji == null
-        ? _dio.delete<void>(path)
-        : _dio.put<void>(path, data: reactionBody(emoji));
+    final response = emoji == null
+        ? await _dio.delete<Map<String, dynamic>>(path)
+        : await _dio.put<Map<String, dynamic>>(path, data: reactionBody(emoji));
+    return ChannelPostTotals.fromJson(response.data!);
   }
 
-  /// PUT /channels/{id}/posts/{postId}/vote
-  Future<void> voteChannelPoll(
+  /// PUT /channels/{id}/posts/{postId}/vote → the post's fresh totals.
+  Future<ChannelPostTotals> voteChannelPoll(
     String channelId,
     String postId,
     int optionIndex,
-  ) => _dio.put<void>(
-    '/channels/$channelId/posts/$postId/vote',
-    data: voteBody(optionIndex),
-  );
+  ) async {
+    final response = await _dio.put<Map<String, dynamic>>(
+      '/channels/$channelId/posts/$postId/vote',
+      data: voteBody(optionIndex),
+    );
+    return ChannelPostTotals.fromJson(response.data!);
+  }
 
   /// POST /channels/{id}/attachments (multipart field `file`) → blob path.
   Future<String> uploadChannelAttachment(
@@ -291,7 +318,16 @@ class ApiClient {
     final response = await _dio.post<Map<String, dynamic>>(
       '/channels/$channelId/attachments',
       data: FormData.fromMap({
-        'file': MultipartFile.fromBytes(bytes, filename: fileName),
+        // The server whitelists on this part's content type (415 otherwise);
+        // without it dio would send application/octet-stream.
+        'file': MultipartFile.fromBytes(
+          bytes,
+          filename: fileName,
+          contentType: switch (channelImageContentType(fileName)) {
+            final type? => DioMediaType.parse(type),
+            null => null,
+          },
+        ),
       }),
     );
     return parseUploadedBlobPath(response.data!);
@@ -322,6 +358,12 @@ class ApiClient {
     '/channels/$channelId/report',
     data: reportBody(reason, postId: postId),
   );
+
+  /// GET /channels/{id}/admins — owner only (403 otherwise).
+  Future<List<ChannelAdminDto>> getChannelAdmins(String channelId) async {
+    final response = await _dio.get<dynamic>('/channels/$channelId/admins');
+    return parseList(response.data).map(ChannelAdminDto.fromJson).toList();
+  }
 
   /// PUT / DELETE /channels/{id}/admins/{deviceId} — owner only.
   Future<void> setChannelAdmin(

@@ -40,15 +40,9 @@ class _ChannelProfileScreenState extends State<ChannelProfileScreen> {
       await action();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              error is ChannelBlockedException
-                  ? '$error'
-                  : 'That did not work. Check the connection.',
-            ),
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(channelErrorMessage(error))));
       }
     }
     if (mounted) setState(() => _busy = false);
@@ -104,16 +98,19 @@ class _ChannelProfileScreenState extends State<ChannelProfileScreen> {
     // snapshot from before the tap.
     final local = controller.channel(info.channelId);
     final following = local?.isFollowing ?? false;
-    final canPublish = (local?.role ?? info.role) != null;
+    final role = local?.role ?? info.role;
+    // Edited here a moment ago → the local row is newer than the snapshot.
+    final name = local?.name ?? info.name;
+    final description = local?.description ?? info.description;
     final link = '$channelLinkPrefix${info.handle}';
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
-        Text(info.name, style: theme.textTheme.headlineSmall),
+        Text(name, style: theme.textTheme.headlineSmall),
         const SizedBox(height: 4),
         SelectableText(info.handle, style: theme.textTheme.bodySmall),
         const SizedBox(height: 12),
-        if (info.description.isNotEmpty) Text(info.description),
+        if (description.isNotEmpty) Text(description),
         const SizedBox(height: 12),
         Text(
           '${info.followerCount} followers',
@@ -135,11 +132,28 @@ class _ChannelProfileScreenState extends State<ChannelProfileScreen> {
             onPressed: () => context.push('/channels/feed/${info.channelId}'),
             child: const Text('Open posts'),
           ),
-        if (canPublish && (local?.role ?? info.role) == 'owner')
+        // The server lets owner AND admin edit the profile; managing admins
+        // and deleting the channel are owner-only.
+        if (role != null)
+          TextButton(
+            onPressed: _busy
+                ? null
+                : () => _edit(context, controller, info, name, description),
+            child: const Text('Edit channel'),
+          ),
+        if (role == 'owner') ...[
           TextButton(
             onPressed: () => context.push('/channels/admins/${info.channelId}'),
             child: const Text('Manage admins'),
           ),
+          TextButton(
+            onPressed: _busy ? null : () => _delete(context, controller, info),
+            child: Text(
+              'Delete channel',
+              style: TextStyle(color: theme.colorScheme.error),
+            ),
+          ),
+        ],
         const Divider(height: 32),
         Center(
           child: Container(
@@ -184,6 +198,99 @@ class _ChannelProfileScreenState extends State<ChannelProfileScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _edit(
+    BuildContext context,
+    ChannelsController controller,
+    ChannelInfo info,
+    String name,
+    String description,
+  ) async {
+    // Plain variables instead of controllers — see reportChannelDialog.
+    var newName = name;
+    var newDescription = description;
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit channel'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              initialValue: name,
+              maxLength: 64,
+              onChanged: (v) => newName = v,
+              decoration: const InputDecoration(labelText: 'Channel name'),
+            ),
+            TextFormField(
+              initialValue: description,
+              maxLength: 512,
+              minLines: 2,
+              maxLines: 5,
+              onChanged: (v) => newDescription = v,
+              decoration: const InputDecoration(labelText: 'Description'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    newName = newName.trim();
+    newDescription = newDescription.trim();
+    if (save != true || newName.isEmpty) return;
+    await _run(
+      () => controller.updateChannel(
+        info.channelId,
+        // PATCH semantics: null = unchanged, so only edited fields are sent.
+        name: newName == name ? null : newName,
+        description: newDescription == description ? null : newDescription,
+      ),
+    );
+  }
+
+  Future<void> _delete(
+    BuildContext context,
+    ChannelsController controller,
+    ChannelInfo info,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Delete ${info.name}?'),
+        content: const Text(
+          'The channel and all its posts disappear for every follower. '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    var deleted = false;
+    await _run(() async {
+      await controller.deleteChannel(info.channelId);
+      deleted = true;
+    });
+    // Leave only on success — after a failure the snackbar must stay visible.
+    if (deleted && context.mounted) context.go('/updates');
   }
 
   Future<void> _block(

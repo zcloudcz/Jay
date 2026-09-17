@@ -1,8 +1,9 @@
-import 'package:dio/dio.dart';
+import 'package:calltype_core/network/channel_dtos.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/storage/database.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
@@ -55,15 +56,11 @@ class _ChannelCreateScreenState extends State<ChannelCreateScreen> {
       if (mounted) {
         context.pushReplacement('/channels/feed/${channel.channelId}');
       }
-    } on DioException catch (error) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = switch (error.response?.statusCode) {
-          403 => 'A registered account is required to create a channel.',
-          409 => 'You have reached the limit of channels you can own.',
-          _ => 'The channel could not be created. Check the connection.',
-        };
+        _error = channelErrorMessage(error);
       });
     }
   }
@@ -146,11 +143,13 @@ class _ChannelCreateScreenState extends State<ChannelCreateScreen> {
   );
 }
 
-/// Owner-only: grant or revoke the admin role, picking from local contacts.
+/// Owner-only: current admins (with remove) on top, then the local contacts
+/// that can be appointed.
 ///
-/// ponytail: the plan has no "list admins" endpoint, so the current admins
-/// cannot be shown — each contact simply offers both actions (both are
-/// idempotent on the server). Show real state once such an endpoint exists.
+/// `GET /channels/{id}/admins` is the one place the channel API exposes
+/// device ids — to the owner who appointed them. An admin is shown under the
+/// name of the matching local contact, or a shortened id when the owner has
+/// no such contact (any more).
 class ChannelAdminsScreen extends StatefulWidget {
   const ChannelAdminsScreen({super.key, required this.channelId});
   final String channelId;
@@ -160,12 +159,27 @@ class ChannelAdminsScreen extends StatefulWidget {
 }
 
 class _ChannelAdminsScreenState extends State<ChannelAdminsScreen> {
+  List<ChannelAdminDto>? _admins; // null = not loaded (yet)
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) context.read<ContactsController>().loadContacts();
+      if (!mounted) return;
+      context.read<ContactsController>().loadContacts();
+      _reload();
     });
+  }
+
+  Future<void> _reload() async {
+    try {
+      final admins = await context.read<ChannelsController>().admins(
+        widget.channelId,
+      );
+      if (mounted) setState(() => _admins = admins);
+    } catch (_) {
+      // Offline / not the owner: appointing below still reports its own error.
+    }
   }
 
   Future<void> _set(String deviceId, bool admin) async {
@@ -179,9 +193,10 @@ class _ChannelAdminsScreenState extends State<ChannelAdminsScreen> {
       messenger.showSnackBar(
         SnackBar(content: Text(admin ? 'Admin added.' : 'Admin removed.')),
       );
-    } catch (_) {
+      await _reload();
+    } catch (error) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('Only the channel owner can do this.')),
+        SnackBar(content: Text(channelErrorMessage(error))),
       );
     }
   }
@@ -189,47 +204,80 @@ class _ChannelAdminsScreenState extends State<ChannelAdminsScreen> {
   @override
   Widget build(BuildContext context) {
     final contacts = context.watch<ContactsController>().contacts;
+    final admins = _admins ?? const <ChannelAdminDto>[];
+    final adminIds = {for (final a in admins) a.deviceId};
+    final candidates = [
+      for (final c in contacts)
+        if (!adminIds.contains(c.deviceId)) c,
+    ];
     return Scaffold(
       appBar: AppBar(title: const Text('Channel admins')),
       body: Column(
         children: [
           const ChannelPublicNotice(),
           Expanded(
-            child: contacts.isEmpty
-                ? const Center(
-                    child: Text('Add a contact first to make them an admin.'),
-                  )
-                : ListView.builder(
-                    itemCount: contacts.length,
-                    itemBuilder: (context, index) {
-                      final contact = contacts[index];
-                      final name = contact.displayName ?? contact.userHandle;
-                      return ListTile(
-                        key: ValueKey(contact.deviceId),
-                        leading: LetterAvatar(name: name),
-                        title: NameWithBotBadge(
-                          name: name,
-                          isBot: contact.isBot,
-                        ),
-                        subtitle: Text(contact.userHandle),
-                        trailing: PopupMenuButton<bool>(
-                          onSelected: (admin) => _set(contact.deviceId, admin),
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(
-                              value: true,
-                              child: Text('Make admin'),
-                            ),
-                            PopupMenuItem(
-                              value: false,
-                              child: Text('Remove admin'),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
+            child: ListView(
+              children: [
+                const ListTile(dense: true, title: Text('Current admins')),
+                if (admins.isEmpty)
+                  ListTile(
+                    title: Text(
+                      _admins == null ? 'Loading…' : 'No admins yet.',
+                    ),
                   ),
+                for (final admin in admins)
+                  _adminTile(
+                    admin.deviceId,
+                    contacts
+                        .where((c) => c.deviceId == admin.deviceId)
+                        .firstOrNull,
+                  ),
+                const Divider(),
+                const ListTile(dense: true, title: Text('Add from contacts')),
+                if (candidates.isEmpty)
+                  const ListTile(
+                    title: Text('Add a contact first to make them an admin.'),
+                  ),
+                for (final contact in candidates)
+                  ListTile(
+                    key: ValueKey(contact.deviceId),
+                    leading: LetterAvatar(
+                      name: contact.displayName ?? contact.userHandle,
+                    ),
+                    title: NameWithBotBadge(
+                      name: contact.displayName ?? contact.userHandle,
+                      isBot: contact.isBot,
+                    ),
+                    subtitle: Text(contact.userHandle),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.person_add_alt_1_rounded),
+                      tooltip: 'Make admin',
+                      onPressed: () => _set(contact.deviceId, true),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _adminTile(String deviceId, Contact? contact) {
+    // A GUID is unreadable; its first block is enough to tell admins apart.
+    final name =
+        contact?.displayName ??
+        contact?.userHandle ??
+        deviceId.split('-').first;
+    return ListTile(
+      key: ValueKey('admin-$deviceId'),
+      leading: LetterAvatar(name: name),
+      title: NameWithBotBadge(name: name, isBot: contact?.isBot ?? false),
+      subtitle: contact == null ? null : Text(contact.userHandle),
+      trailing: IconButton(
+        icon: const Icon(Icons.person_remove_alt_1_rounded),
+        tooltip: 'Remove admin',
+        onPressed: () => _set(deviceId, false),
       ),
     );
   }

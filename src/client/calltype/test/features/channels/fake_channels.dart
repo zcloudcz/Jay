@@ -17,6 +17,16 @@ class FakeChannelApi extends ApiClient {
   final calls = <String>[];
   bool failUnfollow = false;
 
+  /// What the reaction / vote endpoints answer (server truth).
+  ChannelPostTotals totals = const ChannelPostTotals();
+
+  /// createdAt the "server" stamps on a published post.
+  DateTime serverNow = DateTime.utc(2026, 9, 17, 12);
+  List<ChannelAdminDto> admins = [];
+
+  /// Simulates a broken cursor: every catch-up page is the same full page.
+  bool stuck = false;
+
   @override
   Future<ChannelInfo> getChannel(String idOrHandle) async {
     calls.add('get $idOrHandle');
@@ -47,31 +57,109 @@ class FakeChannelApi extends ApiClient {
     int? limit,
   }) async {
     calls.add('posts $channelId after=$after');
-    return posts[channelId] ?? const [];
+    // Same semantics as the server: `after` alone → the OLDEST `limit` posts
+    // after the cursor; otherwise the newest `limit`. Always newest first.
+    final all = [...?posts[channelId]]
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final take = limit ?? 50;
+    if (after != null && before == null) {
+      final cursor = DateTime.parse(after);
+      final newer = stuck
+          ? all
+          : all.where((p) => p.createdAt.isAfter(cursor)).toList();
+      return newer.take(take).toList().reversed.toList();
+    }
+    return all.reversed.take(take).toList();
   }
 
   @override
-  Future<void> createChannelPost(
+  Future<ChannelInfo> createChannel(String name, String description) async {
+    calls.add('create $name');
+    return ChannelInfo(
+      channelId: 'new',
+      handle: 'CH-NEW0-0001',
+      name: name,
+      description: description,
+      role: 'owner',
+    );
+  }
+
+  @override
+  Future<ChannelInfo> updateChannel(
+    String channelId, {
+    String? name,
+    String? description,
+  }) async {
+    calls.add('patch $channelId name=$name description=$description');
+    return ChannelInfo(
+      channelId: channelId,
+      handle: 'CH-NEWS-0001',
+      name: name ?? 'News',
+      description: description ?? '',
+      role: 'owner',
+    );
+  }
+
+  @override
+  Future<void> deleteChannel(String channelId) async =>
+      calls.add('delete $channelId');
+
+  @override
+  Future<List<ChannelAdminDto>> getChannelAdmins(String channelId) async =>
+      admins;
+
+  @override
+  Future<void> setChannelAdmin(
+    String channelId,
+    String deviceId, {
+    required bool admin,
+  }) async {
+    calls.add('admin $deviceId $admin');
+    admins = [
+      for (final a in admins)
+        if (a.deviceId != deviceId) a,
+      if (admin) ChannelAdminDto(deviceId: deviceId),
+    ];
+  }
+
+  @override
+  Future<ChannelPostDto> createChannelPost(
     String channelId, {
     required String postId,
     required String kind,
     required String body,
     String? attachmentBlobPath,
-  }) async => calls.add('post $channelId $kind');
+  }) async {
+    calls.add('post $channelId $kind');
+    return ChannelPostDto(
+      channelId: channelId,
+      postId: postId,
+      kind: kind,
+      body: body,
+      attachmentBlobPath: attachmentBlobPath,
+      createdAt: serverNow,
+    );
+  }
 
   @override
-  Future<void> setChannelReaction(
+  Future<ChannelPostTotals> setChannelReaction(
     String channelId,
     String postId,
     String? emoji,
-  ) async => calls.add('react $postId $emoji');
+  ) async {
+    calls.add('react $postId $emoji');
+    return totals;
+  }
 
   @override
-  Future<void> voteChannelPoll(
+  Future<ChannelPostTotals> voteChannelPoll(
     String channelId,
     String postId,
     int optionIndex,
-  ) async => calls.add('vote $postId $optionIndex');
+  ) async {
+    calls.add('vote $postId $optionIndex');
+    return totals;
+  }
 }
 
 /// Controller wired to a fake API, an in-memory DB and hand-driven hub
