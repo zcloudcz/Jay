@@ -110,9 +110,23 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     ),
                   )
                 : rows.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No conversations yet. Add a contact to start.',
+                ? Center(
+                    // First-run users looked for a place to enter a friend's
+                    // code and found none: the only route was the unlabeled
+                    // chat FAB. Give the empty state an explicit action.
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'No conversations yet. Add a contact to start.',
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton.icon(
+                          onPressed: () => context.push('/contacts'),
+                          icon: const Icon(Icons.person_add_rounded),
+                          label: const Text('Add contact'),
+                        ),
+                      ],
                     ),
                   )
                 : ListView.builder(
@@ -160,10 +174,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
+      // Labeled FAB: an icon-only bubble did not read as "add contact / start
+      // chat" next to the similar-looking "New group" action in the app bar.
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/contacts'),
         tooltip: 'New chat',
-        child: const Icon(Icons.chat_rounded),
+        icon: const Icon(Icons.chat_rounded),
+        label: const Text('New chat'),
       ),
     );
   }

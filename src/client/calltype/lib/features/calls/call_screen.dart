@@ -42,6 +42,22 @@ class CallScreen extends StatelessWidget {
               label: Text(ended ? 'Close' : manager.isIncoming ? 'Decline' : 'End call')),
             if (manager.isVideo && !manager.isIncoming && !ended) IconButton(onPressed: manager.toggleCamera,
               icon: const Icon(Icons.videocam), tooltip: 'Toggle camera'),
+            // Diagnostics only: shows which ICE candidate type carries the
+            // media (expect "relay" when the force-relay switch is on). The
+            // summary is redacted — no IPs or SDP — so it is safe to screenshot
+            // into acceptance evidence.
+            if (manager.forceIceRelay && !ended && !manager.isIncoming)
+              TextButton.icon(
+                icon: const Icon(Icons.alt_route_rounded),
+                label: const Text('Route'),
+                onPressed: () async {
+                  final summary = await manager.getSelectedCandidateSummary();
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+                    summary == null
+                        ? 'No selected candidate yet'
+                        : 'Route: ${summary['type']} / ${summary['protocol']}')));
+                }),
           ]),
           const SizedBox(height: 32),
         ])),

@@ -420,6 +420,40 @@ void main() {
       await signal.signals.close();
     },
   );
+  test('runtime force-relay switch applies to the next call and notifies', () async {
+    // Backs the Settings → Diagnostics toggle: flipping it must change the ICE
+    // policy of the NEXT call without recreating the manager.
+    Map<String, dynamic>? capturedConfig;
+    final manager = WebRTCManager(
+      signalRClient: TestSignal(),
+      apiClient: TestApi(),
+      myDeviceId: 'me',
+      peerFactory: (config) async {
+        capturedConfig = config;
+        return TestPeer();
+      },
+      rendererFactory: TestRenderer.new,
+      mediaFactory: (_) async => TestMedia(),
+    );
+    var notifications = 0;
+    manager.addListener(() => notifications++);
+
+    manager.setForceIceRelay(true);
+    expect(notifications, 1);
+    manager.setForceIceRelay(true); // no-op must not spam listeners
+    expect(notifications, 1);
+
+    await manager.startCall('other');
+    expect(capturedConfig!['iceTransportPolicy'], 'relay');
+    await manager.endCall();
+
+    manager.setForceIceRelay(false);
+    await manager.startCall('other');
+    expect(capturedConfig!.containsKey('iceTransportPolicy'), isFalse);
+    await manager.endCall();
+    manager.dispose();
+  });
+
   test(
     'forced ICE relay is off by default and opt-in sets transport policy',
     () async {

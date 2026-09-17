@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+
+import '../../core/network/webrtc_manager.dart';
 
 /// Main settings screen with navigation to sub-settings.
 ///
@@ -58,6 +61,22 @@ class SettingsScreen extends StatelessWidget {
             title: 'My identity',
             subtitle: 'Share your contact invite and QR code',
             onTap: () => context.push('/settings/identity'),
+          ),
+
+          const Divider(indent: 16, endIndent: 16),
+
+          // -- Diagnostics section --------------------------------------------
+          // Beta acceptance needs proof that calls really work through the
+          // TURN relay (not just direct P2P). This forces relay-only ICE for
+          // the next calls; it is in-memory and resets on app restart.
+          SwitchListTile(
+            secondary: Icon(Icons.alt_route_rounded, color: colorScheme.tertiary),
+            title: const Text('Force TURN relay (diagnostics)'),
+            subtitle: const Text(
+              'Next calls use the relay only. Slower; resets on restart.',
+            ),
+            value: context.watch<WebRTCManager>().forceIceRelay,
+            onChanged: context.read<WebRTCManager>().setForceIceRelay,
           ),
 
           const Divider(indent: 16, endIndent: 16),

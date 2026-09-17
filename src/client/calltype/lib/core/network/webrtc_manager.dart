@@ -17,13 +17,12 @@ class WebRTCManager extends ChangeNotifier {
     required String myDeviceId,
     // Test-only: forces ICE relay so I03 can prove a relay candidate was
     // actually selected. Never enabled in production call setup.
-    bool forceIceRelay = false,
+    this.forceIceRelay = false,
     Future<RTCPeerConnection> Function(Map<String, dynamic>)? peerFactory,
     Future<MediaStream> Function(Map<String, dynamic>)? mediaFactory,
     RTCVideoRenderer Function()? rendererFactory,
   }) : _signalR = signalRClient,
        _api = apiClient,
-       _forceIceRelay = forceIceRelay,
        _peerFactory = peerFactory ?? ((config) => createPeerConnection(config)),
        _mediaFactory =
            mediaFactory ??
@@ -43,7 +42,18 @@ class WebRTCManager extends ChangeNotifier {
   }
   final SignalRClient _signalR;
   final ApiClient _api;
-  final bool _forceIceRelay;
+  /// Diagnostic switch (Settings → Diagnostics): when true, new calls use
+  /// `iceTransportPolicy: relay`, so media can only flow through TURN. Used to
+  /// prove the TURN provider really relays audio/video. Deliberately kept in
+  /// memory only — it resets on restart so nobody stays stuck on the slower,
+  /// metered relay path by accident. Applies to the NEXT call, not a live one.
+  bool forceIceRelay;
+
+  void setForceIceRelay(bool value) {
+    if (forceIceRelay == value) return;
+    forceIceRelay = value;
+    notifyListeners();
+  }
   final Future<RTCPeerConnection> Function(Map<String, dynamic>) _peerFactory;
   final Future<MediaStream> Function(Map<String, dynamic>) _mediaFactory;
   final RTCVideoRenderer Function() _rendererFactory;
@@ -202,7 +212,7 @@ class WebRTCManager extends ChangeNotifier {
       peer = await _peerFactory({
         'iceServers': servers,
         'sdpSemantics': 'unified-plan',
-        if (_forceIceRelay) 'iceTransportPolicy': 'relay',
+        if (forceIceRelay) 'iceTransportPolicy': 'relay',
       });
       _check(generation);
       peer.onIceCandidate = (candidate) {

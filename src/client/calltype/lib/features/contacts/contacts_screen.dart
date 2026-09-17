@@ -98,6 +98,23 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       color: colorScheme.onSurfaceVariant,
                     ),
                   ),
+                  const SizedBox(height: 24),
+                  // The app-bar icons alone were not discoverable (beta
+                  // feedback: "nowhere to paste the code"), so the empty
+                  // state repeats both actions as labeled buttons.
+                  FilledButton.icon(
+                    onPressed: () => _showAddDialog(context, controller),
+                    icon: const Icon(Icons.keyboard_rounded),
+                    label: const Text('Enter handle or invite'),
+                  ),
+                  if (cameraSupported) ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => _openQrScanner(context, controller),
+                      icon: const Icon(Icons.qr_code_scanner_rounded),
+                      label: const Text('Scan QR code'),
+                    ),
+                  ],
                 ],
               ),
             )
@@ -108,6 +125,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 return _ContactTile(contact: contact);
               },
             ),
+      // Always-visible labeled entry point for adding a contact by code, also
+      // once the list is non-empty and the empty-state buttons are gone.
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showAddDialog(context, controller),
+        icon: const Icon(Icons.person_add_rounded),
+        label: const Text('Add contact'),
+      ),
     );
   }
 
