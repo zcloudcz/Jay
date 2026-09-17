@@ -99,6 +99,8 @@ builder.Services.AddHostedService<BackupCleanupService>();
 builder.Services.Configure<ChannelsOptions>(
     builder.Configuration.GetSection(ChannelsOptions.SectionName));
 builder.Services.AddHostedService<ChannelPostCleanupService>();
+// Scoped for the same reason as MessageQueueService: it uses the scoped AppDbContext.
+builder.Services.AddScoped<ChannelService>();
 
 // BlobServiceClient for Azure Blob Storage — used by backup endpoints to upload
 // and download encrypted backup files. Registered as singleton because the client
@@ -251,6 +253,7 @@ app.MapDeviceEndpoints();
 app.MapAccountEndpoints();
 app.MapGroupEndpoints();
 app.MapBackupEndpoints();
+app.MapChannelEndpoints();
 app.MapTurnCredentialEndpoints();
 
 // Map the SignalR hub at /hub. The hub is protected by [Authorize] — clients
