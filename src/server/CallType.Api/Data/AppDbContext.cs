@@ -31,6 +31,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Group> Groups => Set<Group>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<Backup> Backups => Set<Backup>();
+    public DbSet<Channel> Channels => Set<Channel>();
+    public DbSet<ChannelAdmin> ChannelAdmins => Set<ChannelAdmin>();
+    public DbSet<ChannelPost> ChannelPosts => Set<ChannelPost>();
+    public DbSet<ChannelFollower> ChannelFollowers => Set<ChannelFollower>();
+    public DbSet<ChannelReaction> ChannelReactions => Set<ChannelReaction>();
+    public DbSet<ChannelPollVote> ChannelPollVotes => Set<ChannelPollVote>();
+    public DbSet<ChannelReport> ChannelReports => Set<ChannelReport>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -166,6 +173,146 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasOne(b => b.Account)
                   .WithMany(a => a.Backups)
                   .HasForeignKey(b => b.AccountId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // -----------------------------------------------------------------
+        // Channels — public one-way broadcast (plaintext by design, see Channel.cs)
+        // -----------------------------------------------------------------
+        // Device references in the channel tables (admin, follower, reaction,
+        // vote, reporter) cascade from Device where a row is meaningless without
+        // it, but have no navigation on Device on purpose: nothing should be able
+        // to walk from a device to "what it follows / reacted to" by accident.
+        modelBuilder.Entity<Channel>(entity =>
+        {
+            entity.HasKey(c => c.ChannelId);
+
+            // "CH-XXXX-XXXX" — same shape as Device.UserHandle.
+            entity.Property(c => c.Handle).HasMaxLength(12);
+            entity.HasIndex(c => c.Handle).IsUnique();
+
+            entity.Property(c => c.Name).HasMaxLength(64);
+            entity.Property(c => c.Description).HasMaxLength(512);
+
+            // "Channels owned by this account" backs the MaxOwnedPerDevice limit
+            // check on create and the owned part of GET /channels/mine.
+            entity.HasIndex(c => c.OwnerAccountId);
+
+            // Restrict, not Cascade: deleting an account must not silently wipe
+            // a public channel and its followers — that has to be an explicit step.
+            entity.HasOne(c => c.OwnerAccount)
+                  .WithMany()
+                  .HasForeignKey(c => c.OwnerAccountId)
+                  .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ChannelAdmin>(entity =>
+        {
+            entity.HasKey(a => new { a.ChannelId, a.DeviceId });
+
+            entity.Property(a => a.Role).HasMaxLength(10).HasDefaultValue("admin");
+
+            entity.HasOne(a => a.Channel)
+                  .WithMany(c => c.Admins)
+                  .HasForeignKey(a => a.ChannelId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<Device>()
+                  .WithMany()
+                  .HasForeignKey(a => a.DeviceId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChannelPost>(entity =>
+        {
+            // PostId is client-generated (idempotent publish) — never ValueGeneratedOnAdd.
+            entity.HasKey(p => p.PostId);
+            entity.Property(p => p.PostId).ValueGeneratedNever();
+
+            // Stored as text like Backup.Status: readable in psql, and the enum
+            // (no Video member) is the single place that limits the allowed kinds.
+            entity.Property(p => p.Kind).HasConversion<string>().HasMaxLength(10);
+            entity.Property(p => p.Body).HasMaxLength(4096);
+            entity.Property(p => p.AttachmentBlobPath).HasMaxLength(256);
+
+            // Feed paging: "posts of channel X, newest first, before <ts>".
+            entity.HasIndex(p => new { p.ChannelId, p.CreatedAt }).IsDescending(false, true);
+
+            // Retention cleanup scans by age across ALL channels, which the
+            // composite index above (leading ChannelId) cannot serve.
+            entity.HasIndex(p => p.CreatedAt);
+
+            entity.HasOne(p => p.Channel)
+                  .WithMany(c => c.Posts)
+                  .HasForeignKey(p => p.ChannelId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChannelFollower>(entity =>
+        {
+            entity.HasKey(f => new { f.ChannelId, f.DeviceId });
+
+            // "My channels" looks up by DeviceId, which is the second PK column
+            // and therefore not usable from the PK index.
+            entity.HasIndex(f => f.DeviceId);
+
+            entity.HasOne(f => f.Channel)
+                  .WithMany(c => c.Followers)
+                  .HasForeignKey(f => f.ChannelId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<Device>()
+                  .WithMany()
+                  .HasForeignKey(f => f.DeviceId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChannelReaction>(entity =>
+        {
+            entity.HasKey(r => new { r.PostId, r.DeviceId });
+            entity.Property(r => r.Emoji).HasMaxLength(16);
+
+            // Cascade from the post so retention's bulk DELETE of posts removes
+            // reactions in the database without loading them.
+            entity.HasOne(r => r.Post)
+                  .WithMany()
+                  .HasForeignKey(r => r.PostId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<Device>()
+                  .WithMany()
+                  .HasForeignKey(r => r.DeviceId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChannelPollVote>(entity =>
+        {
+            entity.HasKey(v => new { v.PostId, v.DeviceId });
+
+            entity.HasOne(v => v.Post)
+                  .WithMany()
+                  .HasForeignKey(v => v.PostId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<Device>()
+                  .WithMany()
+                  .HasForeignKey(v => v.DeviceId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChannelReport>(entity =>
+        {
+            entity.HasKey(r => r.Id);
+            entity.Property(r => r.Id).ValueGeneratedOnAdd();
+            entity.Property(r => r.Reason).HasMaxLength(512);
+
+            // Operator reviews reports per channel. PostId and ReporterDeviceId
+            // are plain columns (no FK) so a report survives post retention.
+            entity.HasIndex(r => r.ChannelId);
+
+            entity.HasOne(r => r.Channel)
+                  .WithMany()
+                  .HasForeignKey(r => r.ChannelId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
     }

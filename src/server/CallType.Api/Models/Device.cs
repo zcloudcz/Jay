@@ -54,6 +54,14 @@ public class Device
     /// </summary>
     public byte[] DeviceSecretHash { get; set; } = null!;
 
+    /// <summary>
+    /// True when the device declared itself an automated bot at registration.
+    /// Self-declaration, not verification — it only drives the "BOT" badge in
+    /// clients. Immutable: set once in POST /devices, no endpoint updates it.
+    /// For queueing, TTL, rate limits and push a bot is an ordinary device.
+    /// </summary>
+    public bool IsBot { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>

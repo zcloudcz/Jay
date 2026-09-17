@@ -102,6 +102,212 @@ namespace CallType.Api.Migrations
                     b.ToTable("Backups");
                 });
 
+            modelBuilder.Entity("CallType.Api.Models.Channel", b =>
+                {
+                    b.Property<Guid>("ChannelId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<int>("FollowerCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Handle")
+                        .IsRequired()
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("OwnerAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OwnerDeviceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("ChannelId");
+
+                    b.HasIndex("Handle")
+                        .IsUnique();
+
+                    b.HasIndex("OwnerAccountId");
+
+                    b.ToTable("Channels");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ChannelAdmin", b =>
+                {
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasDefaultValue("admin");
+
+                    b.HasKey("ChannelId", "DeviceId");
+
+                    b.HasIndex("DeviceId");
+
+                    b.ToTable("ChannelAdmins");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ChannelFollower", b =>
+                {
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("FollowedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("LastSeenPostAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("ChannelId", "DeviceId");
+
+                    b.HasIndex("DeviceId");
+
+                    b.ToTable("ChannelFollowers");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ChannelPollVote", b =>
+                {
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("OptionIndex")
+                        .HasColumnType("integer");
+
+                    b.HasKey("PostId", "DeviceId");
+
+                    b.HasIndex("DeviceId");
+
+                    b.ToTable("ChannelPollVotes");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ChannelPost", b =>
+                {
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AttachmentBlobPath")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("AuthorDeviceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.HasKey("PostId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("ChannelId", "CreatedAt")
+                        .IsDescending(false, true);
+
+                    b.ToTable("ChannelPosts");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ChannelReaction", b =>
+                {
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Emoji")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.HasKey("PostId", "DeviceId");
+
+                    b.HasIndex("DeviceId");
+
+                    b.ToTable("ChannelReactions");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ChannelReport", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("PostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid>("ReporterDeviceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChannelId");
+
+                    b.ToTable("ChannelReports");
+                });
+
             modelBuilder.Entity("CallType.Api.Models.Device", b =>
                 {
                     b.Property<Guid>("DeviceId")
@@ -118,6 +324,9 @@ namespace CallType.Api.Migrations
                     b.Property<byte[]>("IdentityKey")
                         .IsRequired()
                         .HasColumnType("bytea");
+
+                    b.Property<bool>("IsBot")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTimeOffset>("LastSeenAt")
                         .HasColumnType("timestamp with time zone");
@@ -296,6 +505,107 @@ namespace CallType.Api.Migrations
                     b.Navigation("Account");
                 });
 
+            modelBuilder.Entity("CallType.Api.Models.Channel", b =>
+                {
+                    b.HasOne("CallType.Api.Models.Account", "OwnerAccount")
+                        .WithMany()
+                        .HasForeignKey("OwnerAccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("OwnerAccount");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ChannelAdmin", b =>
+                {
+                    b.HasOne("CallType.Api.Models.Channel", "Channel")
+                        .WithMany("Admins")
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CallType.Api.Models.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Channel");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ChannelFollower", b =>
+                {
+                    b.HasOne("CallType.Api.Models.Channel", "Channel")
+                        .WithMany("Followers")
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CallType.Api.Models.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Channel");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ChannelPollVote", b =>
+                {
+                    b.HasOne("CallType.Api.Models.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CallType.Api.Models.ChannelPost", "Post")
+                        .WithMany()
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Post");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ChannelPost", b =>
+                {
+                    b.HasOne("CallType.Api.Models.Channel", "Channel")
+                        .WithMany("Posts")
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Channel");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ChannelReaction", b =>
+                {
+                    b.HasOne("CallType.Api.Models.Device", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CallType.Api.Models.ChannelPost", "Post")
+                        .WithMany()
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Post");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ChannelReport", b =>
+                {
+                    b.HasOne("CallType.Api.Models.Channel", "Channel")
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Channel");
+                });
+
             modelBuilder.Entity("CallType.Api.Models.GroupMember", b =>
                 {
                     b.HasOne("CallType.Api.Models.Device", "Device")
@@ -331,6 +641,15 @@ namespace CallType.Api.Migrations
                     b.Navigation("AccountDevices");
 
                     b.Navigation("Backups");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.Channel", b =>
+                {
+                    b.Navigation("Admins");
+
+                    b.Navigation("Followers");
+
+                    b.Navigation("Posts");
                 });
 
             modelBuilder.Entity("CallType.Api.Models.Device", b =>

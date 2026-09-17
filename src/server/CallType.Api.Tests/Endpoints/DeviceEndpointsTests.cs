@@ -462,7 +462,8 @@ public class DeviceEndpointsTests : IntegrationTestBase
         lookup.StatusCode.Should().Be(HttpStatusCode.OK);
         var found = await lookup.Content.ReadFromJsonAsync<JsonElement>();
         found.GetProperty("deviceId").GetGuid().Should().Be(id);
-        found.EnumerateObject().Should().HaveCount(2);
+        // Exactly deviceId + userHandle + isBot — lookup must not leak anything else.
+        found.EnumerateObject().Should().HaveCount(3);
         var bundleResponse = await Client.GetAsync($"/devices/{id}/key-bundle");
         var bundle = await bundleResponse.Content.ReadFromJsonAsync<JsonElement>();
         bundle.GetProperty("signingKey").GetString().Should().Be(signingKey);
@@ -478,4 +479,80 @@ public class DeviceEndpointsTests : IntegrationTestBase
             signingKey = Convert.ToBase64String(new byte[32])
         });
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-    }}
+    }
+
+    // -----------------------------------------------------------------------
+    // isBot — self-declared at registration, immutable afterwards
+    // -----------------------------------------------------------------------
+
+    /// <summary>Registers a device with an optional isBot flag and returns its id + handle.</summary>
+    private async Task<(Guid DeviceId, string Handle)> RegisterDeviceAsync(bool? isBot)
+    {
+        // isBot is omitted entirely when null to exercise the "old client" path.
+        object request = isBot is null
+            ? new { identityKey = ValidIdentityKey, signedPreKey = ValidSignedPreKey }
+            : new { identityKey = ValidIdentityKey, signedPreKey = ValidSignedPreKey, isBot };
+        var response = await Client.PostAsJsonAsync("/devices", request);
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return (body.GetProperty("deviceId").GetGuid(), body.GetProperty("userHandle").GetString()!);
+    }
+
+    private async Task<bool> GetIsBotFromKeyBundleAsync(Guid deviceId)
+    {
+        var bundle = await (await Client.GetAsync($"/devices/{deviceId}/key-bundle"))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        return bundle.GetProperty("isBot").GetBoolean();
+    }
+
+    private async Task<bool> GetIsBotFromLookupAsync(string handle)
+    {
+        var found = await (await Client.GetAsync($"/devices/by-handle/{handle}"))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        return found.GetProperty("isBot").GetBoolean();
+    }
+
+    [Fact]
+    public async Task Bot_registration_is_visible_in_key_bundle_and_handle_lookup()
+    {
+        await RegisterAndAuthenticateAsync();
+        var (id, handle) = await RegisterDeviceAsync(isBot: true);
+
+        // Both places a client looks at BEFORE adding a contact must show the flag.
+        (await GetIsBotFromKeyBundleAsync(id)).Should().BeTrue();
+        (await GetIsBotFromLookupAsync(handle)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Device_registered_without_isBot_is_not_a_bot()
+    {
+        // Existing clients do not send the field at all — they must stay humans.
+        await RegisterAndAuthenticateAsync();
+        var (id, handle) = await RegisterDeviceAsync(isBot: null);
+
+        (await GetIsBotFromKeyBundleAsync(id)).Should().BeFalse();
+        (await GetIsBotFromLookupAsync(handle)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task IsBot_cannot_be_changed_after_registration()
+    {
+        await RegisterAndAuthenticateAsync();
+        var (humanId, _) = await RegisterDeviceAsync(isBot: false);
+        var (botId, _) = await RegisterDeviceAsync(isBot: true);
+
+        // The only device-update endpoint is push-token; smuggling isBot into
+        // its body must be ignored in both directions.
+        (await Client.PutAsJsonAsync($"/devices/{humanId}/push-token",
+            new { token = "t1", platform = "fcm", isBot = true })).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await Client.PutAsJsonAsync($"/devices/{botId}/push-token",
+            new { token = "t2", platform = "fcm", isBot = false })).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // Registering again always creates a NEW device — it cannot rewrite an
+        // existing one, so the originals keep their flag.
+        await RegisterDeviceAsync(isBot: true);
+
+        (await GetIsBotFromKeyBundleAsync(humanId)).Should().BeFalse();
+        (await GetIsBotFromKeyBundleAsync(botId)).Should().BeTrue();
+    }
+}

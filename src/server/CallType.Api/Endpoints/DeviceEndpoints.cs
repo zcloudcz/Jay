@@ -15,15 +15,12 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using CallType.Api.Data;
 using CallType.Api.Models;
+using CallType.Api.Services;
 
 namespace CallType.Api.Endpoints;
 
 public static class DeviceEndpoints
 {
-    // Characters used for handle generation. Excludes ambiguous characters
-    // (0/O, 1/I/L) to reduce transcription errors when users type handles.
-    private const string HandleChars = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-
     /// <summary>
     /// Registers all device-related routes on the application pipeline.
     /// Called from Program.cs to keep the entry point lean.
@@ -118,6 +115,10 @@ public static class DeviceEndpoints
             SigningKey = signingKey,
             Signature = signature,
             DeviceSecretHash = deviceSecretHash,
+            // Self-declared at registration and never updated afterwards — no
+            // endpoint writes this column, so a human contact cannot silently
+            // turn into a bot (or hide that it is one) later.
+            IsBot = request.IsBot,
             CreatedAt = now,
             LastSeenAt = now
         };
@@ -237,14 +238,17 @@ public static class DeviceEndpoints
             Convert.ToBase64String(device.SignedPreKey),
             oneTimePreKeyDto,
             device.SigningKey is null ? null : Convert.ToBase64String(device.SigningKey),
-            device.Signature is null ? null : Convert.ToBase64String(device.Signature)));
+            device.Signature is null ? null : Convert.ToBase64String(device.Signature),
+            device.IsBot));
     }
 
     private static async Task<IResult> FindDeviceByHandle(string handle, AppDbContext db, CancellationToken ct)
     {
         var normalized = handle.Trim().ToUpperInvariant();
         var device = await db.Devices.Where(d => d.UserHandle == normalized)
-            .Select(d => new { d.DeviceId, d.UserHandle }).SingleOrDefaultAsync(ct);
+            // IsBot is included so the client can show the BOT badge BEFORE the
+            // user adds the contact (lookup is the first thing the add flow calls).
+            .Select(d => new { d.DeviceId, d.UserHandle, d.IsBot }).SingleOrDefaultAsync(ct);
         return device is null ? Results.NotFound() : Results.Ok(device);
     }
 
@@ -318,7 +322,7 @@ public static class DeviceEndpoints
 
         for (var attempt = 0; attempt < maxAttempts; attempt++)
         {
-            var handle = GenerateHandle();
+            var handle = HandleGenerator.Generate(HandleGenerator.DevicePrefix);
             var exists = await db.Devices.AnyAsync(d => d.UserHandle == handle, ct);
             if (!exists)
                 return handle;
@@ -327,35 +331,6 @@ public static class DeviceEndpoints
         // If we get here something is seriously wrong.
         throw new InvalidOperationException(
             "Failed to generate a unique user handle after maximum retry attempts.");
-    }
-
-    private static string GenerateHandle()
-    {
-        // Use stack allocation for the 8-char random portion to avoid
-        // heap pressure on a potentially hot registration path.
-        Span<char> part1 = stackalloc char[4];
-        Span<char> part2 = stackalloc char[4];
-
-        FillRandom(part1);
-        FillRandom(part2);
-
-        return $"CT-{part1}-{part2}";
-    }
-
-    private static void FillRandom(Span<char> buffer)
-    {
-        // RandomNumberGenerator is cryptographically secure and thread-safe,
-        // ensuring handles cannot be predicted or enumerated.
-        Span<byte> randomBytes = stackalloc byte[buffer.Length];
-        RandomNumberGenerator.Fill(randomBytes);
-
-        for (var i = 0; i < buffer.Length; i++)
-        {
-            // Modulo bias is negligible here: 256 % 30 = 16, giving at most
-            // ~6% over-representation for some characters. This is acceptable
-            // for an identifier, not a cryptographic key.
-            buffer[i] = HandleChars[randomBytes[i] % HandleChars.Length];
-        }
     }
 }
 
@@ -371,7 +346,8 @@ public record RegisterDeviceRequest(
     string SignedPreKey,
     List<OneTimePreKeyInput>? OneTimePreKeys,
     string? SigningKey = null,
-    string? Signature = null);
+    string? Signature = null,
+    bool IsBot = false);
 
 public record OneTimePreKeyInput(int KeyId, string PublicKey);
 
@@ -383,7 +359,8 @@ public record KeyBundleResponse(
     string SignedPreKey,
     OneTimePreKeyDto? OneTimePreKey,
     string? SigningKey = null,
-    string? Signature = null);
+    string? Signature = null,
+    bool IsBot = false);
 
 public record OneTimePreKeyDto(int KeyId, string PublicKey);
 
