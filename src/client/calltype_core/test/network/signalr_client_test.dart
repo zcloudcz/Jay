@@ -48,6 +48,8 @@ void main() {
       'ReceiveMessage',
       'TypingIndicator',
       'CallSignal',
+      'ReceiveChannelPost',
+      'ChannelDeleted',
     });
 
     await client.sendMessage('bob', 'cipher', messageId: 'm1');
@@ -62,6 +64,25 @@ void main() {
       {'senderId': 'bob', 'encryptedBody': 'x'},
     ]);
     expect((await received)['senderId'], 'bob');
+
+    // Channel wire contract: hub method names + the two plaintext events.
+    transport.invocations.clear();
+    await client.joinChannels();
+    await client.leaveChannel('ch1');
+    expect(transport.invocations, [
+      ['JoinChannels'],
+      ['LeaveChannel', 'ch1'],
+    ]);
+    final post = client.onChannelPost.first;
+    final deleted = client.onChannelDeleted.first;
+    transport.handlers['ReceiveChannelPost']!([
+      {'channelId': 'ch1', 'postId': 'p1'},
+    ]);
+    transport.handlers['ChannelDeleted']!([
+      {'channelId': 'ch1'},
+    ]);
+    expect((await post)['postId'], 'p1');
+    expect((await deleted)['channelId'], 'ch1');
 
     // A reconnect must re-request queued messages and tell listeners.
     transport.invocations.clear();

@@ -18,7 +18,16 @@ part 'database.g.dart';
 /// the app share one schema and one migration path. SQLCipher encryption can
 /// be layered in the same way — the table definitions stay the same.
 @DriftDatabase(
-  tables: [Contacts, Conversations, Messages, SignalSessions, BackupState],
+  tables: [
+    Contacts,
+    Conversations,
+    Messages,
+    SignalSessions,
+    BackupState,
+    Channels,
+    ChannelPosts,
+    BlockedChannels,
+  ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
@@ -28,5 +37,26 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  /// Schema history:
+  ///   1 — contacts, conversations, messages, sessions, backup state
+  ///   2 — contacts.is_bot + channels, channel_posts, blocked_channels
+  ///       (bots and channels shipped together, hence ONE step)
+  ///
+  /// WHY explicit steps instead of destructive recreation: this database
+  /// holds the user's only copy of their decrypted history and the ratchet
+  /// sessions — losing it on an app update is not acceptable.
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) => m.createAll(),
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.addColumn(contacts, contacts.isBot);
+        await m.createTable(channels);
+        await m.createTable(channelPosts);
+        await m.createTable(blockedChannels);
+      }
+    },
+  );
 }
