@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
+
 /// Composable message input bar with text field and send button.
 ///
 /// Sits at the bottom of the chat screen. Calls [onSend] with the
@@ -52,9 +54,7 @@ class _MessageInputState extends State<MessageInput> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Message was not saved. Your draft is still here.'),
-          ),
+          SnackBar(content: Text(context.l10n.chatInputNotSaved)),
         );
       }
     } finally {
@@ -80,7 +80,7 @@ class _MessageInputState extends State<MessageInput> {
             // Attachment button — placeholder for Phase 5 file sharing.
             IconButton(
               icon: const Icon(Icons.attach_file_rounded),
-              tooltip: 'Attach file',
+              tooltip: context.l10n.chatInputAttach,
               onPressed: widget.onAttachment,
             ),
 
@@ -90,7 +90,7 @@ class _MessageInputState extends State<MessageInput> {
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => _submit(),
                 decoration: InputDecoration(
-                  hintText: 'Message',
+                  hintText: context.l10n.chatInputHint,
                   filled: true,
                   fillColor: colorScheme.surfaceContainerHighest,
                   // Fully rounded ends give the input field the pill shape
@@ -118,7 +118,7 @@ class _MessageInputState extends State<MessageInput> {
                     ? colorScheme.primary
                     : colorScheme.onSurfaceVariant,
               ),
-              tooltip: 'Send',
+              tooltip: context.l10n.chatInputSend,
               onPressed: _hasText && !_sending ? _submit : null,
             ),
           ],

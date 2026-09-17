@@ -1,0 +1,12 @@
+# Flutter gen_l10n configuration. The generated Dart lands next to the ARBs
+# (synthetic packages were removed from Flutter) and is git-ignored.
+arb-dir: lib/l10n
+template-arb-file: app_en.arb
+output-localization-file: app_localizations.dart
+output-class: AppLocalizations
+nullable-getter: false
+# First entry = fallback when the OS / browser asks for a language we do not
+# ship. Without this the list is alphabetical and the fallback would be Arabic.
+preferred-supported-locales: [en]
+# Must stay `{}` — test/l10n/arb_consistency_test.dart enforces complete translations.
+untranslated-messages-file: build/l10n_untranslated.json

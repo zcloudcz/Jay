@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import 'package:calltype_core/network/channel_dtos.dart' show parseChannelLink;
 
+import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
 import '../chat_list/chat_list_controller.dart';
@@ -47,10 +48,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
     final controller = context.watch<ContactsController>();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l10n = context.l10n;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Contacts'),
+        title: Text(l10n.contactsTitle),
         actions: [
           // QR scanner — the primary way to add contacts without leaking
           // metadata. Opens the camera, scans a CallType QR code, and
@@ -61,7 +63,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   ? Icons.qr_code_scanner_rounded
                   : Icons.content_paste_rounded,
             ),
-            tooltip: cameraSupported ? 'Scan QR code' : 'Paste invite',
+            tooltip: cameraSupported
+                ? l10n.contactsScanQr
+                : l10n.contactsPasteInvite,
             onPressed: () => cameraSupported
                 ? _openQrScanner(context, controller)
                 : _showAddDialog(context, controller),
@@ -70,7 +74,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           // (e.g. remote contact sharing their handle via text).
           IconButton(
             icon: const Icon(Icons.person_add_rounded),
-            tooltip: 'Add by handle',
+            tooltip: l10n.contactsAddByHandle,
             onPressed: () => _showAddDialog(context, controller),
           ),
         ],
@@ -87,7 +91,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'No contacts yet',
+                    l10n.contactsEmptyTitle,
                     style: theme.textTheme.titleMedium?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),
@@ -95,8 +99,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   const SizedBox(height: 8),
                   Text(
                     cameraSupported
-                        ? 'Scan a QR code or add a handle'
-                        : 'Paste an invite or add a handle',
+                        ? l10n.contactsEmptyHintScan
+                        : l10n.contactsEmptyHintPaste,
+                    textAlign: TextAlign.center,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),
@@ -108,14 +113,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   FilledButton.icon(
                     onPressed: () => _showAddDialog(context, controller),
                     icon: const Icon(Icons.keyboard_rounded),
-                    label: const Text('Enter handle or invite'),
+                    label: Text(l10n.contactsEnterHandleOrInvite),
                   ),
                   if (cameraSupported) ...[
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
                       onPressed: () => _openQrScanner(context, controller),
                       icon: const Icon(Icons.qr_code_scanner_rounded),
-                      label: const Text('Scan QR code'),
+                      label: Text(l10n.contactsScanQr),
                     ),
                   ],
                 ],
@@ -133,7 +138,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddDialog(context, controller),
         icon: const Icon(Icons.person_add_rounded),
-        label: const Text('Add contact'),
+        label: Text(l10n.contactsAddContact),
       ),
     );
   }
@@ -168,16 +173,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
         if (added && context.mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(SnackBar(content: Text('Added ${result['handle']}')));
+          ).showSnackBar(
+            SnackBar(
+              content: Text(context.l10n.contactsAdded(result['handle']!)),
+            ),
+          );
         }
       } catch (_) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Contact could not be added. Check the invite and connection.',
-              ),
-            ),
+            SnackBar(content: Text(context.l10n.contactsAddFailed)),
           );
         }
       }
@@ -198,10 +203,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }) async {
     final preview = await controller.resolveContact(handle, deviceId: deviceId);
     if (!context.mounted) return false;
+    final l10n = context.l10n;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Add this contact?'),
+        title: Text(l10n.contactsConfirmAddTitle),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -209,18 +215,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
             NameWithBotBadge(name: preview.handle, isBot: preview.isBot),
             if (preview.isBot) ...[
               const SizedBox(height: 12),
-              const Text(botNotice),
+              Text(l10n.botNotice),
             ],
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
+            child: Text(l10n.commonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Add'),
+            child: Text(l10n.commonAdd),
           ),
         ],
       ),
@@ -240,17 +246,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
     // exit animation was still rebuilding the TextField ("used after being
     // disposed" as soon as the preview dialog opens on top of it).
     var typed = '';
+    final l10n = context.l10n;
 
     final handle = await showDialog<String>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Add Contact'),
+          title: Text(l10n.contactsAddDialogTitle),
           content: TextField(
             onChanged: (value) => typed = value,
-            decoration: const InputDecoration(
-              labelText: 'Handle or invite',
-              hintText: 'CT-XXXX-XXXX or ct://…',
+            decoration: InputDecoration(
+              labelText: l10n.contactsHandleOrInviteLabel,
+              hintText: l10n.contactsHandleOrInviteHint,
             ),
             autofocus: true,
             textInputAction: TextInputAction.done,
@@ -261,13 +268,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
+              child: Text(l10n.commonCancel),
             ),
             FilledButton(
               onPressed: () {
                 Navigator.of(dialogContext).pop(typed.trim());
               },
-              child: const Text('Add'),
+              child: Text(l10n.commonAdd),
             ),
           ],
         );
@@ -288,16 +295,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
         if (added && context.mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(SnackBar(content: Text('Added $handle')));
+          ).showSnackBar(SnackBar(content: Text(l10n.contactsAdded(handle))));
         }
       } catch (_) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Contact not found. Check the invite and connection.',
-              ),
-            ),
+            SnackBar(content: Text(l10n.contactsNotFound)),
           );
         }
       }

@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../features/channels/channels_controller.dart';
+import '../../l10n/l10n.dart';
 
 enum MainTab { chats, updates }
 
@@ -38,17 +39,17 @@ class MainNavigationBar extends StatelessWidget {
         context.go(index == MainTab.chats.index ? '/chats' : '/updates');
       },
       destinations: [
-        const NavigationDestination(
-          icon: Icon(Icons.chat_bubble_outline_rounded),
-          selectedIcon: Icon(Icons.chat_bubble_rounded),
-          label: 'Chats',
+        NavigationDestination(
+          icon: const Icon(Icons.chat_bubble_outline_rounded),
+          selectedIcon: const Icon(Icons.chat_bubble_rounded),
+          label: context.l10n.navChats,
         ),
         NavigationDestination(
           icon: badge(Icons.campaign_outlined),
           // The selected state replaces `icon` entirely, so it needs the
           // badge too — posts keep arriving while Updates is open.
           selectedIcon: badge(Icons.campaign_rounded),
-          label: 'Updates',
+          label: context.l10n.navUpdates,
         ),
       ],
     );

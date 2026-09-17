@@ -11,6 +11,7 @@ import 'message_bubble.dart';
 import 'message_input.dart';
 import 'attachment.dart';
 import '../../core/storage/database.dart';
+import '../../l10n/l10n.dart';
 import '../../shared/widgets/bot_badge.dart';
 
 /// One-time notice shown the first time a chat with a bot is opened: the
@@ -60,9 +61,9 @@ class _BotNoticeState extends State<_BotNotice> {
       ? const SizedBox.shrink()
       : MaterialBanner(
           leading: const Icon(Icons.smart_toy_outlined),
-          content: const Text(botNotice),
+          content: Text(context.l10n.botNotice),
           actions: [
-            TextButton(onPressed: _dismiss, child: const Text('Got it')),
+            TextButton(onPressed: _dismiss, child: Text(context.l10n.chatBotNoticeDismiss)),
           ],
         );
 }
@@ -76,11 +77,7 @@ class ChatScreen extends StatelessWidget {
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Unable to start the call. Check connection and permissions.',
-            ),
-          ),
+          SnackBar(content: Text(context.l10n.chatCallFailed)),
         );
       }
     }
@@ -88,19 +85,28 @@ class ChatScreen extends StatelessWidget {
 
   Future<void> _attach(BuildContext context) async {
     final controller = context.read<ChatController>();
+    // Captured before the awaits; the raw exception text is for developers
+    // and is not shown — the user gets one of two localized messages.
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final file = await FilePicker.pickFile();
       if (file == null) return;
       if (await file.length() > Attachment.maxBytes) {
-        throw const FormatException('Beta attachments support up to 256 KiB.');
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              l10n.chatAttachmentTooLarge(Attachment.maxBytes ~/ 1024),
+            ),
+          ),
+        );
+        return;
       }
       await controller.sendAttachment(file.name, await file.readAsBytes());
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
-      }
+    } catch (_) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.chatAttachmentFailed)),
+      );
     }
   }
 
@@ -113,7 +119,7 @@ class ChatScreen extends StatelessWidget {
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to save attachment.')),
+          SnackBar(content: Text(context.l10n.chatAttachmentSaveFailed)),
         );
       }
     }
@@ -138,6 +144,7 @@ class ChatScreen extends StatelessWidget {
         contact?.userHandle ??
         contactId;
     final isBot = contact?.isBot ?? false;
+    final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(
         title: NameWithBotBadge(name: name, isBot: isBot),
@@ -147,12 +154,12 @@ class ChatScreen extends StatelessWidget {
           if (!group && !isBot) ...[
             IconButton(
               icon: const Icon(Icons.call_rounded),
-              tooltip: 'Voice call',
+              tooltip: l10n.chatVoiceCall,
               onPressed: () => _call(context, false),
             ),
             IconButton(
               icon: const Icon(Icons.videocam_rounded),
-              tooltip: 'Video call',
+              tooltip: l10n.chatVideoCall,
               onPressed: () => _call(context, true),
             ),
           ],
@@ -161,14 +168,14 @@ class ChatScreen extends StatelessWidget {
       body: Column(
         children: [
           if (!context.watch<SignalRClient>().connected)
-            const Padding(
-              padding: EdgeInsets.all(8),
-              child: Text('Offline. Failed messages can be retried.'),
+            Padding(
+              padding: const EdgeInsets.all(8),
+              child: Text(l10n.chatOffline),
             ),
           if (isBot) _BotNotice(contactId: contactId),
           Expanded(
             child: controller.messages.isEmpty
-                ? const Center(child: Text('No messages yet. Say hello!'))
+                ? Center(child: Text(l10n.chatEmpty))
                 : ListView.builder(
                     reverse: true,
                     padding: const EdgeInsets.symmetric(vertical: 8),
@@ -208,14 +215,17 @@ class ChatScreen extends StatelessWidget {
                                 onPressed: () => _save(context, file),
                                 icon: const Icon(Icons.download),
                                 label: Text(
-                                  '${file.name} (${file.bytes.length} bytes)',
+                                  l10n.chatAttachmentLabel(
+                                    file.name,
+                                    l10n.sizeBytes(file.bytes.length),
+                                  ),
                                 ),
                               ),
                             )
                           else
                             MessageBubble(
                               text: message.body ?? '',
-                              time: DateFormat.Hm().format(
+                              time: DateFormat.Hm(l10n.localeName).format(
                                 message.createdAt.toLocal(),
                               ),
                               isMine: mine,
@@ -233,12 +243,12 @@ class ChatScreen extends StatelessWidget {
                                           controller.retryMessage(message.id),
                                       child: Text(
                                         message.status == 'failed'
-                                            ? 'Failed — retry'
-                                            : 'Sending — retry',
+                                            ? l10n.chatStatusFailedRetry
+                                            : l10n.chatStatusSendingRetry,
                                       ),
                                     )
                                   : Text(
-                                      'Sent',
+                                      l10n.chatStatusSent,
                                       style: Theme.of(
                                         context,
                                       ).textTheme.labelSmall,

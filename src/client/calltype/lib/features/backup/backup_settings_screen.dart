@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../l10n/l10n.dart';
 import 'backup_controller.dart';
 
 /// Settings screen for creating encrypted cloud backups.
@@ -38,6 +40,15 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
     });
   }
 
+  /// The server sends an ISO-8601 UTC timestamp; show it in the user's
+  /// locale and time zone. Anything unparsable is shown as received.
+  String _formatCreatedAt(AppLocalizations l10n, Object? raw) {
+    final parsed = DateTime.tryParse('$raw')?.toLocal();
+    return parsed == null
+        ? '$raw'
+        : DateFormat.yMMMd(l10n.localeName).add_Hm().format(parsed);
+  }
+
   @override
   void dispose() {
     _passphraseController.dispose();
@@ -49,9 +60,11 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
     final controller = context.watch<BackupController>();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l10n = context.l10n;
+    final error = backupErrorMessage(l10n, controller);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Cloud Backup')),
+      appBar: AppBar(title: Text(l10n.backupTitle)),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -71,24 +84,21 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
                       children: [
                         Icon(Icons.shield_rounded, color: colorScheme.primary),
                         const SizedBox(width: 8),
-                        Text(
-                          'End-to-End Encrypted',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
+                        // Expanded: translated headings are longer than the
+                        // English one and must wrap instead of overflowing.
+                        Expanded(
+                          child: Text(
+                            l10n.backupEncryptedTitle,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Message history, embedded attachments and contacts are backed up; '
-                      'external files and live encryption sessions are not included. '
-                      'Your backup is encrypted with a passphrase that only '
-                      'you know. The server never sees your messages or contacts '
-                      'in plaintext.\n\n'
-                      'If you forget your passphrase, your backup cannot be '
-                      'recovered. There is no reset option — this is by design '
-                      'for your security.',
+                      l10n.backupExplanation,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
@@ -103,11 +113,11 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
             TextField(
               controller: _passphraseController,
               obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Backup passphrase',
-                hintText: 'Choose a strong passphrase',
-                prefixIcon: Icon(Icons.lock_outline),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l10n.backupPassphraseLabel,
+                hintText: l10n.backupPassphraseHintCreate,
+                prefixIcon: const Icon(Icons.lock_outline),
+                border: const OutlineInputBorder(),
               ),
               // Disable input while a backup is in progress to prevent
               // changing the passphrase mid-operation.
@@ -118,8 +128,10 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Max file size: ${kBackupMaxFileBytes ~/ (1024 * 1024)} MB · '
-              'Up to $kBackupMaxPerAccount backups stored at once',
+              l10n.backupLimits(
+                kBackupMaxFileBytes ~/ (1024 * 1024),
+                kBackupMaxPerAccount,
+              ),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),
@@ -128,16 +140,23 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
 
             // -- Existing backups (delete to free a slot) -------------------------
             if (controller.backups.isNotEmpty) ...[
-              Text('Stored backups', style: theme.textTheme.titleSmall),
+              Text(l10n.backupStored, style: theme.textTheme.titleSmall),
               const SizedBox(height: 8),
               ...controller.backups.map(
                 (b) => Card(
                   child: ListTile(
                     leading: const Icon(Icons.folder_zip_outlined),
-                    title: Text('${((b['sizeBytes'] as num) / 1024).round()} KB'),
-                    subtitle: Text(b['createdAt'].toString()),
+                    title: Text(
+                      l10n.sizeKilobytes(
+                        NumberFormat.decimalPattern(
+                          l10n.localeName,
+                        ).format(((b['sizeBytes'] as num) / 1024).round()),
+                      ),
+                    ),
+                    subtitle: Text(_formatCreatedAt(l10n, b['createdAt'])),
                     trailing: IconButton(
                       icon: const Icon(Icons.delete_outline),
+                      tooltip: l10n.backupDelete,
                       onPressed: controller.isBusy
                           ? null
                           : () => controller.deleteBackup(b['id'] as int),
@@ -156,12 +175,12 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
                   controller.createBackup(_passphraseController.text);
                 },
                 icon: const Icon(Icons.backup_rounded),
-                label: const Text('Create Backup'),
+                label: Text(l10n.backupCreate),
               ),
               OutlinedButton.icon(
                 onPressed: () => controller.restore(_passphraseController.text),
                 icon: const Icon(Icons.restore),
-                label: const Text('Restore latest backup'),
+                label: Text(l10n.backupRestoreLatest),
               ),
             ],
 
@@ -171,10 +190,10 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
               const SizedBox(height: 12),
               Text(
                 controller.status == BackupStatus.encrypting
-                    ? 'Encrypting your data...'
+                    ? l10n.backupEncrypting
                     : controller.status == BackupStatus.uploading
-                    ? 'Uploading encrypted backup...'
-                    : 'Restoring encrypted backup...',
+                    ? l10n.backupUploading
+                    : l10n.backupRestoring,
                 style: theme.textTheme.bodyMedium,
                 textAlign: TextAlign.center,
               ),
@@ -196,7 +215,9 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          controller.completionMessage,
+                          controller.lastOperationWasRestore
+                              ? l10n.backupRestored
+                              : l10n.backupCreated,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: colorScheme.onPrimaryContainer,
                           ),
@@ -222,18 +243,20 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
                         children: [
                           Icon(Icons.error_outline, color: colorScheme.error),
                           const SizedBox(width: 8),
-                          Text(
-                            'Backup failed',
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              color: colorScheme.onErrorContainer,
+                          Expanded(
+                            child: Text(
+                              l10n.backupFailedTitle,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                color: colorScheme.onErrorContainer,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                      if (controller.error != null) ...[
+                      if (error != null) ...[
                         const SizedBox(height: 8),
                         Text(
-                          controller.error!,
+                          error,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: colorScheme.onErrorContainer,
                           ),
@@ -247,7 +270,7 @@ class _BackupSettingsScreenState extends State<BackupSettingsScreen> {
                           controller.reset();
                         },
                         icon: const Icon(Icons.refresh),
-                        label: const Text('Try Again'),
+                        label: Text(l10n.backupTryAgain),
                       ),
                     ],
                   ),

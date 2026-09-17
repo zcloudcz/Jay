@@ -6,6 +6,7 @@ import 'package:calltype_core/network/channel_dtos.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../helpers/localized_app.dart';
 import 'fake_channels.dart';
 
 void main() {
@@ -376,7 +377,10 @@ void main() {
       ),
     );
     String message(int status, String code) =>
-        channelErrorMessage(failure(status, {'error': 'x', 'code': code}));
+        channelErrorMessage(
+          l10nEn,
+          failure(status, {'error': 'x', 'code': code}),
+        );
 
     expect(message(403, 'account_required'), contains('registered account'));
     expect(message(409, 'channel_limit_reached'), contains('limit'));
@@ -389,11 +393,28 @@ void main() {
     expect(message(415, 'unsupported_image_type'), contains('JPEG'));
     expect(message(409, 'post_id_conflict'), contains('Try again'));
     // Role / non-follower 403: no body at all.
-    expect(channelErrorMessage(failure(403, '')), contains('not allowed'));
+    expect(
+      channelErrorMessage(l10nEn, failure(403, '')),
+      contains('not allowed'),
+    );
     // Offline, unknown code, non-HTTP errors: the generic line.
     expect(message(500, 'whatever'), contains('connection'));
-    expect(channelErrorMessage(StateError('x')), contains('connection'));
-    expect(channelErrorMessage(const FormatException('Too big')), 'Too big');
+    expect(
+      channelErrorMessage(l10nEn, StateError('x')),
+      contains('connection'),
+    );
+    // Rejected on the device: same wording as the server's code.
+    expect(
+      channelErrorMessage(
+        l10nEn,
+        const ChannelValidationException('image_too_large'),
+      ),
+      contains('2 MiB'),
+    );
+    expect(
+      channelErrorMessage(l10nEn, const ChannelBlockedException('CH-X')),
+      contains('blocked'),
+    );
   });
 
   test('unsupported image type is rejected before any upload', () async {
@@ -406,7 +427,7 @@ void main() {
         imageBytes: Uint8List(10),
         imageName: 'drawing.svg',
       ),
-      throwsFormatException,
+      throwsA(isA<ChannelValidationException>()),
     );
     expect(h.api.calls.where((c) => c.startsWith('post ')), isEmpty);
   });
@@ -421,7 +442,7 @@ void main() {
         imageBytes: Uint8List(channelImageMaxBytes + 1),
         imageName: 'photo.png',
       ),
-      throwsFormatException,
+      throwsA(isA<ChannelValidationException>()),
     );
     expect(h.api.calls.where((c) => c.startsWith('post ')), isEmpty);
   });

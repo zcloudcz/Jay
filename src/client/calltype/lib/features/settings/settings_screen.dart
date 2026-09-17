@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/network/webrtc_manager.dart';
+import '../../l10n/l10n.dart';
 
 /// Main settings screen with navigation to sub-settings.
 ///
@@ -22,17 +23,18 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l10n = context.l10n;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: Text(l10n.settingsTitle)),
       body: ListView(
         children: [
           // -- Security section ------------------------------------------------
           _SettingsTile(
             icon: Icons.lock_rounded,
             iconColor: colorScheme.primary,
-            title: 'App Lock',
-            subtitle: 'PIN and biometric authentication',
+            title: l10n.settingsAppLock,
+            subtitle: l10n.settingsAppLockSubtitle,
             onTap: () => context.push('/settings/lock'),
           ),
 
@@ -40,8 +42,8 @@ class SettingsScreen extends StatelessWidget {
           _SettingsTile(
             icon: Icons.person_rounded,
             iconColor: colorScheme.primary,
-            title: 'Account',
-            subtitle: 'Register or log in for cloud features',
+            title: l10n.settingsAccount,
+            subtitle: l10n.settingsAccountSubtitle,
             onTap: () => context.push('/settings/account'),
           ),
 
@@ -49,8 +51,8 @@ class SettingsScreen extends StatelessWidget {
           _SettingsTile(
             icon: Icons.cloud_upload_rounded,
             iconColor: colorScheme.primary,
-            title: 'Backup',
-            subtitle: 'Encrypted cloud backup',
+            title: l10n.settingsBackup,
+            subtitle: l10n.settingsBackupSubtitle,
             onTap: () => context.push('/settings/backup'),
           ),
 
@@ -58,8 +60,8 @@ class SettingsScreen extends StatelessWidget {
           _SettingsTile(
             icon: Icons.devices_rounded,
             iconColor: colorScheme.primary,
-            title: 'My identity',
-            subtitle: 'Share your contact invite and QR code',
+            title: l10n.settingsIdentity,
+            subtitle: l10n.settingsIdentitySubtitle,
             onTap: () => context.push('/settings/identity'),
           ),
 
@@ -69,8 +71,8 @@ class SettingsScreen extends StatelessWidget {
           _SettingsTile(
             icon: Icons.block_rounded,
             iconColor: colorScheme.primary,
-            title: 'Blocked channels',
-            subtitle: 'Review and unblock channels',
+            title: l10n.settingsBlockedChannels,
+            subtitle: l10n.settingsBlockedChannelsSubtitle,
             onTap: () => context.push('/channels/blocked'),
           ),
 
@@ -82,10 +84,8 @@ class SettingsScreen extends StatelessWidget {
           // the next calls; it is in-memory and resets on app restart.
           SwitchListTile(
             secondary: Icon(Icons.alt_route_rounded, color: colorScheme.tertiary),
-            title: const Text('Force TURN relay (diagnostics)'),
-            subtitle: const Text(
-              'Next calls use the relay only. Slower; resets on restart.',
-            ),
+            title: Text(l10n.settingsForceRelay),
+            subtitle: Text(l10n.settingsForceRelaySubtitle),
             value: context.watch<WebRTCManager>().forceIceRelay,
             onChanged: context.read<WebRTCManager>().setForceIceRelay,
           ),
@@ -99,7 +99,7 @@ class SettingsScreen extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
             child: Center(
               child: Text(
-                'Jay 1.0.0 beta',
+                l10n.settingsVersion('1.0.0'),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                 ),

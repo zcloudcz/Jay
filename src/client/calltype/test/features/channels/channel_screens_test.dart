@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:calltype/core/storage/database.dart';
 import 'package:calltype/core/storage/secure_storage.dart';
 import 'package:calltype/features/channels/channel_create_screen.dart';
-import 'package:calltype/features/channels/channel_notice.dart';
 import 'package:calltype/features/channels/channel_profile_screen.dart';
 import 'package:calltype/features/channels/channel_screen.dart';
 import 'package:calltype/features/channels/channels_controller.dart';
@@ -17,6 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../helpers/localized_app.dart';
 import 'fake_channels.dart';
 
 void main() {
@@ -44,7 +44,7 @@ void main() {
     await tester.pumpWidget(
       ChangeNotifierProvider<ChannelsController>.value(
         value: h.controller,
-        child: MaterialApp(home: child),
+        child: localizedApp(home: child),
       ),
     );
     await tester.runAsync(
@@ -72,7 +72,7 @@ void main() {
     expect(find.text('News'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
     expect(find.byKey(const Key('channel-compose-bar')), findsNothing);
-    expect(find.text(channelPublicNotice), findsOneWidget);
+    expect(find.text(l10nEn.channelPublicNotice), findsOneWidget);
     await tearDownHarness(tester, h);
   });
 
@@ -86,7 +86,7 @@ void main() {
     expect(find.byType(TextField), findsOneWidget);
     expect(find.byTooltip('Post image (max 2 MiB)'), findsOneWidget);
     expect(find.byTooltip('Post poll'), findsOneWidget);
-    expect(find.text(channelPublicNotice), findsOneWidget);
+    expect(find.text(l10nEn.channelPublicNotice), findsOneWidget);
     await tearDownHarness(tester, h);
   });
 
@@ -96,7 +96,7 @@ void main() {
     await tester.runAsync(() => h.emitPost(postEvent('p1')));
     await tester.pump();
     expect(find.text('News'), findsOneWidget);
-    expect(find.text(channelPublicNotice), findsOneWidget);
+    expect(find.text(l10nEn.channelPublicNotice), findsOneWidget);
     Finder badgeIn(Type type) =>
         find.descendant(of: find.byType(type), matching: find.text('1'));
     expect(badgeIn(ListTile), findsOneWidget);
@@ -141,7 +141,9 @@ void main() {
           ChangeNotifierProvider<ChannelsController>.value(value: h.controller),
           ChangeNotifierProvider.value(value: contacts),
         ],
-        child: const MaterialApp(home: ChannelAdminsScreen(channelId: 'c1')),
+        child: localizedApp(
+          home: const ChannelAdminsScreen(channelId: 'c1'),
+        ),
       ),
     );
     await settle(tester);
@@ -184,8 +186,8 @@ void main() {
       await tester.pumpWidget(
         ChangeNotifierProvider<ChannelsController>.value(
           value: h.controller,
-          child: MaterialApp.router(
-            routerConfig: GoRouter(
+          child: localizedApp(
+            router: GoRouter(
               routes: [
                 GoRoute(
                   path: '/',
@@ -270,7 +272,7 @@ void main() {
               value: h.controller,
             ),
           ],
-          child: const MaterialApp(home: ChannelCreateScreen()),
+          child: localizedApp(home: const ChannelCreateScreen()),
         ),
       );
       await tester.pumpAndSettle();
@@ -284,7 +286,7 @@ void main() {
       expect(find.textContaining('requires a registered account'), findsOne);
       expect(find.text('Register or log in'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
-      expect(find.text(channelPublicNotice), findsOneWidget);
+      expect(find.text(l10nEn.channelPublicNotice), findsOneWidget);
       await tearDownHarness(tester, h);
     });
 

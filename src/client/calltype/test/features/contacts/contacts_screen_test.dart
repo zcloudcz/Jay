@@ -6,6 +6,8 @@ import 'package:calltype/core/storage/database.dart';
 import 'package:calltype/features/contacts/contacts_controller.dart';
 import 'package:calltype/features/contacts/contacts_screen.dart';
 
+import '../../helpers/localized_app.dart';
+
 class EmptyContacts extends ContactsController {
   EmptyContacts(AppDatabase db) : super(database: db);
   @override
@@ -24,7 +26,7 @@ void main() {
       await tester.pumpWidget(
         ChangeNotifierProvider<ContactsController>.value(
           value: controller,
-          child: const MaterialApp(home: ContactsScreen()),
+          child: localizedApp(home: const ContactsScreen()),
         ),
       );
       await tester.pump();

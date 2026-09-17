@@ -8,6 +8,7 @@ import '../../core/network/api_client.dart';
 import '../../core/network/backup_api.dart';
 import 'backup_import.dart';
 import '../../core/storage/database.dart';
+import '../../l10n/l10n.dart';
 
 /// Server-side backup quota, mirrored here purely for display copy (K03
 /// defaults in appsettings.json). Not fetched from the server — there is no
@@ -55,6 +56,51 @@ enum BackupStatus {
 /// confidential because the key material (passphrase) never leaves the
 /// device. The PBKDF2 key derivation with 600k iterations makes brute-
 /// force attacks on weak passphrases computationally expensive.
+/// Why a backup / restore failed. The controller has no BuildContext, so it
+/// reports a code and [backupErrorMessage] turns it into localized text.
+enum BackupError {
+  emptyPassphrase,
+  sessionExpired,
+  forbidden,
+  limitReached,
+  fileTooLarge,
+  network,
+  requestFailed,
+  noBackups,
+  invalidFile,
+  restoreFailed,
+  unknown,
+}
+
+/// Carries a [BackupError] out of the restore flow's single try/catch.
+class _BackupFailure implements Exception {
+  const _BackupFailure(this.code);
+  final BackupError code;
+}
+
+/// Localized text for [BackupController.error]; null while there is no error.
+String? backupErrorMessage(AppLocalizations l10n, BackupController c) =>
+    switch (c.error) {
+      null => null,
+      BackupError.emptyPassphrase => l10n.backupErrorEmptyPassphrase,
+      BackupError.sessionExpired => l10n.backupErrorSessionExpired,
+      BackupError.forbidden => l10n.backupErrorForbidden,
+      BackupError.limitReached => l10n.backupErrorLimitReached(
+        kBackupMaxPerAccount,
+      ),
+      BackupError.fileTooLarge => l10n.backupErrorTooLarge(
+        kBackupMaxFileBytes ~/ (1024 * 1024),
+      ),
+      BackupError.network => l10n.backupErrorNetwork,
+      BackupError.requestFailed => l10n.backupErrorRequestFailed(
+        c.errorStatusCode ?? 0,
+      ),
+      BackupError.noBackups => l10n.backupErrorNoBackups,
+      BackupError.invalidFile => l10n.backupErrorInvalidFile,
+      BackupError.restoreFailed => l10n.backupErrorRestoreFailed,
+      BackupError.unknown => l10n.backupErrorUnknown,
+    };
+
 class BackupController extends ChangeNotifier {
   BackupController({
     required AppDatabase database,
@@ -71,9 +117,14 @@ class BackupController extends ChangeNotifier {
   final String accountId;
 
   BackupStatus _status = BackupStatus.idle;
-  String? _error;
+  BackupError? _error;
   bool _disposed = false;
-  String completionMessage = 'Backup created successfully!';
+
+  /// HTTP status behind [BackupError.requestFailed], shown to the user.
+  int? errorStatusCode;
+
+  /// Which operation finished last — the screens pick the success text.
+  bool lastOperationWasRestore = false;
   double _progress = 0.0;
 
   /// Cached list of completed backups for this account, as returned by
@@ -84,8 +135,9 @@ class BackupController extends ChangeNotifier {
   /// Current status of the backup/restore operation.
   BackupStatus get status => _status;
 
-  /// Human-readable error message, set when [status] is [BackupStatus.error].
-  String? get error => _error;
+  /// Error code, set when [status] is [BackupStatus.error]; see
+  /// [backupErrorMessage] for the user-facing text.
+  BackupError? get error => _error;
 
   /// Progress indicator (0.0 to 1.0) for UI display.
   /// Approximate — encryption and upload phases each contribute 0.5.
@@ -108,7 +160,7 @@ class BackupController extends ChangeNotifier {
   Future<void> createBackup(String passphrase) async {
     if (isBusy) return;
     if (passphrase.isEmpty) {
-      _error = 'Passphrase cannot be empty';
+      _error = BackupError.emptyPassphrase;
       _status = BackupStatus.error;
       if (!_disposed) notifyListeners();
       return;
@@ -211,7 +263,7 @@ class BackupController extends ChangeNotifier {
       // The server's BackupEndpoints.cs stores metadata in PostgreSQL and
       // the encrypted blob in Azure Blob Storage.
       await _apiClient.uploadBackup(accountId, payload);
-      completionMessage = 'Backup created successfully!';
+      lastOperationWasRestore = false;
 
       _progress = 1.0;
       _status = BackupStatus.done;
@@ -250,27 +302,29 @@ class BackupController extends ChangeNotifier {
     }
   }
 
-  /// Translates transport errors into copy a non-technical user can act on.
+  /// Classifies transport errors so the UI can show copy a non-technical
+  /// user can act on.
   /// Local history is never touched by any of these failures — callers only
   /// reach this after a read-only network call.
-  String _describeError(Object e) {
+  BackupError _describeError(Object e) {
     if (e is DioException) {
       switch (e.response?.statusCode) {
         case 401:
-          return 'Your session expired. Please sign in again.';
+          return BackupError.sessionExpired;
         case 403:
-          return 'You do not have access to this backup.';
+          return BackupError.forbidden;
         case 409:
-          return 'Backup limit reached (max $kBackupMaxPerAccount). Delete an old backup to make room.';
+          return BackupError.limitReached;
         case 413:
-          return 'File is too large (max ${kBackupMaxFileBytes ~/ (1024 * 1024)} MB).';
+          return BackupError.fileTooLarge;
         case null:
-          return 'Network error. Check your connection and try again.';
+          return BackupError.network;
         default:
-          return 'Backup request failed (${e.response!.statusCode}). Please try again.';
+          errorStatusCode = e.response!.statusCode;
+          return BackupError.requestFailed;
       }
     }
-    return e.toString();
+    return BackupError.unknown;
   }
 
   bool get isBusy =>
@@ -283,7 +337,7 @@ class BackupController extends ChangeNotifier {
     if (isBusy) return;
     try {
       if (passphrase.isEmpty) {
-        throw const FormatException('Enter your backup passphrase.');
+        throw const _BackupFailure(BackupError.emptyPassphrase);
       }
       _status = BackupStatus.downloading;
       _error = null;
@@ -291,14 +345,14 @@ class BackupController extends ChangeNotifier {
       if (!_disposed) notifyListeners();
       final backups = await _apiClient.listBackups(accountId);
       if (backups.isEmpty) {
-        throw const FormatException('No cloud backups found.');
+        throw const _BackupFailure(BackupError.noBackups);
       }
       final payload = await _apiClient.downloadBackup(
         accountId,
         backups.first['id'] as int,
       );
       if (payload.length < 44) {
-        throw const FormatException('Invalid backup file.');
+        throw const _BackupFailure(BackupError.invalidFile);
       }
       _status = BackupStatus.restoring;
       _progress = 0.5;
@@ -312,7 +366,7 @@ class BackupController extends ChangeNotifier {
         Uint8List.sublistView(payload, 16),
       );
       await importBackup(_db, jsonDecode(utf8.decode(plaintext)));
-      completionMessage = 'Backup restored. Existing records were kept.';
+      lastOperationWasRestore = true;
       _progress = 1;
       _status = BackupStatus.done;
     } catch (e) {
@@ -320,9 +374,13 @@ class BackupController extends ChangeNotifier {
       // wraps its DB writes in a single transaction — a bad passphrase,
       // corrupted blob, or failure partway through never leaves target's
       // local DB partially modified.
-      _error = e is FormatException
-          ? 'Restore failed. Check the passphrase and backup file. $e'
-          : _describeError(e);
+      // Anything that is not a transport problem means the payload could not
+      // be decrypted or parsed — i.e. wrong passphrase or damaged file.
+      _error = e is _BackupFailure
+          ? e.code
+          : e is DioException
+          ? _describeError(e)
+          : BackupError.restoreFailed;
       _status = BackupStatus.error;
     }
     if (!_disposed) notifyListeners();

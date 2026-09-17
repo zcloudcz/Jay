@@ -208,6 +208,6 @@ void main() {
     );
     await controller.createBackup('a long enough passphrase');
     expect(controller.status, BackupStatus.error);
-    expect(controller.error, contains('Backup limit reached'));
+    expect(controller.error, BackupError.limitReached);
   });
 }

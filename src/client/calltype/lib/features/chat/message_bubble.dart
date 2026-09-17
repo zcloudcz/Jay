@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 /// A single message bubble in the chat view.
 ///
-/// Aligns right for outgoing messages (mine) and left for incoming (theirs),
-/// matching the universal messaging app convention. Max width is capped at
+/// Aligns to the END side for outgoing messages (mine) and to the START side
+/// for incoming (theirs): right/left in LTR languages and mirrored in RTL
+/// ones (Arabic), matching the universal messaging app convention. Max width is capped at
 /// 75% of screen width to keep long messages readable and leave visual
 /// breathing room on the opposite side.
 class MessageBubble extends StatelessWidget {
@@ -36,7 +37,9 @@ class MessageBubble extends StatelessWidget {
         isMine ? colorScheme.onPrimaryContainer : colorScheme.onSurface;
 
     return Align(
-      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: isMine
+          ? AlignmentDirectional.centerEnd
+          : AlignmentDirectional.centerStart,
       child: ConstrainedBox(
         // 75% max width prevents bubbles from spanning the full screen,
         // which would make it hard to tell sender from receiver visually.
@@ -50,12 +53,13 @@ class MessageBubble extends StatelessWidget {
             color: backgroundColor,
             // Asymmetric border radius: the corner on the sender's side is
             // sharper to create a visual "tail" effect pointing toward the
-            // message author.
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(16),
-              topRight: const Radius.circular(16),
-              bottomLeft: Radius.circular(isMine ? 16 : 4),
-              bottomRight: Radius.circular(isMine ? 4 : 16),
+            // message author. Directional so the tail follows the bubble
+            // when the layout is mirrored for RTL.
+            borderRadius: BorderRadiusDirectional.only(
+              topStart: const Radius.circular(16),
+              topEnd: const Radius.circular(16),
+              bottomStart: Radius.circular(isMine ? 16 : 4),
+              bottomEnd: Radius.circular(isMine ? 4 : 16),
             ),
           ),
           child: Column(

@@ -120,15 +120,16 @@ class AppLock {
   /// Triggers the platform biometric authentication dialog.
   ///
   /// Returns true if the user successfully authenticates. The dialog text
-  /// is localized by the platform — we provide a reason string for the
-  /// system to display (e.g. "Unlock Jay").
+  /// is localized by the platform — the caller provides the already
+  /// localized [reason] for the system to display (e.g. "Unlock Jay"),
+  /// because this class has no BuildContext to look translations up.
   ///
   /// Falls back to device PIN/passcode if biometrics fail repeatedly,
   /// which is the platform default behavior on both iOS and Android.
-  Future<bool> authenticateWithBiometrics() async {
+  Future<bool> authenticateWithBiometrics({required String reason}) async {
     try {
       return await _localAuth.authenticate(
-        localizedReason: 'Unlock Jay',
+        localizedReason: reason,
         // Allow device PIN/passcode as fallback if biometrics fail.
         // This prevents lockout if the sensor is dirty or damaged.
         biometricOnly: false,

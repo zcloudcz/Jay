@@ -454,7 +454,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     expect(manager.state, CallState.ended);
-    expect(manager.error, contains('offline'));
+    expect(manager.error, CallError.userOffline);
     expect(peer.closed, isTrue); // resources released, not just a state flip
     expect(media.tracks.single.stopped, isTrue);
     manager.dispose();
@@ -681,7 +681,7 @@ void main() {
       async.flushMicrotasks();
       expect(manager.state, CallState.ended);
       expect(peer.closed, isTrue);
-      expect(manager.error, contains('No answer'));
+      expect(manager.error, CallError.noAnswer);
       manager.dispose();
     });
   });

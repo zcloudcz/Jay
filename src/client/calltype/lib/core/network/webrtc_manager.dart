@@ -8,6 +8,16 @@ import 'signalr_client.dart';
 
 enum CallState { idle, ringing, connecting, connected, ended }
 
+/// Why a call failed. A code rather than text: this class has no BuildContext,
+/// so the call screen maps it to a localized message.
+enum CallError {
+  connectionFailed,
+  noAnswer,
+  cannotStart,
+  cannotAccept,
+  userOffline,
+}
+
 class _CancelledCall implements Exception {}
 
 class WebRTCManager extends ChangeNotifier {
@@ -34,7 +44,7 @@ class WebRTCManager extends ChangeNotifier {
         Object _,
       ) async {
         if (generation == _generation && !_disposed) {
-          _error = 'Call connection failed.';
+          _error = CallError.connectionFailed;
           await _cleanup();
         }
       });
@@ -90,8 +100,8 @@ class WebRTCManager extends ChangeNotifier {
   bool get isCameraOff => _isCameraOff;
   bool _isVideo = false;
   bool get isVideo => _isVideo;
-  String? _error;
-  String? get error => _error;
+  CallError? _error;
+  CallError? get error => _error;
   @override
   void notifyListeners() {
     if (!_disposed) super.notifyListeners();
@@ -107,7 +117,7 @@ class WebRTCManager extends ChangeNotifier {
     final generation = _generation;
     _timeout = Timer(const Duration(seconds: 45), () {
       if (_active(generation) && _state != CallState.connected) {
-        _error = 'No answer or connection timed out.';
+        _error = CallError.noAnswer;
         unawaited(endCall());
       }
     });
@@ -143,8 +153,7 @@ class WebRTCManager extends ChangeNotifier {
       return;
     } catch (_) {
       if (!_active(generation)) return;
-      _error =
-          'Cannot start call. Check connection and microphone/camera permissions.';
+      _error = CallError.cannotStart;
       await _cleanup();
       rethrow;
     }
@@ -185,7 +194,7 @@ class WebRTCManager extends ChangeNotifier {
       return;
     } catch (_) {
       if (!_active(generation)) return;
-      _error = 'Cannot accept call. Check microphone/camera permissions.';
+      _error = CallError.cannotAccept;
       await endCall();
     }
   }
@@ -247,7 +256,7 @@ class WebRTCManager extends ChangeNotifier {
           _state = CallState.connected;
           notifyListeners();
         } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
-          _error = 'Call connection failed.';
+          _error = CallError.connectionFailed;
           unawaited(_cleanup());
         }
       };
@@ -400,7 +409,7 @@ class WebRTCManager extends ChangeNotifier {
         // connection, so ringing on would only end in the 45 s timeout.
         // Only meaningful for the caller while still ringing.
         if (_offer == null && _state == CallState.ringing) {
-          _error = 'User is offline right now. Try again later.';
+          _error = CallError.userOffline;
           await _cleanup();
         }
     }

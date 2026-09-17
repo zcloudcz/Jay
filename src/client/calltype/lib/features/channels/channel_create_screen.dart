@@ -8,6 +8,7 @@ import '../../core/storage/secure_storage.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
 import '../contacts/contacts_controller.dart';
+import '../../l10n/l10n.dart';
 import 'channel_notice.dart';
 import 'channels_controller.dart';
 
@@ -32,7 +33,7 @@ class _ChannelCreateScreenState extends State<ChannelCreateScreen> {
       .read<SecureStorage>()
       .getAccountId();
   bool _busy = false;
-  String? _error;
+  Object? _error; // mapped to text in build(), see channelErrorMessage
 
   @override
   void dispose() {
@@ -60,14 +61,14 @@ class _ChannelCreateScreenState extends State<ChannelCreateScreen> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = channelErrorMessage(error);
+        _error = error;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('New channel')),
+    appBar: AppBar(title: Text(context.l10n.channelNew)),
     body: Column(
       children: [
         const ChannelPublicNotice(),
@@ -94,16 +95,14 @@ class _ChannelCreateScreenState extends State<ChannelCreateScreen> {
         children: [
           const Icon(Icons.person_add_alt_1_rounded, size: 48),
           const SizedBox(height: 16),
-          const Text(
-            'Creating a channel requires a registered account, so the '
-            'channel is not lost together with this device. Following '
-            'channels stays possible without an account.',
+          Text(
+            context.l10n.channelCreateGate,
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: () => context.push('/settings/account'),
-            child: const Text('Register or log in'),
+            child: Text(context.l10n.channelRegisterOrLogin),
           ),
         ],
       ),
@@ -117,7 +116,7 @@ class _ChannelCreateScreenState extends State<ChannelCreateScreen> {
         controller: _name,
         maxLength: 64,
         enabled: !_busy,
-        decoration: const InputDecoration(labelText: 'Channel name'),
+        decoration: InputDecoration(labelText: context.l10n.channelNameLabel),
       ),
       TextField(
         controller: _description,
@@ -125,19 +124,21 @@ class _ChannelCreateScreenState extends State<ChannelCreateScreen> {
         minLines: 2,
         maxLines: 5,
         enabled: !_busy,
-        decoration: const InputDecoration(labelText: 'Description'),
+        decoration: InputDecoration(
+          labelText: context.l10n.channelDescriptionLabel,
+        ),
       ),
       if (_error != null)
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
-            _error!,
+            channelErrorMessage(context.l10n, _error!),
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ),
       FilledButton(
         onPressed: _busy ? null : _create,
-        child: const Text('Create channel'),
+        child: Text(context.l10n.channelCreate),
       ),
     ],
   );
@@ -184,6 +185,7 @@ class _ChannelAdminsScreenState extends State<ChannelAdminsScreen> {
 
   Future<void> _set(String deviceId, bool admin) async {
     final messenger = ScaffoldMessenger.of(context);
+    final l10n = context.l10n;
     try {
       await context.read<ChannelsController>().setAdmin(
         widget.channelId,
@@ -191,12 +193,14 @@ class _ChannelAdminsScreenState extends State<ChannelAdminsScreen> {
         admin,
       );
       messenger.showSnackBar(
-        SnackBar(content: Text(admin ? 'Admin added.' : 'Admin removed.')),
+        SnackBar(content: Text(
+            admin ? l10n.channelAdminAdded : l10n.channelAdminRemoved,
+          )),
       );
       await _reload();
     } catch (error) {
       messenger.showSnackBar(
-        SnackBar(content: Text(channelErrorMessage(error))),
+        SnackBar(content: Text(channelErrorMessage(l10n, error))),
       );
     }
   }
@@ -204,6 +208,7 @@ class _ChannelAdminsScreenState extends State<ChannelAdminsScreen> {
   @override
   Widget build(BuildContext context) {
     final contacts = context.watch<ContactsController>().contacts;
+    final l10n = context.l10n;
     final admins = _admins ?? const <ChannelAdminDto>[];
     final adminIds = {for (final a in admins) a.deviceId};
     final candidates = [
@@ -211,18 +216,20 @@ class _ChannelAdminsScreenState extends State<ChannelAdminsScreen> {
         if (!adminIds.contains(c.deviceId)) c,
     ];
     return Scaffold(
-      appBar: AppBar(title: const Text('Channel admins')),
+      appBar: AppBar(title: Text(l10n.channelAdminsTitle)),
       body: Column(
         children: [
           const ChannelPublicNotice(),
           Expanded(
             child: ListView(
               children: [
-                const ListTile(dense: true, title: Text('Current admins')),
+                ListTile(dense: true, title: Text(l10n.channelAdminsCurrent)),
                 if (admins.isEmpty)
                   ListTile(
                     title: Text(
-                      _admins == null ? 'Loading…' : 'No admins yet.',
+                      _admins == null
+                          ? l10n.commonLoading
+                          : l10n.channelAdminsNone,
                     ),
                   ),
                 for (final admin in admins)
@@ -233,11 +240,12 @@ class _ChannelAdminsScreenState extends State<ChannelAdminsScreen> {
                         .firstOrNull,
                   ),
                 const Divider(),
-                const ListTile(dense: true, title: Text('Add from contacts')),
+                ListTile(
+                  dense: true,
+                  title: Text(l10n.channelAdminsAddFromContacts),
+                ),
                 if (candidates.isEmpty)
-                  const ListTile(
-                    title: Text('Add a contact first to make them an admin.'),
-                  ),
+                  ListTile(title: Text(l10n.channelAdminsNoContacts)),
                 for (final contact in candidates)
                   ListTile(
                     key: ValueKey(contact.deviceId),
@@ -251,7 +259,7 @@ class _ChannelAdminsScreenState extends State<ChannelAdminsScreen> {
                     subtitle: Text(contact.userHandle),
                     trailing: IconButton(
                       icon: const Icon(Icons.person_add_alt_1_rounded),
-                      tooltip: 'Make admin',
+                      tooltip: l10n.channelAdminsMake,
                       onPressed: () => _set(contact.deviceId, true),
                     ),
                   ),
@@ -276,7 +284,7 @@ class _ChannelAdminsScreenState extends State<ChannelAdminsScreen> {
       subtitle: contact == null ? null : Text(contact.userHandle),
       trailing: IconButton(
         icon: const Icon(Icons.person_remove_alt_1_rounded),
-        tooltip: 'Remove admin',
+        tooltip: context.l10n.channelAdminsRemove,
         onPressed: () => _set(deviceId, false),
       ),
     );

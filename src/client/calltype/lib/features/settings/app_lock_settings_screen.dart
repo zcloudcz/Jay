@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/auth/app_lock.dart';
+import '../../l10n/l10n.dart';
 
 /// Settings screen for configuring PIN lock and biometric authentication.
 ///
@@ -55,9 +56,10 @@ class _AppLockSettingsScreenState extends State<AppLockSettingsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final l10n = context.l10n;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('App Lock')),
+      appBar: AppBar(title: Text(l10n.appLockTitle)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
@@ -66,8 +68,7 @@ class _AppLockSettingsScreenState extends State<AppLockSettingsScreen> {
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Text(
-                    'Protect the app with a PIN code. When enabled, you will '
-                    'need to enter your PIN each time you open Jay.',
+                    l10n.appLockExplanation,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),
@@ -76,9 +77,11 @@ class _AppLockSettingsScreenState extends State<AppLockSettingsScreen> {
 
                 // -- PIN lock toggle --------------------------------------------
                 SwitchListTile(
-                  title: const Text('PIN Lock'),
+                  title: Text(l10n.appLockPin),
                   subtitle: Text(
-                    _pinEnabled ? 'Tap to disable' : 'Tap to set a PIN',
+                    _pinEnabled
+                        ? l10n.appLockPinDisableHint
+                        : l10n.appLockPinEnableHint,
                   ),
                   secondary: Icon(
                     Icons.lock_rounded,
@@ -99,8 +102,8 @@ class _AppLockSettingsScreenState extends State<AppLockSettingsScreen> {
                 // hardware. No point offering biometrics without a PIN fallback.
                 if (_pinEnabled && _biometricAvailable)
                   SwitchListTile(
-                    title: const Text('Biometric Unlock'),
-                    subtitle: const Text('Use fingerprint or face to unlock'),
+                    title: Text(l10n.appLockBiometric),
+                    subtitle: Text(l10n.appLockBiometricSubtitle),
                     secondary: Icon(
                       Icons.fingerprint_rounded,
                       color: colorScheme.primary,
@@ -120,12 +123,13 @@ class _AppLockSettingsScreenState extends State<AppLockSettingsScreen> {
   Future<void> _showSetPinDialog() async {
     final pinController = TextEditingController();
     final formKey = GlobalKey<FormState>();
+    final l10n = context.l10n;
 
     final pin = await showDialog<String>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Set PIN'),
+          title: Text(l10n.appLockSetPinTitle),
           content: Form(
             key: formKey,
             child: TextFormField(
@@ -134,16 +138,16 @@ class _AppLockSettingsScreenState extends State<AppLockSettingsScreen> {
               keyboardType: TextInputType.number,
               maxLength: 6,
               autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'Enter 4-6 digit PIN',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: l10n.appLockEnterPinLabel,
+                border: const OutlineInputBorder(),
               ),
               validator: (value) {
                 if (value == null || value.length < 4) {
-                  return 'PIN must be at least 4 digits';
+                  return l10n.appLockPinTooShort;
                 }
                 if (!RegExp(r'^\d+$').hasMatch(value)) {
-                  return 'PIN must contain only digits';
+                  return l10n.appLockPinDigitsOnly;
                 }
                 return null;
               },
@@ -157,7 +161,7 @@ class _AppLockSettingsScreenState extends State<AppLockSettingsScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
+              child: Text(l10n.commonCancel),
             ),
             FilledButton(
               onPressed: () {
@@ -165,7 +169,7 @@ class _AppLockSettingsScreenState extends State<AppLockSettingsScreen> {
                   Navigator.of(dialogContext).pop(pinController.text);
                 }
               },
-              child: const Text('Set'),
+              child: Text(l10n.appLockSet),
             ),
           ],
         );
@@ -187,21 +191,22 @@ class _AppLockSettingsScreenState extends State<AppLockSettingsScreen> {
   /// disabling. If verification succeeds, the PIN hash is removed.
   Future<void> _disablePin() async {
     final pinController = TextEditingController();
+    final l10n = context.l10n;
 
     final enteredPin = await showDialog<String>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Enter Current PIN'),
+          title: Text(l10n.appLockCurrentPinTitle),
           content: TextField(
             controller: pinController,
             obscureText: true,
             keyboardType: TextInputType.number,
             maxLength: 6,
             autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Current PIN',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              labelText: l10n.appLockCurrentPinLabel,
+              border: const OutlineInputBorder(),
             ),
             onSubmitted: (value) {
               Navigator.of(dialogContext).pop(value);
@@ -210,13 +215,13 @@ class _AppLockSettingsScreenState extends State<AppLockSettingsScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
+              child: Text(l10n.commonCancel),
             ),
             FilledButton(
               onPressed: () {
                 Navigator.of(dialogContext).pop(pinController.text);
               },
-              child: const Text('Verify'),
+              child: Text(l10n.appLockVerify),
             ),
           ],
         );
@@ -240,7 +245,7 @@ class _AppLockSettingsScreenState extends State<AppLockSettingsScreen> {
       }
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Incorrect PIN')),
+        SnackBar(content: Text(l10n.appLockIncorrectPin)),
       );
     }
   }
