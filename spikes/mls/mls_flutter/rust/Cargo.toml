@@ -1,0 +1,16 @@
+[package]
+name = "rust_lib_mls_flutter"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+flutter_rust_bridge = "=2.13.0"
+# Spike core (spikes/mls/mls_core) — see spikes/mls/REPORT.md for why this
+# lives outside src/ (nothing here is production code).
+mls_core = { path = "../../mls_core" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
