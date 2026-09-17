@@ -59,14 +59,24 @@ class ContactsController extends ChangeNotifier {
   /// [deviceId] is optional — if provided (e.g. from QR scan), it's used
   /// as the primary key. If not, the handle itself is used as a temporary
   /// deviceId until the server resolves it.
-  Future<void> addContactByHandle(String handle, {String? deviceId}) async {
+  Future<void> addContactByHandle(String handle, {String? deviceId}) async =>
+      addContact(await resolveContact(handle, deviceId: deviceId));
+
+  /// Resolves a handle / invite to a device WITHOUT saving it, so the UI can
+  /// show who (and in particular: whether a bot) is about to be added before
+  /// the user confirms.
+  Future<ContactPreview> resolveContact(
+    String handle, {
+    String? deviceId,
+  }) async {
     final invite = Uri.tryParse(handle);
     if (invite?.scheme == 'ct' && invite!.pathSegments.isNotEmpty) {
       deviceId = invite.host;
       handle = invite.pathSegments.first;
     }
+    var isBot = false;
+    final api = _api;
     if (deviceId == null) {
-      final api = _api;
       if (api == null) {
         throw StateError(
           'Contact lookup is unavailable. Paste a complete invite.',
@@ -75,13 +85,28 @@ class ContactsController extends ChangeNotifier {
       final result = await api.findDeviceByHandle(handle.trim().toUpperCase());
       deviceId = result['deviceId'] as String;
       handle = result['userHandle'] as String;
+      isBot = result['isBot'] == true;
+    } else if (api != null) {
+      // A complete invite needs no lookup to be added, but it does not say
+      // whether the device is a bot. Ask the handle lookup (NOT the key
+      // bundle — fetching a bundle burns one of the peer's one-time
+      // pre-keys). Best effort: invites must keep working offline.
+      try {
+        final result = await api.findDeviceByHandle(handle);
+        isBot = result['deviceId'] == deviceId && result['isBot'] == true;
+      } catch (_) {}
     }
-    final id = deviceId;
     if (!RegExp(
       r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
-    ).hasMatch(id)) {
+    ).hasMatch(deviceId)) {
       throw const FormatException('Invalid contact invite.');
     }
+    return ContactPreview(deviceId: deviceId, handle: handle, isBot: isBot);
+  }
+
+  /// Persists a contact previously returned by [resolveContact].
+  Future<void> addContact(ContactPreview preview) async {
+    final id = preview.deviceId;
 
     // Check if this contact already exists to avoid duplicates.
     final existing = await (_db.select(
@@ -92,14 +117,30 @@ class ContactsController extends ChangeNotifier {
 
     final companion = ContactsCompanion.insert(
       deviceId: id,
-      userHandle: handle,
+      userHandle: preview.handle,
       // Placeholder — real identity key is populated during X3DH handshake
       // when the first message is sent to this contact.
       identityKey: Uint8List(0),
       addedAt: DateTime.now(),
+      isBot: Value(preview.isBot),
     );
 
     await _db.into(_db.contacts).insert(companion);
     await loadContacts();
   }
+}
+
+/// A resolved but not yet saved contact, shown in the add-contact preview.
+class ContactPreview {
+  const ContactPreview({
+    required this.deviceId,
+    required this.handle,
+    required this.isBot,
+  });
+
+  final String deviceId;
+  final String handle;
+
+  /// Self-declared by the device; see `Contacts.isBot` in the schema.
+  final bool isBot;
 }

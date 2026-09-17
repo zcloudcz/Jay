@@ -13,7 +13,14 @@ import '../core/storage/secure_storage.dart';
 import '../features/backup/backup_controller.dart';
 import '../features/backup/backup_settings_screen.dart';
 import '../features/backup/restore_screen.dart';
+import 'package:calltype_core/network/channel_dtos.dart' show parseChannelLink;
+
 import '../features/calls/call_screen.dart';
+import '../features/channels/blocked_channels_screen.dart';
+import '../features/channels/channel_create_screen.dart';
+import '../features/channels/channel_profile_screen.dart';
+import '../features/channels/channel_screen.dart';
+import '../features/channels/updates_screen.dart';
 import '../features/chat/chat_controller.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/chat/message_inbox_service.dart';
@@ -41,6 +48,8 @@ import '../features/settings/identity_screen.dart';
 ///   /chats/:id         — single conversation view
 ///   /contacts           — contact list / discovery
 ///   /contacts/scan      — QR code scanner for adding contacts
+///   /updates            — followed channels ("Updates" tab)
+///   /channels/…         — create, profile/:handle, feed/:id, admins/:id, blocked
 ///   /groups/create      — create a new group chat
 ///   /call/:id           — active voice/video call screen
 ///   /settings           — app settings root
@@ -50,6 +59,13 @@ import '../features/settings/identity_screen.dart';
 final router = GoRouter(
   initialLocation: '/chats',
   redirect: (context, state) async {
+    // Deep link / QR: calltype://channel/<handle> arrives here as a URI with
+    // a custom scheme, which matches no route — map it to the profile route.
+    // The onboarding check still applies on the next redirect pass.
+    final channelHandle = parseChannelLink(state.uri.toString());
+    if (channelHandle != null) {
+      return '/channels/profile/${Uri.encodeComponent(channelHandle)}';
+    }
     final storage = context.read<SecureStorage>();
     final id = await storage.getDeviceId();
     final secret = await storage.getDeviceSecret();
@@ -135,6 +151,35 @@ final router = GoRouter(
               : const QrScannerScreen(),
         ),
       ],
+    ),
+    // Channels (public, NOT end-to-end encrypted). ChannelsController is
+    // app-wide (main.dart), so these routes need no scoped providers.
+    GoRoute(
+      path: '/updates',
+      builder: (context, state) => const UpdatesScreen(),
+    ),
+    GoRoute(
+      path: '/channels/create',
+      builder: (context, state) => const ChannelCreateScreen(),
+    ),
+    GoRoute(
+      path: '/channels/blocked',
+      builder: (context, state) => const BlockedChannelsScreen(),
+    ),
+    GoRoute(
+      path: '/channels/profile/:handle',
+      builder: (context, state) =>
+          ChannelProfileScreen(handle: state.pathParameters['handle']!),
+    ),
+    GoRoute(
+      path: '/channels/feed/:id',
+      builder: (context, state) =>
+          ChannelScreen(channelId: state.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/channels/admins/:id',
+      builder: (context, state) =>
+          ChannelAdminsScreen(channelId: state.pathParameters['id']!),
     ),
     GoRoute(
       path: '/groups/create',

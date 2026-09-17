@@ -1,3 +1,4 @@
+import 'package:calltype_core/network/channel_dtos.dart' show parseChannelLink;
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
@@ -102,6 +103,11 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
   /// Returns a map with 'handle' and optionally 'deviceId' if the URI
   /// contains both. Returns null if the payload doesn't match any known format.
   Map<String, String>? _parseContactUri(String raw) {
+    // Channel QR: calltype://channel/{handle}. Returned under a separate key
+    // so the caller opens the channel profile instead of adding a contact.
+    final channel = parseChannelLink(raw);
+    if (channel != null) return {'channel': channel};
+
     // Format: calltype://contact/{handle}
     final contactUri = Uri.tryParse(raw);
     if (contactUri != null &&

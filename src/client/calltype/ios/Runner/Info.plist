@@ -77,5 +77,15 @@
 <array>
 	<string>remote-notification</string>
 </array>
+<!-- calltype://channel/<handle> opens a channel profile (go_router redirect
+     in lib/app/router.dart). -->
+<key>CFBundleURLTypes</key>
+<array>
+	<dict>
+		<key>CFBundleURLName</key><string>cz.zcloud.jay.channel</string>
+		<key>CFBundleURLSchemes</key>
+		<array><string>calltype</string></array>
+	</dict>
+</array>
 </dict>
 </plist>

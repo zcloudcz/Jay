@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import 'package:calltype_core/network/channel_dtos.dart' show parseChannelLink;
+
 import '../../shared/widgets/avatar.dart';
+import '../../shared/widgets/bot_badge.dart';
 import '../chat_list/chat_list_controller.dart';
 import 'contacts_controller.dart';
 import 'qr_scanner_screen.dart';
@@ -146,14 +149,23 @@ class _ContactsScreenState extends State<ContactsScreen> {
       MaterialPageRoute(builder: (_) => const QrScannerScreen()),
     );
 
+    // The scanner also recognises channel QR codes; those are not contacts.
+    final channel = result?['channel'];
+    if (channel != null) {
+      if (context.mounted) context.push('/channels/profile/$channel');
+      return;
+    }
+
     if (result != null && context.mounted) {
       try {
-        await controller.addContactByHandle(
+        final added = await _previewAndAdd(
+          context,
+          controller,
           result['handle']!,
           deviceId: result['deviceId'],
         );
 
-        if (context.mounted) {
+        if (added && context.mounted) {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text('Added ${result['handle']}')));
@@ -172,12 +184,62 @@ class _ContactsScreenState extends State<ContactsScreen> {
     }
   }
 
+  /// Resolves the contact, shows who it is and adds it only after the user
+  /// confirms. Returns whether the contact was added.
+  ///
+  /// WHY a preview step: whether the peer is a bot must be visible BEFORE
+  /// the contact is added (bots plan §6) — once added, the user may already
+  /// have started typing to what they believed was a person.
+  Future<bool> _previewAndAdd(
+    BuildContext context,
+    ContactsController controller,
+    String handle, {
+    String? deviceId,
+  }) async {
+    final preview = await controller.resolveContact(handle, deviceId: deviceId);
+    if (!context.mounted) return false;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add this contact?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            NameWithBotBadge(name: preview.handle, isBot: preview.isBot),
+            if (preview.isBot) ...[
+              const SizedBox(height: 12),
+              const Text(botNotice),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return false;
+    await controller.addContact(preview);
+    return true;
+  }
+
   /// Shows a dialog to manually enter a contact handle.
   Future<void> _showAddDialog(
     BuildContext context,
     ContactsController controller,
   ) async {
-    final handleController = TextEditingController();
+    // A plain variable instead of a TextEditingController: the controller
+    // had to be disposed right after the dialog returned, while the dialog's
+    // exit animation was still rebuilding the TextField ("used after being
+    // disposed" as soon as the preview dialog opens on top of it).
+    var typed = '';
 
     final handle = await showDialog<String>(
       context: context,
@@ -185,7 +247,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         return AlertDialog(
           title: const Text('Add Contact'),
           content: TextField(
-            controller: handleController,
+            onChanged: (value) => typed = value,
             decoration: const InputDecoration(
               labelText: 'Handle or invite',
               hintText: 'CT-XXXX-XXXX or ct://…',
@@ -203,7 +265,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
             ),
             FilledButton(
               onPressed: () {
-                Navigator.of(dialogContext).pop(handleController.text.trim());
+                Navigator.of(dialogContext).pop(typed.trim());
               },
               child: const Text('Add'),
             ),
@@ -212,13 +274,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
       },
     );
 
-    handleController.dispose();
+    // A pasted channel link belongs to Updates, not to the contact list.
+    final channel = handle == null ? null : parseChannelLink(handle);
+    if (channel != null) {
+      if (context.mounted) context.push('/channels/profile/$channel');
+      return;
+    }
 
     if (handle != null && handle.isNotEmpty && context.mounted) {
       try {
-        await controller.addContactByHandle(handle);
+        final added = await _previewAndAdd(context, controller, handle);
 
-        if (context.mounted) {
+        if (added && context.mounted) {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text('Added $handle')));
@@ -251,7 +318,7 @@ class _ContactTile extends StatelessWidget {
 
     return ListTile(
       leading: LetterAvatar(name: name),
-      title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: NameWithBotBadge(name: name, isBot: contact.isBot as bool),
       subtitle: Text(
         contact.userHandle,
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
