@@ -8,6 +8,8 @@ import 'package:calltype/core/network/api_client.dart';
 import 'package:calltype/core/storage/database.dart';
 import 'package:calltype/features/groups/group_create_screen.dart';
 
+import '../../helpers/localized_app.dart';
+
 class PendingApi extends ApiClient {
   PendingApi() : super(baseUrl: 'http://unused');
   final result = Completer<Map<String, dynamic>>();
@@ -43,7 +45,7 @@ void main() {
           Provider.value(value: db),
           Provider<ApiClient>.value(value: api),
         ],
-        child: const MaterialApp(home: GroupCreateScreen()),
+        child: localizedApp(home: const GroupCreateScreen()),
       ),
     );
     await tester.runAsync(() async {

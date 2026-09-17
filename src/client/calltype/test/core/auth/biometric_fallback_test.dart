@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:provider/provider.dart';
 
+import '../../helpers/localized_app.dart';
+
 class UnsupportedBiometrics extends LocalAuthentication {
   @override
   Future<bool> get canCheckBiometrics async =>
@@ -26,7 +28,7 @@ void main() {
     await tester.pumpWidget(
       Provider<AppLock>.value(
         value: lock,
-        child: const MaterialApp(home: AppLockSettingsScreen()),
+        child: localizedApp(home: const AppLockSettingsScreen()),
       ),
     );
     await tester.pumpAndSettle();

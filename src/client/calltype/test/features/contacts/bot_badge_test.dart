@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import '../../helpers/localized_app.dart';
 import '../../helpers/test_device.dart';
 
 const _botId = '11111111-2222-3333-4444-555555555555';
@@ -46,7 +47,7 @@ void main() {
       await tester.pumpWidget(
         ChangeNotifierProvider<ContactsController>.value(
           value: controller,
-          child: const MaterialApp(home: ContactsScreen()),
+          child: localizedApp(home: const ContactsScreen()),
         ),
       );
       await tester.runAsync(
@@ -62,7 +63,7 @@ void main() {
 
       expect(find.text('Add this contact?'), findsOneWidget);
       expect(find.byType(BotBadge), findsOneWidget);
-      expect(find.text(botNotice), findsOneWidget);
+      expect(find.text(l10nEn.botNotice), findsOneWidget);
       // Nothing is saved until the user confirms.
       final saved = await tester.runAsync(() => db.select(db.contacts).get());
       expect(saved, isEmpty);
@@ -148,7 +149,7 @@ void main() {
           ChangeNotifierProvider.value(value: chats),
           ChangeNotifierProvider.value(value: chat),
         ],
-        child: const MaterialApp(home: ChatScreen(contactId: _botId)),
+        child: localizedApp(home: const ChatScreen(contactId: _botId)),
       ),
     );
     await tester.runAsync(
@@ -173,7 +174,7 @@ void main() {
     expect(find.byType(BotBadge), findsOneWidget);
     expect(find.byTooltip('Voice call'), findsNothing);
     expect(find.byTooltip('Video call'), findsNothing);
-    expect(find.text(botNotice), findsOneWidget);
+    expect(find.text(l10nEn.botNotice), findsOneWidget);
 
     // Dismissing is remembered — the notice is one-time per bot.
     await tester.tap(find.text('Got it'));
@@ -181,7 +182,7 @@ void main() {
       () => Future<void>.delayed(const Duration(milliseconds: 50)),
     );
     await tester.pump();
-    expect(find.text(botNotice), findsNothing);
+    expect(find.text(l10nEn.botNotice), findsNothing);
     final db = tester.element(find.byType(ChatScreen)).read<AppDatabase>();
     final seen = await tester.runAsync(() => db.select(db.backupState).get());
     expect(seen!.single.key, 'bot_notice_seen:$_botId');
@@ -195,7 +196,7 @@ void main() {
     expect(find.byType(BotBadge), findsNothing);
     expect(find.byTooltip('Voice call'), findsOneWidget);
     expect(find.byTooltip('Video call'), findsOneWidget);
-    expect(find.text(botNotice), findsNothing);
+    expect(find.text(l10nEn.botNotice), findsNothing);
     await cleanUp();
   });
 }
