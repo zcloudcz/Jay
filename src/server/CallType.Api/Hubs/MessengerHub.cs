@@ -201,8 +201,24 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
                 payload
             });
         }
-        // If the target is offline, the signal is silently dropped.
-        // The caller's UI should handle "no answer" via a timeout.
+        else if (signalType == "offer")
+        {
+            // Target has no live connection. Tell the caller right away instead
+            // of letting their UI ring into the void for the full 45 s timeout
+            // (beta feedback). Only the initial offer is answered this way:
+            // later signals of an established call are still dropped silently.
+            // The original envelope is echoed back so the client can match the
+            // reply to its callId and ignore it for any other call.
+            // Privacy note: this reveals "not connected right now" to an
+            // authenticated caller who already knows the device id — the same
+            // fact the timeout would reveal, just sooner.
+            await Clients.Caller.SendAsync("CallSignal", new
+            {
+                senderId = targetDeviceId,
+                signalType = "unavailable",
+                payload
+            });
+        }
     }
 
     /// <summary>

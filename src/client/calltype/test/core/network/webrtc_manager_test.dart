@@ -420,6 +420,81 @@ void main() {
       await signal.signals.close();
     },
   );
+  test('offline callee: server "unavailable" ends ringing at once with a clear error', () async {
+    final signal = TestSignal();
+    final peer = TestPeer();
+    final media = TestMedia(tracks: [TestTrack()]);
+    final manager = WebRTCManager(
+      signalRClient: signal,
+      apiClient: TestApi(),
+      myDeviceId: 'me',
+      peerFactory: (_) async => peer,
+      rendererFactory: TestRenderer.new,
+      mediaFactory: (_) async => media,
+    );
+    await manager.startCall('other');
+    expect(manager.state, CallState.ringing);
+    final callId = (jsonDecode(signal.payloads.first) as Map)['callId'];
+
+    // A stale/foreign callId must not be able to end this call.
+    signal.signals.add({
+      'senderId': 'other',
+      'signalType': 'unavailable',
+      'payload': jsonEncode({'v': 1, 'callId': '00000000-0000-4000-8000-000000000000', 'payload': 'v=0'}),
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(manager.state, CallState.ringing);
+
+    signal.signals.add({
+      'senderId': 'other',
+      'signalType': 'unavailable',
+      'payload': jsonEncode({'v': 1, 'callId': callId, 'payload': 'v=0'}),
+    });
+    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(manager.state, CallState.ended);
+    expect(manager.error, contains('offline'));
+    expect(peer.closed, isTrue); // resources released, not just a state flip
+    expect(media.tracks.single.stopped, isTrue);
+    manager.dispose();
+    await signal.signals.close();
+  });
+
+  test('speaker toggle silences remote audio only, even for late tracks', () async {
+    final peer = TestPeer();
+    final localAudio = TestTrack();
+    final manager = WebRTCManager(
+      signalRClient: TestSignal(),
+      apiClient: TestApi(),
+      myDeviceId: 'me',
+      peerFactory: (_) async => peer,
+      rendererFactory: TestRenderer.new,
+      mediaFactory: (_) async => TestMediaByKind(audio: [localAudio], video: []),
+    );
+    await manager.startCall('other');
+
+    // Mute BEFORE the remote track arrives — it must still come up silenced.
+    manager.toggleSpeaker();
+    expect(manager.isSpeakerMuted, isTrue);
+    final remoteAudio = TestTrack();
+    final remoteVideo = TestTrack();
+    peer.onTrack!(RTCTrackEvent(
+      streams: [TestMediaByKind(audio: [remoteAudio], video: [remoteVideo])],
+      track: remoteAudio,
+    ));
+    expect(remoteAudio.enabled, isFalse);
+    expect(remoteVideo.enabled, isTrue);
+    expect(localAudio.enabled, isTrue); // our microphone is a separate control
+
+    manager.toggleSpeaker();
+    expect(remoteAudio.enabled, isTrue);
+
+    await manager.endCall();
+    expect(manager.isSpeakerMuted, isFalse); // never carries into the next call
+    manager.dispose();
+  });
+
   test('runtime force-relay switch applies to the next call and notifies', () async {
     // Backs the Settings → Diagnostics toggle: flipping it must change the ICE
     // policy of the NEXT call without recreating the manager.

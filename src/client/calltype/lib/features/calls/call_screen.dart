@@ -36,12 +36,22 @@ class CallScreen extends StatelessWidget {
           Wrap(spacing: 16, runSpacing: 12, alignment: WrapAlignment.center, children: [
             if (manager.isIncoming) FilledButton.icon(onPressed: manager.acceptCall,
               icon: const Icon(Icons.call), label: const Text('Accept')),
-            if (!ended && !manager.isIncoming) IconButton(onPressed: manager.toggleMute,
-              icon: Icon(manager.isMuted ? Icons.mic_off : Icons.mic), tooltip: 'Mute microphone'),
+            // Labeled, state-coloured toggles: beta testers did not notice the
+            // bare mic icon and there was no way to silence the other side.
+            if (!ended && !manager.isIncoming) _CallToggle(
+              active: manager.isMuted, onPressed: manager.toggleMute,
+              icon: Icons.mic, activeIcon: Icons.mic_off,
+              label: 'Mic', activeLabel: 'Mic off'),
+            if (!ended && !manager.isIncoming) _CallToggle(
+              active: manager.isSpeakerMuted, onPressed: manager.toggleSpeaker,
+              icon: Icons.volume_up, activeIcon: Icons.volume_off,
+              label: 'Sound', activeLabel: 'Sound off'),
             FilledButton.icon(onPressed: close, icon: const Icon(Icons.call_end),
               label: Text(ended ? 'Close' : manager.isIncoming ? 'Decline' : 'End call')),
-            if (manager.isVideo && !manager.isIncoming && !ended) IconButton(onPressed: manager.toggleCamera,
-              icon: const Icon(Icons.videocam), tooltip: 'Toggle camera'),
+            if (manager.isVideo && !manager.isIncoming && !ended) _CallToggle(
+              active: manager.isCameraOff, onPressed: manager.toggleCamera,
+              icon: Icons.videocam, activeIcon: Icons.videocam_off,
+              label: 'Camera', activeLabel: 'Camera off'),
             // Diagnostics only: shows which ICE candidate type carries the
             // media (expect "relay" when the force-relay switch is on). The
             // summary is redacted — no IPs or SDP — so it is safe to screenshot
@@ -63,4 +73,45 @@ class CallScreen extends StatelessWidget {
         ])),
       ));
     });
+}
+
+/// Round in-call toggle with a caption. "Active" means the restriction is ON
+/// (mic/sound/camera off) and is drawn in the error colour so a muted state
+/// is obvious at a glance.
+class _CallToggle extends StatelessWidget {
+  const _CallToggle({
+    required this.active,
+    required this.onPressed,
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+    required this.activeLabel,
+  });
+  final bool active;
+  final VoidCallback onPressed;
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  final String activeLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      IconButton.filledTonal(
+        onPressed: onPressed,
+        isSelected: active,
+        iconSize: 28,
+        tooltip: active ? activeLabel : label,
+        style: IconButton.styleFrom(
+          backgroundColor: active ? scheme.errorContainer : null,
+          foregroundColor: active ? scheme.onErrorContainer : null,
+          minimumSize: const Size(56, 56),
+        ),
+        icon: Icon(active ? activeIcon : icon),
+      ),
+      const SizedBox(height: 4),
+      Text(active ? activeLabel : label, style: Theme.of(context).textTheme.labelSmall),
+    ]);
+  }
 }

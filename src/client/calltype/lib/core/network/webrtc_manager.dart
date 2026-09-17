@@ -80,6 +80,14 @@ class WebRTCManager extends ChangeNotifier {
   bool get isIncoming => _offer != null && _state == CallState.ringing;
   bool _isMuted = false;
   bool get isMuted => _isMuted;
+
+  /// Remote media stream, kept so the speaker toggle can silence incoming
+  /// audio without touching the peer connection.
+  MediaStream? _remote;
+  bool _isSpeakerMuted = false;
+  bool get isSpeakerMuted => _isSpeakerMuted;
+  bool _isCameraOff = false;
+  bool get isCameraOff => _isCameraOff;
   bool _isVideo = false;
   bool get isVideo => _isVideo;
   String? _error;
@@ -225,7 +233,10 @@ class WebRTCManager extends ChangeNotifier {
       };
       peer.onTrack = (event) {
         if (_active(generation) && event.streams.isNotEmpty) {
-          remoteRenderer?.srcObject = event.streams.first;
+          _remote = event.streams.first;
+          remoteRenderer?.srcObject = _remote;
+          // Tracks can arrive after the user already tapped "speaker off".
+          _applySpeakerMute();
         }
       };
       peer.onIceConnectionState = (state) {
@@ -384,6 +395,14 @@ class WebRTCManager extends ChangeNotifier {
         }
       case 'hangup':
         await _cleanup();
+      case 'unavailable':
+        // Server-generated reply to our offer: the callee has no live
+        // connection, so ringing on would only end in the 45 s timeout.
+        // Only meaningful for the caller while still ringing.
+        if (_offer == null && _state == CallState.ringing) {
+          _error = 'User is offline right now. Try again later.';
+          await _cleanup();
+        }
     }
   }
 
@@ -436,10 +455,26 @@ class WebRTCManager extends ChangeNotifier {
   }
 
   void toggleCamera() {
+    _isCameraOff = !_isCameraOff;
     for (final track in _local?.getVideoTracks() ?? <MediaStreamTrack>[]) {
-      track.enabled = !track.enabled;
+      track.enabled = !_isCameraOff;
     }
     notifyListeners();
+  }
+
+  /// Silences what we HEAR (the microphone toggle controls what we SEND).
+  /// Disabling the remote audio tracks works identically on web and native,
+  /// unlike per-platform speaker/volume APIs.
+  void toggleSpeaker() {
+    _isSpeakerMuted = !_isSpeakerMuted;
+    _applySpeakerMute();
+    notifyListeners();
+  }
+
+  void _applySpeakerMute() {
+    for (final track in _remote?.getAudioTracks() ?? <MediaStreamTrack>[]) {
+      track.enabled = !_isSpeakerMuted;
+    }
   }
 
   Future<void> _cleanup() async {
@@ -461,6 +496,9 @@ class WebRTCManager extends ChangeNotifier {
     }
     _callId = null;
     _isMuted = false;
+    _isSpeakerMuted = false;
+    _isCameraOff = false;
+    _remote = null;
     final peer = _peer;
     _peer = null;
     final local = _local;

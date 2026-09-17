@@ -258,6 +258,44 @@ public class MessengerHubTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task CallSignal_offer_to_offline_target_tells_the_caller_immediately()
+    {
+        // Beta feedback: calling an offline contact rang until the 45 s client
+        // timeout. The hub now answers the OFFER with an "unavailable" signal
+        // that echoes the envelope so the caller can match it to its callId.
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (deviceB, _) = await RegisterDeviceAndGetTokenAsync(); // registered, never connects
+
+        var signals = new List<JsonElement>();
+        var firstSignal = new TaskCompletionSource<JsonElement>();
+
+        await using var connectionA = CreateHubConnection(deviceA, tokenA);
+        connectionA.On<JsonElement>("CallSignal", signal =>
+        {
+            lock (signals) signals.Add(signal);
+            firstSignal.TrySetResult(signal);
+        });
+        await connectionA.StartAsync();
+
+        const string envelope = "{\"v\":1,\"callId\":\"3f2b7c1e-9a4d-4c55-8f10-6d2e1a7b9c01\",\"payload\":\"v=0\"}";
+        await connectionA.InvokeAsync("CallSignal", deviceB, "offer", envelope);
+
+        var received = await firstSignal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        received.GetProperty("senderId").GetString().Should().Be(deviceB.ToString());
+        received.GetProperty("signalType").GetString().Should().Be("unavailable");
+        received.GetProperty("payload").GetString().Should().Be(envelope);
+
+        // Follow-up signals of a call are still dropped silently — only the
+        // offer is answered, otherwise every trickled ICE candidate would echo.
+        await connectionA.InvokeAsync("CallSignal", deviceB, "ice-candidate", envelope);
+        await connectionA.InvokeAsync("CallSignal", deviceB, "hangup", envelope);
+        await Task.Delay(500);
+        lock (signals) signals.Should().HaveCount(1);
+
+        await connectionA.StopAsync();
+    }
+
+    [Fact]
     public async Task TypingIndicator_delivers_to_selected_recipient()
     {
         // Arrange — two devices in a conversation. Client A starts typing,
