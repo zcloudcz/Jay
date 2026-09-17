@@ -61,6 +61,22 @@ jobs:
           dart run build_runner build --delete-conflicting-outputs
           dart analyze
           dart test
+      # Headless bots reuse the generated core above, so they run right after
+      # it in this job. `dart build cli` proves the bridge stays Flutter-free
+      # and links the native SQLite (what the Dockerfile does).
+      - name: calltype_bot analyze + tests
+        working-directory: src/bots/calltype_bot
+        run: |
+          dart pub get
+          dart analyze
+          dart test
+      - name: hermes_bridge analyze + tests + headless build
+        working-directory: src/bots/hermes_bridge
+        run: |
+          dart pub get
+          dart analyze
+          dart test
+          dart build cli -o build/out
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
       - run: flutter analyze
