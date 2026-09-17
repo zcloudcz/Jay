@@ -1,0 +1,21 @@
+name: calltype_core
+description: "CallType protocol core: E2EE, REST + SignalR protocol, local schema. Pure Dart, no Flutter SDK, so headless bots can reuse it."
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: ^3.11.0
+
+# Keep this list Flutter-free: anything that pulls the Flutter SDK (even
+# transitively, like signalr_netcore does) breaks `dart run` for src/bots.
+dependencies:
+  dio: ^5.9.2
+  drift: ^2.33.0
+  crypto: ^3.0.7
+  cryptography: ^2.9.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^6.0.0
+  build_runner: ^2.15.0
+  drift_dev: ^2.33.0

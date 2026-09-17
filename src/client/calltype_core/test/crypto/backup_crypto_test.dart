@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:flutter_test/flutter_test.dart';
-import 'package:calltype/core/crypto/backup_crypto.dart';
+import 'package:test/test.dart';
+import 'package:calltype_core/crypto/backup_crypto.dart';
 
 void main() {
   group('BackupCrypto', () {

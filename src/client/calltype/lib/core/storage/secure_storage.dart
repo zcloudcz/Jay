@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:calltype_core/storage/secret_store.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Wrapper around platform-secure key-value storage (Keychain on iOS,
@@ -12,7 +13,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 ///
 /// All keys are prefixed with 'ct_' to avoid collisions if the
 /// secure storage namespace is shared with other Flutter plugins.
-class SecureStorage {
+///
+/// Extends the core's [SecretStore] so the pure-Dart KeyManager/AuthService
+/// (package calltype_core) can use the keychain without knowing Flutter. The
+/// device id/secret accessors are inherited from there.
+class SecureStorage extends SecretStore {
   SecureStorage({FlutterSecureStorage? storage})
     : _storage = storage ?? const FlutterSecureStorage();
 
@@ -21,8 +26,6 @@ class SecureStorage {
   // -- Key constants -------------------------------------------------------
 
   static const _keyDbKey = 'ct_db_key';
-  static const _keyDeviceId = 'ct_device_id';
-  static const _keyDeviceSecret = 'ct_device_secret';
   static const _keyPinHash = 'ct_pin_hash';
 
   // -- Database encryption key ---------------------------------------------
@@ -47,30 +50,6 @@ class SecureStorage {
     return key;
   }
 
-  // -- Device identity -----------------------------------------------------
-
-  /// Retrieves the persisted device UUID, or null if the device has
-  /// not been provisioned yet.
-  Future<String?> getDeviceId() => _storage.read(key: _keyDeviceId);
-
-  /// Persists the device UUID after initial provisioning. Called once
-  /// during first launch after the server assigns the device ID.
-  Future<void> setDeviceId(String id) =>
-      _storage.write(key: _keyDeviceId, value: id);
-
-  /// Retrieves the device secret issued by the server at registration,
-  /// or null if the device has not been provisioned yet.
-  ///
-  /// This is the device's API credential: it is exchanged for short-lived
-  /// JWTs via POST /auth/token. The server only stores its hash, so this
-  /// copy is the only one in existence — losing it means re-registering.
-  Future<String?> getDeviceSecret() => _storage.read(key: _keyDeviceSecret);
-
-  /// Persists the device secret. Called once during registration — the
-  /// server returns the secret exactly once and never again.
-  Future<void> setDeviceSecret(String secret) =>
-      _storage.write(key: _keyDeviceSecret, value: secret);
-
   // -- PIN / biometric lock ------------------------------------------------
 
   /// Retrieves the stored PIN hash, or null if no PIN is set.
@@ -93,12 +72,15 @@ class SecureStorage {
   // -- Generic access ------------------------------------------------------
 
   /// Read an arbitrary key from secure storage.
+  @override
   Future<String?> read(String key) => _storage.read(key: key);
 
   /// Write an arbitrary key-value pair to secure storage.
+  @override
   Future<void> write(String key, String value) =>
       _storage.write(key: key, value: value);
 
   /// Delete an arbitrary key from secure storage.
+  @override
   Future<void> delete(String key) => _storage.delete(key: key);
 }

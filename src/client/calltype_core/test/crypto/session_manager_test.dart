@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 
-import '../../helpers/test_device.dart';
+import '../helpers/test_device.dart';
 
 /// End-to-end tests of the X3DH + Double Ratchet implementation.
 ///

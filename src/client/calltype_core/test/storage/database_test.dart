@@ -1,8 +1,8 @@
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:test/test.dart';
+import 'package:calltype_core/storage/database.dart';
 
 /// Tests for the Drift [AppDatabase] using an in-memory SQLite database.
 ///

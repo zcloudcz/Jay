@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:calltype/core/auth/auth_service.dart';
-import 'package:calltype/core/network/api_client.dart';
-import 'package:calltype/core/storage/secure_storage.dart';
+import 'package:test/test.dart';
+import 'package:calltype_core/auth/auth_service.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/secret_store.dart';
 
 /// Tests for [AuthService] and the ApiClient auth interceptor.
 ///
@@ -259,7 +259,7 @@ ResponseBody _jsonResponse(Map<String, dynamic> body, {int statusCode = 200}) =>
 
 /// In-memory SecureStorage — overrides every method that would otherwise
 /// hit platform channels (unavailable in unit tests).
-class _InMemorySecureStorage extends SecureStorage {
+class _InMemorySecureStorage extends SecretStore {
   final values = <String, String>{};
 
   @override
