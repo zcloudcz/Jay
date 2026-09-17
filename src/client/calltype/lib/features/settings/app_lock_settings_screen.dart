@@ -67,7 +67,7 @@ class _AppLockSettingsScreenState extends State<AppLockSettingsScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Text(
                     'Protect the app with a PIN code. When enabled, you will '
-                    'need to enter your PIN each time you open CallType.',
+                    'need to enter your PIN each time you open Jay.',
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),

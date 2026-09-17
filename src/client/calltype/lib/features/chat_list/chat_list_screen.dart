@@ -67,7 +67,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final rows = controller.conversations;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CallType'),
+        title: const Text('Jay'),
         actions: [
           IconButton(
             icon: const Icon(Icons.group_add_outlined),

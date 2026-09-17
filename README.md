@@ -1,4 +1,6 @@
-# CallType
+# Jay (code name CallType)
+
+> **Naming:** the product is **Jay** (by ZCloud). `CallType` remains the internal code name — solution, namespaces, Dart package, bundle IDs, Azure resources, `CT-` handles and the protocol's domain-separation strings keep it on purpose, because renaming those would break existing identities and installs.
 
 CallType is an anonymous-first messaging beta for Android, iOS, web, Windows and macOS. Devices register without a phone number and use a public `CT-XXXX-XXXX` handle. The repository is named `ZMessanger` for historical reasons.
 

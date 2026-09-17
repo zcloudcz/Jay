@@ -88,7 +88,7 @@ class SettingsScreen extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
             child: Center(
               child: Text(
-                'CallType 1.0.0 beta',
+                'Jay 1.0.0 beta',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                 ),

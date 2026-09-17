@@ -1,4 +1,6 @@
-# CallType
+# CallType (product name: Jay)
+
+> **Branding:** users see **Jay** (app name, icons, web title, theme petrol `#003840` + orange `#FF8545`, mark in `www/assets/jay-mark.svg`, icon masters in `src/client/calltype/assets/brand/`, regenerate with `dart run flutter_launcher_icons`). `CallType` stays as the internal code name everywhere in code and infrastructure. Never rename the `CallType-*` strings in `core/crypto/` — they are protocol domain separators; changing them breaks every existing session.
 
 End-to-end encrypted multiplatform messenger. Anonymous-first with optional
 registration for cloud backup. Voice/video calls via WebRTC.

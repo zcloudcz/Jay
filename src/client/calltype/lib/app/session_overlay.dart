@@ -115,7 +115,7 @@ class _SessionOverlayState extends State<SessionOverlay>
                       children: [
                         const Icon(Icons.lock_outline, size: 48),
                         const SizedBox(height: 16),
-                        const Text('Unlock CallType'),
+                        const Text('Unlock Jay'),
                         TextField(
                           controller: _pin,
                           obscureText: true,

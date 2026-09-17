@@ -79,7 +79,7 @@ class _AccountScreenState extends State<AccountScreen> {
                       const SizedBox(height: 12),
                       Text(
                         'An account enables encrypted cloud backups. '
-                        'CallType works fully without one — registration is '
+                        'Jay works fully without one — registration is '
                         'completely optional.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: colorScheme.onSurfaceVariant,

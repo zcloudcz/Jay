@@ -32,12 +32,22 @@ class OnboardingScreen extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // -- App icon: shield with lock symbolizes E2E encryption ------
-                Icon(Icons.lock_rounded, size: 80, color: colorScheme.primary),
+                // -- Brand mark ------------------------------------------------
+                // The opaque (white-tile) variant is used on purpose: the petrol
+                // mark on a transparent background disappears on the dark theme.
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: Image.asset(
+                    'assets/brand/jay-icon.png',
+                    width: 96,
+                    height: 96,
+                    semanticLabel: 'Jay',
+                  ),
+                ),
                 const SizedBox(height: 24),
 
                 Text(
-                  'CallType',
+                  'Jay',
                   style: theme.textTheme.headlineLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: colorScheme.primary,

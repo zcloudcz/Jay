@@ -60,7 +60,7 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                   borderRadius: BorderRadius.circular(24),
                 ),
                 child: Text(
-                  'Point at a CallType QR code',
+                  'Point at a Jay QR code',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: Colors.white,
                   ),
