@@ -21,6 +21,27 @@ const channelPostKinds = ['text', 'image', 'poll'];
 /// client-side too so the user gets an immediate, clear message.
 const channelImageMaxBytes = 2 * 1024 * 1024;
 
+/// File extension → content type of the image types the server accepts
+/// (anything else is a 415). SVG is deliberately absent on the server: it can
+/// carry script and channel images are served unencrypted.
+const channelImageTypes = {
+  'jpg': 'image/jpeg',
+  'jpeg': 'image/jpeg',
+  'png': 'image/png',
+  'webp': 'image/webp',
+  'gif': 'image/gif',
+};
+
+/// Content type for an upload, or null when the server would refuse the file.
+/// WHY by extension: the server whitelists on the multipart part's content
+/// type, which the client has to state itself — bytes are never sniffed.
+String? channelImageContentType(String fileName) {
+  final dot = fileName.lastIndexOf('.');
+  return dot < 0
+      ? null
+      : channelImageTypes[fileName.substring(dot + 1).toLowerCase()];
+}
+
 const channelLinkPrefix = 'calltype://channel/';
 
 /// Extracts the channel handle from `calltype://channel/<handle>`, or null
@@ -115,7 +136,6 @@ class ChannelPostDto {
   }) {
     final created = DateTime.tryParse(json['createdAt'] as String? ?? '');
     final reactions = json['reactions'];
-    final votes = json['pollVotes'];
     return ChannelPostDto(
       channelId: json['channelId'] as String? ?? channelId!,
       postId: json['postId'] as String,
@@ -133,12 +153,54 @@ class ChannelPostDto {
             }
           : const {},
       myReaction: json['myReaction'] as String?,
-      pollVotes: votes is List
-          ? [for (final v in votes) _int(v) ?? 0]
-          : const [],
+      pollVotes: _votes(json['votes']),
       myVote: _int(json['myVote']),
     );
   }
+}
+
+/// Fresh totals of one post — the response of `PUT/DELETE …/reaction` and
+/// `PUT …/vote`. Server truth that replaces the client's optimistic guess.
+class ChannelPostTotals {
+  const ChannelPostTotals({
+    this.reactions = const {},
+    this.myReaction,
+    this.pollVotes = const [],
+    this.myVote,
+  });
+
+  final Map<String, int> reactions;
+  final String? myReaction;
+  final List<int> pollVotes;
+  final int? myVote;
+
+  factory ChannelPostTotals.fromJson(Map<String, dynamic> json) {
+    // Same field names as a post, so reuse its (lenient) parser.
+    final post = ChannelPostDto.fromJson({
+      ...json,
+      'postId': '',
+    }, channelId: '');
+    return ChannelPostTotals(
+      reactions: post.reactions,
+      myReaction: post.myReaction,
+      pollVotes: post.pollVotes,
+      myVote: post.myVote,
+    );
+  }
+}
+
+/// One row of `GET /channels/{id}/admins` (owner only) — the single place
+/// the channel API exposes a device id.
+class ChannelAdminDto {
+  const ChannelAdminDto({required this.deviceId, this.addedAt});
+  final String deviceId;
+  final DateTime? addedAt;
+
+  factory ChannelAdminDto.fromJson(Map<String, dynamic> json) =>
+      ChannelAdminDto(
+        deviceId: json['deviceId'] as String,
+        addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '')?.toUtc(),
+      );
 }
 
 /// Body of a `kind: poll` post — a JSON string inside the post's `body`.
@@ -182,15 +244,8 @@ class ChannelPoll {
 
 // -- Response envelopes ------------------------------------------------------
 
-/// `POST /channels` → 201 `{channelId, handle}`.
-({String channelId, String handle}) parseCreatedChannel(
-  Map<String, dynamic> json,
-) => (
-  channelId: json['channelId'] as String,
-  handle: json['handle'] as String? ?? '',
-);
-
-/// `POST /channels/{id}/attachments` → `{blobPath}`.
+/// `POST /channels/{id}/attachments` → 201 `{blobPath, name}`; `blobPath` is
+/// the canonical `channel-media/{channelId}/{name}` a post must reference.
 String parseUploadedBlobPath(Map<String, dynamic> json) =>
     json['blobPath'] as String;
 
@@ -205,6 +260,11 @@ List<Map<String, dynamic>> parseList(Object? data) {
   ];
 }
 
+/// Error bodies are `{error, code}`; role / non-follower 403s have NO body,
+/// hence [data] may be anything. Returns the machine-readable `code`.
+String? parseErrorCode(Object? data) =>
+    data is Map ? data['code'] as String? : null;
+
 /// `ChannelDeleted` hub event → channel id.
 String? parseChannelDeleted(Map<String, dynamic> json) =>
     json['channelId'] as String?;
@@ -214,6 +274,13 @@ String? parseChannelDeleted(Map<String, dynamic> json) =>
 Map<String, dynamic> createChannelBody(String name, String description) => {
   'name': name,
   'description': description,
+};
+
+/// `PATCH /channels/{id}` — the server leaves a null/absent property
+/// unchanged, so only what the user edited is sent.
+Map<String, dynamic> updateChannelBody({String? name, String? description}) => {
+  'name': ?name,
+  'description': ?description,
 };
 
 Map<String, dynamic> createPostBody({
@@ -240,6 +307,25 @@ Map<String, dynamic> reportBody(String reason, {String? postId}) => {
 /// Query of `GET /channels/{id}/posts`. Cursors are UTC ISO-8601 strings.
 Map<String, dynamic> postsQuery({String? before, String? after, int? limit}) =>
     {'before': ?before, 'after': ?after, 'limit': ?limit};
+
+/// The server sends poll totals as a sparse map keyed by option index
+/// (`{"0": 3, "2": 1}` — JSON object keys are strings, options without votes
+/// are absent). The client works with a dense list indexed by option.
+List<int> _votes(Object? votes) {
+  if (votes is! Map) return const [];
+  final list = <int>[];
+  for (final entry in votes.entries) {
+    final index = int.tryParse('${entry.key}');
+    // Upper bound = the server's max option count; a garbage key must not
+    // make a public post allocate a huge list.
+    if (index == null || index < 0 || index >= 10) continue;
+    while (list.length <= index) {
+      list.add(0);
+    }
+    list[index] = _int(entry.value) ?? 0;
+  }
+  return list;
+}
 
 /// JSON sometimes delivers whole numbers as doubles (JS clients, SignalR).
 int? _int(Object? value) => value is num ? value.toInt() : null;
