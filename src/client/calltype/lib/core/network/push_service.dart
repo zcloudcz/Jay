@@ -79,6 +79,7 @@ class PushService {
     this._deviceId, {
     PushMessagingClient? messaging,
     this.onMessageReceived,
+    this.onChannelPost,
     this.onNotificationOpened,
   }) : _messaging = messaging ?? _FirebasePushMessagingClient();
 
@@ -90,6 +91,11 @@ class PushService {
   /// Per K04 the payload carries no plaintext — this is only a hook for the
   /// caller to trigger the existing inbox refresh, not to render content.
   final VoidCallback? onMessageReceived;
+
+  /// Called instead of [onMessageReceived] for a `{type: "channel_post"}`
+  /// push. Channels have no server-side queue and live outside the chat
+  /// inbox, so the right reaction is a channels sync, not an inbox refresh.
+  final VoidCallback? onChannelPost;
 
   /// Called when the user taps a notification (app was backgrounded/terminated).
   /// Per K04 this must route to the conversation list and the existing
@@ -183,7 +189,11 @@ class PushService {
       return;
     }
     _lastHandledMessageId = message.messageId;
-    onMessageReceived?.call();
+    if (message.data['type'] == 'channel_post') {
+      onChannelPost?.call();
+    } else {
+      onMessageReceived?.call();
+    }
   }
 
   /// Sends the FCM token to the backend so it can send push notifications

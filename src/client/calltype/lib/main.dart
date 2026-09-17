@@ -119,7 +119,15 @@ void main() async {
   // If Firebase is not configured (no google-services.json / GoogleService-Info.plist),
   // PushService.initialize() catches the error and the app works without push.
   if (deviceId.isNotEmpty) {
-    PushService(apiClient, deviceId).initialize();
+    PushService(
+      apiClient,
+      deviceId,
+      // A channel push means the hub was down (the server only pushes to
+      // offline followers): pull the missed posts. If the hub is up again
+      // meanwhile, sync() finds nothing new and is cheap.
+      onChannelPost: () =>
+          unawaited(channels.sync().catchError((Object _) {})),
+    ).initialize();
   }
 
   runApp(

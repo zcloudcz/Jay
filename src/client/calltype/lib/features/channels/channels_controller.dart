@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:calltype_core/network/channel_dtos.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -16,6 +17,35 @@ class ChannelBlockedException implements Exception {
   final String handle;
   @override
   String toString() => 'This channel is blocked. Unblock it in Settings first.';
+}
+
+/// User-facing text for a failed channel call, from the server's
+/// `{error, code}` body. Role / non-follower 403s carry no body, so anything
+/// unknown falls back to a generic line. One place, so every channel screen
+/// words the same failure the same way.
+String channelErrorMessage(Object error) {
+  if (error is ChannelBlockedException) return '$error';
+  if (error is FormatException) return error.message;
+  final response = error is DioException ? error.response : null;
+  return switch (parseErrorCode(response?.data)) {
+    'account_required' =>
+      'A registered account is required to create a channel.',
+    'channel_limit_reached' =>
+      'You have reached the limit of channels you can own.',
+    'poll_closed' => 'This poll is closed.',
+    'emoji_not_allowed' => 'This reaction is not allowed.',
+    'invalid_option_index' || 'not_a_poll' => 'This poll option is not valid.',
+    'report_limit_reached' =>
+      'You have sent too many reports today. Try again tomorrow.',
+    'image_too_large' => 'Images can be at most 2 MiB.',
+    'unsupported_image_type' =>
+      'Only JPEG, PNG, WebP and GIF images are allowed.',
+    'post_id_conflict' => 'The post could not be published. Try again.',
+    _ =>
+      response?.statusCode == 403
+          ? 'You are not allowed to do this.'
+          : 'That did not work. Check the connection.',
+  };
 }
 
 /// App-wide state of public channels: followed/administered channels, the
@@ -126,20 +156,25 @@ class ChannelsController extends ChangeNotifier {
     for (final info in mine) {
       if (isBlocked(channelId: info.channelId)) continue;
       keep.add(info.channelId);
+      final local = channel(info.channelId);
+      final added = info.unreadCount > 0 ? await _catchUp(info.channelId) : 0;
+      // WHY not simply the server's unreadCount: fetching posts is what the
+      // server counts as "seen", so after one catch-up it reports 0 although
+      // the user never opened the feed — the next sync would wipe the badge.
+      // For a known channel the badge is therefore kept locally: what was
+      // unread stays unread, plus what this catch-up brought.
+      final unread = info.channelId == _openChannelId
+          ? 0
+          : local == null
+          ? info.unreadCount
+          : local.unreadCount + added;
       // A listed channel without a publishing role can only be listed
       // because this device follows it, even if the flag was omitted.
       await _upsertChannel(
         info,
         isFollowing: info.isFollowing || info.role == null,
+        unreadCount: unread,
       );
-      if (info.unreadCount > 0) {
-        await _storePosts(
-          await _api.getChannelPosts(
-            info.channelId,
-            after: await _newestCursor(info.channelId),
-          ),
-        );
-      }
     }
     // Unfollowed on another device of the account, or deleted while offline.
     for (final local in List.of(_channels)) {
@@ -151,6 +186,36 @@ class ChannelsController extends ChangeNotifier {
       await _joinChannels();
     } catch (_) {
       // Offline again already; the next reconnect calls sync() anew.
+    }
+  }
+
+  /// Pulls everything newer than the newest cached post; returns how many
+  /// posts were new.
+  ///
+  /// `?after=` returns the OLDEST [pageSize] posts after the cursor (newest
+  /// first inside the page), so a client that missed several pages walks
+  /// FORWARD: the newest createdAt of a page is the next cursor, until a page
+  /// comes back short.
+  Future<int> _catchUp(String channelId) async {
+    var cursor = await _newestCursor(channelId);
+    var added = 0;
+    while (true) {
+      final page = await _api.getChannelPosts(
+        channelId,
+        after: cursor,
+        limit: pageSize,
+      );
+      added += await _storePosts(page);
+      // No cursor = empty cache: the server answered with the newest page,
+      // which is all a fresh feed needs (history loads on demand).
+      if (cursor == null || page.length < pageSize) return added;
+      // Tombstones are not stored, so the cursor comes from the page itself.
+      final next = page.first.createdAt.toUtc().toIso8601String();
+      // A cursor that does not advance would loop forever. It can happen on
+      // web, where DateTime has millisecond precision: a full page of posts
+      // within one millisecond truncates back to the same cursor.
+      if (cursor.compareTo(next) >= 0) return added;
+      cursor = next;
     }
   }
 
@@ -313,33 +378,35 @@ class ChannelsController extends ChangeNotifier {
   }) async {
     String? blobPath;
     if (imageBytes != null) {
+      // Checked here as well as on the server (413 / 415) so the user gets
+      // a clear message before a pointless upload.
+      if (channelImageContentType(imageName ?? '') == null) {
+        throw const FormatException(
+          'Only JPEG, PNG, WebP and GIF images are allowed.',
+        );
+      }
       if (imageBytes.length > channelImageMaxBytes) {
         throw const FormatException('Images can be at most 2 MiB.');
       }
       blobPath = await _api.uploadChannelAttachment(
         channelId,
         imageBytes,
-        imageName ?? 'image',
+        imageName!,
       );
     }
     final postId = _uuid.v4();
-    await _api.createChannelPost(
-      channelId,
-      postId: postId,
-      kind: kind,
-      body: body,
-      attachmentBlobPath: blobPath,
-    );
+    // Store what the SERVER stored, not what was sent: its createdAt is the
+    // paging cursor (a local clock would shift it) and a poll body comes back
+    // normalised. overwrite: the hub echo may have landed first.
     await _storePosts([
-      ChannelPostDto(
-        channelId: channelId,
+      await _api.createChannelPost(
+        channelId,
         postId: postId,
         kind: kind,
         body: body,
         attachmentBlobPath: blobPath,
-        createdAt: DateTime.now().toUtc(),
       ),
-    ]);
+    ], overwrite: true);
   }
 
   /// Admin delete. Followers receive a tombstone event; locally the row is
@@ -355,74 +422,82 @@ class ChannelsController extends ChangeNotifier {
   // -- Reactions / polls -----------------------------------------------------
 
   /// Sets, changes or (same emoji again) removes this device's reaction.
-  /// Totals are adjusted locally; the next [refresh] brings server truth.
-  Future<void> react(ChannelPost post, String emoji) async {
-    final next = post.myReaction == emoji ? null : emoji;
-    await _api.setChannelReaction(post.channelId, post.postId, next);
-    final counts = (jsonDecode(post.reactions) as Map).map(
-      (k, v) => MapEntry(k as String, (v as num).toInt()),
-    );
-    final previous = post.myReaction;
-    if (previous != null) {
-      final left = (counts[previous] ?? 1) - 1;
-      left > 0 ? counts[previous] = left : counts.remove(previous);
-    }
-    if (next != null) counts[next] = (counts[next] ?? 0) + 1;
-    await (_db.update(
-      _db.channelPosts,
-    )..where((p) => p.postId.equals(post.postId))).write(
-      ChannelPostsCompanion(
-        reactions: Value(jsonEncode(counts)),
-        myReaction: Value(next),
-      ),
-    );
-  }
+  ///
+  /// The response carries the post's real totals, which also include what
+  /// OTHER followers did meanwhile — so they are stored as they are instead
+  /// of being guessed from the cached numbers.
+  Future<void> react(ChannelPost post, String emoji) async => _applyTotals(
+    post.postId,
+    await _api.setChannelReaction(
+      post.channelId,
+      post.postId,
+      post.myReaction == emoji ? null : emoji,
+    ),
+  );
 
-  Future<void> vote(ChannelPost post, int optionIndex) async {
-    await _api.voteChannelPoll(post.channelId, post.postId, optionIndex);
-    final votes = [
-      for (final v in jsonDecode(post.pollVotes) as List) (v as num).toInt(),
-    ];
-    while (votes.length <= optionIndex) {
-      votes.add(0);
-    }
-    final previous = post.myVote;
-    if (previous != null && previous < votes.length && votes[previous] > 0) {
-      votes[previous]--;
-    }
-    votes[optionIndex]++;
-    await (_db.update(
-      _db.channelPosts,
-    )..where((p) => p.postId.equals(post.postId))).write(
-      ChannelPostsCompanion(
-        pollVotes: Value(jsonEncode(votes)),
-        myVote: Value(optionIndex),
-      ),
-    );
-  }
+  Future<void> vote(ChannelPost post, int optionIndex) async => _applyTotals(
+    post.postId,
+    await _api.voteChannelPoll(post.channelId, post.postId, optionIndex),
+  );
+
+  // ponytail: no optimistic update — the chip changes after the round trip.
+  // Add one (then reconcile here) if the delay is noticeable on slow links.
+  Future<void> _applyTotals(String postId, ChannelPostTotals totals) =>
+      (_db.update(
+        _db.channelPosts,
+      )..where((p) => p.postId.equals(postId))).write(
+        ChannelPostsCompanion(
+          reactions: Value(jsonEncode(totals.reactions)),
+          myReaction: Value(totals.myReaction),
+          pollVotes: Value(jsonEncode(totals.pollVotes)),
+          myVote: Value(totals.myVote),
+        ),
+      );
 
   // -- Create / admins -------------------------------------------------------
 
   /// Creates a channel. The server answers 403 unless this device is linked
   /// to a registered account; the create screen explains that up front.
   Future<Channel> createChannel(String name, String description) async {
+    // The response is the full profile (trimmed name, handle, role: owner).
     final created = await _api.createChannel(name, description);
-    await _upsertChannel(
-      ChannelInfo(
-        channelId: created.channelId,
-        handle: created.handle,
-        name: name,
-        description: description,
-        role: 'owner',
-      ),
-      isFollowing: false,
-    );
+    await _upsertChannel(created);
     await load();
     try {
       await _joinChannels();
     } catch (_) {}
     return channel(created.channelId)!;
   }
+
+  /// Owner/admin: edit the profile. Null = leave unchanged.
+  Future<void> updateChannel(
+    String channelId, {
+    String? name,
+    String? description,
+  }) async {
+    final info = await _api.updateChannel(
+      channelId,
+      name: name,
+      description: description,
+    );
+    // The PATCH response has no unread count — keep the local badge.
+    await _upsertChannel(info, unreadCount: channel(channelId)?.unreadCount);
+    await load();
+  }
+
+  /// Owner: delete the channel for everybody. Followers learn about it via
+  /// `ChannelDeleted`; this device cleans up right away.
+  Future<void> deleteChannel(String channelId) async {
+    await _api.deleteChannel(channelId);
+    try {
+      await _leaveChannel(channelId);
+    } catch (_) {}
+    await _forget(channelId);
+    await load();
+  }
+
+  Future<List<ChannelAdminDto>> admins(String channelId) =>
+      _api.getChannelAdmins(channelId);
 
   Future<void> setAdmin(String channelId, String deviceId, bool admin) =>
       _api.setChannelAdmin(channelId, deviceId, admin: admin);
@@ -506,7 +581,11 @@ class ChannelsController extends ChangeNotifier {
     _db.channelPosts,
   )..where((p) => p.postId.equals(postId))).go();
 
-  Future<void> _upsertChannel(ChannelInfo info, {bool? isFollowing}) => _db
+  Future<void> _upsertChannel(
+    ChannelInfo info, {
+    bool? isFollowing,
+    int? unreadCount,
+  }) => _db
       .into(_db.channels)
       .insertOnConflictUpdate(
         ChannelsCompanion.insert(
@@ -517,7 +596,7 @@ class ChannelsController extends ChangeNotifier {
           followerCount: Value(info.followerCount),
           role: Value(info.role),
           isFollowing: Value(isFollowing ?? info.isFollowing),
-          unreadCount: Value(info.unreadCount),
+          unreadCount: Value(unreadCount ?? info.unreadCount),
         ),
       );
 

@@ -54,10 +54,9 @@ Future<void> reportChannelDialog(
   try {
     await controller.report(channelId, reason, postId: postId);
     messenger.showSnackBar(const SnackBar(content: Text('Report sent.')));
-  } catch (_) {
-    messenger.showSnackBar(
-      const SnackBar(content: Text('Report could not be sent. Try again.')),
-    );
+  } catch (error) {
+    // Notably the daily report budget (429 report_limit_reached).
+    messenger.showSnackBar(SnackBar(content: Text(channelErrorMessage(error))));
   }
 }
 
@@ -292,12 +291,8 @@ Future<void> _guard(
   final messenger = ScaffoldMessenger.of(context);
   try {
     await action();
-  } on FormatException catch (error) {
-    messenger.showSnackBar(SnackBar(content: Text(error.message)));
-  } catch (_) {
-    messenger.showSnackBar(
-      const SnackBar(content: Text('That did not work. Check the connection.')),
-    );
+  } catch (error) {
+    messenger.showSnackBar(SnackBar(content: Text(channelErrorMessage(error))));
   }
 }
 

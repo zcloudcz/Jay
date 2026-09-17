@@ -3,11 +3,13 @@
 // Do not manually edit this file.
 
 // ignore_for_file: no_leading_underscores_for_library_prefixes
-import 'dart:async' as _i4;
+import 'dart:async' as _i5;
 
-import 'package:calltype/core/network/api_client.dart' as _i3;
+import 'package:calltype_core/network/api_client.dart' as _i4;
+import 'package:calltype_core/network/channel_dtos.dart' as _i3;
 import 'package:dio/dio.dart' as _i2;
 import 'package:mockito/mockito.dart' as _i1;
+import 'package:mockito/src/dummies.dart' as _i6;
 
 // ignore_for_file: type=lint
 // ignore_for_file: avoid_redundant_argument_values
@@ -29,10 +31,27 @@ class _FakeDio_0 extends _i1.SmartFake implements _i2.Dio {
     : super(parent, parentInvocation);
 }
 
+class _FakeChannelInfo_1 extends _i1.SmartFake implements _i3.ChannelInfo {
+  _FakeChannelInfo_1(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
+}
+
+class _FakeChannelPostDto_2 extends _i1.SmartFake
+    implements _i3.ChannelPostDto {
+  _FakeChannelPostDto_2(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
+}
+
+class _FakeChannelPostTotals_3 extends _i1.SmartFake
+    implements _i3.ChannelPostTotals {
+  _FakeChannelPostTotals_3(Object parent, Invocation parentInvocation)
+    : super(parent, parentInvocation);
+}
+
 /// A class which mocks [ApiClient].
 ///
 /// See the documentation for Mockito's code generation for more information.
-class MockApiClient extends _i1.Mock implements _i3.ApiClient {
+class MockApiClient extends _i1.Mock implements _i4.ApiClient {
   MockApiClient() {
     _i1.throwOnMissingStub(this);
   }
@@ -46,33 +65,34 @@ class MockApiClient extends _i1.Mock implements _i3.ApiClient {
           as _i2.Dio);
 
   @override
-  _i4.Future<Map<String, dynamic>> createGroup(
+  _i5.Future<Map<String, dynamic>> createGroup(
     String? name,
     List<String>? memberDeviceIds,
   ) =>
       (super.noSuchMethod(
             Invocation.method(#createGroup, [name, memberDeviceIds]),
-            returnValue: _i4.Future<Map<String, dynamic>>.value(
+            returnValue: _i5.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i4.Future<Map<String, dynamic>>);
+          as _i5.Future<Map<String, dynamic>>);
 
   @override
-  _i4.Future<List<String>> getGroupMembers(String? groupId) =>
+  _i5.Future<List<String>> getGroupMembers(String? groupId) =>
       (super.noSuchMethod(
             Invocation.method(#getGroupMembers, [groupId]),
-            returnValue: _i4.Future<List<String>>.value(<String>[]),
+            returnValue: _i5.Future<List<String>>.value(<String>[]),
           )
-          as _i4.Future<List<String>>);
+          as _i5.Future<List<String>>);
 
   @override
-  _i4.Future<Map<String, dynamic>> registerDevice({
+  _i5.Future<Map<String, dynamic>> registerDevice({
     required String? identityKey,
     required String? signedPreKey,
     required List<Map<String, dynamic>>? oneTimePreKeys,
     String? signingKey,
     String? signature,
+    bool? isBot,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#registerDevice, [], {
@@ -81,45 +101,46 @@ class MockApiClient extends _i1.Mock implements _i3.ApiClient {
               #oneTimePreKeys: oneTimePreKeys,
               #signingKey: signingKey,
               #signature: signature,
+              #isBot: isBot,
             }),
-            returnValue: _i4.Future<Map<String, dynamic>>.value(
+            returnValue: _i5.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i4.Future<Map<String, dynamic>>);
+          as _i5.Future<Map<String, dynamic>>);
 
   @override
-  _i4.Future<Map<String, dynamic>> findDeviceByHandle(String? handle) =>
+  _i5.Future<Map<String, dynamic>> findDeviceByHandle(String? handle) =>
       (super.noSuchMethod(
             Invocation.method(#findDeviceByHandle, [handle]),
-            returnValue: _i4.Future<Map<String, dynamic>>.value(
+            returnValue: _i5.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i4.Future<Map<String, dynamic>>);
+          as _i5.Future<Map<String, dynamic>>);
 
   @override
-  _i4.Future<Map<String, dynamic>> getKeyBundle(String? deviceId) =>
+  _i5.Future<Map<String, dynamic>> getKeyBundle(String? deviceId) =>
       (super.noSuchMethod(
             Invocation.method(#getKeyBundle, [deviceId]),
-            returnValue: _i4.Future<Map<String, dynamic>>.value(
+            returnValue: _i5.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i4.Future<Map<String, dynamic>>);
+          as _i5.Future<Map<String, dynamic>>);
 
   @override
-  _i4.Future<Map<String, dynamic>> getTurnCredentials(String? deviceId) =>
+  _i5.Future<Map<String, dynamic>> getTurnCredentials(String? deviceId) =>
       (super.noSuchMethod(
             Invocation.method(#getTurnCredentials, [deviceId]),
-            returnValue: _i4.Future<Map<String, dynamic>>.value(
+            returnValue: _i5.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i4.Future<Map<String, dynamic>>);
+          as _i5.Future<Map<String, dynamic>>);
 
   @override
-  _i4.Future<Map<String, dynamic>> registerAccount({
+  _i5.Future<Map<String, dynamic>> registerAccount({
     required String? email,
     required String? authKey,
   }) =>
@@ -128,27 +149,27 @@ class MockApiClient extends _i1.Mock implements _i3.ApiClient {
               #email: email,
               #authKey: authKey,
             }),
-            returnValue: _i4.Future<Map<String, dynamic>>.value(
+            returnValue: _i5.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i4.Future<Map<String, dynamic>>);
+          as _i5.Future<Map<String, dynamic>>);
 
   @override
-  _i4.Future<Map<String, dynamic>> login({
+  _i5.Future<Map<String, dynamic>> login({
     required String? email,
     required String? authKey,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#login, [], {#email: email, #authKey: authKey}),
-            returnValue: _i4.Future<Map<String, dynamic>>.value(
+            returnValue: _i5.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),
           )
-          as _i4.Future<Map<String, dynamic>>);
+          as _i5.Future<Map<String, dynamic>>);
 
   @override
-  _i4.Future<void> updatePushToken({
+  _i5.Future<void> updatePushToken({
     required String? deviceId,
     required String? token,
     required String? platform,
@@ -159,8 +180,290 @@ class MockApiClient extends _i1.Mock implements _i3.ApiClient {
               #token: token,
               #platform: platform,
             }),
-            returnValue: _i4.Future<void>.value(),
-            returnValueForMissingStub: _i4.Future<void>.value(),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
           )
-          as _i4.Future<void>);
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<_i3.ChannelInfo> createChannel(
+    String? name,
+    String? description,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#createChannel, [name, description]),
+            returnValue: _i5.Future<_i3.ChannelInfo>.value(
+              _FakeChannelInfo_1(
+                this,
+                Invocation.method(#createChannel, [name, description]),
+              ),
+            ),
+          )
+          as _i5.Future<_i3.ChannelInfo>);
+
+  @override
+  _i5.Future<_i3.ChannelInfo> updateChannel(
+    String? channelId, {
+    String? name,
+    String? description,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #updateChannel,
+              [channelId],
+              {#name: name, #description: description},
+            ),
+            returnValue: _i5.Future<_i3.ChannelInfo>.value(
+              _FakeChannelInfo_1(
+                this,
+                Invocation.method(
+                  #updateChannel,
+                  [channelId],
+                  {#name: name, #description: description},
+                ),
+              ),
+            ),
+          )
+          as _i5.Future<_i3.ChannelInfo>);
+
+  @override
+  _i5.Future<void> deleteChannel(String? channelId) =>
+      (super.noSuchMethod(
+            Invocation.method(#deleteChannel, [channelId]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<_i3.ChannelInfo> getChannel(String? idOrHandle) =>
+      (super.noSuchMethod(
+            Invocation.method(#getChannel, [idOrHandle]),
+            returnValue: _i5.Future<_i3.ChannelInfo>.value(
+              _FakeChannelInfo_1(
+                this,
+                Invocation.method(#getChannel, [idOrHandle]),
+              ),
+            ),
+          )
+          as _i5.Future<_i3.ChannelInfo>);
+
+  @override
+  _i5.Future<List<_i3.ChannelInfo>> getMyChannels() =>
+      (super.noSuchMethod(
+            Invocation.method(#getMyChannels, []),
+            returnValue: _i5.Future<List<_i3.ChannelInfo>>.value(
+              <_i3.ChannelInfo>[],
+            ),
+          )
+          as _i5.Future<List<_i3.ChannelInfo>>);
+
+  @override
+  _i5.Future<void> followChannel(String? channelId) =>
+      (super.noSuchMethod(
+            Invocation.method(#followChannel, [channelId]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<void> unfollowChannel(String? channelId) =>
+      (super.noSuchMethod(
+            Invocation.method(#unfollowChannel, [channelId]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<List<_i3.ChannelPostDto>> getChannelPosts(
+    String? channelId, {
+    String? before,
+    String? after,
+    int? limit,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #getChannelPosts,
+              [channelId],
+              {#before: before, #after: after, #limit: limit},
+            ),
+            returnValue: _i5.Future<List<_i3.ChannelPostDto>>.value(
+              <_i3.ChannelPostDto>[],
+            ),
+          )
+          as _i5.Future<List<_i3.ChannelPostDto>>);
+
+  @override
+  _i5.Future<_i3.ChannelPostDto> createChannelPost(
+    String? channelId, {
+    required String? postId,
+    required String? kind,
+    required String? body,
+    String? attachmentBlobPath,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #createChannelPost,
+              [channelId],
+              {
+                #postId: postId,
+                #kind: kind,
+                #body: body,
+                #attachmentBlobPath: attachmentBlobPath,
+              },
+            ),
+            returnValue: _i5.Future<_i3.ChannelPostDto>.value(
+              _FakeChannelPostDto_2(
+                this,
+                Invocation.method(
+                  #createChannelPost,
+                  [channelId],
+                  {
+                    #postId: postId,
+                    #kind: kind,
+                    #body: body,
+                    #attachmentBlobPath: attachmentBlobPath,
+                  },
+                ),
+              ),
+            ),
+          )
+          as _i5.Future<_i3.ChannelPostDto>);
+
+  @override
+  _i5.Future<void> deleteChannelPost(String? channelId, String? postId) =>
+      (super.noSuchMethod(
+            Invocation.method(#deleteChannelPost, [channelId, postId]),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<_i3.ChannelPostTotals> setChannelReaction(
+    String? channelId,
+    String? postId,
+    String? emoji,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#setChannelReaction, [channelId, postId, emoji]),
+            returnValue: _i5.Future<_i3.ChannelPostTotals>.value(
+              _FakeChannelPostTotals_3(
+                this,
+                Invocation.method(#setChannelReaction, [
+                  channelId,
+                  postId,
+                  emoji,
+                ]),
+              ),
+            ),
+          )
+          as _i5.Future<_i3.ChannelPostTotals>);
+
+  @override
+  _i5.Future<_i3.ChannelPostTotals> voteChannelPoll(
+    String? channelId,
+    String? postId,
+    int? optionIndex,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#voteChannelPoll, [
+              channelId,
+              postId,
+              optionIndex,
+            ]),
+            returnValue: _i5.Future<_i3.ChannelPostTotals>.value(
+              _FakeChannelPostTotals_3(
+                this,
+                Invocation.method(#voteChannelPoll, [
+                  channelId,
+                  postId,
+                  optionIndex,
+                ]),
+              ),
+            ),
+          )
+          as _i5.Future<_i3.ChannelPostTotals>);
+
+  @override
+  _i5.Future<String> uploadChannelAttachment(
+    String? channelId,
+    List<int>? bytes,
+    String? fileName,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#uploadChannelAttachment, [
+              channelId,
+              bytes,
+              fileName,
+            ]),
+            returnValue: _i5.Future<String>.value(
+              _i6.dummyValue<String>(
+                this,
+                Invocation.method(#uploadChannelAttachment, [
+                  channelId,
+                  bytes,
+                  fileName,
+                ]),
+              ),
+            ),
+          )
+          as _i5.Future<String>);
+
+  @override
+  _i5.Future<List<int>> getChannelAttachment(
+    String? channelId,
+    String? blobPath,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#getChannelAttachment, [channelId, blobPath]),
+            returnValue: _i5.Future<List<int>>.value(<int>[]),
+          )
+          as _i5.Future<List<int>>);
+
+  @override
+  _i5.Future<void> reportChannel(
+    String? channelId,
+    String? reason, {
+    String? postId,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #reportChannel,
+              [channelId, reason],
+              {#postId: postId},
+            ),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<List<_i3.ChannelAdminDto>> getChannelAdmins(String? channelId) =>
+      (super.noSuchMethod(
+            Invocation.method(#getChannelAdmins, [channelId]),
+            returnValue: _i5.Future<List<_i3.ChannelAdminDto>>.value(
+              <_i3.ChannelAdminDto>[],
+            ),
+          )
+          as _i5.Future<List<_i3.ChannelAdminDto>>);
+
+  @override
+  _i5.Future<void> setChannelAdmin(
+    String? channelId,
+    String? deviceId, {
+    required bool? admin,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #setChannelAdmin,
+              [channelId, deviceId],
+              {#admin: admin},
+            ),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
 }

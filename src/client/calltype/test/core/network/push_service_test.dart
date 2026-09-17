@@ -136,6 +136,28 @@ void main() {
     expect(receivedCount, 1);
   });
 
+  test('channel_post push goes to the channels sync, not the chat inbox', () async {
+    final messaging = FakePushMessagingClient()..token = 'tok-1';
+    var chat = 0;
+    var channel = 0;
+    final service = PushService(
+      api,
+      'device-1',
+      messaging: messaging,
+      onMessageReceived: () => chat++,
+      onChannelPost: () => channel++,
+    );
+    await service.initialize();
+
+    // Exactly what PushNotificationService.SendFcmAsync sends: data { type }.
+    messaging.emitMessage(const RemoteMessage(messageId: 'm-1', data: {'type': 'channel_post'}));
+    messaging.emitMessage(const RemoteMessage(messageId: 'm-2', data: {'type': 'new_message'}));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(channel, 1);
+    expect(chat, 1);
+  });
+
   test('tapping a notification triggers onNotificationOpened, not a plaintext fetch', () async {
     final messaging = FakePushMessagingClient()..token = 'tok-1';
     var openedCount = 0;
