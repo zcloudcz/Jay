@@ -1,308 +1,78 @@
-import 'dart:async';
-
+import 'package:calltype_core/network/hub_transport.dart';
+import 'package:calltype_core/network/signalr_client.dart' as core;
 import 'package:flutter/foundation.dart';
 import 'package:signalr_netcore/signalr_client.dart';
 
-import '../auth/auth_service.dart';
-
-/// Manages the SignalR connection to the CallType backend hub.
+/// The app's SignalR connection: the protocol logic lives in the pure-Dart
+/// [core.SignalRClient] (shared with headless bots); this subclass only adds
+/// the two Flutter-bound pieces the core cannot contain:
+///   * [ChangeNotifier], so widgets rebuild on connection-state changes
+///     (e.g. the "offline" banner via `context.watch<SignalRClient>()`);
+///   * the `signalr_netcore` wire library, which depends on the Flutter SDK.
 ///
-/// Provides typed methods for every hub operation (send message, typing,
-/// call signaling) and exposes incoming events as broadcast streams so
-/// multiple listeners (e.g. chat controller + notification service) can
-/// subscribe independently.
-///
-/// Extends [ChangeNotifier] so UI widgets can rebuild when the connection
-/// state changes (e.g. showing an "offline" banner).
-///
-/// Connection lifecycle:
-///   1. Construct with baseUrl + deviceId
-///   2. Call [connect] — builds the hub, registers handlers, starts
-///   3. Use [sendMessage] / [sendGroupMessage] / etc.
-///   4. Call [disconnect] or let [dispose] handle cleanup
-///
-/// The hub URL includes the deviceId as a query parameter because the
-/// server uses it to track online devices and route messages. See
-/// MessengerHub.cs on the server side.
-class SignalRClient extends ChangeNotifier {
+/// Same class name and constructor as before the core was extracted, so
+/// feature code and tests did not have to change.
+class SignalRClient extends core.SignalRClient with ChangeNotifier {
   SignalRClient({
-    required String baseUrl,
-    required String deviceId,
-    AuthService? authService,
-  }) : _baseUrl = baseUrl,
-       _deviceId = deviceId,
-       _authService = authService;
-
-  final String _baseUrl;
-  String _deviceId;
-  bool _disposed = false;
-  Future<void>? _connecting;
-  Timer? _pendingTimer;
-
-  void setDeviceId(String value) {
-    if (connected) throw StateError('Disconnect before changing identity.');
-    _deviceId = value;
-  }
-
-  @override
-  void notifyListeners() {
-    if (!_disposed) super.notifyListeners();
-  }
-
-  final AuthService? _authService;
-
-  /// This device's UUID — exposed so feature controllers (e.g. chat) can
-  /// determine message direction without a second SecureStorage read.
-  String get deviceId => _deviceId;
-
-  HubConnection? _hubConnection;
-
-  // -- Broadcast streams for incoming events --------------------------------
-  // Using broadcast controllers so multiple widgets/controllers can listen
-  // independently. Each stream carries a decoded Map from the hub payload.
-
-  final _onMessage = StreamController<Map<String, dynamic>>.broadcast();
-  final _onTyping = StreamController<Map<String, dynamic>>.broadcast();
-  final _onCallSignal = StreamController<Map<String, dynamic>>.broadcast();
-
-  /// Fires when a new encrypted message arrives from the server.
-  /// Payload: {senderId, encryptedBody, createdAt, groupId?}
-  Stream<Map<String, dynamic>> get onMessage => _onMessage.stream;
-
-  /// Fires when a remote peer is typing in a conversation.
-  /// Payload: {senderId, conversationId}
-  Stream<Map<String, dynamic>> get onTyping => _onTyping.stream;
-
-  /// Fires for WebRTC call signaling events (offer/answer/ICE/hangup).
-  /// Payload: {senderId, signalType, payload}
-  Stream<Map<String, dynamic>> get onCallSignal => _onCallSignal.stream;
-
-  /// Whether the hub connection is currently active.
-  bool get connected => _hubConnection?.state == HubConnectionState.Connected;
-
-  /// Establishes the SignalR connection to the backend hub.
-  ///
-  /// Builds the connection with automatic reconnect (exponential backoff),
-  /// registers all server-to-client method handlers, then starts the
-  /// connection. Queued messages are delivered by the server automatically
-  /// on connect via the ReceiveMessage callback.
-  Future<void> connect() async {
-    if (_disposed) throw StateError('Connection disposed.');
-    if (connected) return;
-    if (_deviceId.isEmpty) throw StateError('Register this device first.');
-    if (_connecting != null) return _connecting;
-    _connecting = _connect();
-    try {
-      await _connecting;
-    } finally {
-      _connecting = null;
-    }
-  }
-
-  Future<void> _connect() async {
-    await _hubConnection?.stop();
-    if (_disposed) return;
-    // The hub is protected by [Authorize] on the server. WebSockets cannot
-    // carry custom HTTP headers, so SignalR passes the JWT as the
-    // `access_token` query parameter — the server moves it into the auth
-    // pipeline in JwtBearerEvents.OnMessageReceived (see Program.cs).
-    // The factory is consulted on every (re)connect, so an expired token
-    // is transparently replaced after long offline periods.
-    final authService = _authService;
-    final options = authService == null
-        ? HttpConnectionOptions()
-        : HttpConnectionOptions(
-            accessTokenFactory: () async => await authService.getToken() ?? '',
-          );
-
-    // Build the hub connection. The deviceId query parameter is kept for
-    // server log correlation — the device identity itself is derived from
-    // JWT claims on the server (MessengerHub.GetDeviceId).
-    _hubConnection = HubConnectionBuilder()
-        .withUrl('$_baseUrl/hub?deviceId=$_deviceId', options: options)
-        .withAutomaticReconnect(
-          // Retry delays in ms: 2s, 5s, 10s, 20s, then give up (null).
-          // This matches the server's expected reconnection pattern —
-          // aggressive early retries for transient issues, backing off
-          // for sustained outages.
-          retryDelays: [2000, 5000, 10000, 20000],
-        )
-        .build();
-
-    // Register handlers for server-to-client methods.
-    // Method names must match exactly what the server calls via SendAsync.
-    _hubConnection!.on('ReceiveMessage', _handleReceiveMessage);
-    _hubConnection!.on('TypingIndicator', _handleTypingIndicator);
-    _hubConnection!.on('CallSignal', _handleCallSignal);
-
-    // Notify UI when connection state changes (e.g. for offline banner).
-    _hubConnection!.onclose(({Exception? error}) {
-      notifyListeners();
-    });
-    _hubConnection!.onreconnecting(({Exception? error}) {
-      notifyListeners();
-    });
-    _hubConnection!.onreconnected(({String? connectionId}) {
-      unawaited(requestPendingMessages().catchError((Object _) {}));
-      notifyListeners();
-    });
-
-    await _hubConnection!.start();
-    if (_disposed) {
-      await _hubConnection!.stop();
-      return;
-    }
-    _pendingTimer?.cancel();
-    _pendingTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (connected) {
-        unawaited(requestPendingMessages().catchError((Object _) {}));
-      }
-    });
-    notifyListeners();
-  }
-
-  /// Closes the SignalR connection gracefully.
-  Future<void> disconnect() async {
-    _pendingTimer?.cancel();
-    await _hubConnection?.stop();
-    notifyListeners();
-  }
-
-  // -- Client-to-server method invocations ----------------------------------
-
-  /// Sends an encrypted message to a specific device.
-  ///
-  /// [recipientDeviceId] is the target device's UUID.
-  /// [encryptedBodyBase64] is the base64-encoded ciphertext.
-  ///
-  /// The server routes this to the recipient if online, or queues it
-  /// for later delivery if offline.
-  Future<void> sendMessage(
-    String recipientDeviceId,
-    String encryptedBodyBase64, {
-    String? messageId,
-  }) async {
-    await _requireConnection().invoke(
-      messageId == null ? 'SendMessage' : 'SendReliableMessage',
-      args: <Object>[recipientDeviceId, ?messageId, encryptedBodyBase64],
-    );
-  }
-
-  /// Sends an encrypted group message to multiple devices.
-  ///
-  /// [groupId] is the group's UUID.
-  /// [encryptedPayloads] maps deviceId -> base64 ciphertext for each
-  /// group member (each gets a uniquely encrypted copy).
-  Future<void> sendGroupMessage(
-    String groupId,
-    Map<String, String> encryptedPayloads, {
-    String? messageId,
-  }) async {
-    await _requireConnection().invoke(
-      messageId == null ? 'SendGroupMessage' : 'SendReliableGroupMessage',
-      args: <Object>[groupId, ?messageId, encryptedPayloads],
-    );
-  }
-
-  Future<void> acknowledgeMessage(String senderId, String messageId) async {
-    await _requireConnection().invoke(
-      'AcknowledgeMessage',
-      args: <Object>[senderId, messageId],
-    );
-  }
-
-  Future<void> requestPendingMessages() async {
-    await _requireConnection().invoke('RequestPendingMessages');
-  }
-
-  HubConnection _requireConnection() {
-    if (!connected) throw StateError('Offline. Reconnect and retry.');
-    return _hubConnection!;
-  }
-
-  /// Sends a typing indicator to a conversation's participants.
-  ///
-  /// Fire-and-forget — typing indicators are ephemeral and not persisted.
-  /// The server broadcasts to all other connected clients.
-  Future<void> sendTypingIndicator(String conversationId) async {
-    await _requireConnection().invoke(
-      'TypingIndicator',
-      args: <Object>[conversationId],
-    );
-  }
-
-  /// Sends a WebRTC signaling message for voice/video calls.
-  ///
-  /// [targetDeviceId] is the call partner's device UUID.
-  /// [signalType] is one of: 'offer', 'answer', 'ice-candidate', 'hangup'.
-  /// [payload] is the SDP or ICE candidate JSON string.
-  Future<void> sendCallSignal(
-    String targetDeviceId,
-    String signalType,
-    String payload,
-  ) async {
-    await _requireConnection().invoke(
-      'CallSignal',
-      args: <Object>[targetDeviceId, signalType, payload],
-    );
-  }
-
-  // -- Server-to-client handlers --------------------------------------------
-
-  /// Handles incoming messages from the server.
-  ///
-  /// The server sends a list of arguments. For ReceiveMessage, the first
-  /// (and only) argument is an object with senderId, encryptedBody, createdAt,
-  /// and optionally groupId.
-  void _handleReceiveMessage(List<Object?>? arguments) {
-    if (_disposed) return;
-    if (arguments == null || arguments.isEmpty) return;
-
-    final data = _parseArgument(arguments[0]);
-    if (data != null) {
-      _onMessage.add(data);
-    }
-  }
-
-  void _handleTypingIndicator(List<Object?>? arguments) {
-    if (_disposed) return;
-    if (arguments == null || arguments.isEmpty) return;
-
-    final data = _parseArgument(arguments[0]);
-    if (data != null) {
-      _onTyping.add(data);
-    }
-  }
-
-  void _handleCallSignal(List<Object?>? arguments) {
-    if (_disposed) return;
-    if (arguments == null || arguments.isEmpty) return;
-
-    final data = _parseArgument(arguments[0]);
-    if (data != null) {
-      _onCallSignal.add(data);
-    }
-  }
-
-  /// Safely casts a hub callback argument to a typed map.
-  ///
-  /// SignalR payloads arrive as dynamic objects — this normalizes them
-  /// into `Map<String, dynamic>` for downstream consumers.
-  Map<String, dynamic>? _parseArgument(Object? arg) {
-    if (arg is Map) {
-      return arg.cast<String, dynamic>();
-    }
-    return null;
-  }
+    required super.baseUrl,
+    required super.deviceId,
+    super.authService,
+  }) : super(transportFactory: _NetcoreHubTransport.new);
 
   @override
   void dispose() {
-    _disposed = true;
-    _pendingTimer?.cancel();
-    _hubConnection?.stop();
-    _onMessage.close();
-    _onTyping.close();
-    _onCallSignal.close();
+    // ChangeNotifier.dispose (the mixin) shadows the core's dispose, so the
+    // connection teardown has to be requested explicitly.
+    close();
     super.dispose();
   }
+}
+
+/// Adapts a `signalr_netcore` [HubConnection] to the core's [HubTransport].
+class _NetcoreHubTransport implements HubTransport {
+  _NetcoreHubTransport(
+    String url,
+    Future<String> Function()? accessTokenFactory,
+  ) : _hub = HubConnectionBuilder()
+          .withUrl(
+            url,
+            options: accessTokenFactory == null
+                ? HttpConnectionOptions()
+                : HttpConnectionOptions(accessTokenFactory: accessTokenFactory),
+          )
+          .withAutomaticReconnect(retryDelays: core.SignalRClient.retryDelaysMs)
+          .build();
+
+  final HubConnection _hub;
+
+  @override
+  bool get isConnected => _hub.state == HubConnectionState.Connected;
+
+  @override
+  void on(String method, void Function(List<Object?>? arguments) handler) =>
+      _hub.on(method, handler);
+
+  @override
+  void onClose(void Function() callback) =>
+      _hub.onclose(({Exception? error}) => callback());
+
+  @override
+  void onReconnecting(void Function() callback) =>
+      _hub.onreconnecting(({Exception? error}) => callback());
+
+  @override
+  void onReconnected(void Function() callback) =>
+      _hub.onreconnected(({String? connectionId}) => callback());
+
+  @override
+  Future<void> start() async => await _hub.start();
+
+  @override
+  Future<void> stop() => _hub.stop();
+
+  @override
+  Future<void> invoke(String method, [List<Object> args = const []]) =>
+      // Copy: signalr_netcore may mutate the list (stream params), and the
+      // core's default is an unmodifiable const list.
+      _hub.invoke(method, args: List.of(args));
 }

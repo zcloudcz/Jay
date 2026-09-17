@@ -1,9 +1,9 @@
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
-import 'package:calltype/core/crypto/key_manager.dart';
-import 'package:calltype/core/storage/database.dart';
-import '../../helpers/test_device.dart';
+import 'package:calltype_core/crypto/key_manager.dart';
+import 'package:calltype_core/storage/database.dart';
+import '../helpers/test_device.dart';
 
 void main() {
   test(

@@ -108,6 +108,8 @@ jobs:
       - name: Flutter analyze + test
         working-directory: src/client/calltype
         run: |
+          # Pure-Dart core first: the app needs its generated drift code.
+          (cd ../calltype_core && dart pub get && dart run build_runner build --delete-conflicting-outputs && dart analyze && dart test)
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
           flutter analyze
@@ -221,6 +223,14 @@ jobs:
         with:
           flutter-version: '3.41.x'
           cache: true
+      # The app's drift schema lives in the pure-Dart core package and its
+      # *.g.dart is not committed, so it must be generated before the app
+      # can be analyzed or built.
+      - name: calltype_core codegen
+        working-directory: src/client/calltype_core
+        run: |
+          dart pub get
+          dart run build_runner build --delete-conflicting-outputs
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
       - name: Build release artifact

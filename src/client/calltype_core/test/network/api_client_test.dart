@@ -1,6 +1,6 @@
 import 'package:dio/dio.dart';
-import 'package:flutter_test/flutter_test.dart';
-import 'package:calltype/core/network/api_client.dart';
+import 'package:test/test.dart';
+import 'package:calltype_core/network/api_client.dart';
 
 /// Smoke tests for [ApiClient] construction and method signatures.
 ///

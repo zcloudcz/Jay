@@ -1,6 +1,6 @@
 import 'dart:convert';
-import 'package:flutter_test/flutter_test.dart';
-import '../../helpers/test_device.dart';
+import 'package:test/test.dart';
+import '../helpers/test_device.dart';
 
 void main() {
   test(

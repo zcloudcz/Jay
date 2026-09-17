@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter_test/flutter_test.dart';
-import 'package:calltype/core/crypto/signal_protocol.dart';
+import 'package:test/test.dart';
+import 'package:calltype_core/crypto/signal_protocol.dart';
 
 /// Tests for cryptographic key generation and key agreement.
 ///

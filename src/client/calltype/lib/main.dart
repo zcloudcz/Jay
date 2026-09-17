@@ -46,7 +46,7 @@ void main() async {
     defaultValue: 'http://localhost:8080',
   );
 
-  final db = AppDatabase('calltype');
+  final db = openAppDatabase('calltype');
 
   // AuthService exchanges the device secret (stored at registration) for
   // short-lived JWTs. ApiClient attaches them as Bearer headers; SignalR
