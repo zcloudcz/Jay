@@ -79,6 +79,40 @@ flutter test
 flutter run -d chrome
 ```
 
+### Localization (client)
+
+Standard Flutter `gen_l10n`, 19 languages (en template + cs, sk, de, fr, es,
+it, pt, pl, nl, uk, ro, hu, zh, hi, ar, ru, ja, tr).
+
+- **Where:** ARB files in `src/client/calltype/lib/l10n/app_<lang>.arb`,
+  config in `l10n.yaml`. The generated `app_localizations*.dart` are
+  git-ignored; `flutter pub get` regenerates them (`generate: true`), or run
+  `flutter gen-l10n`.
+- **Language comes from the OS / browser.** `MaterialApp` sets no `locale:`,
+  there is no in-app switcher and nothing is persisted; unsupported languages
+  fall back to English (`preferred-supported-locales: [en]`). iOS needs the
+  list in `ios/Runner/Info.plist` (`CFBundleLocalizations`), Android 13+ per-app
+  language uses `android/.../res/xml/locales_config.xml`.
+- **Add a string:** add the key (+ `@key` description / placeholders, ICU
+  plural for counts — never concatenate) to `app_en.arb`, translate it in
+  **all** other ARBs, use it as `context.l10n.myKey`
+  (`lib/l10n/l10n.dart`). Code without a `BuildContext` returns an enum / code
+  and a widget maps it to text (see `CallError`, `BackupError`,
+  `channelErrorMessage`) — no global localization singleton. Not localized:
+  logs, developer exception text, protocol strings, handles, "Jay", "BOT".
+- **Add a language:** add `app_<lang>.arb` with every key, then add the code to
+  `Info.plist`, `locales_config.xml` and the language list in
+  `test/l10n/arb_consistency_test.dart`.
+- **Guards:** `test/l10n/` checks key / placeholder / plural parity of every
+  ARB, pumps screens in cs / de / ar (RTL) / unsupported locale, and fails on
+  hard-coded `Text('…')` literals in `lib/features`, `lib/shared`, `lib/app`.
+  `build/l10n_untranslated.json` must stay `{}`. Widget tests wrap screens
+  with `test/helpers/localized_app.dart`.
+- **Translations are machine-made and have not been reviewed by native
+  speakers.** Treat wording fixes from native speakers as welcome, not as
+  regressions. Security wording (channels are NOT end-to-end encrypted, bot
+  notice, backup passphrase) must keep its meaning in every language.
+
 ### Push notifications (FCM)
 
 Server push uses the **FCM HTTP v1 API** (the legacy server-key API was shut
