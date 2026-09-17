@@ -7,4 +7,4 @@
 - **Závažnost:** vysoká pro betu (nefunkční základní tok z pohledu uživatele), žádná ztráta dat.
 - **Oprava:** commit `c7048e9` — prázdný stav seznamu konverzací má tlačítko *Add contact*; FAB je popsaný *New chat*; obrazovka Contacts má v prázdném stavu tlačítka *Enter handle or invite* a *Scan QR code* a trvalý FAB *Add contact*.
 - **Nasazeno:** 2026-09-17, run 35193671677 (commit `6f4802a`). Na `https://calltype.zcloud.cz` je v prázdném stavu vidět tlačítko *Add contact* a FAB *New chat* (ověřil Claude, screenshot v relaci).
-- **Retest celého scénáře (dvě identity, zpráva oběma směry):** NOT_RUN — čeká na testera.
+- **Retest 2026-09-17 (UTC), commit `6f4802a`, web `https://calltype.zcloud.cz`, ověřovatel Martin:** kontakt přidán přes nové UI, zprávy doručeny **oběma směry** → **PASS**. Prohlížeč/OS obou stran a partnerská identita: neuvedeno. Dílčí kroky scénáře Q01-02 „český text s diakritikou“ a „restart obou stran → historie zachována, žádné duplicity“ tester výslovně nepotvrdil → zůstávají NOT_RUN, dokud je nedoplní.

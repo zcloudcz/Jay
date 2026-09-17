@@ -6,7 +6,7 @@ Commit klientů/artefaktů: `6f4802a` (run 35193671677; předchozí `9816709`, r
 | Scénář | Web | Android | Windows | macOS | iOS |
 | --- | --- | --- | --- | --- | --- |
 | Q01-01 start (onboarding → restart, stejná identita) | PASS¹ | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
-| Q01-02 chat A↔B, český text, restart | **FAIL → opraveno a nasazeno, čeká na retest dvěma identitami**³ | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
+| Q01-02 chat A↔B, český text, restart | PASS (obousměrný chat)³ · restart + diakritika nepotvrzeny | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
 | Q01-03 offline 10 zpráv | NOT_RUN | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
 | Q01-04 reconnect při odesílání | NOT_RUN | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
 | Q01-05 skupina A/B/C, odebrání C | NOT_RUN | NOT_RUN | NOT_RUN | NOT_RUN | BLOCKED² |
