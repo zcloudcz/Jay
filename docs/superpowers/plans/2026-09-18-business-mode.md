@@ -1,0 +1,117 @@
+# Jay Business — firemní režim s auditním archivem (Implementation Plan)
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Dodrž vlastnictví souborů a kontrakty; nic automaticky nenasazuj.
+
+**Goal:** Jeden produkt, dva režimy. **Anonymní režim** zůstává beze změny (E2E, server nevidí obsah, žádná organizace). **Business režim** přidává organizaci, role a **viditelného tichého auditního člena**, který firemní konverzace archivuje do odděleného, pouze přírůstkového archivu s řízeným přístupem („čtyři oči“) a doložitelnou integritou.
+
+**Architecture:** Krok 1 staví nad dnešním per-recipient fan-outem (Signal-style, pure Dart): auditní člen je další příjemce, server jeho přítomnost **vynucuje**. Archivátor je headless klient nad `src/bots/calltype_bot` + `calltype_core`. Organization & Audit je samostatný bounded context s vlastní databází/credentials (DDD selektivně — jen zde). Souběžně běží **spike MLS** (OpenMLS přes Rust) jako příprava kroku 2, který uzavře známou mezeru kroku 1.
+
+**Tech Stack:** .NET 10 minimal API, EF Core/Npgsql, SignalR, PostgreSQL (oddělené DB/role), Flutter/Provider/Drift, pure-Dart bot runtime; spike: Rust + OpenMLS + `flutter_rust_bridge`.
+
+**Spec:** Rozhodnutí zadavatele z 2026-09-18 (níže) a úryvky specifikace „Typecall v0.2“ (technologická rozhodnutí 6.2, právní rámec). **Plný text specifikace v0.2 není v repozitáři** — nebyl nalezen v gitu ani na disku; po doplnění do `docs/superpowers/specs/` tento plán zrevidovat (fáze, retenční politiky, self-hosted kap. 6.1). Předpoklady odvozené bez specifikace jsou označeny **[PŘEDPOKLAD]**.
+
+## 0. Rozhodnutí zadavatele (závazná)
+
+1. Jay má **dva režimy**: anonymní E2E jako dnes + Business (audit, auditní člen, správa).
+2. Auditní člen je **viditelný** a „tichý“ jen ve smyslu, že nepíše. Žádný skrytý záznam (§ 316 ZP, GDPR — transparentnost je požadavek návrhu, ne volba UI).
+3. Postup: **krok 1 nad stávajícím krypto + souběžně MLS spike**; krok 2 (MLS pro business skupiny) až po vyhodnocení spiku.
+4. Převzato z Typecall 6.2: .NET všude, Rust jen jako krypto knihovna; DDD jen pro Audit & Organization, Delivery zůstává tenký; oddělené DB/credentials pro Delivery a Audit; audit DB append-only (aplikační účet jen INSERT/SELECT); **bez message brokeru** (Postgres `FOR UPDATE SKIP LOCKED`, `Channel<T>`); žádná tvrdá závislost jádra na Azure (self-hosted cíl).
+
+## 1. Model režimů
+
+- Režim je vlastnost **konverzace**, ne zařízení. Jedno zařízení může mít anonymní chaty i být zapsané (enrolled) v organizaci.
+- **Business konverzace** = skupina vlastněná organizací (`Group.OrganizationId != null`). Firemní 1:1 je technicky tříčlenná skupina (A, B, auditní člen) — v UI se tváří jako 1:1 s archivním bannerem.
+- Anonymní konverzace se **nikdy** nearchivují a kód pro ně se nemění. Převod anonymní konverzace na business neexistuje (zakládá se nová).
+- Odebrání člena z organizace = odebrání ze všech jejích skupin + zneplatnění enrollmentu. Zařízení zůstává platným anonymním uživatelem Jay; historie v zařízení se nemaže (web to už takto komunikuje).
+
+## 2. Kontrakty
+
+### KB1 — viditelnost auditu (právní invariant)
+Každá business konverzace má právě jednoho auditního člena (`GroupMember.Role = "auditor"`). Klient ho **vždy** zobrazuje v seznamu členů jako „Archiv organizace <název>“ a konverzace nese trvalý banner „Tato konverzace je archivována organizací <název>“. Auditního člena nelze odebrat ani skrýt; business skupinu bez něj server odmítne vytvořit. Porušení KB1 je blokující vada.
+
+### KB2 — vynucení na serveru
+`SendReliableGroupMessage` pro skupinu s `OrganizationId`: mapa `encryptedPayloads` **musí** obsahovat klíč auditního zařízení, jinak `HubException("audit_recipient_missing")` a nic se neuloží. Metody a tvar `ReceiveMessage` (K01) se nemění.
+**Známá mez kroku 1 (dokumentovat všude, kde se mluví o úplnosti archivu):** server ověří přítomnost ciphertextu pro auditora, ne jeho obsahovou shodu s ostatními příjemci. Upravený klient může auditorovi poslat jiný obsah. Mez uzavírá krok 2 (MLS — všichni členové dešifrují tentýž ciphertext).
+
+### KB3 — archiv
+Archivátor (headless klient) zprávu dešifruje, ihned ji **znovu zašifruje veřejným archivním klíčem organizace** a zapíše do audit DB; plaintext nikdy neukládá ani neloguje. Záznam: `OrganizationId, GroupId, MessageId, SenderDeviceId, SentAt, ArchivedAt, CiphertextForArchive, PrevHash, Hash` kde `Hash = SHA-256(PrevHash ‖ kanonická serializace záznamu)` — řetěz per organizace. ACK zprávy serveru až po potvrzeném zápisu do audit DB (stejná disciplína jako K01). Audit DB: role aplikace má jen `INSERT, SELECT`; žádné `UPDATE/DELETE`; retence se řeší `DROP PARTITION` samostatnou provozní rolí podle retenční politiky organizace.
+
+### KB4 — denní kotva
+Jednou denně (scheduled job, ne fronta) se pro každou organizaci uloží `DailyAnchor(OrganizationId, Day, LastHash, RecordCount)`. Externí kvalifikované časové razítko kotvy je **[PŘEDPOKLAD] volitelný adaptér** (`ITimestampAuthority`), ve vývoji no-op; bez něj jde o interní, nikoli nezávisle prokazatelnou integritu — tak to i psát.
+
+### KB5 — přístup k archivu („čtyři oči“)
+Žádost `AuditAccessRequest` (kdo, rozsah: skupina/osoba/období, důvod) → schválení **druhou** osobou s rolí `auditor-approver` (žadatel ≠ schvalovatel) → časově omezené okno → každé čtení zapisuje `AuditAccessLog` (kdo, co, kdy; append-only). Členové dotčené konverzace jsou o otevření archivu **informováni** (systémová zpráva) — **[PŘEDPOKLAD]**, potvrdit s právníkem.
+**Mez kroku 1:** čtyři oči vynucuje Audit Service politikou; soukromý archivní klíč drží služba (konfigurační tajemství / později Key Vault/HSM). Kryptografické rozdělení klíče mezi schvalovatele (threshold) je samostatné zadání.
+
+### KB6 — auditní log správy
+Všechny změny v Organization contextu (členství, role, enrollment, skupiny, politiky, žádosti o přístup) se zapisují jako doménové události do `AdminAuditEvent` (append-only, stejná DB jako archiv, vlastní hash řetěz). Export CSV/JSON pro roli `org-admin`. Nikdy neobsahuje obsah zpráv.
+
+## 3. Datový model
+
+**Delivery DB (stávající, jen doplnění):** `Group.OrganizationId` (nullable Guid, index); `GroupMember.Role` rozšířit o `auditor`. Nic dalšího — Delivery o organizacích ví jen ID.
+
+**Org & Audit DB (nová databáze `calltype_audit` [PŘEDPOKLAD název], vlastní connection string `ConnectionStrings__Audit`, vlastní DB role):**
+
+| Agregát / tabulka | Obsah |
+| --- | --- |
+| `Organization` | `OrganizationId`, `Name`, `CreatedAt`, `ArchivePublicKey`, `RetentionDays`, `AuditorDeviceId` |
+| `OrgMember` | (`OrganizationId`,`AccountId`), `Role` ∈ `owner/org-admin/auditor-approver/member`, `AddedAt`, `RemovedAt` |
+| `OrgEnrollment` | (`OrganizationId`,`DeviceId`), `AccountId`, `EnrolledAt`, `RevokedAt` — zařízení zapsané pozvánkou |
+| `OrgInvite` | jednorázový kód, expirace, vydal kdo |
+| `AuditRecord` | viz KB3, partitioning po měsících |
+| `DailyAnchor` | viz KB4 |
+| `AuditAccessRequest` / `AuditAccessLog` | viz KB5 |
+| `AdminAuditEvent` | viz KB6 |
+
+Invarianty v doméně (ne v endpointech): právě jeden aktivní `owner`; žadatel ≠ schvalovatel; nelze odebrat posledního `org-admin`; enrollment jen platnou pozvánkou; business skupina vždy s auditorem.
+**[PŘEDPOKLAD]** Správci organizace (`owner`, `org-admin`, `auditor-approver`) vyžadují registrovaný `Account` (e-mail) — anonymní zařízení by při ztrátě telefonu ztratilo firmu. Řadový člen se zapisuje zařízením přes pozvánku a Account mít nemusí.
+
+## 4. API (nové endpointy, vše `RequireAuthorization` + rate limit)
+
+`POST /orgs` · `GET /orgs/mine` · `POST /orgs/{id}/invites` · `POST /orgs/enroll` (kód) · `GET/PUT/DELETE /orgs/{id}/members/{accountId}` · `DELETE /orgs/{id}/enrollments/{deviceId}` (revokace) · `POST /orgs/{id}/groups` (založí business skupinu včetně auditora; 1:1 varianta) · `GET /orgs/{id}/admin-audit?from&to&format=json|csv` · `POST /orgs/{id}/audit-access` · `POST /orgs/{id}/audit-access/{reqId}/approve|reject` · `GET /orgs/{id}/audit-access/{reqId}/records?cursor` (jen ve schváleném okně, loguje se).
+Chyby: 403 role, 404, 409 invariant (`last_admin`, `self_approval`), 410 expirované okno/pozvánka.
+
+## 5. Komponenty a vlastnictví
+
+| ID | Výstup | Závislosti | Vlastnictví |
+| --- | --- | --- | --- |
+| **E00** | Kontrakty KB1–KB6 zafixovat; nový projekt `CallType.Audit` (doména + EF `AuditDbContext` + migrace), druhá DB v docker-compose/Testcontainers, DB role skript, DI/konfigurace, `Group.OrganizationId` migrace v Delivery | — | `Program.cs`, `appsettings*`, oba DbContexty, Migrations, `infra/postgres/` |
+| **E01** | Organization context: agregáty, invarianty, endpointy org/invite/enroll/members, `AdminAuditEvent` + export | E00 | `CallType.Audit/Organization/**`, `Endpoints/OrganizationEndpoints.cs`, testy |
+| **E02** | Business skupiny v Delivery: založení s auditorem, vynucení KB2 v hubu, zákaz odebrání auditora, revokace enrollmentu → odebrání ze skupin | E00 | `Hubs/MessengerHub.cs` (jen doplnění), `Endpoints/GroupEndpoints.cs`, testy |
+| **E03** | Archivátor: `src/bots/jay_archiver/` nad `calltype_bot` — přihlášení jako auditní zařízení, dešifrování, re-encrypt archivním klíčem, zápis přes interní audit API, ACK až po zápisu; hash řetěz + `DailyAnchor` job | E00, E02 | `src/bots/jay_archiver/**`, `CallType.Audit/Archive/**`, testy |
+| **E04** | Přístup k archivu: žádost/schválení/okno/čtení/log, notifikace členům | E01, E03 | `CallType.Audit/Access/**`, `Endpoints/AuditAccessEndpoints.cs`, testy |
+| **E05** | Klient: enrollment kódem, přepínač/označení režimu, banner + auditor v seznamu členů (KB1), založení business skupiny/1:1, správa organizace a schvalování pro adminy (ve Flutter app — **[PŘEDPOKLAD]** místo samostatné Blazor konzole, aby nevznikl druhý frontend stack; přehodnotit po pilotu) | E01, E02 kontrakty | `lib/features/organization/**`, úpravy `features/groups`, `features/chat`, `calltype_core` DTO/API, testy |
+| **E06** | Přejímka + dokumenty: scénáře níže, texty transparentnosti v UI a na webu (`www/`), aktualizace README/CLAUDE.md („server nevidí obsah“ platí pro anonymní režim; v business režimu obsah vidí archiv organizace) | vše | `docs/acceptance/business-mode.md`, `www/**` |
+| **M0** | **MLS spike** (souběžně, izolovaně): `spikes/mls/` — OpenMLS přes `flutter_rust_bridge`; dva klienti + třetí člen (auditor) v jedné skupině, zpráva tam a zpět, přidání/odebrání člena; cíle **web (WASM), Android, iOS, Windows** | — | `spikes/mls/**` (nic v produkčním kódu) |
+
+Vlny: E00 → (E01 ∥ E02 ∥ M0) → (E03 ∥ E05) → E04 → E06.
+
+## 6. MLS spike — výstupní kritéria (M0)
+
+Report `spikes/mls/REPORT.md` s K06 statusy: build a běh na každé cílové platformě; velikost WASM/binárek; doba `create group / add / encrypt / decrypt`; perzistence stavu skupiny (kam a jak — Drift/secure storage); chování při souběžných commit zprávách; co je potřeba na serveru (Delivery Service: pořadí handshake zpráv, KeyPackage úložiště). Rozhodnutí: **GO** (krok 2 = MLS pro business skupiny), **GO s výjimkou** (např. web přes jinou cestu), nebo **NO-GO** + alternativa (gRPC krypto služba nedává smysl pro klienta — alternativou je setrvat u fan-outu a mez KB2 řešit jinak). Spike nic nemerguje do `src/`.
+
+## 7. Přejímací kritéria (E06)
+
+- **Anonymní režim beze změny:** celá stávající sada testů zelená; anonymní skupina nikdy neobsahuje auditora a nic se nearchivuje (test hledá zápisy v audit DB → 0).
+- **KB1:** business skupinu bez auditora nelze vytvořit; auditora nelze odebrat; klient ho zobrazuje a banner je trvalý (widget test).
+- **KB2:** zpráva bez payloadu pro auditora → odmítnuta, žádný zápis ve frontě; s payloadem → doručena všem + archivována právě jednou (idempotence přes `MessageId`).
+- **KB3:** audit DB role nemůže `UPDATE/DELETE` (test se pokusí a očekává chybu oprávnění); v audit DB ani v logách není plaintext (syntetický marker); řetěz hashů ověřitelný offline nástrojem; ruční změna řádku superuživatelem je ověřením odhalena.
+- **KB5:** žadatel si nemůže schválit sám; čtení mimo okno → 410; každé čtení má záznam v `AuditAccessLog`; členové dostanou oznámení.
+- **KB6:** každá změna členství/role má událost; export CSV/JSON; žádný obsah zpráv.
+- **Revokace:** zrušený enrollment → zařízení zmizí z business skupin, nové zprávy nedostane, anonymní chaty mu fungují dál.
+- **Oddělení:** kompromitace Delivery credentials nedává přístup k audit DB (různé role; test připojení).
+- **Poctivost textů:** UI i web uvádějí mez KB2 a fakt, že vlastní kryptografie není auditovaná.
+
+## 8. Otevřené otázky pro zadavatele
+
+1. Plný text specifikace Typecall v0.2 (fáze, retence, self-hosted) — doplnit do repa.
+2. Account povinný pro správce, volitelný pro členy — potvrdit **[PŘEDPOKLAD]**.
+3. Oznamovat členům otevření archivu — potvrdit s právníkem; totéž texty banneru a poučení (§ 316 ZP, GDPR, DPIA). Právní balíček je mimo tento plán.
+4. Přílohy v business konverzacích: archivovat také (objem × retence × náklady Blob), nebo jen metadata?
+5. Hovory: archivují se jen metadata (kdo, kdy, délka), nikdy média — potvrdit.
+6. Admin konzole ve Flutter app vs. samostatný web (Blazor dle Typecall) — rozhodnout po pilotu.
+7. Kde poběží archivátor v betě (App Service WebJob / druhý proces / externí server) — jedna B1 instance má omezenou paměť.
+
+## 9. Mimo rozsah
+
+Skrytý/neviditelný audit; SSO a napojení firemní identity; vynucované bezpečnostní politiky zařízení (MDM); fakturace a tarify; threshold kryptografie pro archivní klíč; federace mezi organizacemi; message broker; přepis anonymního režimu na MLS; právní posudek a vzorové dokumenty.
