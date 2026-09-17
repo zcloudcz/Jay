@@ -66,6 +66,7 @@ class ApiClient {
     required List<Map<String, dynamic>> oneTimePreKeys,
     String? signingKey,
     String? signature,
+    bool? isBot,
   }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/devices',
@@ -75,6 +76,9 @@ class ApiClient {
         'oneTimePreKeys': oneTimePreKeys,
         'signingKey': signingKey,
         'signature': signature,
+        // Self-declared and immutable server-side; only headless bots send
+        // it. Omitted (not false) for the app so its request is unchanged.
+        'isBot': ?isBot,
       },
     );
     return response.data!;
