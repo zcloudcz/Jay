@@ -31,7 +31,7 @@ A WhatsApp-like messaging app with strong privacy:
 | **Voice/Video** | WebRTC (`flutter_webrtc`) |
 | **STUN/TURN** | Pluggable via `Turn:Provider`: `cloudflare` (Cloudflare TURN, credentials minted by API — beta default) or `shared-secret` (self-hosted coturn / DeskShare.Turn from `C:\GIT\ZCLOUD\RemoteDesktopNet`) |
 | **File storage** | Azure Blob Storage (encrypted attachments + backups) |
-| **Hosting** | Azure App Service Linux B1, **exactly one instance** (API + SignalR) · Static Web Apps Free (Flutter web, `https://calltype.zcloud.cz`) · PostgreSQL on an external server · private Blob Storage |
+| **Hosting** | Azure App Service Linux B1, **exactly one instance** (API + SignalR) · Static Web Apps Free (Flutter web, `https://jay.zcloud.cz`) · PostgreSQL on an external server · private Blob Storage |
 | **Push** | FCM HTTP v1 (Android/Web) + APNs (iOS — not implemented yet) |
 
 ## Project structure

@@ -64,6 +64,6 @@ je nenahrazuje ani z nich nedědí.
 
 - TURN: Cloudflare (`Turn__Provider=cloudflare`, `Turn__Cloudflare__KeyId`, `Turn__Cloudflare__ApiToken`); coturn settings smazána, coturn na externím serveru zastaven.
 - `Database__ApplyMigrationsOnStartup=true` (jedna instance → migrace při startu).
-- SWA custom doména `calltype.zcloud.cz` (CNAME + TXT `_dnsauth.calltype`, Wedos DNS); API `Cors__AllowedOrigins__1=https://calltype.zcloud.cz`.
+- SWA custom doména `jay.zcloud.cz` (CNAME + TXT `_dnsauth.jay`, Wedos DNS); API `Cors__AllowedOrigins__1=https://jay.zcloud.cz`. Dřívější `calltype.zcloud.cz` zrušena 2026-09-17.
 - Entra app `calltype-beta-github-oidc` (federated credentials pro GitHub environment `calltype-beta`, role Website Contributor na `rg-calltype-beta`) pro `deploy.yml`.
 - GitHub repo `zcloudcz/Jay` (private): variables `AZURE_*`, `CALLTYPE_*`; secrets `AZURE_CLIENT_ID/TENANT_ID/SUBSCRIPTION_ID`, `AZURE_SWA_DEPLOYMENT_TOKEN`.

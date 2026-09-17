@@ -4,8 +4,8 @@
 
 | | |
 | --- | --- |
-| Nasazený commit (API + web) | `6f4802a` (run https://github.com/zcloudcz/Jay/actions/runs/35193671677) |
-| Web | https://calltype.zcloud.cz (také https://orange-bush-07e1b5803.6.azurestaticapps.net) |
+| Nasazený commit (API + web) | `e88620d` (run https://github.com/zcloudcz/Jay/actions/runs/35207819763) |
+| Web | https://jay.zcloud.cz (také https://orange-bush-07e1b5803.6.azurestaticapps.net) |
 | API | https://calltype-beta-zahy.azurewebsites.net |
 | Artefakty stejného SHA | api, web, android (APK), windows (zip), macos (tar.gz), ios-unsigned (tar.gz) + `build-manifest.json` se SHA256 |
 | Rollback | `deploy.yml` s `commit_sha` předchozího dobrého commitu (artefakty 90 dní); DB migrace jsou aditivní, downgrade DB se neprovádí |

@@ -86,3 +86,10 @@ Poznámky: iOS build vyžadoval zvýšení deployment target na 14.0 (`file_pick
 - `https://calltype.zcloud.cz` → SWA `calltype-beta-web` (CNAME na `orange-bush-07e1b5803.6.azurestaticapps.net`, validace TXT `_dnsauth.calltype`; CNAME validace dvakrát selhala s "unknown error"). Stav Ready, spravovaný certifikát, web 200, `sqlite3.wasm` `application/wasm` — PASS.
 - API CORS: `Cors__AllowedOrigins__1=https://calltype.zcloud.cz` (slot 0 zůstává výchozí SWA hostname); preflight vrací `Access-Control-Allow-Origin` — PASS.
 - Funkční test klienta z nové domény (registrace, chat, SignalR) — NOT_RUN. Pozn.: browserová identita je vázaná na origin, takže zařízení vytvořená na `*.azurestaticapps.net` se na nové doméně neobjeví.
+
+## Rebrand Jay + doména jay.zcloud.cz (2026-09-17)
+
+- Deploy run 35207819763, commit `e88620d` — celý zelený (testy, 5 buildů s novými ikonami, deploy API + web, smoke). Web: `<title>Jay</title>`, manifest `name=Jay`, `theme_color=#003840`.
+- `https://jay.zcloud.cz` → SWA (CNAME + TXT `_dnsauth.jay`, Wedos): Ready, 200, spravovaný certifikát. API CORS: slot 0 výchozí SWA hostname, slot 1 `https://jay.zcloud.cz`; preflight PASS.
+- `calltype.zcloud.cz` zrušena (DNS odstraněn uživatelem, hostname smazán ze SWA, CORS origin odebrán). Identity prohlížečů vytvořené na staré doméně jsou tím nedostupné (vázané na origin) — testeři začínají na nové doméně s novou identitou.
+- Repo po deployi zpět PRIVATE.

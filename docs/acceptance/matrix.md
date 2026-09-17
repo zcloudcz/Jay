@@ -1,7 +1,7 @@
 # Q01 — přejímací matice (K06)
 
 Statusy: PASS / FAIL / BLOCKED / NOT_RUN / UNSUPPORTED. PASS jen pro skutečně provedený scénář na dané platformě.
-Commit klientů/artefaktů: `6f4802a` (run 35193671677; předchozí `9816709`, run 35129788149); web z domény `https://calltype.zcloud.cz`. API: `https://calltype-beta-zahy.azurewebsites.net`.
+Commit klientů/artefaktů: `6f4802a` (run 35193671677; předchozí `9816709`, run 35129788149); web z domény `https://jay.zcloud.cz` (do 2026-09-17 `https://calltype.zcloud.cz`, zrušena — výsledky Q01-01/02 byly pořízeny tam). API: `https://calltype-beta-zahy.azurewebsites.net`.
 
 | Scénář | Web | Android | Windows | macOS | iOS |
 | --- | --- | --- | --- | --- | --- |
