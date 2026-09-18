@@ -252,8 +252,11 @@ public static class AccountEndpoints
     /// <summary>
     /// Verifies an auth key against a stored salt || hash blob.
     /// Uses CryptographicOperations.FixedTimeEquals to prevent timing attacks.
+    /// Internal (not private) so PrivacyEndpoints (DELETE /accounts/{id}) can
+    /// reuse the exact same irreversible-deletion proof-of-possession check
+    /// that LinkDevice uses, instead of duplicating the Argon2id parameters.
     /// </summary>
-    private static async Task<bool> VerifyAuthKeyAsync(byte[] authKey, byte[] storedHash)
+    internal static async Task<bool> VerifyAuthKeyAsync(byte[] authKey, byte[] storedHash)
     {
         if (storedHash.Length != Argon2SaltBytes + Argon2HashBytes)
             return false;
