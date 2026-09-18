@@ -13,6 +13,7 @@ class OrganizationInfo {
     required this.role,
     required this.archiveLevel,
     required this.auditorDeviceId,
+    required this.requireBusinessConversations,
   });
 
   final String organizationId;
@@ -23,6 +24,11 @@ class OrganizationInfo {
   /// `metadata` or `full` (server's `ArchiveLevel`).
   final String archiveLevel;
   final String? auditorDeviceId;
+  /// P1: "audit all communication between our members" org policy. When
+  /// true, the server refuses 1:1 messages, anonymous groups, and anonymous
+  /// calls between two devices actively enrolled in this organization —
+  /// people outside the organization are never affected.
+  final bool requireBusinessConversations;
 
   bool get isAdmin => role == 'owner' || role == 'orgAdmin';
 
@@ -33,6 +39,8 @@ class OrganizationInfo {
         role: normalizeRole(json['role'] as String),
         archiveLevel: json['archiveLevel'] as String? ?? 'metadata',
         auditorDeviceId: json['auditorDeviceId'] as String?,
+        requireBusinessConversations:
+            json['requireBusinessConversations'] as bool? ?? false,
       );
 }
 

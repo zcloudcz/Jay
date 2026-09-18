@@ -352,6 +352,8 @@
   },
   "hubErrorAuditRecipientMissing": "Не удалось отправить сообщение: в этом разговоре отсутствует участник аудита организации.",
   "hubErrorAuditorUnavailable": "Архивирование сейчас недоступно — сообщение не отправлено. Повторите попытку через некоторое время.",
+  "hubErrorBusinessConversationRequired": "Ваша организация требует, чтобы этот разговор велся через деловой чат, который архивируется.",
+  "hubErrorBusinessConversationRequiredAction": "Открыть деловой чат",
   "emergencyTitle": "Аварийный канал",
   "emergencyKitsTitle": "Аварийные наборы",
   "emergencyIssueKit": "Выдать набор",

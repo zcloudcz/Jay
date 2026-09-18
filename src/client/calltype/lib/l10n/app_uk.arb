@@ -352,6 +352,8 @@
   },
   "hubErrorAuditRecipientMissing": "Не вдалося надіслати повідомлення: у цій розмові відсутній учасник аудиту організації.",
   "hubErrorAuditorUnavailable": "Архівування наразі недоступне — повідомлення не надіслано. Спробуйте ще раз за мить.",
+  "hubErrorBusinessConversationRequired": "Ваша організація вимагає, щоб ця розмова відбувалася через ділову розмову, яка архівується.",
+  "hubErrorBusinessConversationRequiredAction": "Відкрити ділову розмову",
   "emergencyTitle": "Аварійний канал",
   "emergencyKitsTitle": "Аварійні набори",
   "emergencyIssueKit": "Видати набір",

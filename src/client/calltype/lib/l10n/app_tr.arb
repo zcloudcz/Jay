@@ -352,6 +352,8 @@
   },
   "hubErrorAuditRecipientMissing": "Mesaj gönderilemedi: bu konuşmada organizasyonun denetim üyesi eksik.",
   "hubErrorAuditorUnavailable": "Arşivleme şu anda kullanılamıyor — mesaj gönderilmedi. Birazdan tekrar deneyin.",
+  "hubErrorBusinessConversationRequired": "Kuruluşunuz bu konuşmanın arşivlenen bir iş sohbeti üzerinden yapılmasını gerektiriyor.",
+  "hubErrorBusinessConversationRequiredAction": "İş sohbetini aç",
   "emergencyTitle": "Acil durum kanalı",
   "emergencyKitsTitle": "Acil durum kitleri",
   "emergencyIssueKit": "Kit oluştur",

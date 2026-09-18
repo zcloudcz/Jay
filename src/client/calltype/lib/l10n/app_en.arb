@@ -536,6 +536,14 @@
   "@hubErrorAuditorUnavailable": {
     "description": "Shown when a business-mode send or group creation is rejected because the organization's auditor is not alive (W2-F fail-closed rule)."
   },
+  "hubErrorBusinessConversationRequired": "Your organization requires this conversation to go through a business chat, which is archived.",
+  "@hubErrorBusinessConversationRequired": {
+    "description": "Shown when a 1:1 message, anonymous group, or anonymous call is rejected because the organization's RequireBusinessConversations policy is on (P1)."
+  },
+  "hubErrorBusinessConversationRequiredAction": "Open business chat",
+  "@hubErrorBusinessConversationRequiredAction": {
+    "description": "Snackbar action button that creates/opens the business conversation with this contact after a business_conversation_required rejection."
+  },
   "emergencyTitle": "Emergency channel",
   "emergencyKitsTitle": "Emergency kits",
   "emergencyIssueKit": "Issue kit",

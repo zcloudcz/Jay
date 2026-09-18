@@ -352,6 +352,8 @@
   },
   "hubErrorAuditRecipientMissing": "Não foi possível enviar a mensagem: o membro de auditoria da organização está ausente desta conversa.",
   "hubErrorAuditorUnavailable": "O arquivamento está indisponível no momento — a mensagem não foi enviada. Tente novamente em instantes.",
+  "hubErrorBusinessConversationRequired": "Sua organização exige que esta conversa ocorra em um chat empresarial, que é arquivado.",
+  "hubErrorBusinessConversationRequiredAction": "Abrir chat empresarial",
   "emergencyTitle": "Canal de emergência",
   "emergencyKitsTitle": "Kits de emergência",
   "emergencyIssueKit": "Emitir kit",

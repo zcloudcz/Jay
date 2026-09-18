@@ -49,6 +49,7 @@ const _mine = [
     'role': 'OrgAdmin',
     'archiveLevel': 'Metadata',
     'auditorDeviceId': 'dev-9',
+    'requireBusinessConversations': true,
   },
 ];
 
@@ -88,6 +89,39 @@ void main() {
 
     expect(org.role, 'orgAdmin');
     expect(org.auditorDeviceId, 'dev-9');
+    expect(org.requireBusinessConversations, isTrue);
+  });
+
+  test('OrganizationInfo defaults requireBusinessConversations to false when absent (older server shape)', () async {
+    final (api, _) = client({
+      'GET /orgs/mine': (200, [
+        {
+          'organizationId': 'org-2',
+          'name': 'NoFlagYet',
+          'role': 'Member',
+          'archiveLevel': 'Metadata',
+          'auditorDeviceId': null,
+        },
+      ]),
+    });
+
+    final org = await api.getOrganization('org-2');
+
+    expect(org.requireBusinessConversations, isFalse);
+  });
+
+  test('updateOrganization sends requireBusinessConversations when given', () async {
+    final (api, server) = client({
+      'PATCH /orgs/org-1': (204, null),
+      'GET /orgs/mine': (200, _mine),
+    });
+
+    await api.updateOrganization('org-1', requireBusinessConversations: true);
+
+    expect(
+      server.requests['PATCH /orgs/org-1'],
+      contains('"requireBusinessConversations":true'),
+    );
   });
 
   test('getOrganizationMembers reads the members array of GET /orgs/{id}', () async {

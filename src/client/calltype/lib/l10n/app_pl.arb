@@ -352,6 +352,8 @@
   },
   "hubErrorAuditRecipientMissing": "Nie udało się wysłać wiadomości: w tej rozmowie brakuje członka audytu organizacji.",
   "hubErrorAuditorUnavailable": "Archiwizacja jest obecnie niedostępna — wiadomość nie została wysłana. Spróbuj ponownie za chwilę.",
+  "hubErrorBusinessConversationRequired": "Twoja organizacja wymaga, aby ta rozmowa odbywała się w ramach czatu biznesowego, który jest archiwizowany.",
+  "hubErrorBusinessConversationRequiredAction": "Otwórz czat biznesowy",
   "emergencyTitle": "Kanał awaryjny",
   "emergencyKitsTitle": "Zestawy awaryjne",
   "emergencyIssueKit": "Wydaj zestaw",

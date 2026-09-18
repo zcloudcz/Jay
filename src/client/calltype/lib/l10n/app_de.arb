@@ -352,6 +352,8 @@
   },
   "hubErrorAuditRecipientMissing": "Die Nachricht konnte nicht gesendet werden: Das Prüfmitglied der Organisation fehlt in dieser Unterhaltung.",
   "hubErrorAuditorUnavailable": "Die Archivierung ist derzeit nicht verfügbar – die Nachricht wurde nicht gesendet. Versuchen Sie es in Kürze erneut.",
+  "hubErrorBusinessConversationRequired": "Ihre Organisation verlangt, dass diese Unterhaltung über einen Geschäftschat läuft, der archiviert wird.",
+  "hubErrorBusinessConversationRequiredAction": "Geschäftschat öffnen",
   "emergencyTitle": "Notfallkanal",
   "emergencyKitsTitle": "Notfall-Kits",
   "emergencyIssueKit": "Kit ausstellen",

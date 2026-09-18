@@ -38,13 +38,21 @@ extension OrganizationApi on ApiClient {
         (org) => org.organizationId == organizationId,
       );
 
-  /// PATCH /orgs/{id} (204, no body) — currently only the name is
-  /// client-editable. Re-reads the organization to return the new state.
+  /// PATCH /orgs/{id} (204, no body) — name and the P1
+  /// `requireBusinessConversations` policy are client-editable. Re-reads the
+  /// organization to return the new state.
   Future<OrganizationInfo> updateOrganization(
     String organizationId, {
     String? name,
+    bool? requireBusinessConversations,
   }) async {
-    await transport.patch<void>('/orgs/$organizationId', data: {'name': ?name});
+    await transport.patch<void>(
+      '/orgs/$organizationId',
+      data: {
+        'name': ?name,
+        'requireBusinessConversations': ?requireBusinessConversations,
+      },
+    );
     return getOrganization(organizationId);
   }
 

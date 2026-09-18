@@ -352,6 +352,8 @@
   },
   "hubErrorAuditRecipientMissing": "No se pudo enviar el mensaje: falta el miembro auditor de la organización en esta conversación.",
   "hubErrorAuditorUnavailable": "El archivado no está disponible en este momento; el mensaje no se envió. Inténtalo de nuevo en un momento.",
+  "hubErrorBusinessConversationRequired": "Tu organización requiere que esta conversación pase por un chat empresarial, que se archiva.",
+  "hubErrorBusinessConversationRequiredAction": "Abrir chat empresarial",
   "emergencyTitle": "Canal de emergencia",
   "emergencyKitsTitle": "Kits de emergencia",
   "emergencyIssueKit": "Emitir kit",

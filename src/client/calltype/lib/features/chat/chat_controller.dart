@@ -130,6 +130,49 @@ class ChatController extends ChangeNotifier {
     return value;
   }
 
+  /// Set when the hub/REST rejects a send/group action with
+  /// `business_conversation_required` (Jay Business mode, P1 —
+  /// `Organization.RequireBusinessConversations`): the recipient is enrolled
+  /// in an organization that only allows this pair to talk inside a business
+  /// conversation. Deliberately a separate flag — unlike
+  /// [auditRecipientMissing]/[auditorUnavailable] this is not a failure to
+  /// retry, it's a redirect: the UI offers to open/create the business
+  /// conversation instead (see [createBusinessConversationWithPeer]).
+  bool _businessConversationRequired = false;
+  bool get businessConversationRequired => _businessConversationRequired;
+
+  /// One-shot read, same contract as [consumeAuditRecipientMissing].
+  bool consumeBusinessConversationRequired() {
+    final value = _businessConversationRequired;
+    _businessConversationRequired = false;
+    return value;
+  }
+
+  /// P1 UI action: finds the organization both the caller and the peer are
+  /// actively enrolled in (there is exactly one that could have triggered
+  /// `business_conversation_required` for a 1:1 conversation) and creates a
+  /// two-member business group with them — the same call the "new business
+  /// chat" flow uses. Only meaningful for a 1:1 conversation, where
+  /// [conversationId] IS the peer's device id. Returns the new group's id, or
+  /// null if no shared organization could be found (should not happen if the
+  /// server just rejected the send for this reason, but network state can
+  /// have moved on).
+  Future<String?> createBusinessConversationWithPeer() async {
+    final myOrgs = await _api.getMyOrganizations();
+    for (final org in myOrgs) {
+      final enrollments = await _api.getOrganizationEnrollments(
+        org.organizationId,
+      );
+      if (enrollments.any((e) => e.deviceId == conversationId)) {
+        final response = await _api.createGroup('', [
+          conversationId,
+        ], organizationId: org.organizationId);
+        return response['groupId'] as String;
+      }
+    }
+    return null;
+  }
+
   Future<void> _markRead() async {
     await (_db.update(_db.conversations)
           ..where((c) => c.id.equals(conversationId)))
@@ -180,6 +223,7 @@ class ChatController extends ChangeNotifier {
     await _status(messageId, 'sending');
     _auditRecipientMissing = false;
     _auditorUnavailable = false;
+    _businessConversationRequired = false;
     try {
       var stored = await (_db.select(
         _db.backupState,
@@ -275,6 +319,9 @@ class ChatController extends ChangeNotifier {
         notifyListeners();
       } else if (e.toString().contains('auditor_unavailable')) {
         _auditorUnavailable = true;
+        notifyListeners();
+      } else if (e.toString().contains('business_conversation_required')) {
+        _businessConversationRequired = true;
         notifyListeners();
       }
       await _status(messageId, 'failed');
