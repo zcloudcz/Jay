@@ -354,6 +354,8 @@
   "hubErrorAuditorUnavailable": "Az archiválás jelenleg nem elérhető – az üzenet nem került elküldésre. Próbáld újra egy kicsit később.",
   "hubErrorBusinessConversationRequired": "A szervezeted megköveteli, hogy ez a beszélgetés üzleti csevegésen keresztül történjen, amelyet archiválnak.",
   "hubErrorBusinessConversationRequiredAction": "Üzleti csevegés megnyitása",
+  "orgRequireBusinessConversationsTitle": "Üzleti csevegés megkövetelése",
+  "orgRequireBusinessConversationsExplanation": "Ha be van kapcsolva, a szervezet tagjai csak üzleti csevegésekben beszélhetnek egymással, amelyeket archiválnak. A szervezeten kívüli emberekkel folytatott beszélgetéseket ez nem érinti.",
   "emergencyTitle": "Vészhelyzeti csatorna",
   "emergencyKitsTitle": "Vészhelyzeti készletek",
   "emergencyIssueKit": "Készlet kiadása",

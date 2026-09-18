@@ -354,6 +354,8 @@
   "hubErrorAuditorUnavailable": "Архивирование сейчас недоступно — сообщение не отправлено. Повторите попытку через некоторое время.",
   "hubErrorBusinessConversationRequired": "Ваша организация требует, чтобы этот разговор велся через деловой чат, который архивируется.",
   "hubErrorBusinessConversationRequiredAction": "Открыть деловой чат",
+  "orgRequireBusinessConversationsTitle": "Требовать деловые чаты",
+  "orgRequireBusinessConversationsExplanation": "Если включено, участники этой организации могут общаться друг с другом только в деловых чатах, которые архивируются. Разговоры с людьми вне организации не затрагиваются.",
   "emergencyTitle": "Аварийный канал",
   "emergencyKitsTitle": "Аварийные наборы",
   "emergencyIssueKit": "Выдать набор",

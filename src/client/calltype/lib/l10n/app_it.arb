@@ -354,6 +354,8 @@
   "hubErrorAuditorUnavailable": "L'archiviazione non è al momento disponibile: il messaggio non è stato inviato. Riprova tra poco.",
   "hubErrorBusinessConversationRequired": "La tua organizzazione richiede che questa conversazione avvenga tramite una chat aziendale, che viene archiviata.",
   "hubErrorBusinessConversationRequiredAction": "Apri chat aziendale",
+  "orgRequireBusinessConversationsTitle": "Richiedi chat aziendali",
+  "orgRequireBusinessConversationsExplanation": "Se attivo, i membri di questa organizzazione possono parlare tra loro solo in chat aziendali, che vengono archiviate. Le conversazioni con persone esterne all'organizzazione non sono interessate.",
   "emergencyTitle": "Canale di emergenza",
   "emergencyKitsTitle": "Kit di emergenza",
   "emergencyIssueKit": "Emetti kit",

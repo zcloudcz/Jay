@@ -544,6 +544,14 @@
   "@hubErrorBusinessConversationRequiredAction": {
     "description": "Snackbar action button that creates/opens the business conversation with this contact after a business_conversation_required rejection."
   },
+  "orgRequireBusinessConversationsTitle": "Require business conversations",
+  "@orgRequireBusinessConversationsTitle": {
+    "description": "Title of the admin-only switch on the organization screen for Organization.RequireBusinessConversations (P1)."
+  },
+  "orgRequireBusinessConversationsExplanation": "When on, members of this organization can only talk to each other in business conversations, which are archived. Conversations with people outside the organization are not affected.",
+  "@orgRequireBusinessConversationsExplanation": {
+    "description": "Honest explanation shown under the RequireBusinessConversations switch — must keep its meaning (limits included) in every language."
+  },
   "emergencyTitle": "Emergency channel",
   "emergencyKitsTitle": "Emergency kits",
   "emergencyIssueKit": "Issue kit",

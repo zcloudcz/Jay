@@ -183,6 +183,14 @@ class _OrganizationScreenState extends State<OrganizationScreen> {
           ),
         ),
         const Divider(height: 32),
+        SwitchListTile(
+          title: Text(l10n.orgRequireBusinessConversationsTitle),
+          subtitle: Text(l10n.orgRequireBusinessConversationsExplanation),
+          value: org.requireBusinessConversations,
+          onChanged: (value) =>
+              controller.setRequireBusinessConversations(value),
+        ),
+        const Divider(height: 32),
         Text(l10n.orgMembersTitle, style: Theme.of(context).textTheme.titleMedium),
         for (final member in controller.members)
           ListTile(

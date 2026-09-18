@@ -354,6 +354,8 @@
   "hubErrorAuditorUnavailable": "الأرشفة غير متاحة حاليًا — لم يتم إرسال الرسالة. حاول مرة أخرى بعد قليل.",
   "hubErrorBusinessConversationRequired": "منظمتك تتطلب أن تمر هذه المحادثة عبر محادثة عمل، يتم أرشفتها.",
   "hubErrorBusinessConversationRequiredAction": "فتح محادثة العمل",
+  "orgRequireBusinessConversationsTitle": "طلب محادثات العمل",
+  "orgRequireBusinessConversationsExplanation": "عند التفعيل، يمكن لأعضاء هذه المنظمة التحدث مع بعضهم البعض فقط في محادثات العمل، التي يتم أرشفتها. المحادثات مع أشخاص خارج المنظمة لا تتأثر.",
   "emergencyTitle": "قناة الطوارئ",
   "emergencyKitsTitle": "مجموعات الطوارئ",
   "emergencyIssueKit": "إصدار مجموعة",

@@ -354,6 +354,8 @@
   "hubErrorAuditorUnavailable": "Arşivleme şu anda kullanılamıyor — mesaj gönderilmedi. Birazdan tekrar deneyin.",
   "hubErrorBusinessConversationRequired": "Kuruluşunuz bu konuşmanın arşivlenen bir iş sohbeti üzerinden yapılmasını gerektiriyor.",
   "hubErrorBusinessConversationRequiredAction": "İş sohbetini aç",
+  "orgRequireBusinessConversationsTitle": "İş sohbetlerini zorunlu kıl",
+  "orgRequireBusinessConversationsExplanation": "Açıldığında, bu kuruluşun üyeleri yalnızca arşivlenen iş sohbetlerinde birbirleriyle konuşabilir. Kuruluş dışındaki kişilerle yapılan görüşmeler etkilenmez.",
   "emergencyTitle": "Acil durum kanalı",
   "emergencyKitsTitle": "Acil durum kitleri",
   "emergencyIssueKit": "Kit oluştur",

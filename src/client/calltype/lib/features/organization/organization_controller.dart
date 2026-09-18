@@ -109,6 +109,15 @@ class OrganizationController extends ChangeNotifier {
     organization = await _api.getOrganization(organization!.organizationId);
   });
 
+  /// P1: toggles "audit all communication between our members" — PATCH
+  /// /orgs/{id}, same withMfa/_run wrapping as every other admin mutation.
+  Future<void> setRequireBusinessConversations(bool value) => _run(() async {
+    organization = await _api.updateOrganization(
+      organization!.organizationId,
+      requireBusinessConversations: value,
+    );
+  });
+
   Future<void> setMemberRole(String accountId, String role) => _run(() async {
     await _api.setOrganizationMemberRole(
       organization!.organizationId,
