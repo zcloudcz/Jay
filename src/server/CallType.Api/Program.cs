@@ -22,6 +22,7 @@ using CallType.Api.Data;
 using CallType.Api.Endpoints;
 using CallType.Api.Hubs;
 using CallType.Api.Services;
+using CallType.Audit.Application;
 using CallType.Audit.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -121,6 +122,14 @@ if (businessModeEnabled)
 {
     builder.Services.AddDbContext<AuditDbContext>(options =>
         options.UseNpgsql(auditConnectionString));
+
+    // BusinessGroupService (E02): business group creation (KB1) and the
+    // enrollment-revocation hook (IEnrollmentRevokedHandler, called by E01
+    // once it exists). Scoped like AppDbContext/AuditDbContext — only
+    // registered at all when business mode is on, so nothing resolves it
+    // in an anonymous-only deployment.
+    builder.Services.AddScoped<BusinessGroupService>();
+    builder.Services.AddScoped<IEnrollmentRevokedHandler>(sp => sp.GetRequiredService<BusinessGroupService>());
 }
 
 // ReadinessService backs GET /health/ready — scoped because it depends on the
