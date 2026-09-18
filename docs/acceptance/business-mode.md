@@ -139,6 +139,73 @@ Flutter app).
   člen bez promptu) — `flutter analyze` čistý, `flutter test` 200/200
   (`calltype`), 140/140 (`calltype_core`).
 
+## P1 — politika „auditovat veškerou komunikaci mezi členy" (2026-09-18)
+
+Rozhodnutí zadavatele: plán §8a bod 5. Výchozí stav zůstává beze změny —
+auditovaná je firemní KONVERZACE, dva členové organizace si mohou i dnes
+psát/volat mimo ni anonymně. Nově volitelná politika organizace
+`Organization.RequireBusinessConversations` (výchozí `false`, mění
+owner/org-admin přes `PATCH /orgs/{id}`, za MFA step-up jako každá admin
+akce, zapisuje se do admin auditu): je-li zapnutá, server odmítne mezi dvěma
+AKTIVNĚ enrollovanými zařízeními téže organizace zprávu 1:1
+(`SendMessage`/`SendReliableMessage`), založení/přidání do anonymní skupiny
+(`POST /groups`, `PUT /groups/{id}/members`) a anonymní hovor
+(`CallSignal`, jen `signalType == "offer"`) kódem
+`business_conversation_required` (HubException zprávou / HTTP 409
+`{ error, code }`). Firemní skupiny (`POST /groups/business`), nouzová
+skupina a `BusinessCallSignal` nejsou dotčeny — jsou to už auditované cesty.
+
+**Kde:**
+- `CallType.Audit/Domain/Organization.cs` — `RequireBusinessConversations`
+  (bool), `SetRequireBusinessConversations`.
+- Migrace `OrgRequireBusinessConversations` (Audit DB, jeden nullable→
+  non-null sloupec s defaultem `false`) — **na betě ruční krok před
+  deployem**, sloučeno s dřívější migrací `AuditRecordDetails` do jednoho
+  kroku, viz `docs/HANDOFF-2026-09-18.md`.
+- `CallType.Api/Services/OrgCommunicationPolicy.cs` — "smí tato dvě zařízení
+  mluvit mimo firemní konverzaci?". Business mode vypnutý → vždy `true` bez
+  dotazu do Audit DB. Auditorovo zařízení nikdy není `OrgEnrollment`
+  řádkem, takže miss v enrollmentech = povoleno (KB1 to zaručuje samo).
+  Krátká cache na pár zařízení (`Business:PolicyCacheSeconds`, výchozí 30 s,
+  v testech 0).
+- `MessengerHub.cs` — `SendReliableMessage` (odesílatel vs. příjemce, PŘED
+  zařazením do fronty), `SendReliableGroupMessage` pro anonymní skupinu
+  (odesílatel vs. každý příjemce — zjednodušení: páry mezi příjemci navzájem
+  řeší jejich vlastní odeslání, ne toto volání), `RelayCallSignalAsync` jen
+  pro `businessGroupId == null` a `signalType == "offer"`.
+- `GroupEndpoints.cs` — `CreateGroup` (tvůrce vs. každý nový člen),
+  `AddMember` pro anonymní skupinu (přidávající vs. nový člen).
+- `PATCH /orgs/{id}` přijímá `requireBusinessConversations`; `GET /orgs/mine`
+  a `GET /orgs/{id}` ho vrací. Zapisuje se do stejné admin-audit události
+  `policy_changed` jako `archiveLevel`/`name` (ne samostatný
+  `org_policy_changed`, jak zmiňuje zadání balíčku — sjednoceno s
+  existujícím kódem E01, aby PATCH zůstal jednou transakcí s jedním typem
+  události pro "co se v politice organizace změnilo").
+- Klient: `calltype_core`'s `OrganizationInfo.requireBusinessConversations`
+  + `updateOrganization(..., requireBusinessConversations:)`; přepínač na
+  obrazovce organizace (jen admini, přes stávající `withMfa`); selhání
+  1:1 odeslání/hovoru s `business_conversation_required` ukáže snackbar s
+  akcí, která založí/otevře firemní konverzaci s daným kontaktem
+  (`ChatController.createBusinessConversationWithPeer`) — zpráva se nikdy
+  tiše nepřesměruje.
+
+**Poctivé meze (musí zůstat i v UI/webu):**
+- Komunikace s lidmi MIMO organizaci se nikdy neaudituje ani neblokuje.
+- Druhé, neenrollované zařízení téhož člověka je mimo pravidlo.
+- Pravidlo je o ZAŘÍZENÍCH enrollovaných do organizace — soukromá zařízení
+  zaměstnanců enrollovaná do firmy jsou tedy tím pádem pokryta taky; to
+  patří do poučení zaměstnanců (§ 316 ZP), právní text je mimo tento
+  balíček.
+- Existující anonymní konverzace mezi dvěma členy přestanou přijímat nové
+  zprávy, jakmile se politika zapne — nic se nemaže ani nemigruje.
+
+**Testy:** `src/server/CallType.Api.Tests/Endpoints/P1OrgCommunicationPolicyTests.cs`
+— politika vypnutá (regrese pro všechny cesty), zapnutá (odmítnutí všech
+čtyř cest mezi dvěma enrollovanými zařízeními, povoleno vůči outsiderovi a
+vůči auditorovi, revokovaný enrollment mimo pravidlo, business/nouzové
+volání nedotčeno), business mode vypnutý (nikdy nezablokuje), PATCH píše
+admin audit a vyžaduje MFA step-up.
+
 **NEBYLO spuštěno / chybí:**
 - Widget test celého dialogového toku (QR obrazovka, skenování, apod.) —
   pouze na úrovni controlleru s fake HTTP adaptérem, ne přes skutečné
