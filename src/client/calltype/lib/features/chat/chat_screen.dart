@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -69,18 +71,84 @@ class _BotNoticeState extends State<_BotNotice> {
         );
 }
 
+/// Compact "Audio call · 3 min · completed" style line for a `call-event`
+/// group message (H2/H1). Never shown as an ordinary bubble — a malformed or
+/// unparseable body (should not happen, the archiver validates as strictly)
+/// still renders SOMETHING rather than crash the whole message list.
+class _CallEventLine extends StatelessWidget {
+  const _CallEventLine({required this.body});
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    Map<String, dynamic>? data;
+    try {
+      data = jsonDecode(body) as Map<String, dynamic>;
+    } catch (_) {
+      data = null;
+    }
+    final media = data?['media'] == 'video'
+        ? l10n.callEventMediaVideo
+        : l10n.callEventMediaAudio;
+    final outcome = switch (data?['outcome']) {
+      'completed' => l10n.callOutcomeCompleted,
+      'missed' => l10n.callOutcomeMissed,
+      'rejected' => l10n.callOutcomeRejected,
+      'failed' => l10n.callOutcomeFailed,
+      'unavailable' => l10n.callOutcomeUnavailable,
+      _ => l10n.callOutcomeFailed,
+    };
+    final startedAt = DateTime.tryParse('${data?['startedAt']}');
+    final endedAt = DateTime.tryParse('${data?['endedAt']}');
+    final minutes = startedAt != null && endedAt != null
+        ? endedAt.difference(startedAt).inMinutes
+        : null;
+    final line = minutes != null && data?['outcome'] == 'completed'
+        ? l10n.callEventLine(media, l10n.callEventMinutes(minutes), outcome)
+        : '$media · $outcome';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Center(
+        child: Text(
+          line,
+          style: Theme.of(context).textTheme.labelSmall,
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+}
+
 class ChatScreen extends StatelessWidget {
   const ChatScreen({super.key, required this.contactId});
   final String contactId;
-  Future<void> _call(BuildContext context, bool video) async {
+  Future<void> _call(
+    BuildContext context,
+    bool video, {
+    String? targetDeviceId,
+    String? businessGroupId,
+  }) async {
+    final manager = context.read<WebRTCManager>();
     try {
-      await context.read<WebRTCManager>().startCall(contactId, video: video);
+      await manager.startCall(
+        targetDeviceId ?? contactId,
+        video: video,
+        businessGroupId: businessGroupId,
+      );
     } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.chatCallFailed)),
-        );
-      }
+      if (!context.mounted) return;
+      final l10n = context.l10n;
+      // A business offer the hub rejected outright never reaches the ringing
+      // UI, so it needs its own message here rather than on the call screen.
+      final message = switch (manager.error) {
+        CallError.auditorUnavailable => l10n.hubErrorAuditorUnavailable,
+        CallError.notABusinessMember => l10n.chatCallFailed,
+        _ => l10n.chatCallFailed,
+      };
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     }
   }
 
@@ -181,6 +249,39 @@ class ChatScreen extends StatelessWidget {
               onPressed: () => _call(context, true),
             ),
           ],
+          // A business "1:1" is a GROUP (the two members plus the visible
+          // auditor) — offer call buttons only when there is exactly one
+          // other non-auditor member; a larger group has no group calls.
+          if (group && organizationName != null)
+            FutureBuilder<String?>(
+              future: controller.businessCallTarget(),
+              builder: (context, snapshot) {
+                final peer = snapshot.data;
+                if (peer == null) return const SizedBox.shrink();
+                return Row(children: [
+                  IconButton(
+                    icon: const Icon(Icons.call_rounded),
+                    tooltip: l10n.chatVoiceCall,
+                    onPressed: () => _call(
+                      context,
+                      false,
+                      targetDeviceId: peer,
+                      businessGroupId: contactId,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.videocam_rounded),
+                    tooltip: l10n.chatVideoCall,
+                    onPressed: () => _call(
+                      context,
+                      true,
+                      targetDeviceId: peer,
+                      businessGroupId: contactId,
+                    ),
+                  ),
+                ]);
+              },
+            ),
         ],
       ),
       body: Column(
@@ -207,6 +308,9 @@ class ChatScreen extends StatelessWidget {
                     itemBuilder: (context, index) {
                       final message = controller.messages[index];
                       final mine = message.senderId == controller.myDeviceId;
+                      if (message.type == 'call-event') {
+                        return _CallEventLine(body: message.body ?? '');
+                      }
                       Attachment? attachment;
                       if (message.type == 'file') {
                         try {

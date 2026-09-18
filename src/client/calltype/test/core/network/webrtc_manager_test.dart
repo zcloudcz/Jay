@@ -18,13 +18,23 @@ class TestSignal extends SignalRClient {
   final signals = StreamController<Map<String, dynamic>>.broadcast();
   final sent = <String>[];
   final payloads = <String>[];
+  final businessGroupIds = <String?>[];
+  /// Set to reject the NEXT sendCallSignal (simulates a HubException from
+  /// EnsureBusinessCallAllowedAsync in MessengerHub.cs).
+  String? rejectWith;
   Future<void> Function(String)? onSend;
   @override
   Stream<Map<String, dynamic>> get onCallSignal => signals.stream;
   @override
   Future<void> sendCallSignal(String peer, String type, String payload, {String? businessGroupId}) async {
+    if (rejectWith != null) {
+      final message = rejectWith!;
+      rejectWith = null;
+      throw Exception(message);
+    }
     sent.add(type);
     payloads.add(payload);
+    businessGroupIds.add(businessGroupId);
     await onSend?.call(type);
   }
 }
@@ -685,4 +695,251 @@ void main() {
       manager.dispose();
     });
   });
+
+  // -- H2: business call plumbing (CallReport) -------------------------------
+
+  test('anonymous call sends exactly 3 arguments and emits no report', () async {
+    final signal = TestSignal();
+    final manager = WebRTCManager(
+      signalRClient: signal,
+      apiClient: TestApi(),
+      myDeviceId: 'me',
+      peerFactory: (_) async => TestPeer(),
+      rendererFactory: TestRenderer.new,
+      mediaFactory: (_) async => TestMedia(),
+    );
+    final reports = <CallReport>[];
+    manager.callReports.listen(reports.add);
+    await manager.startCall('other');
+    expect(signal.businessGroupIds, everyElement(isNull));
+    expect(manager.businessGroupId, isNull);
+    await manager.endCall();
+    await Future<void>.delayed(Duration.zero);
+    expect(reports, isEmpty);
+    manager.dispose();
+    await signal.signals.close();
+  });
+
+  test(
+    'business call propagates businessGroupId on every outgoing signal and '
+    'reports completed once connected',
+    () async {
+      final signal = TestSignal();
+      final peer = TestPeer();
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => peer,
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => TestMedia(),
+      );
+      final reports = <CallReport>[];
+      manager.callReports.listen(reports.add);
+      await manager.startCall('other', businessGroupId: 'group-1');
+      expect(manager.businessGroupId, 'group-1');
+      expect(signal.businessGroupIds, everyElement('group-1'));
+      peer.onIceConnectionState?.call(
+        RTCIceConnectionState.RTCIceConnectionStateConnected,
+      );
+      await manager.endCall();
+      await Future<void>.delayed(Duration.zero);
+      expect(reports, hasLength(1));
+      expect(reports.single.role, 'caller');
+      expect(reports.single.businessGroupId, 'group-1');
+      expect(reports.single.peerDeviceId, 'other');
+      expect(reports.single.media, 'audio');
+      expect(reports.single.outcome, 'completed');
+      manager.dispose();
+      await signal.signals.close();
+    },
+  );
+
+  test(
+    'incoming business offer stores businessGroupId and reports as callee',
+    () async {
+      final signal = TestSignal();
+      final peer = TestPeer();
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => peer,
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => TestMedia(),
+      );
+      final reports = <CallReport>[];
+      manager.callReports.listen(reports.add);
+      const id = '11223344-5566-4788-9900-aabbccddeeff';
+      signal.signals.add({
+        'senderId': 'caller',
+        'signalType': 'offer',
+        'payload': jsonEncode({'v': 1, 'callId': id, 'payload': 'v=0'}),
+        'businessGroupId': 'group-2',
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.businessGroupId, 'group-2');
+      await manager.acceptCall();
+      expect(signal.businessGroupIds, everyElement('group-2'));
+      peer.onIceConnectionState?.call(
+        RTCIceConnectionState.RTCIceConnectionStateConnected,
+      );
+      await manager.endCall();
+      await Future<void>.delayed(Duration.zero);
+      expect(reports, hasLength(1));
+      expect(reports.single.role, 'callee');
+      expect(reports.single.outcome, 'completed');
+      manager.dispose();
+      await signal.signals.close();
+    },
+  );
+
+  test('caller no-answer timeout reports missed', () {
+    fakeAsync((async) {
+      final signal = TestSignal();
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => TestPeer(),
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => TestMedia(),
+      );
+      final reports = <CallReport>[];
+      manager.callReports.listen(reports.add);
+      unawaited(manager.startCall('other', businessGroupId: 'group-3'));
+      async.flushMicrotasks();
+      async.elapse(const Duration(seconds: 45));
+      async.flushMicrotasks();
+      expect(reports, hasLength(1));
+      expect(reports.single.outcome, 'missed');
+      manager.dispose();
+    });
+  });
+
+  test('callee hangup before accepting reports rejected', () async {
+    final signal = TestSignal();
+    final manager = WebRTCManager(
+      signalRClient: signal,
+      apiClient: TestApi(),
+      myDeviceId: 'me',
+      peerFactory: (_) async => TestPeer(),
+      rendererFactory: TestRenderer.new,
+      mediaFactory: (_) async => TestMedia(),
+    );
+    final reports = <CallReport>[];
+    manager.callReports.listen(reports.add);
+    const id = '11223344-5566-4788-9900-aabbccddeeff';
+    signal.signals.add({
+      'senderId': 'caller',
+      'signalType': 'offer',
+      'payload': jsonEncode({'v': 1, 'callId': id, 'payload': 'v=0'}),
+      'businessGroupId': 'group-4',
+    });
+    await Future<void>.delayed(Duration.zero);
+    await manager.endCall(); // decline without accepting
+    await Future<void>.delayed(Duration.zero);
+    expect(reports, hasLength(1));
+    expect(reports.single.outcome, 'rejected');
+    manager.dispose();
+    await signal.signals.close();
+  });
+
+  test('server-reported target-offline reports unavailable', () async {
+    final signal = TestSignal();
+    final manager = WebRTCManager(
+      signalRClient: signal,
+      apiClient: TestApi(),
+      myDeviceId: 'me',
+      peerFactory: (_) async => TestPeer(),
+      rendererFactory: TestRenderer.new,
+      mediaFactory: (_) async => TestMedia(),
+    );
+    final reports = <CallReport>[];
+    manager.callReports.listen(reports.add);
+    await manager.startCall('other', businessGroupId: 'group-5');
+    signal.signals.add({
+      'senderId': 'other',
+      'signalType': 'unavailable',
+      'payload': signal.payloads.last,
+      'businessGroupId': 'group-5',
+    });
+    await Future<void>.delayed(Duration.zero);
+    expect(reports, hasLength(1));
+    expect(reports.single.outcome, 'unavailable');
+    manager.dispose();
+    await signal.signals.close();
+  });
+
+  test('ICE failure mid-call reports failed', () async {
+    final signal = TestSignal();
+    final peer = TestPeer();
+    final manager = WebRTCManager(
+      signalRClient: signal,
+      apiClient: TestApi(),
+      myDeviceId: 'me',
+      peerFactory: (_) async => peer,
+      rendererFactory: TestRenderer.new,
+      mediaFactory: (_) async => TestMedia(),
+    );
+    final reports = <CallReport>[];
+    manager.callReports.listen(reports.add);
+    await manager.startCall('other', businessGroupId: 'group-6');
+    peer.onIceConnectionState?.call(
+      RTCIceConnectionState.RTCIceConnectionStateFailed,
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(reports, hasLength(1));
+    expect(reports.single.outcome, 'failed');
+    manager.dispose();
+    await signal.signals.close();
+  });
+
+  test(
+    'hub rejection of a business offer surfaces a distinct CallError and '
+    'emits no report',
+    () async {
+      final signal = TestSignal();
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => TestPeer(),
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => TestMedia(),
+      );
+      final reports = <CallReport>[];
+      manager.callReports.listen(reports.add);
+      signal.rejectWith = 'auditor_unavailable';
+      await manager
+          .startCall('other', businessGroupId: 'group-7')
+          .catchError((_) {});
+      expect(manager.error, CallError.auditorUnavailable);
+      expect(reports, isEmpty);
+      manager.dispose();
+      await signal.signals.close();
+    },
+  );
+
+  test(
+    'not_a_business_member hub rejection surfaces its own CallError',
+    () async {
+      final signal = TestSignal();
+      final manager = WebRTCManager(
+        signalRClient: signal,
+        apiClient: TestApi(),
+        myDeviceId: 'me',
+        peerFactory: (_) async => TestPeer(),
+        rendererFactory: TestRenderer.new,
+        mediaFactory: (_) async => TestMedia(),
+      );
+      signal.rejectWith = 'not_a_business_member';
+      await manager
+          .startCall('other', businessGroupId: 'group-8')
+          .catchError((_) {});
+      expect(manager.error, CallError.notABusinessMember);
+      manager.dispose();
+      await signal.signals.close();
+    },
+  );
 }

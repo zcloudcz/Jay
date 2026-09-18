@@ -42,6 +42,23 @@
   "callErrorCannotStart": "تعذّر بدء المكالمة. تحقق من الاتصال ومن أذونات الميكروفون/الكاميرا.",
   "callErrorCannotAccept": "تعذّر قبول المكالمة. تحقق من أذونات الميكروفون/الكاميرا.",
   "callErrorUserOffline": "المستخدم غير متصل حاليًا. حاول مرة أخرى لاحقًا.",
+  "callBusinessNotice": "يتم تسجيل بيانات هذه المكالمة لمنظمتك: من، ومتى، ولأي مدة. لا يتم تسجيل محتوى المكالمة.",
+  "callEventMediaAudio": "مكالمة صوتية",
+  "callEventMediaVideo": "مكالمة فيديو",
+  "callEventMinutes": "{count, plural, zero{{count} دقيقة} one{دقيقة واحدة} two{دقيقتان} few{{count} دقائق} many{{count} دقيقة} other{{count} دقيقة}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "منتهية",
+  "callOutcomeMissed": "فائتة",
+  "callOutcomeRejected": "مرفوضة",
+  "callOutcomeFailed": "فاشلة",
+  "callOutcomeUnavailable": "غير متاحة",
   "chatListNewGroup": "مجموعة جديدة",
   "chatListMyIdentity": "هويتي",
   "chatListOffline": "غير متصل — سجلّك متاح على هذا الجهاز.",

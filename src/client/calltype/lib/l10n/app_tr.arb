@@ -42,6 +42,23 @@
   "callErrorCannotStart": "Arama başlatılamıyor. Bağlantıyı ve mikrofon/kamera izinlerini kontrol edin.",
   "callErrorCannotAccept": "Arama kabul edilemiyor. Mikrofon/kamera izinlerini kontrol edin.",
   "callErrorUserOffline": "Kullanıcı şu anda çevrimdışı. Daha sonra tekrar deneyin.",
+  "callBusinessNotice": "Bu görüşme kuruluşunuz için kaydedilir: kim, ne zaman ve ne kadar süre. Ses kaydı alınmaz.",
+  "callEventMediaAudio": "Sesli arama",
+  "callEventMediaVideo": "Görüntülü arama",
+  "callEventMinutes": "{count, plural, other{{count} dk}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "tamamlandı",
+  "callOutcomeMissed": "cevapsız",
+  "callOutcomeRejected": "reddedildi",
+  "callOutcomeFailed": "başarısız",
+  "callOutcomeUnavailable": "kullanılamıyor",
   "chatListNewGroup": "Yeni grup",
   "chatListMyIdentity": "Kimliğim",
   "chatListOffline": "Çevrimdışı — geçmişiniz bu cihazda kullanılabilir.",

@@ -54,3 +54,51 @@ answer/ice/hangup not gated, 3-arg regrese) a `AuditArchiveEndpointsTests`
 (3/4-argument `sendCallSignal`) PASS bez Dockeru. Živé E2E rozšířeno o
 offer+`businessGroupId` a `call-event` fan-out — NENÍ spuštěno (port 8080
 sdílený s jinou session editující stejné E2E soubory pro MFA).
+
+## H2 — aplikace (Flutter), 2026-09-18
+
+Klientská strana H1: `WebRTCManager` (`lib/core/network/webrtc_manager.dart`)
+protahuje `businessGroupId` každým signálem hovoru (offer/answer/ice/hangup)
+přes `_sendSignal`; u příchozí nabídky ho čte z relayované obálky
+(`data['businessGroupId']`, nikoli ze zašifrovaného SDP payloadu). Po skončení
+firemního hovoru emituje jeden `CallReport` na streamu `callReports` — výsledek
+(`outcome`) je odvozen ze stavového automatu (spojeno alespoň jednou →
+`completed`; timeout 45 s bez odpovědi → `missed`; zavěšeno před spojením bez
+chyby → `rejected`; server ohlásil cíl offline → `unavailable`; ICE selhalo /
+start selhal → `failed`). Odmítnutí nabídky hubem (`auditor_unavailable` /
+`not_a_business_member`) je vlastní `CallError`, hovor se nikdy nekonal, takže
+se neemituje žádný report.
+
+Odeslání: nová app-wide služba `CallEventSender`
+(`lib/features/calls/call_event_sender.dart`, spouští se v `main.dart` stejně
+jako `MessageInboxService` — dřív než se SignalR připojí) poslouchá
+`callReports` a posílá zprávu `type: "call-event"` s tělem přesně těch 6 klíčů,
+co validuje archivátor. Používá stejnou cestu šifrování+outbox a stejnou
+`MessageProcessingQueue` jako běžná zpráva — žádná druhá kryptografická cesta.
+Příchozí `call-event` `MessageInboxService` nyní přijímá (dřív by ho zahodil
+jako "Unsupported message type") a nepočítá do nepřečtených. `ChatScreen` ho
+vykresluje jako kompaktní lokalizovaný systémový řádek, ne jako bublinu.
+
+UI: obrazovka hovoru zobrazuje trvalé upozornění "je logován, ne nahráván" pro
+OBĚ strany firemního hovoru, včetně příchozí nabídky ještě před přijetím
+(`manager.businessGroupId != null`). Tlačítka hovoru v `ChatScreen` se u
+firemní skupiny zobrazí jen když má skupina přesně jednoho dalšího člena mimo
+auditora (`ChatController.businessCallTarget`) — víc členů znamená žádné
+tlačítko (skupinové hovory neexistují).
+
+Testy: `webrtc_manager_test.dart` (+11 nových — businessGroupId na každém
+signálu, všech 5 outcomes, žádný report pro anonymní hovor, žádný report a
+vlastní `CallError` pro obě odmítnutí hubu), `call_event_sender_test.dart`
+(přesná sada 6 klíčů dešifrovaná na straně příjemce, neúspěšné odeslání
+zůstává ve frontě jako `failed` místo aby zmizelo, příchozí `call-event`
+nespadne a nezvedne unread), `call_screen_test.dart` (upozornění vidí obě
+strany včetně nepřijaté příchozí nabídky, u anonymního hovoru chybí),
+`test/l10n` (parita a ICU plurály pro `callEventMinutes` ve všech 19 ARB) —
+vše PASS bez Dockeru. Tlačítka hovoru v `ChatScreen` (viditelnost podle počtu
+členů skupiny) NEMAJÍ dedikovaný widget test — pokryto jen nepřímo přes
+`ChatController.businessCallTarget`, který widget test nevolá.
+
+**NENÍ spuštěno:** skutečný dvou-zařízení hovor v tomto prostředí nebyl možný
+(žádný druhý fyzický/emulovaný klient, žádný běžící server) — vše výše je
+ověřeno testovacími dvojníky (`TestSignal`/`TestApi`), ne živým hubem ani
+živým archivátorem.

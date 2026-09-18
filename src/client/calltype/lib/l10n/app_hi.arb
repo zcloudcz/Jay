@@ -42,6 +42,23 @@
   "callErrorCannotStart": "कॉल शुरू नहीं हो सकी। कनेक्शन और माइक्रोफ़ोन/कैमरा की अनुमतियाँ जाँचें।",
   "callErrorCannotAccept": "कॉल स्वीकार नहीं हो सकी। माइक्रोफ़ोन/कैमरा की अनुमतियाँ जाँचें।",
   "callErrorUserOffline": "यूज़र अभी ऑफ़लाइन है। बाद में फिर कोशिश करें।",
+  "callBusinessNotice": "यह कॉल आपके संगठन के लिए लॉग की जाती है: कौन, कब और कितने समय तक। इसे रिकॉर्ड नहीं किया जाता।",
+  "callEventMediaAudio": "ऑडियो कॉल",
+  "callEventMediaVideo": "वीडियो कॉल",
+  "callEventMinutes": "{count, plural, one{1 मिनट} other{{count} मिनट}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "पूर्ण",
+  "callOutcomeMissed": "छूट गई",
+  "callOutcomeRejected": "अस्वीकृत",
+  "callOutcomeFailed": "विफल",
+  "callOutcomeUnavailable": "अनुपलब्ध",
   "chatListNewGroup": "नया ग्रुप",
   "chatListMyIdentity": "मेरी पहचान",
   "chatListOffline": "ऑफ़लाइन — आपकी हिस्ट्री इस डिवाइस पर उपलब्ध है।",

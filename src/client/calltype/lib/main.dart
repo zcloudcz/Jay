@@ -13,6 +13,7 @@ import 'core/network/signalr_client.dart';
 import 'core/network/webrtc_manager.dart';
 import 'core/storage/database.dart';
 import 'core/storage/secure_storage.dart';
+import 'features/calls/call_event_sender.dart';
 import 'features/channels/channels_controller.dart';
 import 'features/chat/message_inbox_service.dart';
 import 'features/chat_list/chat_list_controller.dart';
@@ -71,6 +72,14 @@ void main() async {
   final keyManager = KeyManager(secureStorage: secureStorage);
   final sessionManager = SessionManager(database: db, keyManager: keyManager);
 
+  // Built here (not inside a provider `create:`) so its callReports stream
+  // can be wired to CallEventSender below, app-wide and before runApp.
+  final webrtcManager = WebRTCManager(
+    signalRClient: signalRClient,
+    apiClient: apiClient,
+    myDeviceId: deviceId,
+  );
+
   // App-wide inbox: decrypts + persists EVERY incoming message, even when
   // no chat screen is open. Must start before SignalR connects — the server
   // flushes queued (offline) messages immediately on connect and deletes
@@ -83,6 +92,18 @@ void main() async {
     acknowledge: signalRClient.acknowledgeMessage,
   );
   inbox.start();
+
+  // H2: archives every business call as a `call-event` group message as
+  // soon as it ends, whether or not that conversation's chat screen is open
+  // — same "app-wide, starts before connect" reasoning as the inbox above.
+  final callEventSender = CallEventSender(
+    database: db,
+    signalRClient: signalRClient,
+    sessionManager: sessionManager,
+    apiClient: apiClient,
+    callReports: webrtcManager.callReports,
+  );
+  callEventSender.start();
 
   // Channels (public posts, NOT end-to-end encrypted — kept apart from the
   // inbox above on purpose). Created before SignalR connects for the same
@@ -148,14 +169,7 @@ void main() async {
         // SignalR and WebRTC are ChangeNotifiers so UI can react to
         // connection state changes (offline banner, call state).
         ChangeNotifierProvider.value(value: signalRClient),
-        ChangeNotifierProvider(
-          lazy: false,
-          create: (ctx) => WebRTCManager(
-            signalRClient: ctx.read<SignalRClient>(),
-            apiClient: apiClient,
-            myDeviceId: deviceId,
-          ),
-        ),
+        ChangeNotifierProvider.value(value: webrtcManager),
 
         // -- Feature controllers --------------------------------------------
         // Chat list and contacts controllers are app-wide singletons because

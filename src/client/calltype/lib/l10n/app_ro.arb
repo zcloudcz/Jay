@@ -42,6 +42,23 @@
   "callErrorCannotStart": "Apelul nu poate fi inițiat. Verifică conexiunea și permisiunile pentru microfon/cameră.",
   "callErrorCannotAccept": "Apelul nu poate fi acceptat. Verifică permisiunile pentru microfon/cameră.",
   "callErrorUserOffline": "Utilizatorul este offline în acest moment. Încearcă mai târziu.",
+  "callBusinessNotice": "Acest apel este înregistrat pentru organizația dvs.: cine, când și cât timp. Nu este înregistrat audio.",
+  "callEventMediaAudio": "Apel audio",
+  "callEventMediaVideo": "Apel video",
+  "callEventMinutes": "{count, plural, one{{count} min} few{{count} min} other{{count} min}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "finalizat",
+  "callOutcomeMissed": "ratat",
+  "callOutcomeRejected": "refuzat",
+  "callOutcomeFailed": "eșuat",
+  "callOutcomeUnavailable": "indisponibil",
   "chatListNewGroup": "Grup nou",
   "chatListMyIdentity": "Identitatea mea",
   "chatListOffline": "Offline — istoricul tău este disponibil pe acest dispozitiv.",

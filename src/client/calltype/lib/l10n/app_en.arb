@@ -80,6 +80,23 @@
   "callErrorCannotStart": "Cannot start call. Check connection and microphone/camera permissions.",
   "callErrorCannotAccept": "Cannot accept call. Check microphone/camera permissions.",
   "callErrorUserOffline": "User is offline right now. Try again later.",
+  "callBusinessNotice": "This call is logged for your organization: who, when and how long. It is not recorded.",
+  "callEventMediaAudio": "Audio call",
+  "callEventMediaVideo": "Video call",
+  "callEventMinutes": "{count, plural, =1{1 min} other{{count} min}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "completed",
+  "callOutcomeMissed": "missed",
+  "callOutcomeRejected": "declined",
+  "callOutcomeFailed": "failed",
+  "callOutcomeUnavailable": "unavailable",
   "chatListNewGroup": "New group",
   "chatListMyIdentity": "My identity",
   "@chatListMyIdentity": {

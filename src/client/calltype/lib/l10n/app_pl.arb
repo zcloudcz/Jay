@@ -42,6 +42,23 @@
   "callErrorCannotStart": "Nie można rozpocząć połączenia. Sprawdź połączenie z siecią oraz uprawnienia do mikrofonu i kamery.",
   "callErrorCannotAccept": "Nie można odebrać połączenia. Sprawdź uprawnienia do mikrofonu i kamery.",
   "callErrorUserOffline": "Użytkownik jest teraz offline. Spróbuj później.",
+  "callBusinessNotice": "Ta rozmowa jest rejestrowana dla Twojej organizacji: kto, kiedy i jak długo. Nie jest nagrywana.",
+  "callEventMediaAudio": "Rozmowa głosowa",
+  "callEventMediaVideo": "Rozmowa wideo",
+  "callEventMinutes": "{count, plural, one{{count} min} few{{count} min} many{{count} min} other{{count} min}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "zakończona",
+  "callOutcomeMissed": "nieodebrana",
+  "callOutcomeRejected": "odrzucona",
+  "callOutcomeFailed": "nieudana",
+  "callOutcomeUnavailable": "niedostępna",
   "chatListNewGroup": "Nowa grupa",
   "chatListMyIdentity": "Moja tożsamość",
   "chatListOffline": "Jesteś offline — historia jest dostępna na tym urządzeniu.",

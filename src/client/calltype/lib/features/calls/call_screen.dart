@@ -19,6 +19,10 @@ class CallScreen extends StatelessWidget {
         CallError.cannotStart => l10n.callErrorCannotStart,
         CallError.cannotAccept => l10n.callErrorCannotAccept,
         CallError.userOffline => l10n.callErrorUserOffline,
+        // Reuses the business-message wording (KB2/W2-F) — same fail-closed
+        // rule, same "try again" phrasing, no separate key needed.
+        CallError.auditorUnavailable => l10n.hubErrorAuditorUnavailable,
+        CallError.notABusinessMember => l10n.callErrorCannotStart,
         null when manager.isIncoming =>
           manager.isVideo ? l10n.callIncomingVideo : l10n.callIncomingVoice,
         null => switch (manager.state) {
@@ -38,6 +42,23 @@ class CallScreen extends StatelessWidget {
       }, child: Scaffold(
         appBar: AppBar(title: Text(l10n.callTitle)),
         body: SafeArea(child: Column(children: [
+          // Owner decision (H1/H2): a business call is metadata-logged, never
+          // "recorded" — shown to BOTH sides, before the callee even accepts,
+          // so nobody is surprised after the fact.
+          if (manager.businessGroupId != null)
+            Container(
+              width: double.infinity,
+              color: Theme.of(context).colorScheme.secondaryContainer,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                l10n.callBusinessNotice,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSecondaryContainer,
+                  fontSize: 12,
+                ),
+              ),
+            ),
           Expanded(child: manager.isVideo && manager.remoteRenderer != null
             ? Stack(children: [
                 Positioned.fill(child: RTCVideoView(manager.remoteRenderer!)),

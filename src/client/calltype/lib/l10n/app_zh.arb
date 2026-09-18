@@ -42,6 +42,23 @@
   "callErrorCannotStart": "无法发起通话。请检查网络连接以及麦克风/摄像头权限。",
   "callErrorCannotAccept": "无法接听通话。请检查麦克风/摄像头权限。",
   "callErrorUserOffline": "对方当前不在线。请稍后再试。",
+  "callBusinessNotice": "此通话将为您的组织记录：谁、何时、持续多久。通话内容不会被录制。",
+  "callEventMediaAudio": "语音通话",
+  "callEventMediaVideo": "视频通话",
+  "callEventMinutes": "{count, plural, other{{count} 分钟}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "已完成",
+  "callOutcomeMissed": "未接听",
+  "callOutcomeRejected": "已拒绝",
+  "callOutcomeFailed": "失败",
+  "callOutcomeUnavailable": "不可用",
   "chatListNewGroup": "新建群组",
   "chatListMyIdentity": "我的身份",
   "chatListOffline": "离线 — 您的聊天记录仍可在此设备上查看。",

@@ -42,6 +42,23 @@
   "callErrorCannotStart": "Hovor sa nedá začať. Skontrolujte pripojenie a povolenia pre mikrofón a kameru.",
   "callErrorCannotAccept": "Hovor sa nedá prijať. Skontrolujte povolenia pre mikrofón a kameru.",
   "callErrorUserOffline": "Používateľ je práve offline. Skúste to neskôr.",
+  "callBusinessNotice": "Tento hovor je pre vašu organizáciu zaznamenaný: kto, kedy a ako dlho. Nie je nahrávaný.",
+  "callEventMediaAudio": "Audio hovor",
+  "callEventMediaVideo": "Video hovor",
+  "callEventMinutes": "{count, plural, one{{count} min} few{{count} min} many{{count} min} other{{count} min}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "dokončený",
+  "callOutcomeMissed": "zmeškaný",
+  "callOutcomeRejected": "odmietnutý",
+  "callOutcomeFailed": "neúspešný",
+  "callOutcomeUnavailable": "nedostupné",
   "chatListNewGroup": "Nová skupina",
   "chatListMyIdentity": "Moja identita",
   "chatListOffline": "Ste offline — história je dostupná v tomto zariadení.",
