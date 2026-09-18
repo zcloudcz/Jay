@@ -28,6 +28,8 @@ import '../features/chat_list/chat_list_screen.dart';
 import '../features/contacts/contacts_screen.dart';
 import '../features/contacts/qr_scanner_screen.dart';
 import '../features/groups/group_create_screen.dart';
+import '../features/organization/organization_controller.dart';
+import '../features/organization/organization_screen.dart';
 import '../features/onboarding/onboarding_controller.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/settings/account_screen.dart';
@@ -183,7 +185,10 @@ final router = GoRouter(
     ),
     GoRoute(
       path: '/groups/create',
-      builder: (context, state) => const GroupCreateScreen(),
+      builder: (context, state) => GroupCreateScreen(
+        organizationId: state.uri.queryParameters['orgId'],
+        organizationName: state.uri.queryParameters['orgName'],
+      ),
     ),
     GoRoute(
       path: '/call/:id',
@@ -218,6 +223,15 @@ final router = GoRouter(
             // AccountScreen reads ApiClient from the provider tree.
             return const AccountScreen();
           },
+        ),
+        GoRoute(
+          path: 'organization',
+          builder: (context, state) => ChangeNotifierProvider(
+            create: (ctx) =>
+                OrganizationController(apiClient: ctx.read<ApiClient>())
+                  ..load(),
+            child: const OrganizationScreen(),
+          ),
         ),
         GoRoute(
           path: 'backup',

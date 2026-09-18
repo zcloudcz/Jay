@@ -32,11 +32,18 @@ class ApiClient {
 
   Future<Map<String, dynamic>> createGroup(
     String name,
-    List<String> memberDeviceIds,
-  ) async {
+    List<String> memberDeviceIds, {
+    String? organizationId,
+  }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/groups',
-      data: {'name': name, 'memberDeviceIds': memberDeviceIds},
+      data: {
+        'name': name,
+        'memberDeviceIds': memberDeviceIds,
+        // Omitted (not null) for anonymous groups so the request body is
+        // unchanged from before Business mode existed.
+        'organizationId': ?organizationId,
+      },
     );
     return response.data!;
   }

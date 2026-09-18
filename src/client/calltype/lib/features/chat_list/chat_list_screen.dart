@@ -8,6 +8,7 @@ import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
 import '../../shared/widgets/main_navigation_bar.dart';
 import '../contacts/contacts_controller.dart';
+import '../organization/business_banner.dart';
 import 'chat_list_controller.dart';
 
 /// Live conversations from the device database, including offline history.
@@ -153,10 +154,23 @@ class _ChatListScreenState extends State<ChatListScreen> {
                           name: title,
                           isBot: contact?.isBot ?? false,
                         ),
-                        subtitle: Text(
-                          row.type == 'group'
-                              ? l10n.chatListGroupConversation
-                              : l10n.chatListEncryptedConversation,
+                        subtitle: Row(
+                          children: [
+                            if (row.organizationName != null) ...[
+                              BusinessBadge(
+                                organizationName: row.organizationName!,
+                              ),
+                              const SizedBox(width: 4),
+                            ],
+                            Flexible(
+                              child: Text(
+                                row.type == 'group'
+                                    ? l10n.chatListGroupConversation
+                                    : l10n.chatListEncryptedConversation,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                         trailing: Column(
                           mainAxisAlignment: MainAxisAlignment.center,

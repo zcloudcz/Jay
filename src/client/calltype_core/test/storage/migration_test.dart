@@ -25,8 +25,8 @@ const _schemaV1 = [
 ];
 
 void main() {
-  test('v1 -> v2 keeps contacts, messages and sessions and adds bots + '
-      'channels', () async {
+  test('v1 -> v3 keeps contacts, messages and sessions and adds bots + '
+      'channels + organization columns', () async {
     final db = AppDatabase(
       NativeDatabase.memory(
         setup: (raw) {
@@ -105,8 +105,14 @@ void main() {
     expect(await db.select(db.channelPosts).get(), hasLength(1));
     expect(await db.select(db.blockedChannels).get(), hasLength(1));
 
+    // v3 (Jay Business mode) columns take their null default on an existing
+    // (anonymous) conversation.
+    final conversation = await db.select(db.conversations).getSingle();
+    expect(conversation.organizationId, isNull);
+    expect(conversation.organizationName, isNull);
+
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 2);
+    expect(version.read<int>('user_version'), 3);
   });
 
   test('a fresh install creates the v2 schema directly', () async {
