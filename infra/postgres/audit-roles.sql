@@ -55,5 +55,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE calltype_audit_ops IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE calltype_audit_ops IN SCHEMA public
     GRANT USAGE ON SEQUENCES TO calltype_audit_app;
 -- The migrations history table is bookkeeping for the ops role only.
-REVOKE INSERT ON TABLE "__EFMigrationsHistory" FROM calltype_audit_app;
+-- Conditional: the table only exists once EF migrations have run. The test
+-- fixture builds the schema with EnsureCreated (no history table), and an
+-- unconditional REVOKE would abort the whole script with 42P01.
+DO $$
+BEGIN
+    IF to_regclass('public."__EFMigrationsHistory"') IS NOT NULL THEN
+        REVOKE INSERT ON TABLE "__EFMigrationsHistory" FROM calltype_audit_app;
+    END IF;
+END $$;
 

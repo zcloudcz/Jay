@@ -43,8 +43,11 @@ public class BusinessGroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Business_group_creation_adds_the_auditor_as_a_member()
     {
+        // Auditor is a real device (GroupMember.DeviceId is an FK to Devices).
+        // Registered first: the helper leaves Client authenticated as the LAST
+        // registered device, which must be the creator.
+        var (auditor, _, _) = await RegisterAndAuthenticateAsync();
         var (creator, _, _) = await RegisterAndAuthenticateAsync();
-        var auditor = Guid.NewGuid();
         var organizationId = await CreateOrganizationAsync(auditor, creator);
 
         var response = await Client.PostAsJsonAsync("/groups/business", new { organizationId, memberDeviceIds = Array.Empty<Guid>() });
@@ -72,8 +75,10 @@ public class BusinessGroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Business_group_creation_rejects_a_non_enrolled_member()
     {
-        var (creator, _, _) = await RegisterAndAuthenticateAsync();
+        // Outsider first so the request is made by the enrolled creator — otherwise
+        // the 403 would come from the caller being non-enrolled, not the member.
         var (outsider, _, _) = await RegisterAndAuthenticateAsync();
+        var (creator, _, _) = await RegisterAndAuthenticateAsync();
         var organizationId = await CreateOrganizationAsync(Guid.NewGuid(), creator); // outsider not enrolled
 
         var response = await Client.PostAsJsonAsync("/groups/business",
@@ -85,8 +90,11 @@ public class BusinessGroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Auditor_cannot_be_removed_from_a_business_group()
     {
+        // Auditor is a real device (GroupMember.DeviceId is an FK to Devices).
+        // Registered first: the helper leaves Client authenticated as the LAST
+        // registered device, which must be the creator.
+        var (auditor, _, _) = await RegisterAndAuthenticateAsync();
         var (creator, _, _) = await RegisterAndAuthenticateAsync();
-        var auditor = Guid.NewGuid();
         var organizationId = await CreateOrganizationAsync(auditor, creator);
         var createResponse = await Client.PostAsJsonAsync("/groups/business", new { organizationId, memberDeviceIds = Array.Empty<Guid>() });
         var groupId = (await createResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("groupId").GetGuid();
@@ -101,9 +109,11 @@ public class BusinessGroupEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Adding_a_non_enrolled_device_to_a_business_group_is_rejected()
     {
-        var (creator, _, _) = await RegisterAndAuthenticateAsync();
+        // Outsider first so Client stays authenticated as the creator (see above).
         var (outsider, _, _) = await RegisterAndAuthenticateAsync();
-        var organizationId = await CreateOrganizationAsync(Guid.NewGuid(), creator);
+        var (auditor, _, _) = await RegisterAndAuthenticateAsync();
+        var (creator, _, _) = await RegisterAndAuthenticateAsync();
+        var organizationId = await CreateOrganizationAsync(auditor, creator);
         var createResponse = await Client.PostAsJsonAsync("/groups/business", new { organizationId, memberDeviceIds = Array.Empty<Guid>() });
         var groupId = (await createResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("groupId").GetGuid();
 

@@ -210,18 +210,22 @@ public class OrganizationEndpointsTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task Admin_audit_csv_export_escapes_formula_looking_event_types()
+    public async Task Admin_audit_csv_export_never_starts_a_cell_with_a_formula_from_the_org_name()
     {
         await CreateAccountLinkedDeviceAsync("owner10@example.com");
         // The org name flows into AdminAuditEvent.DetailsJson for "org_created" —
-        // a name starting with '=' is exactly the formula-injection case KB6 must escape.
+        // a name starting with '=' is the formula-injection input for KB6. The name
+        // lands INSIDE the JSON details cell (which starts with '{'), so a spreadsheet
+        // never evaluates it; the quote-prefixing of cells that do start with '=' is
+        // covered by OrganizationCsvEscapingTests.
         var response = await Client.PostAsJsonAsync("/orgs", new { name = "=cmd|' /C calc'!A1" });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var orgId = Guid.Parse((await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("organizationId").GetString()!);
 
         var csv = await Client.GetStringAsync($"/orgs/{orgId}/admin-audit?format=csv");
-        csv.Should().NotContain("\"=cmd"); // must be prefixed with a quote before the '='
-        csv.Should().Contain("'=cmd");
+        csv.Should().Contain("=cmd", "the event with the hostile name must be in the export");
+        csv.Should().NotContain(",\"=", "no cell may start with '='");
+        csv.Should().NotContain("\n\"=", "no cell may start with '='");
     }
 
     // -----------------------------------------------------------------
@@ -237,7 +241,12 @@ public class OrganizationEndpointsTests : IntegrationTestBase
             builder.ConfigureAppConfiguration((_, config) =>
                 config.AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:Audit"] = "" })));
 
+        // Authenticated on purpose: auth runs before the handler, so an anonymous
+        // call gets 401 and never reveals whether business mode is on. The token is
+        // valid here because the derived factory shares the JWT secret and database.
+        var (_, token, _) = await RegisterAndAuthenticateAsync();
         using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         var response = await client.PostAsJsonAsync("/orgs", new { name = "Acme" });
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString().Should().Be("business_mode_disabled");

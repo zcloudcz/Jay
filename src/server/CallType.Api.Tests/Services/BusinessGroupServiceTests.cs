@@ -22,7 +22,8 @@ public class BusinessGroupServiceTests : IntegrationTestBase
     {
         var organizationId = Guid.NewGuid();
         var otherOrganizationId = Guid.NewGuid();
-        var device = Guid.NewGuid();
+        // Real registered device: GroupMember.DeviceId is an FK to Devices.
+        var (device, _, _) = await RegisterAndAuthenticateAsync();
         var businessGroup = Guid.NewGuid();
         var otherOrgGroup = Guid.NewGuid();
         var anonymousGroup = Guid.NewGuid();
@@ -58,7 +59,8 @@ public class BusinessGroupServiceTests : IntegrationTestBase
     public async Task Revocation_never_removes_the_auditor_membership()
     {
         var organizationId = Guid.NewGuid();
-        var auditor = Guid.NewGuid();
+        // Real registered device: GroupMember.DeviceId is an FK to Devices.
+        var (auditor, _, _) = await RegisterAndAuthenticateAsync();
         var group = Guid.NewGuid();
 
         using (var scope = Factory.Services.CreateScope())
