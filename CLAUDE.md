@@ -230,6 +230,11 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
 | `POST /channels/{id}/report` | Abuse report (follower, 5 per device per day), 204 | ✅ Done |
 | `POST /channels/{id}/attachments`, `GET /channels/{id}/attachments/{name}` | Unencrypted image ≤ `Channels:MaxImageBytes` in Blob container `channel-media` (413 over limit) | ✅ Done |
 | `SignalR /hub` | Message relay, typing, call signaling; channels: `JoinChannels`, `LeaveChannel`, events `ReceiveChannelPost`, `ChannelDeleted` | ✅ Done |
+| `GET /accounts/{id}/mfa` | TOTP MFA status (`enabled`, `confirmedAt`, `backupCodesRemaining`) | ✅ Done |
+| `POST /accounts/{id}/mfa/enroll/start` / `.../enroll/confirm` | Start/confirm TOTP enrollment; confirm returns 10 one-time backup codes | ✅ Done |
+| `POST /accounts/{id}/mfa/verify` | Verify a TOTP or backup code, returns a short-lived step-up token (`amr=totp`) | ✅ Done |
+| `POST /accounts/{id}/mfa/backup-codes/regenerate` | Invalidate + reissue backup codes (requires a step-up token) | ✅ Done |
+| `POST /accounts/{id}/mfa/disable` | Disable MFA (requires a valid code) | ✅ Done |
 
 ## Conventions
 

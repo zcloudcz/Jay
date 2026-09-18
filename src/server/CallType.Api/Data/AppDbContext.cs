@@ -38,6 +38,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ChannelReaction> ChannelReactions => Set<ChannelReaction>();
     public DbSet<ChannelPollVote> ChannelPollVotes => Set<ChannelPollVote>();
     public DbSet<ChannelReport> ChannelReports => Set<ChannelReport>();
+    public DbSet<AccountMfa> AccountMfas => Set<AccountMfa>();
+    public DbSet<AccountMfaBackupCode> AccountMfaBackupCodes => Set<AccountMfaBackupCode>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -88,6 +90,30 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // Email is the only PII — unique constraint enables login lookups.
             entity.Property(a => a.Email).HasMaxLength(255);
             entity.HasIndex(a => a.Email).IsUnique();
+        });
+
+        // -----------------------------------------------------------------
+        // AccountMfa / AccountMfaBackupCode (N03a) — cascade on Account delete
+        // so GDPR account deletion (N09) needs no extra code here.
+        // -----------------------------------------------------------------
+        modelBuilder.Entity<AccountMfa>(entity =>
+        {
+            entity.HasKey(m => m.AccountId);
+
+            entity.HasOne(m => m.Account)
+                  .WithOne()
+                  .HasForeignKey<AccountMfa>(m => m.AccountId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AccountMfaBackupCode>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+
+            entity.HasOne(c => c.AccountMfa)
+                  .WithMany(m => m.BackupCodes)
+                  .HasForeignKey(c => c.AccountId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         // -----------------------------------------------------------------

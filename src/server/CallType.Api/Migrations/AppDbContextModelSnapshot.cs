@@ -66,6 +66,60 @@ namespace CallType.Api.Migrations
                     b.ToTable("AccountDevices");
                 });
 
+            modelBuilder.Entity("CallType.Api.Models.AccountMfa", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<byte[]>("EncryptedSecret")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<long?>("LastAcceptedStep")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset?>("LockedUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("AccountId");
+
+                    b.ToTable("AccountMfas");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.AccountMfaBackupCode", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
+
+                    b.ToTable("AccountMfaBackupCodes");
+                });
+
             modelBuilder.Entity("CallType.Api.Models.Backup", b =>
                 {
                     b.Property<long>("Id")
@@ -502,6 +556,28 @@ namespace CallType.Api.Migrations
                     b.Navigation("Device");
                 });
 
+            modelBuilder.Entity("CallType.Api.Models.AccountMfa", b =>
+                {
+                    b.HasOne("CallType.Api.Models.Account", "Account")
+                        .WithOne()
+                        .HasForeignKey("CallType.Api.Models.AccountMfa", "AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Account");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.AccountMfaBackupCode", b =>
+                {
+                    b.HasOne("CallType.Api.Models.AccountMfa", "AccountMfa")
+                        .WithMany("BackupCodes")
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AccountMfa");
+                });
+
             modelBuilder.Entity("CallType.Api.Models.Backup", b =>
                 {
                     b.HasOne("CallType.Api.Models.Account", "Account")
@@ -649,6 +725,11 @@ namespace CallType.Api.Migrations
                     b.Navigation("AccountDevices");
 
                     b.Navigation("Backups");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.AccountMfa", b =>
+                {
+                    b.Navigation("BackupCodes");
                 });
 
             modelBuilder.Entity("CallType.Api.Models.Channel", b =>

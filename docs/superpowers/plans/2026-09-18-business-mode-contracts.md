@@ -428,3 +428,108 @@ handler in `signalr_client.dart`, ARB strings in all 19 locales, and widget
 tests. The Testcontainers integration suite (`EmergencyEndpointsTests.cs`)
 was added compile-only and is `BLOCKED` — no Docker on this machine, same
 status as `BusinessModeIntegrationTests`/`AuditArchiveEndpointsTests`.
+
+## N03 — MFA (server side, package N03a)
+
+TOTP MFA state lives in the DELIVERY database (`AccountMfa`, `AccountMfaBackupCode`
+in `CallType.Api.Models`/`AppDbContext` — NOT `CallType.Audit`), because MFA
+is a property of an Account, which is a Delivery concept; Business mode only
+adds the *requirement* that Owner/OrgAdmin/AuditorApprover pass it (N03b).
+
+### Endpoints (`Endpoints/MfaEndpoints.cs`)
+
+All under `RequireAuthorization()` + `RequireRateLimiting("auth")`, caller
+device must be linked to `{accountId}` (403 `Results.Forbid()` otherwise,
+same rule as `AccountEndpoints`/`OrganizationEndpoints`). No `BusinessModeOptions`
+gate — MFA itself works with or without Business mode enabled.
+
+| Route | Success | Notes |
+| --- | --- | --- |
+| `GET /accounts/{id}/mfa` | 200 `{ enabled, confirmedAt, backupCodesRemaining }` | |
+| `POST /accounts/{id}/mfa/enroll/start` | 200 `{ secretBase32, otpauthUri }` | 409 `mfa_already_enabled`; re-start before confirm replaces the pending secret |
+| `POST /accounts/{id}/mfa/enroll/confirm { code }` | 200 `{ backupCodes: string[10] }` | 400 `mfa_invalid_code` |
+| `POST /accounts/{id}/mfa/verify { code \| backupCode }` | 200 `{ token, expiresAt }` | 401 `mfa_invalid_code`, 409 `mfa_code_reused`, 429 `mfa_locked`, 409 `mfa_not_enabled` |
+| `POST /accounts/{id}/mfa/backup-codes/regenerate` | 200 `{ backupCodes }` | requires a valid step-up token (`MfaAuthHelper.RequireStepUp`) |
+| `POST /accounts/{id}/mfa/disable { code }` | 204 | requires a valid TOTP code; deletes the `AccountMfa` row (cascade removes backup codes). Any step-up token minted before the disable stays valid until it expires — a genuinely fresh lock requires N03b to also re-check on each call, which it does (RequireStepUp is called per-request, not cached) |
+
+Every MFA endpoint also answers 503 `{ error, code: "mfa_not_configured" }`
+when `Mfa:EncryptionKey` is missing/malformed — this is deliberately
+different from `business_mode_disabled` (503) and is checked independently.
+
+### `MfaAuthHelper.RequireStepUp` — the N03b integration seam
+
+```csharp
+namespace CallType.Api.Endpoints;
+
+public static class MfaAuthHelper
+{
+    public const int DefaultWindowMinutes = 15;
+
+    public static IResult? RequireStepUp(ClaimsPrincipal user, Guid accountId, TimeProvider clock);
+}
+```
+
+Null = the caller's bearer token carries `amr=totp`, `mfa_acc == accountId`
+and `mfa_at` within `DefaultWindowMinutes` — a pure claims check, no DB round
+trip (the token was already minted by `JwtService.GenerateStepUpToken` after
+a DB-backed TOTP/backup-code verification). Non-null = a ready-to-return 403
+`{ error, code: "mfa_required" }`.
+
+**N03b must call `MfaAuthHelper.RequireStepUp(user, accountId, clock)` before
+every mutating call in:**
+
+- `Endpoints/OrganizationEndpoints.cs` — every route currently gated by
+  `RequireAccountAsync` (i.e. every OrgAdmin+ route: `PATCH /orgs/{id}`,
+  `PUT`/`DELETE /orgs/{id}/members/{accountId}`, `POST /orgs/{id}/invites`,
+  `DELETE /orgs/{id}/enrollments/{deviceId}`, `PUT /orgs/{id}/auditor`,
+  `GET /orgs/{id}/admin-audit`). `POST /orgs` itself is create-an-org-as-Owner
+  — see the "not covered" list below.
+- `Endpoints/EmergencyEndpoints.cs` — every OrgAdmin+ route (`POST`/`GET`/`DELETE
+  /orgs/{id}/emergency/kits*`, `POST /orgs/{id}/emergency/drills*`,
+  `GET /orgs/{id}/emergency/proof`).
+
+**NOT covered by N03b** (per the owner's decision — these are either not yet
+privileged, or are the auditor device's own path, or need to work with no MFA
+enrolled yet):
+
+- `POST /orgs/{id}/audit/records` (the archiver bot's own write path,
+  `Endpoints/AuditArchiveEndpoints.cs`) — authenticated as the org's
+  `AuditorDeviceId`, not a human admin.
+- Member-level reads (`GET /orgs/mine`, `GET /orgs/{id}`).
+- `POST /orgs`, `POST /orgs/enroll`, `POST /orgs/emergency/enroll` — a fresh
+  Owner has no MFA enrolled yet at org-creation time (v1 has no grace period,
+  but also no chicken-and-egg: create-org itself isn't gated, only
+  *administering* an org is).
+
+The account whose MFA state to check is always the org's/kit's/drill's
+`OrganizationId` owner-side actor — i.e. the same `accountId` the endpoint
+already resolves via `RequireAccountAsync`/`LinkedAccountOrNullAsync`, not a
+new lookup.
+
+### `JwtService.GenerateStepUpToken`
+
+```csharp
+public (string Token, DateTimeOffset ExpiresAt) GenerateStepUpToken(
+    Guid deviceId, string userHandle, Guid accountId, TimeSpan lifetime, DateTimeOffset mfaAt);
+```
+
+Mints a normal-shaped device JWT (`sub`, `handle`, `iat`, `jti`) plus
+`amr=totp`, `mfa_at`, `mfa_acc`, with its own `exp` set to `lifetime`
+(`Mfa:StepUpMinutes`, default 15 — short, NOT the normal 24h). `GenerateToken`
+and `RefreshToken` never copy these three claims forward — a refreshed token
+is always a plain token, even if the token being refreshed was itself a
+step-up token (see `MfaEndpointsTests.RefreshToken_NeverCarriesStepUpClaims`).
+
+### Config
+
+- `Mfa:EncryptionKey` (env `Mfa__EncryptionKey`) — base64, 32 bytes, AES-256-GCM
+  key for `MfaEncryptionService`. Required by `ProductionConfigurationValidator`
+  whenever `ConnectionStrings:Audit` is set (Business mode on); a no-op
+  otherwise. Missing/malformed key = MFA endpoints answer 503
+  `mfa_not_configured` AND `MfaAuthHelper.RequireStepUp` still returns 403
+  (no token can ever carry a valid `amr=totp` claim if nothing can enrol) —
+  N03b endpoints stay locked, never silently open.
+- `Mfa:StepUpMinutes` (default 15) — step-up token lifetime.
+- `RateLimiting:AuthPermitLimit` (default 10) / `RateLimiting:ApiPermitLimit`
+  (default 100) — the two rate-limiter policies in `Program.cs` are now
+  configurable; MFA endpoints use `"auth"`.

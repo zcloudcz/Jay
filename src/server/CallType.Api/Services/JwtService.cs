@@ -87,6 +87,50 @@ public class JwtService
     }
 
     /// <summary>
+    /// Creates a short-lived "step-up" JWT proving a passed TOTP/backup-code
+    /// check (N03a). It carries the same device identity as a normal token
+    /// plus amr=totp, mfa_at (unix seconds) and mfa_acc (the account the
+    /// check was against) — MfaAuthHelper.RequireStepUp reads these three
+    /// claims without a DB round trip. Its own `exp` is the step-up lifetime
+    /// (short, not the normal 24h), so an expired step-up token is already
+    /// rejected by JWT bearer validation before a handler ever sees it.
+    ///
+    /// IMPORTANT: GenerateToken/RefreshToken above must never copy these
+    /// claims forward — they build their claim list from scratch, so a
+    /// refreshed token is always a plain (non-step-up) token even if the
+    /// token being refreshed was itself a step-up token.
+    /// </summary>
+    public (string Token, DateTimeOffset ExpiresAt) GenerateStepUpToken(
+        Guid deviceId, string userHandle, Guid accountId, TimeSpan lifetime, DateTimeOffset mfaAt)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expiresAt = now.Add(lifetime);
+
+        var claims = new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, deviceId.ToString()),
+            new Claim("handle", userHandle),
+            new Claim(JwtRegisteredClaimNames.Iat, now.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim("amr", "totp"),
+            new Claim("mfa_at", mfaAt.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
+            new Claim("mfa_acc", accountId.ToString())
+        };
+
+        var credentials = new SigningCredentials(_signingKey, SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            issuer: _issuer,
+            audience: null,
+            claims: claims,
+            notBefore: now.UtcDateTime,
+            expires: expiresAt.UtcDateTime,
+            signingCredentials: credentials);
+
+        return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+    }
+
+    /// <summary>
     /// Validates a token for the refresh flow. Accepts tokens that have expired
     /// within the grace period — the caller can exchange an expired-but-recent
     /// token for a fresh one without re-authenticating with the device secret.

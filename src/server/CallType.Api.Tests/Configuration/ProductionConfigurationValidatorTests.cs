@@ -246,9 +246,40 @@ public class ProductionConfigurationValidatorTests
     {
         var values = new Dictionary<string, string?>(ValidProductionConfig)
         {
+            ["ConnectionStrings:Audit"] = "Host=audit-db;Port=5432;Database=calltype_audit;Username=calltype_audit;Password=S3cure-Audit-Pass",
+            // Required once ConnectionStrings:Audit is set (N03) — see Mfa_EncryptionKey_* tests below.
+            ["Mfa:EncryptionKey"] = "ZGV2LW1mYS1rZXktMzItYnl0ZXMtbG9jYWwtb25seSE="
+        };
+        var config = BuildConfig(values);
+
+        var act = () => ProductionConfigurationValidator.Validate(config, Env(Environments.Production));
+
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Audit_connection_without_mfa_encryption_key_is_rejected()
+    {
+        // N03: MFA is mandatory for Owner/OrgAdmin/AuditorApprover once Business
+        // mode is on — booting without a key would leave org administration
+        // permanently locked (every MFA endpoint 503, every step-up check 403).
+        var values = new Dictionary<string, string?>(ValidProductionConfig)
+        {
             ["ConnectionStrings:Audit"] = "Host=audit-db;Port=5432;Database=calltype_audit;Username=calltype_audit;Password=S3cure-Audit-Pass"
         };
         var config = BuildConfig(values);
+
+        var act = () => ProductionConfigurationValidator.Validate(config, Env(Environments.Production));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Mfa:EncryptionKey*");
+    }
+
+    [Fact]
+    public void Mfa_encryption_key_is_not_required_when_business_mode_is_off()
+    {
+        // Anonymous-only deployments (no ConnectionStrings:Audit) must not be
+        // forced to set an MFA key they'll never use.
+        var config = BuildConfig(ValidProductionConfig);
 
         var act = () => ProductionConfigurationValidator.Validate(config, Env(Environments.Production));
 

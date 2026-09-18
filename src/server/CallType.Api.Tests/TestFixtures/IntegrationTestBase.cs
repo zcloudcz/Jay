@@ -103,7 +103,10 @@ public abstract class IntegrationTestBase : IAsyncLifetime
                         // Presence of this key is what turns Business mode on
                         // (BusinessModeOptions) — Program.cs reads it directly,
                         // so no ConfigureServices override is needed for AuditDbContext.
-                        ["ConnectionStrings:Audit"] = AuditConnectionString
+                        ["ConnectionStrings:Audit"] = AuditConnectionString,
+                        // 32 zero bytes, base64 — MfaEncryptionService just needs 32 raw
+                        // bytes; this is a test fixture, not a production key.
+                        ["Mfa:EncryptionKey"] = Convert.ToBase64String(new byte[32])
                     });
                 });
 

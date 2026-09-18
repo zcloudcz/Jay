@@ -84,6 +84,13 @@ public static class ProductionConfigurationValidator
             // formatting/parameter order, so compare the login role itself.
             else if (dbConnection is not null && SameDatabaseUser(auditConnection, dbConnection))
                 violations.Add("ConnectionStrings:Audit");
+
+            // MFA is mandatory for Owner/OrgAdmin/AuditorApprover (N03) once
+            // business mode is on — without this key every MFA endpoint
+            // answers 503 and organization administration stays locked, so
+            // boot must fail loudly instead of deploying into that state.
+            if (string.IsNullOrEmpty(configuration["Mfa:EncryptionKey"]))
+                violations.Add("Mfa:EncryptionKey");
         }
 
         var blobConnection = configuration.GetConnectionString("BlobStorage");

@@ -7,10 +7,11 @@
 // http://localhost:8080). NEVER point this at beta/production: the audit
 // database is append-only, every run leaves an undeletable organization.
 //
-// The server allows 10 "auth" calls per minute per IP (token, device link,
-// emergency enroll). Both E2E files together use exactly 10, which is why
-// this test is frugal with devices — and why a re-run within the same minute
-// fails with 429.
+// The server's default "auth" limit is 10 calls/minute per IP (token, device
+// link, emergency enroll); local docker-compose raises it to 60
+// (RateLimiting__AuthPermitLimit) because these E2E files need more than 10.
+// This test still stays frugal with devices, since production keeps the
+// stricter default.
 @Timeout(Duration(minutes: 2))
 library;
 
