@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/network/api_client.dart';
+import '../../../core/storage/secure_storage.dart';
 import '../../../l10n/l10n.dart';
+import '../mfa_flow.dart';
 import 'emergency_controller.dart';
 
 /// Admin screen for the emergency channel (E07 deliverable 5): issue/revoke
@@ -22,6 +25,22 @@ class EmergencyScreen extends StatefulWidget {
 class _EmergencyScreenState extends State<EmergencyScreen> {
   final _labelController = TextEditingController();
   final _countController = TextEditingController(text: '5');
+
+  @override
+  void initState() {
+    super.initState();
+    // Same reasoning as OrganizationScreen: the MFA prompt needs a
+    // BuildContext, so it is wired before load() runs, not inside create().
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final controller = context.read<EmergencyController>();
+      final accountId = await context.read<SecureStorage>().getAccountId();
+      if (!mounted || accountId == null) return;
+      controller.promptForMfa = () =>
+          runMfaStepUpFlow(context, context.read<ApiClient>(), accountId);
+      await controller.load();
+    });
+  }
 
   @override
   void dispose() {
@@ -43,6 +62,13 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
         _showIssuedKitDialog(context, controller.justIssuedKit!);
         controller.clearJustIssuedKit();
       });
+    }
+
+    if (controller.locked) {
+      return Scaffold(
+        appBar: AppBar(title: Text(l10n.emergencyTitle)),
+        body: MfaLockedPlaceholder(onUnlock: () => controller.load()),
+      );
     }
 
     return Scaffold(

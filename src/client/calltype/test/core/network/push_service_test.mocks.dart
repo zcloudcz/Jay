@@ -65,6 +65,18 @@ class MockApiClient extends _i1.Mock implements _i4.ApiClient {
           as _i2.Dio);
 
   @override
+  void setStepUpToken(String? token, DateTime? expiresAt) => super.noSuchMethod(
+    Invocation.method(#setStepUpToken, [token, expiresAt]),
+    returnValueForMissingStub: null,
+  );
+
+  @override
+  void clearStepUp() => super.noSuchMethod(
+    Invocation.method(#clearStepUp, []),
+    returnValueForMissingStub: null,
+  );
+
+  @override
   _i5.Future<Map<String, dynamic>> createGroup(
     String? name,
     List<String>? memberDeviceIds, {

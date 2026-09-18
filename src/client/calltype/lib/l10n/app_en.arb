@@ -568,5 +568,48 @@
   "emergencyEnrollSuccess": "Enrolled — opening the emergency conversation",
   "emergencyDrillPromptTitle": "Emergency drill",
   "emergencyDrillPromptBody": "Please confirm you received this message.",
-  "emergencyDrillConfirmButton": "Confirm"
+  "emergencyDrillConfirmButton": "Confirm",
+  "mfaSectionTitle": "Two-step verification",
+  "mfaStatusEnabled": "Enabled.",
+  "mfaStatusDisabled": "Not enabled yet. Organization administration requires it.",
+  "mfaEnableButton": "Enable",
+  "mfaDisableButton": "Disable",
+  "mfaRegenerateButton": "Regenerate backup codes",
+  "mfaBackupCodesRemaining": "{count} backup codes remaining",
+  "@mfaBackupCodesRemaining": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "mfaRequiredExplainerTitle": "Verification required",
+  "mfaRequiredExplainerBody": "Administering this organization requires two-step verification. Set it up now to continue.",
+  "mfaEnrollButton": "Set up",
+  "mfaCancelButton": "Cancel",
+  "mfaPassphraseTitle": "Confirm your passphrase",
+  "mfaPassphraseLabel": "Account passphrase",
+  "mfaPassphraseSubmit": "Continue",
+  "mfaEnrollScanTitle": "Scan with your authenticator app",
+  "mfaEnrollScanBody": "Scan this QR code, or enter the code below manually, then type the 6-digit code your authenticator shows.",
+  "mfaEnrollSecretLabel": "Or enter this code manually:",
+  "mfaEnrollCodeLabel": "6-digit code",
+  "mfaEnrollConfirmButton": "Confirm",
+  "mfaBackupCodesTitle": "Your backup codes",
+  "mfaBackupCodesWarning": "These codes are shown only once and cannot be retrieved again. Save them somewhere safe.",
+  "mfaBackupCodesCopyAll": "Copy all",
+  "mfaBackupCodesDone": "Done",
+  "mfaVerifyTitle": "Verify it's you",
+  "mfaVerifyCodeLabel": "6-digit code",
+  "mfaVerifyBackupCodeLabel": "Backup code",
+  "mfaVerifyUseBackupCode": "Use a backup code instead",
+  "mfaVerifyButton": "Verify",
+  "mfaLockedTitle": "Verification needed",
+  "mfaLockedBody": "This admin area is locked until you complete two-step verification.",
+  "mfaUnlockButton": "Unlock",
+  "mfaErrorInvalidCode": "That code is not valid. Try again.",
+  "mfaErrorCodeReused": "This code was already used. Wait for the next one.",
+  "mfaErrorLocked": "Too many attempts. Try again in 15 minutes.",
+  "mfaErrorNotConfigured": "Administration is temporarily unavailable.",
+  "mfaErrorAlreadyEnabled": "Two-step verification is already enabled."
 }

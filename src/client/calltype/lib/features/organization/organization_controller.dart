@@ -1,3 +1,4 @@
+import 'package:calltype_core/network/mfa_api.dart';
 import 'package:calltype_core/network/organization_api.dart';
 import 'package:calltype_core/network/organization_dtos.dart';
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,10 @@ import '../../core/network/api_client.dart';
 /// organization. See `docs/superpowers/plans/2026-09-18-business-mode.md`
 /// (E05) for what each action means; this controller is a thin wrapper over
 /// [OrganizationApi] plus the loading/error state the screen needs.
+///
+/// Every admin call (anything past "am I a member") is gated server-side by
+/// N03b on a step-up token — [_run] wraps each one in [withMfa] so a 403
+/// `mfa_required` shows the screen's MFA prompt instead of a raw error.
 class OrganizationController extends ChangeNotifier {
   OrganizationController({required ApiClient apiClient}) : _api = apiClient;
 
@@ -34,14 +39,26 @@ class OrganizationController extends ChangeNotifier {
   /// server error code.
   String? errorCode;
 
+  /// True once an admin call answered `mfa_required` and the user cancelled
+  /// the step-up prompt — the screen shows a calm locked state instead of
+  /// retrying itself. Set by the screen; null (e.g. in a widget test with no
+  /// dialog wired) means every prompt is treated as cancelled.
+  Future<bool> Function()? promptForMfa;
+  bool locked = false;
+
   Future<void> _run(Future<void> Function() action) async {
     isLoading = true;
     errorCode = null;
     notifyListeners();
     try {
-      await action();
+      await withMfa(action, () => promptForMfa?.call() ?? Future.value(false));
+      locked = false;
     } catch (e) {
-      errorCode = organizationErrorCode(e) ?? 'unknown';
+      if (unwrapMfaError(e) is MfaRequiredException) {
+        locked = true;
+      } else {
+        errorCode = organizationErrorCode(e) ?? 'unknown';
+      }
     } finally {
       isLoading = false;
       notifyListeners();
