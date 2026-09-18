@@ -183,3 +183,44 @@ at runtime.
 
 - `Canonicalize` encodes `null` as U+0000 (distinct from `""`) and **throws `ArgumentException`** if a value contains U+001F or U+0000. Validate/sanitize free-text input (organization name, access-request reason) at the API boundary and return 422 rather than letting this surface as 500.
 - `infra/postgres/audit-roles.sql` sets `ALTER DEFAULT PRIVILEGES` so tables from later migrations are readable/insertable by the app role; migrations must therefore be run as `calltype_audit_ops`.
+
+## E03-lite — archive write API + archiver provisioning (for E05/E07)
+
+### `POST /orgs/{orgId}/audit/records` (`Endpoints/AuditArchiveEndpoints.cs`)
+
+Caller must be authenticated as the organization's `AuditorDeviceId` (403 otherwise; 404 if the org doesn't exist; 503 `business_mode_disabled` if business mode isn't configured).
+
+Request body:
+```json
+{
+  "groupId": "guid",
+  "messageId": "guid",
+  "senderDeviceId": "guid",
+  "sentAt": "2026-09-18T12:00:00Z",
+  "kind": "text|attachment|call",
+  "sizeBytes": 42,
+  "contentHash": "64 hex chars (SHA-256 of the plaintext)"
+}
+```
+- 422 if `kind` isn't one of the three values, `sizeBytes` is negative, or `contentHash` isn't 64 hex chars.
+- **Idempotent on `(organizationId, messageId)`** (`MessageId` is already a globally unique GUID per `SendReliableGroupMessage`) — a repeat returns `200` with the *existing* record and appends nothing. This is what makes ACK-after-write safe to retry.
+- Response `200`: `AuditRecordDto { organizationId, groupId, messageId, senderDeviceId, sentAt, archivedAt, kind, sizeBytes, contentHash (hex), sequence, hash (hex) }`.
+- Sequencing/hash-chaining is optimistic, not lock-based: the app DB role has only `INSERT`/`SELECT` (KB3), so `SELECT ... FOR UPDATE` isn't available (it needs `UPDATE` privilege in Postgres). The endpoint reads the last row, computes the next `Sequence`/`Hash`, and relies on the unique index on `(OrganizationId, Sequence)` to fail concurrent writers, who then retry (bounded, 5 attempts) against a re-read last row. A single archiver process per organization (this package's design) makes contention a non-issue in practice.
+
+### `GET /orgs/{orgId}/audit/records/count` (admins only)
+
+Requires the caller device to be linked (`AppDbContext.AccountDevices`) to an `Account` with an active `OrgMember` role of `Owner` or `OrgAdmin` in that organization (403 otherwise; 404 if org doesn't exist; 503 if business mode disabled). Response: `AuditRecordCountDto { count, lastSequence, lastHash (hex, null if empty) }` — a cheap "is the archive alive" signal, not a substitute for reading the chain.
+
+### `src/bots/jay_archiver` provisioning flow
+
+```
+jay_archiver provision --api <url> --org <orgId> --state <dir> --admin-token <jwt>
+```
+Registers a fresh bot device (`isBot: true`, via `calltype_bot`'s `CallTypeBot.start`), persists its keys in an `EncryptedFileStore` under `<dir>` (needs `BOT_STORE_KEY` in the environment, same convention as `calltype_bot`), then calls `PUT /orgs/{orgId}/auditor { deviceId }` with the **caller-supplied admin JWT** (never the new device's own token — it has no organization membership yet to authorize with). Prints only the device id to stdout.
+
+```
+jay_archiver run --api <url> --org <orgId> --state <dir>
+```
+Connects as the already-provisioned device, decrypts every incoming **group** message in memory (via `GroupMessageSource` — see `lib/src/group_message_source.dart`), and POSTs one metadata record per message, ACKing only after a `2xx` response (K01 discipline — see plan §KB3). Exits non-zero on a `401`/`403` from the archive API (its own credentials are broken); on network errors or `5xx` it retries with capped exponential backoff and, if it still fails, leaves the message un-acked for the server to redeliver later.
+
+`GroupMessageSource` is the seam for step 2 (MLS, plan §6): `SignalGroupMessageSource` is the only implementation today, built on the existing per-recipient Signal fan-out (`calltype_core`'s `SignalRClient` + `SessionManager`) — an MLS-based implementation can replace it later without changing `Archiver`.

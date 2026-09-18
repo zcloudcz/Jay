@@ -270,6 +270,7 @@ app.MapGroupEndpoints();
 app.MapBackupEndpoints();
 app.MapChannelEndpoints();
 app.MapTurnCredentialEndpoints();
+app.MapAuditArchiveEndpoints();
 
 // Map the SignalR hub at /hub. The hub is protected by [Authorize] — clients
 // must pass access_token as a query parameter during the WebSocket upgrade.
