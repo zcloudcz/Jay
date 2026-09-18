@@ -33,9 +33,9 @@ jakmile bude druhý člověk s dostatečným přístupem k produkci.
 - API: `GET /.well-known/security.txt` — text/plain, `Contact` z konfigurace
   `Security:ContactUri`; není-li nastaveno, endpoint vrací 404 (raději žádný
   soubor než špatný kontakt).
-- **Kontaktní e-mail/telefon nejsou zatím určené.**
-  `TODO(owner): bezpečnostní kontaktní e-mail` — nevymýšlet adresu, doplnit
-  ručně před zveřejněním betě mimo interní okruh.
+- **Bezpečnostní kontakt: `martin@zcloud.cz`** (určil vlastník 2026-09-18).
+  Na API se nastavuje jako `Security__ContactUri=mailto:martin@zcloud.cz`;
+  web má vlastní statický `www/.well-known/security.txt`. Telefon určen není.
 
 ## 4. Lhůty podle NIS2 (dodavatel → zákazník)
 

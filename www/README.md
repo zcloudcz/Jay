@@ -21,11 +21,9 @@ Competitor pricing checked 16 September 2026. Sources are linked in both HTML pa
 
 ## security.txt
 
-`.well-known/security.txt` (RFC 9116) has its `Contact` line commented out —
-the real security contact is not known yet (`TODO(owner): security contact
-e-mail`, see `docs/security/incident-response.md`). **Fill it in and
-uncomment before publishing this site**; a wrong or missing contact is
-better than a fabricated one. The API serves its own copy at
+`.well-known/security.txt` (RFC 9116) carries the owner's security contact
+(set 2026-09-18, see `docs/security/incident-response.md`). Its `Expires`
+line must stay in the future — renew it at least yearly. The API serves its own copy at
 `GET /.well-known/security.txt`, driven by config key `Security:ContactUri`
 (404 while unset) — the two are independent files and must be updated
 together.
