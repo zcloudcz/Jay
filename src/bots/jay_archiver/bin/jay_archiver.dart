@@ -13,6 +13,8 @@ import 'package:drift/native.dart';
 import 'package:jay_archiver/jay_archiver.dart';
 
 /// `jay_archiver provision --api <url> --org <orgId> --state <dir> --admin-token <jwt>`
+/// (--admin-token must be a step-up token since N03b — see the comment in
+/// [_provision])
 /// `jay_archiver run [--api <url>] [--org <orgId>] [--state <dir>]`
 ///
 /// `run`'s three flags fall back to `JAY_API_URL` / `JAY_ORG_ID` /
@@ -65,9 +67,12 @@ Future<void> _provision(CliOptions opts) async {
   // Making this device the organization's auditor is an ADMIN act. The normal
   // path is that the admin pastes the device id printed below into the app's
   // Organization screen: the operator of this process then never holds an
-  // admin credential, and it keeps working once admin actions require MFA.
-  // --admin-token stays as an automation shortcut (tests, scripted setups);
-  // it is a device JWT of an admin's linked device, sent as-is, never stored.
+  // admin credential, and it is unaffected by MFA (N03b) either way.
+  // --admin-token stays as an automation shortcut (tests, scripted setups).
+  // Since N03b, PUT /orgs/{id}/auditor is OrgAdmin+ and answers 403
+  // mfa_required without a fresh step-up — this must be a STEP-UP token
+  // (POST /accounts/{id}/mfa/verify), not the plain device JWT that
+  // POST /auth/token returns. Sent as-is, never stored.
   final adminToken = opts.adminToken;
   if (adminToken != null && adminToken.isNotEmpty) {
     final admin = Dio(BaseOptions(baseUrl: opts.apiBaseUrl, headers: {'Authorization': 'Bearer $adminToken'}));

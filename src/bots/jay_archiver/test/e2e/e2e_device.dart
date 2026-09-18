@@ -9,10 +9,13 @@ import 'package:calltype_core/crypto/group_cipher.dart';
 import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/network/mfa_api.dart';
 import 'package:calltype_core/network/signalr_client.dart';
 import 'package:calltype_core/storage/database.dart';
 import 'package:calltype_core/storage/secret_store.dart';
 import 'package:drift/native.dart';
+
+import 'totp.dart';
 
 class MemoryStore extends SecretStore {
   final _values = <String, String>{};
@@ -46,6 +49,12 @@ class E2eDevice {
   final SessionManager sessions;
   final SignalRClient signalR;
   final AppDatabase _db;
+
+  /// Set by [linkNewAccount] — [enrollAndVerifyMfa] needs both to prove
+  /// ownership of the account when starting enrollment (enroll/start
+  /// requires the same authKey as linking/deleting the account).
+  String? accountId;
+  String? _authKey;
 
   static Future<E2eDevice> register(String baseUrl, {bool isBot = false}) async {
     final store = MemoryStore();
@@ -165,5 +174,31 @@ class E2eDevice {
       '/accounts/${account['accountId']}/devices/$id',
       data: {'authKey': authKey},
     );
+    accountId = account['accountId'] as String;
+    _authKey = authKey;
+  }
+
+  /// Enrolls TOTP MFA and immediately verifies it, so this device's
+  /// [api] carries a valid step-up token afterwards (N03b requires one for
+  /// every OrgAdmin+ endpoint). Requires [linkNewAccount] to have run.
+  ///
+  /// No 30s sleep needed: a TOTP time-step is single-use per account and
+  /// enroll/confirm records the step IT matched (TotpService.MatchStep's
+  /// +/-1 window), so confirming with the PREVIOUS step's code and verifying
+  /// with the CURRENT step's code are both accepted without waiting for a
+  /// new step boundary.
+  Future<void> enrollAndVerifyMfa() async {
+    final accId = accountId;
+    final authKey = _authKey;
+    if (accId == null || authKey == null) {
+      throw StateError('enrollAndVerifyMfa requires linkNewAccount first');
+    }
+
+    final enrollment = await api.startMfaEnrollment(accId, authKey);
+    final secret = base32Decode(enrollment.secretBase32);
+    final step = currentTotpStep();
+
+    await api.confirmMfaEnrollment(accId, computeTotp(secret, step - 1));
+    await api.verifyMfa(accId, code: computeTotp(secret, step));
   }
 }

@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../auth/auth_service.dart';
 import 'channel_dtos.dart';
+import 'mfa_api.dart' show MfaRequiredException;
 
 /// REST client for the CallType backend API.
 ///
@@ -19,16 +20,66 @@ import 'channel_dtos.dart';
 /// different environments (localhost during dev, staging, production)
 /// without rebuilding.
 class ApiClient {
-  ApiClient({required String baseUrl, AuthService? authService, Dio? dio})
-    : _dio = dio ?? Dio(BaseOptions(baseUrl: baseUrl)) {
+  ApiClient({
+    required String baseUrl,
+    AuthService? authService,
+    Dio? dio,
+    DateTime Function() now = DateTime.now,
+  }) : _dio = dio ?? Dio(BaseOptions(baseUrl: baseUrl)),
+       _now = now {
+    // The step-up interceptor must run BEFORE the auth one so it can
+    // override the Bearer header the auth interceptor would otherwise set.
+    _dio.interceptors.add(_StepUpInterceptor(this));
     if (authService != null) {
       _dio.interceptors.add(_AuthInterceptor(authService, _dio));
     }
   }
 
   final Dio _dio;
+  final DateTime Function() _now;
 
   Dio get transport => _dio;
+
+  // -- MFA step-up token (N03c) ------------------------------------------
+  // Kept IN MEMORY ONLY — never written to SecretStore, never logged. It
+  // proves a recent TOTP/backup-code check to org/emergency admin endpoints
+  // (MfaAuthHelper.RequireStepUp on the server) and must never reach the
+  // SignalR hub, which authenticates with the normal device JWT via
+  // AuthService directly and never touches this ApiClient/Dio instance.
+  String? _stepUpToken;
+  DateTime? _stepUpExpiresAt;
+
+  /// Stashes the step-up token returned by `verifyMfa` so subsequent
+  /// requests carry it automatically. [expiresAt] is the server's own
+  /// expiry; a small safety margin is applied when deciding whether it is
+  /// still usable (see [_StepUpInterceptor]).
+  void setStepUpToken(String token, DateTime expiresAt) {
+    _stepUpToken = token;
+    _stepUpExpiresAt = expiresAt;
+  }
+
+  /// Drops the step-up token immediately (explicit logout/step-down, or the
+  /// interceptor discovering it has expired).
+  void clearStepUp() {
+    _stepUpToken = null;
+    _stepUpExpiresAt = null;
+  }
+
+  /// A small margin before the server-declared expiry, same idea as
+  /// [AuthService]'s token refresh margin — never send a token that is
+  /// about to be rejected mid-flight.
+  static const _stepUpExpiryMargin = Duration(seconds: 30);
+
+  String? get _validStepUpToken {
+    final token = _stepUpToken;
+    final expiresAt = _stepUpExpiresAt;
+    if (token == null || expiresAt == null) return null;
+    if (!_now().isBefore(expiresAt.subtract(_stepUpExpiryMargin))) {
+      clearStepUp();
+      return null;
+    }
+    return token;
+  }
 
   Future<Map<String, dynamic>> createGroup(
     String name,
@@ -385,6 +436,51 @@ class ApiClient {
   }) {
     final path = '/channels/$channelId/admins/$deviceId';
     return admin ? _dio.put<void>(path) : _dio.delete<void>(path);
+  }
+}
+
+/// Dio interceptor that attaches a valid step-up token (if any) as Bearer,
+/// overriding the normal device JWT for that one request, and turns a 403
+/// `mfa_required` response into a typed [MfaRequiredException] so callers
+/// can catch it instead of poking at raw Dio error bodies (see `withMfa` in
+/// mfa_api.dart).
+class _StepUpInterceptor extends Interceptor {
+  _StepUpInterceptor(this._client);
+
+  final ApiClient _client;
+
+  @override
+  Future<void> onRequest(
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) async {
+    final token = _client._validStepUpToken;
+    if (token != null) {
+      options.headers['Authorization'] = 'Bearer $token';
+    }
+    handler.next(options);
+  }
+
+  @override
+  Future<void> onError(
+    DioException err,
+    ErrorInterceptorHandler handler,
+  ) async {
+    final body = err.response?.data;
+    if (err.response?.statusCode == 403 &&
+        body is Map &&
+        body['code'] == 'mfa_required') {
+      handler.reject(
+        DioException(
+          requestOptions: err.requestOptions,
+          response: err.response,
+          type: err.type,
+          error: const MfaRequiredException(),
+        ),
+      );
+      return;
+    }
+    handler.next(err);
   }
 }
 

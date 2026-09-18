@@ -1,5 +1,6 @@
 import 'package:calltype_core/network/emergency_api.dart';
 import 'package:calltype_core/network/emergency_dtos.dart';
+import 'package:calltype_core/network/mfa_api.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
@@ -10,6 +11,11 @@ import '../../../core/storage/database.dart';
 /// for org admins, plus the "I have an emergency code" enroll flow any
 /// device can use. Thin wrapper over [EmergencyApi], same shape as
 /// [OrganizationController].
+///
+/// Every admin call is gated server-side by N03b on a step-up token — [_run]
+/// wraps each one in [withMfa], same as [OrganizationController]. The
+/// "I have a code" enroll path below is deliberately NOT gated (a bare
+/// device with no account has no MFA to check).
 class EmergencyController extends ChangeNotifier {
   EmergencyController({required ApiClient apiClient, required this.organizationId})
     : _api = apiClient;
@@ -39,14 +45,24 @@ class EmergencyController extends ChangeNotifier {
   /// One of [EmergencyErrorCodes], or null.
   String? errorCode;
 
+  /// Set by the screen after mount, same contract as
+  /// `OrganizationController.promptForMfa`.
+  Future<bool> Function()? promptForMfa;
+  bool locked = false;
+
   Future<void> _run(Future<void> Function() action) async {
     isLoading = true;
     errorCode = null;
     notifyListeners();
     try {
-      await action();
+      await withMfa(action, () => promptForMfa?.call() ?? Future.value(false));
+      locked = false;
     } catch (e) {
-      errorCode = emergencyErrorCode(e) ?? 'unknown';
+      if (unwrapMfaError(e) is MfaRequiredException) {
+        locked = true;
+      } else {
+        errorCode = emergencyErrorCode(e) ?? 'unknown';
+      }
     } finally {
       isLoading = false;
       notifyListeners();

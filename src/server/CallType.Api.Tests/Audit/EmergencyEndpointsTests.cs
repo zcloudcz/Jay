@@ -30,15 +30,23 @@ namespace CallType.Api.Tests.Audit;
 
 public class EmergencyEndpointsTests : IntegrationTestBase
 {
+    private static readonly string ValidAuthKey = Convert.ToBase64String(
+        [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+         0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10]);
+
     /// <summary>
     /// Seeds an organization whose Owner account is linked to
     /// <paramref name="adminDeviceId"/> (so that device can call OrgAdmin+
     /// endpoints) and whose auditor is a plain, unregistered device id — the
     /// emergency endpoints never call IDeliveryDirectory.IsBotDeviceAsync
     /// (only PUT /orgs/{id}/auditor does, via E01), so no real Device row is
-    /// needed for it.
+    /// needed for it. The owner account is created through the real /accounts
+    /// endpoint (not inserted directly) so it has a genuine AuthKeyHash — N03b
+    /// MFA enrollment needs to verify proof of that key. Leaves Client bearing
+    /// the owner's step-up token, and also returns it (StepUpToken) for tests
+    /// that switch Client to another device and back.
     /// </summary>
-    private async Task<(Guid OrgId, Guid AuditorDeviceId)> SeedOrgWithAdminAsync(Guid adminDeviceId)
+    private async Task<(Guid OrgId, Guid AuditorDeviceId, string StepUpToken)> SeedOrgWithAdminAsync(Guid adminDeviceId)
     {
         var orgId = Guid.NewGuid();
         // The auditor must be a real registered device (GroupMember.DeviceId is an FK
@@ -47,10 +55,14 @@ public class EmergencyEndpointsTests : IntegrationTestBase
         var callerAuth = Client.DefaultRequestHeaders.Authorization;
         var (auditorDeviceId, _, _) = await RegisterAndAuthenticateAsync();
         Client.DefaultRequestHeaders.Authorization = callerAuth;
-        var ownerAccountId = Guid.NewGuid();
+
+        var accountResponse = await Client.PostAsJsonAsync("/accounts", new { email = $"{Guid.NewGuid():N}@acme.test", authKey = ValidAuthKey });
+        accountResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var ownerAccountId = Guid.Parse((await accountResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accountId").GetString()!);
+        (await Client.PostAsJsonAsync($"/accounts/{ownerAccountId}/devices/{adminDeviceId}", new { authKey = ValidAuthKey }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
 
         using var scope = Factory.Services.CreateScope();
-        var appDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var auditDb = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
 
         var org = Organization.Create(orgId, "Acme", ownerAccountId, DateTimeOffset.UtcNow);
@@ -58,11 +70,10 @@ public class EmergencyEndpointsTests : IntegrationTestBase
         auditDb.Organizations.Add(org);
         await auditDb.SaveChangesAsync();
 
-        appDb.Accounts.Add(new Account { AccountId = ownerAccountId, Email = $"{ownerAccountId}@acme.test", CreatedAt = DateTimeOffset.UtcNow });
-        appDb.AccountDevices.Add(new AccountDevice { AccountId = ownerAccountId, DeviceId = adminDeviceId, LinkedAt = DateTimeOffset.UtcNow });
-        await appDb.SaveChangesAsync();
+        var stepUpToken = await EnrollAndVerifyMfaAsync(Client, ownerAccountId, ValidAuthKey);
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", stepUpToken);
 
-        return (orgId, auditorDeviceId);
+        return (orgId, auditorDeviceId, stepUpToken);
     }
 
     private void UseToken(string token) =>
@@ -75,7 +86,7 @@ public class EmergencyEndpointsTests : IntegrationTestBase
         // written, leaving an orphan kit (codes nobody ever saw) in the
         // append-only audit database and in the proof export.
         var (adminDeviceId, _, _) = await RegisterAndAuthenticateAsync();
-        var (orgId, _) = await SeedOrgWithAdminAsync(adminDeviceId);
+        var (orgId, _, _) = await SeedOrgWithAdminAsync(adminDeviceId);
         using (var scope = Factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
@@ -98,7 +109,7 @@ public class EmergencyEndpointsTests : IntegrationTestBase
     public async Task Issuing_a_kit_stores_only_hashes_never_the_plaintext_codes()
     {
         var (adminDeviceId, adminToken, _) = await RegisterAndAuthenticateAsync();
-        var (orgId, _) = await SeedOrgWithAdminAsync(adminDeviceId);
+        var (orgId, _, _) = await SeedOrgWithAdminAsync(adminDeviceId);
 
         var response = await Client.PostAsJsonAsync($"/orgs/{orgId}/emergency/kits",
             new { label = "HQ incident team", count = 3 });
@@ -135,7 +146,7 @@ public class EmergencyEndpointsTests : IntegrationTestBase
     public async Task Enrolling_joins_the_emergency_group_alongside_the_auditor()
     {
         var (adminDeviceId, _, _) = await RegisterAndAuthenticateAsync();
-        var (orgId, auditorDeviceId) = await SeedOrgWithAdminAsync(adminDeviceId);
+        var (orgId, auditorDeviceId, _) = await SeedOrgWithAdminAsync(adminDeviceId);
         var issueResponse = await Client.PostAsJsonAsync($"/orgs/{orgId}/emergency/kits", new { label = "Kit", count = 1 });
         var code = (await issueResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("codes")[0].GetString()!;
 
@@ -170,7 +181,7 @@ public class EmergencyEndpointsTests : IntegrationTestBase
     public async Task Reusing_an_emergency_code_returns_410_emergency_code_used()
     {
         var (adminDeviceId, _, _) = await RegisterAndAuthenticateAsync();
-        var (orgId, _) = await SeedOrgWithAdminAsync(adminDeviceId);
+        var (orgId, _, _) = await SeedOrgWithAdminAsync(adminDeviceId);
         var issueResponse = await Client.PostAsJsonAsync($"/orgs/{orgId}/emergency/kits", new { label = "Kit", count = 1 });
         var code = (await issueResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("codes")[0].GetString()!;
 
@@ -190,7 +201,7 @@ public class EmergencyEndpointsTests : IntegrationTestBase
     public async Task A_revoked_kits_remaining_codes_return_410_kit_revoked()
     {
         var (adminDeviceId, adminToken, _) = await RegisterAndAuthenticateAsync();
-        var (orgId, _) = await SeedOrgWithAdminAsync(adminDeviceId);
+        var (orgId, _, _) = await SeedOrgWithAdminAsync(adminDeviceId);
         var issueResponse = await Client.PostAsJsonAsync($"/orgs/{orgId}/emergency/kits", new { label = "Kit", count = 2 });
         var issued = await issueResponse.Content.ReadFromJsonAsync<JsonElement>();
         var kitId = issued.GetProperty("kitId").GetString();
@@ -216,8 +227,8 @@ public class EmergencyEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task Drill_lifecycle_counts_confirmations_and_records_response_time()
     {
-        var (adminDeviceId, adminToken, _) = await RegisterAndAuthenticateAsync();
-        var (orgId, _) = await SeedOrgWithAdminAsync(adminDeviceId);
+        var (adminDeviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var (orgId, _, adminStepUpToken) = await SeedOrgWithAdminAsync(adminDeviceId);
         var issueResponse = await Client.PostAsJsonAsync($"/orgs/{orgId}/emergency/kits", new { label = "Kit", count = 1 });
         var code = (await issueResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("codes")[0].GetString()!;
 
@@ -225,7 +236,7 @@ public class EmergencyEndpointsTests : IntegrationTestBase
         await Client.PostAsJsonAsync("/orgs/emergency/enroll", new { code });
         var memberToken = Client.DefaultRequestHeaders.Authorization!.Parameter!;
 
-        UseToken(adminToken);
+        UseToken(adminStepUpToken);
         var startResponse = await Client.PostAsync($"/orgs/{orgId}/emergency/drills", null);
         startResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var drillId = (await startResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("drillId").GetInt64();
@@ -237,7 +248,7 @@ public class EmergencyEndpointsTests : IntegrationTestBase
         // A second confirm from the same device must not double-count.
         await Client.PostAsync($"/orgs/{orgId}/emergency/drills/{drillId}/confirm", null);
 
-        UseToken(adminToken);
+        UseToken(adminStepUpToken);
         var completeResponse = await Client.PostAsync($"/orgs/{orgId}/emergency/drills/{drillId}/complete", null);
         completeResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
 
@@ -258,7 +269,7 @@ public class EmergencyEndpointsTests : IntegrationTestBase
     public async Task Proof_export_hash_is_reproducible_and_escapes_formula_looking_names()
     {
         var (adminDeviceId, adminToken, _) = await RegisterAndAuthenticateAsync();
-        var (orgId, _) = await SeedOrgWithAdminAsync(adminDeviceId);
+        var (orgId, _, _) = await SeedOrgWithAdminAsync(adminDeviceId);
 
         // Rename the org to something that looks like a spreadsheet formula —
         // the txt export must neutralize it (same rule as OrganizationEndpoints.EscapeCsv).

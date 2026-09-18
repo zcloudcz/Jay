@@ -272,6 +272,15 @@ public class EmergencyAppService(AuditDbContext db)
             throw new DomainRuleViolation("forbidden", "Caller is not an org-admin of this organization.");
         return org;
     }
+
+    /// <summary>
+    /// N03b seam — same reasoning as OrganizationAppService.EnsureOrgAdminAsync:
+    /// a side-effect-free pre-check so EmergencyEndpoints can enforce
+    /// "membership/role before MFA" ordering without a non-member's request
+    /// ever reaching the mutating call.
+    /// </summary>
+    public async Task EnsureOrgAdminAsync(Guid organizationId, Guid actorAccountId, CancellationToken ct) =>
+        await RequireAdminAsync(organizationId, actorAccountId, ct);
 }
 
 /// <summary>Audit-DB-only facts for the proof export; CallType.Api adds Delivery-side facts

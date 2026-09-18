@@ -230,9 +230,11 @@ final router = GoRouter(
         GoRoute(
           path: 'organization',
           builder: (context, state) => ChangeNotifierProvider(
+            // load() is NOT chained here: it can hit `mfa_required`, and the
+            // screen must wire OrganizationController.promptForMfa (which
+            // needs a BuildContext for the dialog) before the first call.
             create: (ctx) =>
-                OrganizationController(apiClient: ctx.read<ApiClient>())
-                  ..load(),
+                OrganizationController(apiClient: ctx.read<ApiClient>()),
             child: const OrganizationScreen(),
           ),
           routes: [
@@ -244,7 +246,7 @@ final router = GoRouter(
                   create: (ctx) => EmergencyController(
                     apiClient: ctx.read<ApiClient>(),
                     organizationId: organizationId,
-                  )..load(),
+                  ),
                   child: EmergencyScreen(organizationId: organizationId),
                 );
               },

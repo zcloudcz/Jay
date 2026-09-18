@@ -6,8 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/network/api_client.dart';
+import '../../core/storage/secure_storage.dart';
 import '../../l10n/l10n.dart';
 import 'business_banner.dart';
+import 'mfa_flow.dart';
+import 'mfa_section.dart';
 import 'organization_controller.dart';
 
 /// Organization settings screen (E05 deliverable 1).
@@ -29,6 +33,25 @@ class _OrganizationScreenState extends State<OrganizationScreen> {
   final _codeController = TextEditingController();
   final _orgNameController = TextEditingController();
   final _auditorController = TextEditingController();
+  String? _accountId;
+
+  @override
+  void initState() {
+    super.initState();
+    // Deferred to after the first frame: the MFA prompt dialog needs a
+    // BuildContext, and the controller must have it wired before load()
+    // can hit `mfa_required` on the audit-count call.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final controller = context.read<OrganizationController>();
+      _accountId = await context.read<SecureStorage>().getAccountId();
+      if (!mounted) return;
+      controller.promptForMfa = () => _accountId == null
+          ? Future.value(false)
+          : runMfaStepUpFlow(context, context.read<ApiClient>(), _accountId!);
+      await controller.load();
+    });
+  }
 
   @override
   void dispose() {
@@ -49,7 +72,9 @@ class _OrganizationScreenState extends State<OrganizationScreen> {
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.orgSettingsTitle)),
-      body: controller.isLoading && org == null
+      body: controller.locked
+          ? MfaLockedPlaceholder(onUnlock: () => controller.load())
+          : controller.isLoading && org == null
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(16),
@@ -64,6 +89,10 @@ class _OrganizationScreenState extends State<OrganizationScreen> {
                   ),
                 if (org == null) ..._joinAndCreate(context, controller),
                 if (org != null) ..._membership(context, controller, org),
+                if (org != null && org.isAdmin && _accountId != null) ...[
+                  const Divider(height: 32),
+                  MfaSection(accountId: _accountId!),
+                ],
               ],
             ),
     );
