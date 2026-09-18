@@ -34,6 +34,27 @@ class IssuedEmergencyKit {
       );
 }
 
+/// Result of `POST /orgs/emergency/enroll` — `groupId` is what lets the
+/// client open the emergency conversation directly instead of the chat list
+/// (docs/acceptance/business-mode.md, "Známé limity"). Nullable because the
+/// server can still return it as `null` in the pre-existing edge case where
+/// the org has no auditor configured yet.
+class EmergencyEnrollmentResult {
+  const EmergencyEnrollmentResult({
+    required this.organizationId,
+    required this.groupId,
+  });
+
+  final String organizationId;
+  final String? groupId;
+
+  factory EmergencyEnrollmentResult.fromJson(Map<String, dynamic> json) =>
+      EmergencyEnrollmentResult(
+        organizationId: json['organizationId'] as String,
+        groupId: json['groupId'] as String?,
+      );
+}
+
 /// One row of `GET /orgs/{id}/emergency/kits` — counts only, never codes.
 class EmergencyKitInfo {
   const EmergencyKitInfo({

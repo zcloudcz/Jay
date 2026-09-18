@@ -38,14 +38,16 @@ extension EmergencyApi on ApiClient {
   Future<void> revokeEmergencyKit(String organizationId, String kitId) =>
       transport.delete<void>('/orgs/$organizationId/emergency/kits/$kitId');
 
-  /// POST /orgs/emergency/enroll {code} → {organizationId}. Any authenticated
-  /// device, no account or prior enrollment required (spec 2.3).
-  Future<String> enrollWithEmergencyCode(String code) async {
+  /// POST /orgs/emergency/enroll {code} → {organizationId, groupId}. Any
+  /// authenticated device, no account or prior enrollment required (spec 2.3).
+  Future<EmergencyEnrollmentResult> enrollWithEmergencyCode(
+    String code,
+  ) async {
     final response = await transport.post<Map<String, dynamic>>(
       '/orgs/emergency/enroll',
       data: {'code': code},
     );
-    return response.data!['organizationId'] as String;
+    return EmergencyEnrollmentResult.fromJson(response.data!);
   }
 
   /// POST /orgs/{id}/emergency/drills → {drillId}.

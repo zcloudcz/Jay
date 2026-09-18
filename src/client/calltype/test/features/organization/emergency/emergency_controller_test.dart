@@ -1,7 +1,9 @@
 import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype/core/storage/database.dart';
 import 'package:calltype/features/organization/emergency/emergency_controller.dart';
 import 'package:calltype_core/network/emergency_api.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// E07 deliverable 5 (widget/controller tests): enroll with a faked API, kit
@@ -28,18 +30,42 @@ void main() {
   }
 
   group('EmergencyEnrollController', () {
-    test('enroll succeeds and records the joined organization id', () async {
+    test('enroll succeeds, records the joined organization id and creates the local conversation', () async {
       final api = apiWith((options) {
         expect(options.path, '/orgs/emergency/enroll');
         expect(options.data, {'code': 'ABCD-1234'});
-        return Response(requestOptions: options, data: {'organizationId': 'org-1'});
+        return Response(
+          requestOptions: options,
+          data: {'organizationId': 'org-1', 'groupId': 'group-1'},
+        );
       });
-      final controller = EmergencyEnrollController(apiClient: api);
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final controller = EmergencyEnrollController(apiClient: api, database: db);
 
-      await controller.enroll('ABCD-1234');
+      await controller.enroll('ABCD-1234', fallbackTitle: 'Emergency channel');
 
       expect(controller.errorCode, isNull);
       expect(controller.enrolledOrganizationId, 'org-1');
+      expect(controller.enrolledConversationId, 'group-1');
+      final row = await (db.select(db.conversations)..where((c) => c.id.equals('group-1'))).getSingle();
+      expect(row.type, 'group');
+      expect(row.title, 'Emergency channel');
+    });
+
+    test('a null groupId (no auditor configured yet) leaves enrolledConversationId unset', () async {
+      final api = apiWith((options) => Response(
+        requestOptions: options,
+        data: {'organizationId': 'org-1', 'groupId': null},
+      ));
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final controller = EmergencyEnrollController(apiClient: api, database: db);
+
+      await controller.enroll('ABCD-1234', fallbackTitle: 'Emergency channel');
+
+      expect(controller.enrolledOrganizationId, 'org-1');
+      expect(controller.enrolledConversationId, isNull);
     });
 
     test('a used code maps 410 to emergency_code_used', () async {
@@ -53,9 +79,11 @@ void main() {
           ),
         ),
       );
-      final controller = EmergencyEnrollController(apiClient: api);
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final controller = EmergencyEnrollController(apiClient: api, database: db);
 
-      await controller.enroll('STALE-CODE');
+      await controller.enroll('STALE-CODE', fallbackTitle: 'Emergency channel');
 
       expect(controller.errorCode, 'emergency_code_used');
       expect(controller.enrolledOrganizationId, isNull);
@@ -72,9 +100,11 @@ void main() {
           ),
         ),
       );
-      final controller = EmergencyEnrollController(apiClient: api);
+      final db = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(db.close);
+      final controller = EmergencyEnrollController(apiClient: api, database: db);
 
-      await controller.enroll('REVOKED-CODE');
+      await controller.enroll('REVOKED-CODE', fallbackTitle: 'Emergency channel');
 
       expect(controller.errorCode, 'kit_revoked');
     });
