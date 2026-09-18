@@ -152,4 +152,64 @@ public class AuditArchiveEndpointsTests : IntegrationTestBase
         body.LastSequence.Should().Be(1);
         body.LastHash.Should().NotBeNullOrEmpty();
     }
+
+    // W2-E: the count endpoint's liveness fields (lastArchivedAt / pendingForAuditor
+    // / oldestPendingAt), added so an admin can tell a dead archiver from a quiet one.
+    [Fact]
+    public async Task Count_endpoint_reports_last_archived_at_and_pending_queue()
+    {
+        var (auditorDeviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var orgId = await SeedOrganizationAsync(auditorDeviceId);
+
+        var beforeArchive = DateTimeOffset.UtcNow;
+        var archived = await Client.PostAsJsonAsync($"/orgs/{orgId}/audit/records", ValidRecordBody(Guid.NewGuid(), auditorDeviceId));
+        archived.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Give the auditor device an OrgAdmin-linked account so GET .../count is allowed.
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var appDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var auditDb = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
+            var accountId = Guid.NewGuid();
+            appDb.Accounts.Add(new Account { AccountId = accountId, Email = "admin2@acme.test", CreatedAt = DateTimeOffset.UtcNow });
+            appDb.AccountDevices.Add(new AccountDevice { AccountId = accountId, DeviceId = auditorDeviceId, LinkedAt = DateTimeOffset.UtcNow });
+
+            // Two queued messages addressed to the auditor device — one still
+            // waiting for the archiver to pick up (the "pending" case), one
+            // already acknowledged (must NOT count as pending).
+            var senderId = Guid.NewGuid();
+            var older = new QueuedMessage
+            {
+                RecipientId = auditorDeviceId, SenderId = senderId,
+                CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-5), ExpiresAt = DateTimeOffset.UtcNow.AddDays(30),
+            };
+            var newer = new QueuedMessage
+            {
+                RecipientId = auditorDeviceId, SenderId = senderId,
+                CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-1), ExpiresAt = DateTimeOffset.UtcNow.AddDays(30),
+            };
+            var acked = new QueuedMessage
+            {
+                RecipientId = auditorDeviceId, SenderId = senderId,
+                CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-10), ExpiresAt = DateTimeOffset.UtcNow.AddDays(30),
+                AcknowledgedAt = DateTimeOffset.UtcNow,
+            };
+            appDb.QueuedMessages.AddRange(older, newer, acked);
+
+            var org = await auditDb.Organizations.SingleAsync(o => o.OrganizationId == orgId);
+            org.AddMember(accountId, OrgRole.OrgAdmin, DateTimeOffset.UtcNow);
+
+            await appDb.SaveChangesAsync();
+            await auditDb.SaveChangesAsync();
+        }
+
+        var response = await Client.GetAsync($"/orgs/{orgId}/audit/records/count");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<CallType.Api.Endpoints.AuditRecordCountDto>();
+
+        body!.LastArchivedAt.Should().NotBeNull();
+        body.LastArchivedAt!.Value.Should().BeOnOrAfter(beforeArchive);
+        body.PendingForAuditor.Should().Be(2); // "older" and "newer" — "acked" excluded
+        body.OldestPendingAt.Should().NotBeNull();
+    }
 }

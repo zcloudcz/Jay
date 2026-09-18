@@ -1,0 +1,42 @@
+# jay_archiver — one service per organization. To add a second organization:
+# copy the "archiver-org1" block below, give it a new service name, a new
+# named volume, and its own JAY_ORG_ID*/BOT_STORE_KEY* env vars (Compose
+# doesn't support per-replica env from one var, so each org needs its own
+# named variables in .env, e.g. JAY_ORG_ID_2, BOT_STORE_KEY_2).
+#
+# Build: docker compose -f infra/archiver/docker-compose.yml --env-file infra/archiver/.env build
+# Provision (one-shot, before first "up"):
+#   docker compose -f infra/archiver/docker-compose.yml --env-file infra/archiver/.env \
+#     run --rm archiver-org1 provision --state /data/archiver --admin-token "$ADMIN_JWT"
+#   (pass --admin-token on the command line, never in .env — see the runbook)
+# Run: docker compose -f infra/archiver/docker-compose.yml --env-file infra/archiver/.env up -d
+
+services:
+  archiver-org1:
+    build:
+      context: ../../src
+      dockerfile: bots/jay_archiver/Dockerfile
+    image: jay-archiver:latest
+    command: ["run", "--state", "/data/archiver"]
+    restart: unless-stopped
+    environment:
+      JAY_API_URL: ${JAY_API_URL}
+      JAY_ORG_ID: ${JAY_ORG_ID}
+      BOT_STORE_KEY: ${BOT_STORE_KEY}
+    volumes:
+      - archiver-org1-state:/data
+    # It only dials out (HTTPS + WebSocket) — nothing needs to reach it.
+    # No "ports:" entry.
+    read_only: true
+    tmpfs:
+      # dart:stable-built AOT binaries and sqlite3's native lib don't need to
+      # write outside /data, but give /tmp anyway in case a dependency does.
+      - /tmp
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  archiver-org1-state:

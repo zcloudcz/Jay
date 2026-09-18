@@ -128,4 +128,59 @@ void main() {
     expect(enrollments.single.deviceId, 'dev-9');
     expect(enrollments.single.enrolledAt, '2026-09-18T00:00:00Z');
   });
+
+  test('getAuditArchiveStatus reads the extended AuditRecordCountDto shape', () async {
+    final (api, _) = client({
+      'GET /orgs/org-1/audit/records/count': (200, {
+        'count': 3,
+        'lastSequence': 3,
+        'lastHash': 'AA'.padRight(64, '0'),
+        'lastArchivedAt': '2026-09-18T12:00:00Z',
+        'pendingForAuditor': 2,
+        'oldestPendingAt': '2026-09-18T11:55:00Z',
+      }),
+    });
+
+    final status = await api.getAuditArchiveStatus('org-1');
+
+    expect(status.count, 3);
+    expect(status.lastSequence, 3);
+    expect(status.lastArchivedAt, DateTime.parse('2026-09-18T12:00:00Z'));
+    expect(status.pendingForAuditor, 2);
+    expect(status.oldestPendingAt, DateTime.parse('2026-09-18T11:55:00Z'));
+  });
+
+  test('getAuditArchiveStatus copes with an archiver that has never run', () async {
+    final (api, _) = client({
+      'GET /orgs/org-1/audit/records/count': (200, {
+        'count': 0,
+        'lastSequence': 0,
+        'lastHash': null,
+        'lastArchivedAt': null,
+        'pendingForAuditor': 0,
+        'oldestPendingAt': null,
+      }),
+    });
+
+    final status = await api.getAuditArchiveStatus('org-1');
+
+    expect(status.lastHash, isNull);
+    expect(status.lastArchivedAt, isNull);
+    expect(status.oldestPendingAt, isNull);
+  });
+
+  test('getAuditRecordCount (older callers) still reads just the count', () async {
+    final (api, _) = client({
+      'GET /orgs/org-1/audit/records/count': (200, {
+        'count': 5,
+        'lastSequence': 5,
+        'lastHash': 'BB'.padRight(64, '0'),
+        'lastArchivedAt': '2026-09-18T12:00:00Z',
+        'pendingForAuditor': 0,
+        'oldestPendingAt': null,
+      }),
+    });
+
+    expect(await api.getAuditRecordCount('org-1'), 5);
+  });
 }

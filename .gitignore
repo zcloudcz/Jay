@@ -60,3 +60,6 @@ TestResults/
 ## would hide them); build/ is `dart build cli` output.
 !src/bots/*/bin/
 src/bots/*/build/
+
+# Test cache written by `flutter test` in the pure-Dart core package.
+src/client/calltype_core/build/
