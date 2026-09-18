@@ -155,6 +155,11 @@ public class EmergencyEndpointsTests : IntegrationTestBase
 
         var appDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var group = await appDb.Groups.SingleAsync(g => g.OrganizationId == orgId && g.IsEmergencyChannel);
+
+        // groupId lets the client open the emergency conversation right after
+        // enrolling instead of landing on the chat list (docs/acceptance/business-mode.md).
+        enrolled.GetProperty("groupId").GetGuid().Should().Be(group.GroupId);
+
         var memberRoles = await appDb.GroupMembers.Where(m => m.GroupId == group.GroupId)
             .Select(m => new { m.DeviceId, m.Role }).ToListAsync();
         memberRoles.Should().Contain(m => m.DeviceId == memberDeviceId && m.Role == "member");

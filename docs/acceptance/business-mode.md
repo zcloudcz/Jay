@@ -46,7 +46,6 @@ Sloučeno do `feat/bots-channels` = `master`, pushnuto a nasazeno na betu (Busin
 - Souběžný úplně první admin zápis v organizaci → unikátní konflikt (500), bez retry.
 - Nouzový enrollment zapisuje do dvou DB bez společné transakce: kód se spálí, když selže zápis členství — náprava = vydat nový kód.
 - Výběr členů firemní skupiny v klientu nefiltruje podle organizace (server vynucuje 403).
-- Po nouzovém enrollmentu klient jde na seznam chatů, ne přímo do nouzové konverzace.
 - Překlady ARB pro 17 jazyků mimo en/cs jsou strojové.
 - Texty na webu (`www/`) firemní režim zatím nepopisují; README/CLAUDE.md „server nevidí obsah“ platí jen pro anonymní režim — doplnit před zveřejněním.
 

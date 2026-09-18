@@ -1,8 +1,10 @@
 import 'package:calltype_core/network/emergency_api.dart';
 import 'package:calltype_core/network/emergency_dtos.dart';
+import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/storage/database.dart';
 
 /// Drives the Emergency channel screens (E07): admin kit/drill management
 /// for org admins, plus the "I have an emergency code" enroll flow any
@@ -101,9 +103,12 @@ class EmergencyController extends ChangeNotifier {
 /// NOT tied to an [organizationId] (the code alone determines it), so it
 /// isn't part of [EmergencyController], which always operates on one org.
 class EmergencyEnrollController extends ChangeNotifier {
-  EmergencyEnrollController({required ApiClient apiClient}) : _api = apiClient;
+  EmergencyEnrollController({required ApiClient apiClient, required AppDatabase database})
+    : _api = apiClient,
+      _db = database;
 
   final ApiClient _api;
+  final AppDatabase _db;
   bool _disposed = false;
 
   @override
@@ -120,18 +125,47 @@ class EmergencyEnrollController extends ChangeNotifier {
   bool isLoading = false;
   String? errorCode;
   String? enrolledOrganizationId;
+  /// The emergency group's local conversation id, set once [enroll] has
+  /// ensured a local row for it exists — the screen navigates straight here
+  /// instead of the chat list once this is non-null.
+  String? enrolledConversationId;
 
-  Future<void> enroll(String code) async {
+  /// [fallbackTitle] is shown in the chat list only if this device has never
+  /// seen the conversation before — the caller passes the localized
+  /// `emergencyTitle` string since this controller has no `BuildContext` of
+  /// its own to read `l10n` from (project convention: code without a
+  /// `BuildContext` never hardcodes user-visible text).
+  Future<void> enroll(String code, {required String fallbackTitle}) async {
     isLoading = true;
     errorCode = null;
     notifyListeners();
     try {
-      enrolledOrganizationId = await _api.enrollWithEmergencyCode(code);
+      final result = await _api.enrollWithEmergencyCode(code);
+      enrolledOrganizationId = result.organizationId;
+      if (result.groupId != null) {
+        await _ensureConversation(result.groupId!, fallbackTitle);
+        enrolledConversationId = result.groupId;
+      }
     } catch (e) {
       errorCode = emergencyErrorCode(e) ?? 'unknown';
     } finally {
       isLoading = false;
       notifyListeners();
     }
+  }
+
+  /// Creates the local conversation row for the emergency group if this
+  /// device hasn't seen it before — same shape as [GroupController.createGroup],
+  /// but here the group already exists server-side (created on kit issue),
+  /// so there is nothing to insert except the local row.
+  Future<void> _ensureConversation(String groupId, String fallbackTitle) async {
+    final exists = await (_db.select(_db.conversations)
+          ..where((c) => c.id.equals(groupId)))
+        .getSingleOrNull();
+    if (exists != null) return;
+
+    await _db.into(_db.conversations).insert(
+      ConversationsCompanion.insert(id: groupId, type: 'group', title: Value(fallbackTitle)),
+    );
   }
 }

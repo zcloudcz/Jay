@@ -69,7 +69,13 @@ void main() {
       expect(kit.codes.toSet(), hasLength(2), reason: 'codes must be distinct');
 
       // Enrollment with nothing but the code.
-      expect(await responder.api.enrollWithEmergencyCode(kit.codes[0]), orgId);
+      final enrolled = await responder.api.enrollWithEmergencyCode(kit.codes[0]);
+      expect(enrolled.organizationId, orgId);
+      // groupId is what lets the client open the emergency conversation
+      // directly instead of the chat list (docs/acceptance/business-mode.md,
+      // "Známé limity") — confirm the server actually returns it here.
+      expect(enrolled.groupId, isNotNull);
+      final groupId = enrolled.groupId!;
 
       // One-time means one-time, also for a different device.
       await expectLater(
@@ -97,6 +103,15 @@ void main() {
       expect(drill.completedAt, isNotNull);
       expect(drill.confirmedMemberCount, 1);
       expect(drill.responseTimeSeconds, isNotNull);
+
+      // With a real groupId in hand, the responder can actually use the
+      // emergency conversation — the whole point of returning it from
+      // enroll. A business group rejects any fan-out that skips the auditor
+      // (KB2, audit_recipient_missing), so the auditor must be a recipient.
+      await expectLater(
+        responder.sendToGroup(groupId, [auditor.id], 'reachable, sending help'),
+        completes,
+      );
 
       // Revoking the kit kills the code that is still unused.
       await owner.api.revokeEmergencyKit(orgId, kit.kitId);

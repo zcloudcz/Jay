@@ -1,7 +1,38 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/network/emergency_dtos.dart';
 import 'package:calltype_core/network/emergency_api.dart';
 import 'package:dio/dio.dart';
 import 'package:test/test.dart';
+
+/// Minimal fake transport that replays a fixed response, same pattern as
+/// organization_api_contract_test.dart's `_FakeServer`.
+class _FakeServer implements HttpClientAdapter {
+  _FakeServer(this.status, this.body);
+
+  final int status;
+  final Object? body;
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    return ResponseBody.fromString(
+      body == null ? '' : jsonEncode(body),
+      status,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
 
 /// Guards the E07 emergency-channel error-code mapping, mirroring
 /// organization_api_test.dart's coverage of organizationErrorCode.
@@ -74,6 +105,30 @@ void main() {
 
     expect(active.isRevoked, isFalse);
     expect(revoked.isRevoked, isTrue);
+  });
+
+  test('enrollWithEmergencyCode replays the real 200 {organizationId, groupId} shape', () async {
+    final server = _FakeServer(200, {
+      'organizationId': 'org-1',
+      'groupId': 'group-1',
+    });
+    final dio = Dio(BaseOptions(baseUrl: 'http://test'))
+      ..httpClientAdapter = server;
+    final api = ApiClient(baseUrl: 'http://test', dio: dio);
+
+    final result = await api.enrollWithEmergencyCode('CODE-1');
+
+    expect(result.organizationId, 'org-1');
+    expect(result.groupId, 'group-1');
+  });
+
+  test('EmergencyEnrollmentResult.fromJson copes with a null groupId', () {
+    final result = EmergencyEnrollmentResult.fromJson({
+      'organizationId': 'org-1',
+      'groupId': null,
+    });
+
+    expect(result.groupId, isNull);
   });
 
   test('EmergencyDrillInfo.isComplete reflects completedAt', () {

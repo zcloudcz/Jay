@@ -168,14 +168,19 @@ public static class EmergencyEndpoints
             // fixed later), there is nothing to add the device to yet.
             var auditorDeviceId = await http.RequestServices.GetRequiredService<CallType.Audit.Infrastructure.AuditDbContext>()
                 .Organizations.Where(o => o.OrganizationId == result.OrganizationId).Select(o => o.AuditorDeviceId).SingleAsync(ct);
+            Guid? groupId = null;
             if (auditorDeviceId is not null)
             {
                 var groupService = http.RequestServices.GetRequiredService<EmergencyGroupService>();
-                var groupId = await groupService.EnsureGroupAsync(result.OrganizationId, auditorDeviceId.Value, ct);
-                await groupService.AddMemberAsync(groupId, deviceId.Value, ct);
+                groupId = await groupService.EnsureGroupAsync(result.OrganizationId, auditorDeviceId.Value, ct);
+                await groupService.AddMemberAsync(groupId.Value, deviceId.Value, ct);
             }
 
-            return Results.Ok(new { organizationId = result.OrganizationId });
+            // groupId is additive alongside organizationId — the client couldn't
+            // navigate straight into the emergency conversation without it
+            // (docs/acceptance/business-mode.md, "Známé limity"). Null only in
+            // the pre-existing edge case above (no auditor configured yet).
+            return Results.Ok(new { organizationId = result.OrganizationId, groupId });
         }
         catch (DomainRuleViolation ex) { return MapViolation(ex); }
     }

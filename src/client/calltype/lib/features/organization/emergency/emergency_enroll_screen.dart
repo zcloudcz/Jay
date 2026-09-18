@@ -47,19 +47,24 @@ class _EmergencyEnrollScreenState extends State<EmergencyEnrollScreen> {
               onPressed: controller.isLoading
                   ? null
                   : () async {
-                      await controller.enroll(_codeController.text.trim());
+                      await controller.enroll(
+                        _codeController.text.trim(),
+                        fallbackTitle: l10n.emergencyTitle,
+                      );
                       if (!context.mounted) return;
                       if (controller.enrolledOrganizationId != null) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(content: Text(l10n.emergencyEnrollSuccess)),
                         );
-                        // The enroll response only carries the organization id,
-                        // not the emergency conversation's group id — routing
-                        // to the chat list is the simplest correct behavior;
-                        // the newly-joined conversation appears there once
-                        // synced. A deep link straight into it would need the
-                        // server to also return the group id.
-                        context.go('/chats');
+                        // Land straight in the emergency conversation when the
+                        // server returned its group id; the chat list is only
+                        // a fallback for the pre-existing edge case where it
+                        // didn't (no auditor configured yet — see EmergencyEndpoints.Enroll).
+                        context.go(
+                          controller.enrolledConversationId != null
+                              ? '/chats/${controller.enrolledConversationId}'
+                              : '/chats',
+                        );
                       } else if (controller.errorCode != null) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(content: Text(l10n.emergencyEnrollFailed)),

@@ -252,8 +252,10 @@ final router = GoRouter(
             GoRoute(
               path: 'emergency-enroll',
               builder: (context, state) => ChangeNotifierProvider(
-                create: (ctx) =>
-                    EmergencyEnrollController(apiClient: ctx.read<ApiClient>()),
+                create: (ctx) => EmergencyEnrollController(
+                  apiClient: ctx.read<ApiClient>(),
+                  database: ctx.read<AppDatabase>(),
+                ),
                 child: const EmergencyEnrollScreen(),
               ),
             ),
