@@ -51,6 +51,9 @@ public class Organization
         return org;
     }
 
+    /// <summary>Renames the organization. Added by E01 for PATCH /orgs/{id} — Name has no public setter on purpose elsewhere in the codebase.</summary>
+    public void Rename(string name) => Name = name;
+
     public void AddMember(Guid accountId, OrgRole role, DateTimeOffset now)
     {
         if (_members.Any(m => m.AccountId == accountId && m.RemovedAt is null))
@@ -81,5 +84,36 @@ public class Organization
         }
 
         member.Remove(now);
+    }
+
+    /// <summary>
+    /// Changes an existing active member's role in place. Added by E01 for
+    /// PUT /orgs/{id}/members/{accountId} — cannot be Remove+AddMember
+    /// because the composite key (OrganizationId, AccountId) means the row
+    /// is never actually deleted (see OrgMember.Remove), so re-adding the
+    /// same account would collide on that key. Ownership transfer is out of
+    /// scope (same reason as RemoveMember below) — the caller must reject
+    /// role == Owner before calling this.
+    /// </summary>
+    public void ChangeMemberRole(Guid accountId, OrgRole role, DateTimeOffset now)
+    {
+        var member = _members.FirstOrDefault(m => m.AccountId == accountId && m.RemovedAt is null)
+            ?? throw new DomainRuleViolation("member_not_found", "No active member with that account id.");
+
+        if (role == OrgRole.Owner)
+            throw new DomainRuleViolation("owner_transfer_unsupported", "Ownership transfer is not supported yet.");
+        if (member.Role == OrgRole.Owner)
+            throw new DomainRuleViolation("last_owner", "The owner's role cannot be changed directly; transfer ownership first.");
+
+        // Same invariant as RemoveMember: demoting the last active OrgAdmin
+        // away from OrgAdmin must be refused just like removing them outright.
+        if (member.Role == OrgRole.OrgAdmin && role != OrgRole.OrgAdmin)
+        {
+            var activeAdmins = _members.Count(m => m.Role == OrgRole.OrgAdmin && m.RemovedAt is null);
+            if (activeAdmins <= 1)
+                throw new DomainRuleViolation("last_admin", "Cannot demote the last org-admin.");
+        }
+
+        member.ChangeRole(role);
     }
 }

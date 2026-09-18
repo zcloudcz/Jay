@@ -103,4 +103,67 @@ public class OrganizationTests
 
         act.Should().Throw<DomainRuleViolation>().Which.Code.Should().Be("member_not_found");
     }
+
+    // -----------------------------------------------------------------
+    // ChangeMemberRole (E01) — added because Remove+AddMember can't model a
+    // role change: the composite key (OrganizationId, AccountId) means the
+    // old (soft-removed) row is never deleted, so re-inserting would collide.
+    // -----------------------------------------------------------------
+
+    [Fact]
+    public void ChangeMemberRole_updates_the_role_of_an_active_member()
+    {
+        var org = Organization.Create(Guid.NewGuid(), "Acme", Guid.NewGuid(), Now);
+        var memberId = Guid.NewGuid();
+        org.AddMember(memberId, OrgRole.Member, Now);
+
+        org.ChangeMemberRole(memberId, OrgRole.OrgAdmin, Now);
+
+        org.Members.Single(m => m.AccountId == memberId).Role.Should().Be(OrgRole.OrgAdmin);
+    }
+
+    [Fact]
+    public void ChangeMemberRole_refuses_to_demote_the_last_org_admin()
+    {
+        var org = Organization.Create(Guid.NewGuid(), "Acme", Guid.NewGuid(), Now);
+        var adminId = Guid.NewGuid();
+        org.AddMember(adminId, OrgRole.OrgAdmin, Now);
+
+        var act = () => org.ChangeMemberRole(adminId, OrgRole.Member, Now);
+
+        act.Should().Throw<DomainRuleViolation>().Which.Code.Should().Be("last_admin");
+    }
+
+    [Fact]
+    public void ChangeMemberRole_refuses_to_grant_a_second_owner()
+    {
+        var org = Organization.Create(Guid.NewGuid(), "Acme", Guid.NewGuid(), Now);
+        var memberId = Guid.NewGuid();
+        org.AddMember(memberId, OrgRole.Member, Now);
+
+        var act = () => org.ChangeMemberRole(memberId, OrgRole.Owner, Now);
+
+        act.Should().Throw<DomainRuleViolation>().Which.Code.Should().Be("owner_transfer_unsupported");
+    }
+
+    [Fact]
+    public void ChangeMemberRole_refuses_to_change_the_owners_own_role()
+    {
+        var ownerId = Guid.NewGuid();
+        var org = Organization.Create(Guid.NewGuid(), "Acme", ownerId, Now);
+
+        var act = () => org.ChangeMemberRole(ownerId, OrgRole.OrgAdmin, Now);
+
+        act.Should().Throw<DomainRuleViolation>().Which.Code.Should().Be("last_owner");
+    }
+
+    [Fact]
+    public void Rename_updates_the_organization_name()
+    {
+        var org = Organization.Create(Guid.NewGuid(), "Acme", Guid.NewGuid(), Now);
+
+        org.Rename("Acme Corp");
+
+        org.Name.Should().Be("Acme Corp");
+    }
 }

@@ -30,4 +30,12 @@ public class OrgMember
     }
 
     internal void Remove(DateTimeOffset now) => RemovedAt = now;
+
+    /// <summary>
+    /// In-place role change. Added by E01 — the composite key is
+    /// (OrganizationId, AccountId), so a role change can never be modelled as
+    /// Remove+AddMember (that would try to insert a second row for the same
+    /// key once RemovedAt has already been set on the first).
+    /// </summary>
+    internal void ChangeRole(OrgRole role) => Role = role;
 }

@@ -121,6 +121,14 @@ if (businessModeEnabled)
 {
     builder.Services.AddDbContext<AuditDbContext>(options =>
         options.UseNpgsql(auditConnectionString));
+
+    // Organization context (E01). IDeliveryDirectory/IEnrollmentRevokedHandler
+    // are the seams CallType.Audit uses to reach Delivery data/behavior
+    // without ever referencing AppDbContext directly (KB3). The no-op
+    // revocation handler is overridden once E02 registers its real one.
+    builder.Services.AddScoped<CallType.Audit.Application.IDeliveryDirectory, DeliveryDirectory>();
+    builder.Services.AddSingleton<CallType.Audit.Application.IEnrollmentRevokedHandler, CallType.Audit.Application.NoOpEnrollmentRevokedHandler>();
+    builder.Services.AddScoped<CallType.Audit.OrgManagement.OrganizationAppService>();
 }
 
 // ReadinessService backs GET /health/ready — scoped because it depends on the
@@ -270,6 +278,7 @@ app.MapGroupEndpoints();
 app.MapBackupEndpoints();
 app.MapChannelEndpoints();
 app.MapTurnCredentialEndpoints();
+app.MapOrganizationEndpoints();
 
 // Map the SignalR hub at /hub. The hub is protected by [Authorize] — clients
 // must pass access_token as a query parameter during the WebSocket upgrade.

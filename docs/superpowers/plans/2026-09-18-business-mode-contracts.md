@@ -179,6 +179,103 @@ at runtime.
   `audit-roles.sql`'s quoted identifiers assume this; keep it that way, or
   update both together.
 
+## E01 — Organization context API (frozen for E02/E03/E05)
+
+All routes below: `RequireAuthorization`, rate limit `api`, and 503
+`{ error, code: "business_mode_disabled" }` when `BusinessModeOptions.Enabled`
+is false. Identity comes from the JWT device claim; routes that mutate
+governance state additionally require the calling device to be linked to a
+registered `Account` (403 `{ code: "account_required" }` otherwise) —
+enrollment via invite code does not.
+
+| Route | Body | Success | Notes |
+| --- | --- | --- | --- |
+| `POST /orgs` | `{ name }` | 201 `{ organizationId, name }` | Caller becomes `Owner`. One owned org per account (409 `org_limit`). |
+| `GET /orgs/mine` | — | 200 `[{ organizationId, name, role, archiveLevel, auditorDeviceId }]` | Union of account membership and device enrollment. |
+| `GET /orgs/{id}` | — | 200 `{ organizationId, name, createdAt, archiveLevel, auditorDeviceId, members: [{ accountId, role, addedAt }] }` | 404 (not 403) for non-members — existence is not leaked. |
+| `PATCH /orgs/{id}` | `{ name?, archiveLevel? }` | 204 | OrgAdmin+. |
+| `PUT /orgs/{id}/members/{accountId}` | `{ role }` | 204 | OrgAdmin+. `role: "Owner"` → 409 `owner_transfer_unsupported` (no ownership transfer in E01). Uses the new `Organization.ChangeMemberRole` (see below), not Remove+AddMember. |
+| `DELETE /orgs/{id}/members/{accountId}` | — | 204 | OrgAdmin+. 409 `last_owner`/`last_admin`, 404 `member_not_found`. |
+| `POST /orgs/{id}/invites` | `{ expiresInHours? }` | 200 `{ code, expiresAt }` | OrgAdmin+. Default lifetime 72h. **`maxUses` is not supported** — `OrgInvite` (frozen E00 domain) is single-use only; `maxUses > 1` → 422 `max_uses_unsupported`. |
+| `POST /orgs/enroll` | `{ code }` | 200 `{ organizationId }` | Any authenticated device, account optional. 410 `invite_invalid` if unknown/used/expired. |
+| `DELETE /orgs/{id}/enrollments/{deviceId}` | — | 204 | OrgAdmin+. Calls `IEnrollmentRevokedHandler.OnEnrollmentRevokedAsync` after commit — see below. |
+| `PUT /orgs/{id}/auditor` | `{ deviceId }` | 204 | OrgAdmin+. 422 `auditor_device_invalid` unless the device exists and `Device.IsBot == true`. |
+| `GET /orgs/{id}/admin-audit?from&to&format=json\|csv` | — | 200 (JSON array or `text/csv`) | OrgAdmin+. CSV cells starting with `=+-@` are prefixed with `'` (formula-injection guard). |
+
+Error code → HTTP status mapping (`OrganizationEndpoints.MapViolation`):
+`org_not_found`/`member_not_found` → 404, `forbidden` → 403, `invite_invalid`
+→ 410, `auditor_device_invalid` → 422, everything else (`org_limit`,
+`already_member`, `multiple_owners`, `last_owner`, `last_admin`,
+`owner_transfer_unsupported`) → 409.
+
+### `IEnrollmentRevokedHandler` (`CallType.Audit.Application`) — E02 seam
+
+```csharp
+public interface IEnrollmentRevokedHandler
+{
+    Task OnEnrollmentRevokedAsync(Guid organizationId, Guid deviceId, CancellationToken ct);
+}
+```
+
+E01 registers `NoOpEnrollmentRevokedHandler` as the default (singleton) so
+`DELETE /orgs/{id}/enrollments/{deviceId}` works before E02 exists. E02
+registers its real implementation (removing the device from the
+organization's Delivery groups) in `Program.cs`, overriding the default —
+last registration wins with `AddSingleton`.
+
+### `IDeliveryDirectory` (`CallType.Audit.Application`) — E01's Delivery seam
+
+```csharp
+public interface IDeliveryDirectory
+{
+    Task<bool> AccountExistsAsync(Guid accountId, CancellationToken ct);
+    Task<bool> DeviceExistsAsync(Guid deviceId, CancellationToken ct);
+    Task<bool> IsDeviceLinkedToAccountAsync(Guid deviceId, Guid accountId, CancellationToken ct);
+    Task<bool> IsBotDeviceAsync(Guid deviceId, CancellationToken ct);
+}
+```
+
+Implemented by `CallType.Api.Services.DeliveryDirectory` (over `AppDbContext`)
+— the only place `CallType.Audit` code reaches Delivery data, kept behind
+this interface so `CallType.Audit` never references `AppDbContext` (KB3).
+
+### Domain additions in E01 (on top of E00's frozen `Organization`/`OrgMember`)
+
+E00's `Organization` had no way to change a member's role or rename the org
+without violating the `OrgMember` composite key `(OrganizationId, AccountId)`
+— rows are soft-deleted (`RemovedAt`), never actually removed, so
+Remove+AddMember for the same account would collide on that key. E01 added:
+
+- `Organization.Rename(string name)` — no invariant beyond what EF's
+  `MaxLength(200)` already enforces.
+- `Organization.ChangeMemberRole(Guid accountId, OrgRole role, DateTimeOffset now)`
+  — same invariants as `RemoveMember` (can't touch the Owner's own role,
+  can't grant a second Owner, can't demote the last active `OrgAdmin`), new
+  codes `owner_transfer_unsupported` (role == Owner) reused from the E01
+  endpoint layer, `last_owner`/`last_admin` reused from `RemoveMember`.
+- `OrgMember.ChangeRole(OrgRole role)` (internal) — the actual mutation
+  `ChangeMemberRole` delegates to.
+
+### KB6 admin audit — `AdminAuditWriter` (`CallType.Audit.OrgManagement`)
+
+Every mutating call above wraps its domain mutation + `AdminAuditWriter.AppendAsync`
++ `SaveChangesAsync` in one `AuditDbContext` transaction. `AppendAsync` takes
+a `FOR UPDATE` lock on the organization's last `AdminAuditEvent` row so two
+concurrent writers serialize instead of racing on the unique
+`(OrganizationId, Sequence)` index. Event types emitted: `org_created`,
+`policy_changed`, `member_added`, `member_role_changed`, `member_removed`,
+`invite_created`, `device_enrolled`, `enrollment_revoked`, `auditor_device_set`.
+`DetailsJson` is a JSON-serialized anonymous object per event type — never
+message content, per KB6.
+
+**Note on namespace:** the application-service folder is
+`CallType.Audit/Organization/**` (per the ownership table above), but its
+namespace is `CallType.Audit.OrgManagement`, not `CallType.Audit.Organization`
+— the latter collides with the `Organization` aggregate type itself
+(`CS0118: Organization is a namespace but is used like a type`) once a
+sibling namespace shares that name. Folder path and namespace are
+intentionally different here.
+
 ## HashChain rules added in B00 review
 
 - `Canonicalize` encodes `null` as U+0000 (distinct from `""`) and **throws `ArgumentException`** if a value contains U+001F or U+0000. Validate/sanitize free-text input (organization name, access-request reason) at the API boundary and return 422 rather than letting this surface as 500.
