@@ -72,15 +72,32 @@ class _BotNoticeState extends State<_BotNotice> {
 class ChatScreen extends StatelessWidget {
   const ChatScreen({super.key, required this.contactId});
   final String contactId;
-  Future<void> _call(BuildContext context, bool video) async {
+  Future<void> _call(
+    BuildContext context,
+    bool video, {
+    String? targetDeviceId,
+    String? businessGroupId,
+  }) async {
+    final manager = context.read<WebRTCManager>();
     try {
-      await context.read<WebRTCManager>().startCall(contactId, video: video);
+      await manager.startCall(
+        targetDeviceId ?? contactId,
+        video: video,
+        businessGroupId: businessGroupId,
+      );
     } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.chatCallFailed)),
-        );
-      }
+      if (!context.mounted) return;
+      final l10n = context.l10n;
+      // A business offer the hub rejected outright never reaches the ringing
+      // UI, so it needs its own message here rather than on the call screen.
+      final message = switch (manager.error) {
+        CallError.auditorUnavailable => l10n.hubErrorAuditorUnavailable,
+        CallError.notABusinessMember => l10n.chatCallFailed,
+        _ => l10n.chatCallFailed,
+      };
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     }
   }
 
@@ -181,6 +198,39 @@ class ChatScreen extends StatelessWidget {
               onPressed: () => _call(context, true),
             ),
           ],
+          // A business "1:1" is a GROUP (the two members plus the visible
+          // auditor) — offer call buttons only when there is exactly one
+          // other non-auditor member; a larger group has no group calls.
+          if (group && organizationName != null)
+            FutureBuilder<String?>(
+              future: controller.businessCallTarget(),
+              builder: (context, snapshot) {
+                final peer = snapshot.data;
+                if (peer == null) return const SizedBox.shrink();
+                return Row(children: [
+                  IconButton(
+                    icon: const Icon(Icons.call_rounded),
+                    tooltip: l10n.chatVoiceCall,
+                    onPressed: () => _call(
+                      context,
+                      false,
+                      targetDeviceId: peer,
+                      businessGroupId: contactId,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.videocam_rounded),
+                    tooltip: l10n.chatVideoCall,
+                    onPressed: () => _call(
+                      context,
+                      true,
+                      targetDeviceId: peer,
+                      businessGroupId: contactId,
+                    ),
+                  ),
+                ]);
+              },
+            ),
         ],
       ),
       body: Column(

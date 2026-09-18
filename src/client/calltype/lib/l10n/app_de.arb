@@ -42,6 +42,23 @@
   "callErrorCannotStart": "Anruf kann nicht gestartet werden. Prüfe die Verbindung und die Berechtigungen für Mikrofon/Kamera.",
   "callErrorCannotAccept": "Anruf kann nicht angenommen werden. Prüfe die Berechtigungen für Mikrofon/Kamera.",
   "callErrorUserOffline": "Der Nutzer ist gerade offline. Versuche es später erneut.",
+  "callBusinessNotice": "Dieser Anruf wird für Ihre Organisation protokolliert: wer, wann und wie lange. Er wird nicht aufgezeichnet.",
+  "callEventMediaAudio": "Audioanruf",
+  "callEventMediaVideo": "Videoanruf",
+  "callEventMinutes": "{count, plural, =1{1 Min.} other{{count} Min.}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "beendet",
+  "callOutcomeMissed": "verpasst",
+  "callOutcomeRejected": "abgelehnt",
+  "callOutcomeFailed": "fehlgeschlagen",
+  "callOutcomeUnavailable": "nicht verfügbar",
   "chatListNewGroup": "Neue Gruppe",
   "chatListMyIdentity": "Meine Identität",
   "chatListOffline": "Offline – dein Verlauf ist auf diesem Gerät verfügbar.",

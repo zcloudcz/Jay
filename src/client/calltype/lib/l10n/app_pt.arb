@@ -42,6 +42,23 @@
   "callErrorCannotStart": "Não foi possível iniciar a chamada. Verifique a conexão e as permissões de microfone/câmera.",
   "callErrorCannotAccept": "Não foi possível aceitar a chamada. Verifique as permissões de microfone/câmera.",
   "callErrorUserOffline": "A pessoa está offline no momento. Tente mais tarde.",
+  "callBusinessNotice": "Esta chamada é registada para a sua organização: quem, quando e por quanto tempo. Não é gravada.",
+  "callEventMediaAudio": "Chamada de áudio",
+  "callEventMediaVideo": "Videochamada",
+  "callEventMinutes": "{count, plural, =1{1 min} other{{count} min}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "concluída",
+  "callOutcomeMissed": "perdida",
+  "callOutcomeRejected": "rejeitada",
+  "callOutcomeFailed": "falhou",
+  "callOutcomeUnavailable": "indisponível",
   "chatListNewGroup": "Novo grupo",
   "chatListMyIdentity": "Minha identidade",
   "chatListOffline": "Offline — seu histórico está disponível neste dispositivo.",

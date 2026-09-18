@@ -42,6 +42,23 @@
   "callErrorCannotStart": "通話を開始できません。接続とマイク/カメラの権限を確認してください。",
   "callErrorCannotAccept": "通話に応答できません。マイク/カメラの権限を確認してください。",
   "callErrorUserOffline": "相手は現在オフラインです。後でもう一度お試しください。",
+  "callBusinessNotice": "この通話は組織のために記録されます：誰が、いつ、どのくらいの時間。録音はされません。",
+  "callEventMediaAudio": "音声通話",
+  "callEventMediaVideo": "ビデオ通話",
+  "callEventMinutes": "{count, plural, other{{count}分}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "完了",
+  "callOutcomeMissed": "不応答",
+  "callOutcomeRejected": "拒否",
+  "callOutcomeFailed": "失敗",
+  "callOutcomeUnavailable": "利用不可",
   "chatListNewGroup": "新しいグループ",
   "chatListMyIdentity": "自分の ID",
   "chatListOffline": "オフライン — 履歴はこの端末で引き続き確認できます。",

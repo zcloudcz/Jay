@@ -42,6 +42,23 @@
   "callErrorCannotStart": "Kan de oproep niet starten. Controleer de verbinding en de machtigingen voor microfoon/camera.",
   "callErrorCannotAccept": "Kan de oproep niet opnemen. Controleer de machtigingen voor microfoon/camera.",
   "callErrorUserOffline": "De gebruiker is nu offline. Probeer het later opnieuw.",
+  "callBusinessNotice": "Dit gesprek wordt gelogd voor uw organisatie: wie, wanneer en hoe lang. Het wordt niet opgenomen.",
+  "callEventMediaAudio": "Audio-oproep",
+  "callEventMediaVideo": "Video-oproep",
+  "callEventMinutes": "{count, plural, =1{1 min} other{{count} min}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "voltooid",
+  "callOutcomeMissed": "gemist",
+  "callOutcomeRejected": "geweigerd",
+  "callOutcomeFailed": "mislukt",
+  "callOutcomeUnavailable": "niet beschikbaar",
   "chatListNewGroup": "Nieuwe groep",
   "chatListMyIdentity": "Mijn identiteit",
   "chatListOffline": "Offline — je geschiedenis is beschikbaar op dit apparaat.",

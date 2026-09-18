@@ -42,6 +42,23 @@
   "callErrorCannotStart": "Не удалось начать звонок. Проверьте соединение и разрешения на микрофон и камеру.",
   "callErrorCannotAccept": "Не удалось принять звонок. Проверьте разрешения на микрофон и камеру.",
   "callErrorUserOffline": "Пользователь сейчас не в сети. Попробуйте позже.",
+  "callBusinessNotice": "Этот звонок регистрируется для вашей организации: кто, когда и как долго. Он не записывается.",
+  "callEventMediaAudio": "Аудиозвонок",
+  "callEventMediaVideo": "Видеозвонок",
+  "callEventMinutes": "{count, plural, one{{count} мин} few{{count} мин} many{{count} мин} other{{count} мин}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "завершён",
+  "callOutcomeMissed": "пропущен",
+  "callOutcomeRejected": "отклонён",
+  "callOutcomeFailed": "не удался",
+  "callOutcomeUnavailable": "недоступен",
   "chatListNewGroup": "Новая группа",
   "chatListMyIdentity": "Мой профиль",
   "chatListOffline": "Нет сети — история доступна на этом устройстве.",

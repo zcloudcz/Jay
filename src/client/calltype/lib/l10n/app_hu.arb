@@ -42,6 +42,23 @@
   "callErrorCannotStart": "A hívás nem indítható. Ellenőrizd a kapcsolatot és a mikrofon/kamera engedélyeit.",
   "callErrorCannotAccept": "A hívás nem fogadható. Ellenőrizd a mikrofon/kamera engedélyeit.",
   "callErrorUserOffline": "A felhasználó jelenleg offline. Próbáld újra később.",
+  "callBusinessNotice": "Ez a hívás a szervezete számára naplózva van: ki, mikor és mennyi ideig. Nem kerül rögzítésre.",
+  "callEventMediaAudio": "Hanghívás",
+  "callEventMediaVideo": "Videóhívás",
+  "callEventMinutes": "{count, plural, =1{1 perc} other{{count} perc}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "befejezve",
+  "callOutcomeMissed": "nem fogadott",
+  "callOutcomeRejected": "elutasítva",
+  "callOutcomeFailed": "sikertelen",
+  "callOutcomeUnavailable": "nem elérhető",
   "chatListNewGroup": "Új csoport",
   "chatListMyIdentity": "Saját azonosítóm",
   "chatListOffline": "Offline – az előzményeid elérhetők ezen az eszközön.",

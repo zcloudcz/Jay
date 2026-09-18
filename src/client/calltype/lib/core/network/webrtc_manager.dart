@@ -16,9 +16,38 @@ enum CallError {
   cannotStart,
   cannotAccept,
   userOffline,
+  // H2: the hub rejected a BUSINESS offer outright (W2-F fail-closed rule /
+  // group membership check). Distinct from the other errors above — no call
+  // ever happened, so no CallReport is emitted for either of these.
+  auditorUnavailable,
+  notABusinessMember,
 }
 
 class _CancelledCall implements Exception {}
+
+/// One business call the app should archive as a `call-event` group message
+/// when it ends (H2). Plain data — no JSON/transport knowledge here, that is
+/// the sending listener's job. Never emitted for an anonymous call.
+class CallReport {
+  const CallReport({
+    required this.callId,
+    required this.businessGroupId,
+    required this.role,
+    required this.peerDeviceId,
+    required this.startedAt,
+    required this.endedAt,
+    required this.media,
+    required this.outcome,
+  });
+  final String callId;
+  final String businessGroupId;
+  final String role; // 'caller' | 'callee'
+  final String peerDeviceId;
+  final DateTime startedAt;
+  final DateTime endedAt;
+  final String media; // 'audio' | 'video'
+  final String outcome; // 'completed' | 'missed' | 'rejected' | 'failed' | 'unavailable'
+}
 
 class WebRTCManager extends ChangeNotifier {
   WebRTCManager({
@@ -87,6 +116,15 @@ class WebRTCManager extends ChangeNotifier {
   String? _offer;
   String? _callId;
   final _finishedCalls = <String>{};
+  // H2: business-call bookkeeping, so a CallReport can be built when the
+  // call ends. Null for an anonymous call throughout.
+  String? _businessGroupId;
+  String? get businessGroupId => _businessGroupId;
+  String? _callRole; // 'caller' | 'callee'
+  DateTime? _callStartedAt;
+  bool _callConnectedOnce = false;
+  final _callReports = StreamController<CallReport>.broadcast();
+  Stream<CallReport> get callReports => _callReports.stream;
   bool get isIncoming => _offer != null && _state == CallState.ringing;
   bool _isMuted = false;
   bool get isMuted => _isMuted;
@@ -123,7 +161,11 @@ class WebRTCManager extends ChangeNotifier {
     });
   }
 
-  Future<void> startCall(String targetDeviceId, {bool video = false}) async {
+  Future<void> startCall(
+    String targetDeviceId, {
+    bool video = false,
+    String? businessGroupId,
+  }) async {
     if (_disposed || _state != CallState.idle && _state != CallState.ended) {
       return;
     }
@@ -132,6 +174,7 @@ class WebRTCManager extends ChangeNotifier {
     _remoteDeviceId = targetDeviceId;
     _callId = const Uuid().v4();
     _isVideo = video;
+    _businessGroupId = businessGroupId;
     _state = CallState.connecting;
     notifyListeners();
     _armTimeout();
@@ -148,12 +191,25 @@ class WebRTCManager extends ChangeNotifier {
       notifyListeners();
       await _sendSignal(targetDeviceId, 'offer', offer.sdp!);
       _check(generation);
+      // Only reached once the hub accepted the offer — a business rejection
+      // (auditor_unavailable / not_a_business_member) throws out of the line
+      // above, so no report is ever built for a call that never happened.
+      _callRole = 'caller';
+      _callStartedAt = DateTime.now();
       await _sendBufferedIce(generation);
     } on _CancelledCall {
       return;
-    } catch (_) {
+    } catch (e) {
       if (!_active(generation)) return;
-      _error = CallError.cannotStart;
+      final message = e.toString();
+      if (businessGroupId != null && message.contains('auditor_unavailable')) {
+        _error = CallError.auditorUnavailable;
+      } else if (businessGroupId != null &&
+          message.contains('not_a_business_member')) {
+        _error = CallError.notABusinessMember;
+      } else {
+        _error = CallError.cannotStart;
+      }
       await _cleanup();
       rethrow;
     }
@@ -254,6 +310,7 @@ class WebRTCManager extends ChangeNotifier {
             state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
           _timeout?.cancel();
           _state = CallState.connected;
+          _callConnectedOnce = true;
           notifyListeners();
         } else if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
           _error = CallError.connectionFailed;
@@ -303,10 +360,14 @@ class WebRTCManager extends ChangeNotifier {
   }) {
     final id = callId ?? _callId;
     if (id == null) return Future.value();
+    // Every signal of a business call (offer, ice, hangup, answer) carries
+    // the same businessGroupId, on both sides — see H1 for why this must be
+    // a separate hub method rather than a 4th CallSignal argument.
     return _signalR.sendCallSignal(
       target,
       type,
       jsonEncode({'v': 1, 'callId': id, 'payload': payload}),
+      businessGroupId: _businessGroupId,
     );
   }
 
@@ -382,6 +443,14 @@ class WebRTCManager extends ChangeNotifier {
       _offer = payload;
       _isVideo = payload.contains('m=video');
       _error = null;
+      // The relayed event carries businessGroupId on the outer envelope
+      // (never inside the encrypted-by-convention SDP payload) — null for an
+      // anonymous call. This is what the answer/ice/hangup we send back use.
+      final groupId = data['businessGroupId'];
+      _businessGroupId = groupId is String ? groupId : null;
+      _callRole = 'callee';
+      _callStartedAt = DateTime.now();
+      _callConnectedOnce = false;
       _state = CallState.ringing;
       _armTimeout();
       notifyListeners();
@@ -498,9 +567,58 @@ class WebRTCManager extends ChangeNotifier {
     }
   }
 
+  /// H2: builds and emits the one [CallReport] for this call, if it was a
+  /// business call that actually started (offer sent and accepted, or offer
+  /// received). Must run before the fields it reads are cleared below.
+  void _emitReportIfNeeded() {
+    final groupId = _businessGroupId;
+    final peer = _remoteDeviceId;
+    final callId = _callId;
+    final startedAt = _callStartedAt;
+    final role = _callRole;
+    if (groupId == null ||
+        peer == null ||
+        callId == null ||
+        startedAt == null ||
+        role == null) {
+      return;
+    }
+    _callReports.add(
+      CallReport(
+        callId: callId,
+        businessGroupId: groupId,
+        role: role,
+        peerDeviceId: peer,
+        startedAt: startedAt,
+        endedAt: DateTime.now(),
+        media: _isVideo ? 'video' : 'audio',
+        outcome: _deriveOutcome(),
+      ),
+    );
+  }
+
+  String _deriveOutcome() {
+    if (_callConnectedOnce) return 'completed';
+    switch (_error) {
+      case CallError.noAnswer:
+        return 'missed';
+      case CallError.userOffline:
+        return 'unavailable';
+      case CallError.connectionFailed:
+      case CallError.cannotStart:
+      case CallError.cannotAccept:
+        return 'failed';
+      default:
+        // Hung up by either side before connecting, with no recorded error:
+        // the callee declined, or the caller gave up while still ringing.
+        return 'rejected';
+    }
+  }
+
   Future<void> _cleanup() async {
     ++_generation;
     _timeout?.cancel();
+    _emitReportIfNeeded();
     _state = CallState.ended;
     _offer = null;
     _remoteDescriptionSet = false;
@@ -508,6 +626,10 @@ class WebRTCManager extends ChangeNotifier {
     _earlyIce.clear();
     _localIce.clear();
     _remoteDeviceId = null;
+    _businessGroupId = null;
+    _callRole = null;
+    _callStartedAt = null;
+    _callConnectedOnce = false;
     final completedId = _callId;
     if (completedId != null) {
       _finishedCalls.add(completedId);
@@ -564,6 +686,7 @@ class WebRTCManager extends ChangeNotifier {
     _subscription.cancel();
     _timeout?.cancel();
     unawaited(_cleanup());
+    _callReports.close();
     super.dispose();
   }
 }

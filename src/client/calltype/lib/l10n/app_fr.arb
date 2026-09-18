@@ -42,6 +42,23 @@
   "callErrorCannotStart": "Impossible de lancer l'appel. Vérifiez la connexion et les autorisations du micro et de la caméra.",
   "callErrorCannotAccept": "Impossible d'accepter l'appel. Vérifiez les autorisations du micro et de la caméra.",
   "callErrorUserOffline": "Cette personne est hors ligne pour le moment. Réessayez plus tard.",
+  "callBusinessNotice": "Cet appel est journalisé pour votre organisation : qui, quand et pendant combien de temps. Il n'est pas enregistré.",
+  "callEventMediaAudio": "Appel audio",
+  "callEventMediaVideo": "Appel vidéo",
+  "callEventMinutes": "{count, plural, =1{1 min} other{{count} min}}",
+  "@callEventMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callOutcomeCompleted": "terminé",
+  "callOutcomeMissed": "manqué",
+  "callOutcomeRejected": "refusé",
+  "callOutcomeFailed": "échoué",
+  "callOutcomeUnavailable": "indisponible",
   "chatListNewGroup": "Nouveau groupe",
   "chatListMyIdentity": "Mon identité",
   "chatListOffline": "Hors ligne — votre historique reste disponible sur cet appareil.",

@@ -70,6 +70,22 @@ class ChatController extends ChangeNotifier {
       // Best-effort cache warm-up; the banner simply won't show yet.
     }
   }
+
+  /// H2: a business "1:1" is really a business GROUP with exactly one other
+  /// non-auditor member plus the auditor — the only shape calls make sense
+  /// for (there is no such thing as a group call). Returns that member's
+  /// device id, or null when this isn't a business group or has more than
+  /// one other member. Not cached: membership can change between opens.
+  Future<String?> businessCallTarget() async {
+    final info = await _api.getGroupBusinessInfo(conversationId);
+    if (!info.isBusiness) return null;
+    final members = await _api.getGroupMembers(conversationId);
+    final others = members
+        .where((id) => id != myDeviceId && id != info.auditorDeviceId)
+        .toList();
+    return others.length == 1 ? others.single : null;
+  }
+
   final AppDatabase _db;
   final SignalRClient _signalR;
   final SessionManager _sessions;
