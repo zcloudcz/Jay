@@ -26,7 +26,7 @@ public static class GroupEndpoints
         user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub"), out var id) ? id : Guid.Empty;
 
     private static async Task<IResult> CreateGroup(CreateGroupRequest request, ClaimsPrincipal user,
-        AppDbContext db, CancellationToken ct)
+        AppDbContext db, HttpContext http, CancellationToken ct)
     {
         var creator = Caller(user);
         if (creator == Guid.Empty) return Results.Unauthorized();
@@ -35,6 +35,13 @@ public static class GroupEndpoints
             return Results.BadRequest(new { error = "Groups support up to 100 valid devices." });
         if (await db.Devices.CountAsync(d => members.Contains(d.DeviceId), ct) != members.Length)
             return Results.BadRequest(new { error = "Device not found." });
+
+        // P1: this is an anonymous group — creator vs each new member.
+        var communicationPolicy = http.RequestServices.GetRequiredService<OrgCommunicationPolicy>();
+        foreach (var member in members.Where(id => id != creator))
+            if (!await communicationPolicy.IsAllowedAsync(creator, member, ct))
+                return Results.Json(new { error = "business_conversation_required", code = "business_conversation_required" }, statusCode: 409);
+
         var now = DateTimeOffset.UtcNow;
         var group = new Group { GroupId = Guid.NewGuid(), CreatedBy = creator, CreatedAt = now };
         db.Groups.Add(group);
@@ -141,6 +148,14 @@ public static class GroupEndpoints
             var enrolled = await auditDb.OrgEnrollments.AnyAsync(e =>
                 e.OrganizationId == orgId && e.DeviceId == request.DeviceId && e.RevokedAt == null, ct);
             if (!enrolled) return Results.Forbid();
+        }
+        else
+        {
+            // P1: adding a member to an ANONYMOUS group is one of the paths
+            // RequireBusinessConversations covers — adder vs the new member.
+            var communicationPolicy = http.RequestServices.GetRequiredService<OrgCommunicationPolicy>();
+            if (!await communicationPolicy.IsAllowedAsync(Caller(user), request.DeviceId, ct))
+                return Results.Json(new { error = "business_conversation_required", code = "business_conversation_required" }, statusCode: 409);
         }
 
         db.GroupMembers.Add(new GroupMember { GroupId = groupId, DeviceId = request.DeviceId,

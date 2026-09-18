@@ -36,7 +36,7 @@ namespace CallType.Api.Hubs;
 
 [Authorize]
 public class MessengerHub(MessageQueueService queueService, PushNotificationService pushService, AppDbContext db,
-    AuditorLivenessService auditorLiveness, IMemoryCache cache) : Hub
+    AuditorLivenessService auditorLiveness, OrgCommunicationPolicy communicationPolicy, IMemoryCache cache) : Hub
 {
     // Maps DeviceId -> ConnectionId for all currently connected devices.
     // Static because SignalR creates a new Hub instance per invocation,
@@ -94,6 +94,11 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
     public async Task SendReliableMessage(Guid recipientDeviceId, Guid messageId, string encryptedBodyBase64)
     {
         var sender = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
+        // P1: an organization can require that two of its enrolled devices
+        // only talk inside a business conversation. Checked before anything
+        // is queued, same discipline as KB2's audit_recipient_missing check.
+        if (!await communicationPolicy.IsAllowedAsync(sender, recipientDeviceId, Context.ConnectionAborted))
+            throw new HubException("business_conversation_required");
         var body = DecodePayload(encryptedBodyBase64);
         var message = await queueService.EnqueueReliableAsync(recipientDeviceId, sender, messageId,
             body, cancellationToken: Context.ConnectionAborted);
@@ -137,6 +142,17 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
             var auditorDeviceId = membership.SingleOrDefault(m => m.Role == "auditor")?.DeviceId;
             if (auditorDeviceId is null || !encryptedPayloads.ContainsKey(auditorDeviceId.Value))
                 throw new HubException("audit_recipient_missing");
+        }
+        else
+        {
+            // P1: an anonymous group is one of the paths RequireBusinessConversations
+            // covers. Cheap simplification: check sender against each recipient
+            // only, not every recipient pair — a pair where NEITHER is the
+            // sender is covered when either of THEM sends into this same
+            // group, so it's caught, just not on this particular call.
+            foreach (var recipient in encryptedPayloads.Keys.Where(id => id != sender))
+                if (!await communicationPolicy.IsAllowedAsync(sender, recipient, Context.ConnectionAborted))
+                    throw new HubException("business_conversation_required");
         }
         var decoded = encryptedPayloads.Where(p => p.Key != sender)
             .ToDictionary(p => p.Key, p => DecodePayload(p.Value));
@@ -250,6 +266,15 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
     {
         var senderDeviceId = GetCallerDeviceId();
         if (senderDeviceId is null) return;
+
+        // P1: only the anonymous path (businessGroupId == null) is subject to
+        // RequireBusinessConversations, and only on the offer — answer/ICE/
+        // hangup must never interrupt a call that was already allowed to
+        // start. BusinessCallSignal calls this with businessGroupId set, so
+        // it's unaffected.
+        if (businessGroupId is null && signalType == "offer"
+            && !await communicationPolicy.IsAllowedAsync(senderDeviceId.Value, targetDeviceId, Context.ConnectionAborted))
+            throw new HubException("business_conversation_required");
 
         if (OnlineDevices.TryGetValue(targetDeviceId, out var connectionId))
         {

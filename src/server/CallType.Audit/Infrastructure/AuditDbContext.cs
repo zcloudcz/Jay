@@ -49,6 +49,7 @@ public class AuditDbContext(DbContextOptions<AuditDbContext> options) : DbContex
             entity.HasKey(o => o.OrganizationId);
             entity.Property(o => o.Name).HasMaxLength(200);
             entity.Property(o => o.ArchiveLevel).HasConversion<string>().HasMaxLength(20);
+            entity.Property(o => o.RequireBusinessConversations).HasDefaultValue(false);
 
             // Backing field access: Organization exposes Members as a read-only
             // collection and only mutates it through AddMember/RemoveMember —

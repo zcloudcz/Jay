@@ -70,6 +70,7 @@ public class OrganizationAppService(AuditDbContext db, IDeliveryDirectory delive
                     o.Name,
                     o.ArchiveLevel,
                     o.AuditorDeviceId,
+                    o.RequireBusinessConversations,
                     Role = o.Members.First(m => m.AccountId == accountId && m.RemovedAt == null).Role
                 })
                 .ToListAsync(ct);
@@ -77,7 +78,7 @@ public class OrganizationAppService(AuditDbContext db, IDeliveryDirectory delive
             foreach (var m in byMembership)
             {
                 membershipOrgIds.Add(m.OrganizationId);
-                result.Add(new OrganizationSummary(m.OrganizationId, m.Name, m.Role, m.ArchiveLevel, m.AuditorDeviceId));
+                result.Add(new OrganizationSummary(m.OrganizationId, m.Name, m.Role, m.ArchiveLevel, m.AuditorDeviceId, m.RequireBusinessConversations));
             }
         }
 
@@ -91,7 +92,7 @@ public class OrganizationAppService(AuditDbContext db, IDeliveryDirectory delive
         {
             var byEnrollment = await db.Organizations
                 .Where(o => enrolledOrgIds.Contains(o.OrganizationId))
-                .Select(o => new OrganizationSummary(o.OrganizationId, o.Name, OrgRole.Member, o.ArchiveLevel, o.AuditorDeviceId))
+                .Select(o => new OrganizationSummary(o.OrganizationId, o.Name, OrgRole.Member, o.ArchiveLevel, o.AuditorDeviceId, o.RequireBusinessConversations))
                 .ToListAsync(ct);
             result.AddRange(byEnrollment);
         }
@@ -139,7 +140,7 @@ public class OrganizationAppService(AuditDbContext db, IDeliveryDirectory delive
     // PATCH /orgs/{id}
     // -----------------------------------------------------------------
     public async Task UpdateOrganizationAsync(Guid organizationId, Guid actorAccountId, string? name,
-        ArchiveLevel? archiveLevel, DateTimeOffset now, CancellationToken ct)
+        ArchiveLevel? archiveLevel, bool? requireBusinessConversations, DateTimeOffset now, CancellationToken ct)
     {
         var org = await LoadOrgForAdminAsync(organizationId, actorAccountId, ct);
 
@@ -153,6 +154,11 @@ public class OrganizationAppService(AuditDbContext db, IDeliveryDirectory delive
         {
             changes["archiveLevel"] = new { from = org.ArchiveLevel.ToString(), to = archiveLevel.ToString() };
             org.ArchiveLevel = archiveLevel.Value;
+        }
+        if (requireBusinessConversations is not null && requireBusinessConversations != org.RequireBusinessConversations)
+        {
+            changes["requireBusinessConversations"] = new { from = org.RequireBusinessConversations, to = requireBusinessConversations.Value };
+            org.SetRequireBusinessConversations(requireBusinessConversations.Value);
         }
         if (changes.Count == 0) return;
 
@@ -375,7 +381,7 @@ public class OrganizationAppService(AuditDbContext db, IDeliveryDirectory delive
     }
 
     private static OrganizationDetails ToDetails(Domain.Organization org) => new(
-        org.OrganizationId, org.Name, org.CreatedAt, org.ArchiveLevel, org.AuditorDeviceId,
+        org.OrganizationId, org.Name, org.CreatedAt, org.ArchiveLevel, org.AuditorDeviceId, org.RequireBusinessConversations,
         org.Members.Where(m => m.RemovedAt is null)
             .Select(m => new OrgMemberDto(m.AccountId, m.Role, m.AddedAt))
             .ToList());

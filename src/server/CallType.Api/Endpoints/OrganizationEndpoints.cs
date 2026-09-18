@@ -88,7 +88,8 @@ public static class OrganizationEndpoints
         return Results.Ok(orgs.Select(o => new
         {
             organizationId = o.OrganizationId, name = o.Name, role = o.Role.ToString(),
-            archiveLevel = o.ArchiveLevel.ToString(), auditorDeviceId = o.AuditorDeviceId
+            archiveLevel = o.ArchiveLevel.ToString(), auditorDeviceId = o.AuditorDeviceId,
+            requireBusinessConversations = o.RequireBusinessConversations
         }));
     }
 
@@ -111,6 +112,7 @@ public static class OrganizationEndpoints
             {
                 organizationId = org.OrganizationId, name = org.Name, createdAt = org.CreatedAt,
                 archiveLevel = org.ArchiveLevel.ToString(), auditorDeviceId = org.AuditorDeviceId,
+                requireBusinessConversations = org.RequireBusinessConversations,
                 members = org.Members.Select(m => new { accountId = m.AccountId, role = m.Role.ToString(), addedAt = m.AddedAt })
             });
         }
@@ -161,7 +163,7 @@ public static class OrganizationEndpoints
 
         try
         {
-            await service.UpdateOrganizationAsync(id, accountId.Value, request.Name?.Trim(), archiveLevel, DateTimeOffset.UtcNow, ct);
+            await service.UpdateOrganizationAsync(id, accountId.Value, request.Name?.Trim(), archiveLevel, request.RequireBusinessConversations, DateTimeOffset.UtcNow, ct);
             return Results.NoContent();
         }
         catch (DomainRuleViolation ex) { return MapViolation(ex); }
@@ -427,7 +429,7 @@ public static class OrganizationEndpoints
 // ---------------------------------------------------------------------------
 
 public record CreateOrganizationRequest(string Name);
-public record UpdateOrganizationRequest(string? Name, string? ArchiveLevel);
+public record UpdateOrganizationRequest(string? Name, string? ArchiveLevel, bool? RequireBusinessConversations);
 public record SetMemberRoleRequest(string Role);
 public record CreateInviteRequest(int? ExpiresInHours, int? MaxUses);
 public record EnrollRequest(string Code);

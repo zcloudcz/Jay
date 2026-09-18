@@ -169,6 +169,7 @@ builder.Services.AddOptions<BusinessOptions>()
     .Configure<IConfiguration>((options, config) =>
         config.GetSection(BusinessOptions.SectionName).Bind(options));
 builder.Services.AddScoped<AuditorLivenessService>();
+builder.Services.AddScoped<OrgCommunicationPolicy>();
 
 // Emergency channel (E07): kits/drills/proof live in the Audit DB
 // (EmergencyAppService); the Delivery-side emergency group is a separate
