@@ -296,15 +296,30 @@ class SignalRClient {
   /// [targetDeviceId] is the call partner's device UUID.
   /// [signalType] is one of: 'offer', 'answer', 'ice-candidate', 'hangup'.
   /// [payload] is the SDP or ICE candidate JSON string.
+  /// [businessGroupId], when set, marks this as a call inside a business
+  /// conversation (H1): the hub then requires both devices to be members of
+  /// that group and, on the offer, the organization's auditor to be alive.
+  /// A business call goes out as a SEPARATE hub method, `BusinessCallSignal`
+  /// — a C# optional parameter on `CallSignal` is not honored by SignalR's
+  /// argument binder, so every pre-existing 3-argument caller (this method,
+  /// unchanged, for an anonymous call) must keep sending exactly 3 arguments.
   Future<void> sendCallSignal(
     String targetDeviceId,
     String signalType,
-    String payload,
-  ) async {
-    await _requireConnection().invoke(
-      'CallSignal',
-      <Object>[targetDeviceId, signalType, payload],
-    );
+    String payload, {
+    String? businessGroupId,
+  }) async {
+    if (businessGroupId == null) {
+      await _requireConnection().invoke(
+        'CallSignal',
+        <Object>[targetDeviceId, signalType, payload],
+      );
+    } else {
+      await _requireConnection().invoke(
+        'BusinessCallSignal',
+        <Object>[targetDeviceId, signalType, payload, businessGroupId],
+      );
+    }
   }
 
   // -- Server-to-client handlers --------------------------------------------

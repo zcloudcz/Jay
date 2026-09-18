@@ -101,6 +101,10 @@ class Archiver {
             'kind': message.kind,
             'sizeBytes': message.sizeBytes,
             'contentHash': message.contentHashHex,
+            // H1: only call-metadata carries details (the clear-text body
+            // this was hashed from); every other kind sends null, and the
+            // server rejects a non-null details for any other kind.
+            if (message.detailsJson != null) 'details': message.detailsJson,
           },
         );
         break;

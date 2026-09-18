@@ -4,6 +4,7 @@ import 'package:test/test.dart';
 
 void main() {
   _groupFanOutTests();
+  _callSignalTests();
 
   test('offline send fails instead of claiming successful delivery', () async {
     final client = SignalRClient(
@@ -118,6 +119,37 @@ void _groupFanOutTests() {
     await client.sendGroupMessage('g', {'bob': big, 'carol': big}, messageId: 'm1');
 
     expect(transport.invocations.map((i) => (i[3] as Map).keys.single), ['bob', 'carol']);
+  });
+}
+
+// H1: MessengerHub.CallSignal's businessGroupId is an OPTIONAL 4th parameter
+// so already-deployed 3-argument callers keep working — the wire contract
+// this guards is that an anonymous call sends exactly 3 args (unchanged) and
+// a business call sends exactly 4, never a null placeholder in between.
+void _callSignalTests() {
+  test('anonymous call signal sends exactly 3 args, unchanged', () async {
+    final (client, transport) = await _connected();
+
+    await client.sendCallSignal('bob', 'offer', 'sdp');
+
+    expect(transport.invocations, [
+      ['CallSignal', 'bob', 'offer', 'sdp'],
+    ]);
+  });
+
+  test('business call signal goes out as BusinessCallSignal with 4 args', () async {
+    final (client, transport) = await _connected();
+
+    await client.sendCallSignal(
+      'bob',
+      'offer',
+      'sdp',
+      businessGroupId: 'g1',
+    );
+
+    expect(transport.invocations, [
+      ['BusinessCallSignal', 'bob', 'offer', 'sdp', 'g1'],
+    ]);
   });
 }
 

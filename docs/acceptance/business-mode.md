@@ -1,6 +1,6 @@
 # Jay Business — přejímka kroku 1 (E06), stav 2026-09-18
 
-Sloučeno do `feat/bots-channels` = `master`, pushnuto a nasazeno na betu (Business režim zapnutý). Balíčky níže vznikly na větvích `business/*` nad `feat/bots-channels` @ `158b8d9`. Statusy dle K06. Jak navázat: `docs/HANDOFF-2026-09-18.md`.
+Sloučeno do `feat/bots-channels` = `master`, pushnuto a nasazeno na betu (Business režim zapnutý). Balíčky níže vznikly na větvích `business/*` nad `feat/bots-channels` @ `158b8d9`. Statusy dle K06. Jak navázat: `docs/HANDOFF-2026-09-18.md`. Balíček H1 (audit metadat hovorů): `docs/acceptance/h1-call-metadata.md`.
 
 ## Balíčky
 

@@ -13,6 +13,9 @@
 
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -211,5 +214,147 @@ public class AuditArchiveEndpointsTests : IntegrationTestBase
         body.LastArchivedAt!.Value.Should().BeOnOrAfter(beforeArchive);
         body.PendingForAuditor.Should().Be(2); // "older" and "newer" — "acked" excluded
         body.OldestPendingAt.Should().NotBeNull();
+    }
+
+    // -------------------------------------------------------------------
+    // H1 — call metadata is kept readable (details), bound into the chain
+    // via ContentHash == SHA-256(details). See docs/superpowers/plans/
+    // 2026-09-18-business-mode-contracts.md, "H1" for the exact rules.
+    // -------------------------------------------------------------------
+
+    private static string ValidCallDetails(string outcome = "completed", string? endedAt = "2026-09-18T12:05:00Z") =>
+        JsonSerializer.Serialize(new
+        {
+            callId = Guid.NewGuid().ToString(),
+            role = "caller",
+            peerDeviceId = Guid.NewGuid().ToString(),
+            startedAt = "2026-09-18T12:00:00Z",
+            endedAt,
+            media = "audio",
+            outcome
+        });
+
+    private static string HashOf(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+
+    private static object CallMetadataBody(Guid groupId, Guid senderDeviceId, string details) => new
+    {
+        groupId,
+        messageId = Guid.NewGuid().ToString(),
+        senderDeviceId,
+        sentAt = DateTimeOffset.UtcNow,
+        kind = "call-metadata",
+        sizeBytes = Encoding.UTF8.GetByteCount(details),
+        contentHash = HashOf(details),
+        details
+    };
+
+    [Fact]
+    public async Task Call_metadata_with_valid_details_is_stored_and_returned_readable()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var orgId = await SeedOrganizationAsync(deviceId);
+        var details = ValidCallDetails();
+
+        var response = await Client.PostAsJsonAsync($"/orgs/{orgId}/audit/records",
+            CallMetadataBody(Guid.NewGuid(), deviceId, details));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var dto = await response.Content.ReadFromJsonAsync<CallType.Api.Endpoints.AuditRecordDto>();
+        dto!.Details.Should().Be(details);
+    }
+
+    [Fact]
+    public async Task Details_on_a_text_record_is_rejected()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var orgId = await SeedOrganizationAsync(deviceId);
+        var withDetails = new
+        {
+            groupId = Guid.NewGuid(),
+            messageId = Guid.NewGuid().ToString(),
+            senderDeviceId = deviceId,
+            sentAt = DateTimeOffset.UtcNow,
+            kind = "text",
+            sizeBytes = 42,
+            contentHash = Convert.ToHexString(new byte[32]),
+            details = "not allowed here"
+        };
+
+        var response = await Client.PostAsJsonAsync($"/orgs/{orgId}/audit/records", withDetails);
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString()
+            .Should().Be("details_not_allowed");
+    }
+
+    [Fact]
+    public async Task Call_metadata_without_details_is_rejected()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var orgId = await SeedOrganizationAsync(deviceId);
+
+        var response = await Client.PostAsJsonAsync($"/orgs/{orgId}/audit/records", new
+        {
+            groupId = Guid.NewGuid(),
+            messageId = Guid.NewGuid().ToString(),
+            senderDeviceId = deviceId,
+            sentAt = DateTimeOffset.UtcNow,
+            kind = "call-metadata",
+            sizeBytes = 10,
+            contentHash = Convert.ToHexString(new byte[32])
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString()
+            .Should().Be("invalid_call_details");
+    }
+
+    [Fact]
+    public async Task Call_metadata_with_malformed_details_is_rejected()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var orgId = await SeedOrganizationAsync(deviceId);
+        // Missing "outcome" — same strict-key-set rule the archiver enforces.
+        var badDetails = JsonSerializer.Serialize(new
+        {
+            callId = Guid.NewGuid().ToString(),
+            role = "caller",
+            peerDeviceId = Guid.NewGuid().ToString(),
+            startedAt = "2026-09-18T12:00:00Z",
+            endedAt = "2026-09-18T12:05:00Z",
+            media = "audio"
+        });
+
+        var response = await Client.PostAsJsonAsync($"/orgs/{orgId}/audit/records",
+            CallMetadataBody(Guid.NewGuid(), deviceId, badDetails));
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString()
+            .Should().Be("invalid_call_details");
+    }
+
+    [Fact]
+    public async Task Call_metadata_details_hash_mismatch_is_rejected()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var orgId = await SeedOrganizationAsync(deviceId);
+        var details = ValidCallDetails();
+        var mismatched = new
+        {
+            groupId = Guid.NewGuid(),
+            messageId = Guid.NewGuid().ToString(),
+            senderDeviceId = deviceId,
+            sentAt = DateTimeOffset.UtcNow,
+            kind = "call-metadata",
+            sizeBytes = Encoding.UTF8.GetByteCount(details),
+            contentHash = Convert.ToHexString(new byte[32]), // deliberately wrong
+            details
+        };
+
+        var response = await Client.PostAsJsonAsync($"/orgs/{orgId}/audit/records", mismatched);
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString()
+            .Should().Be("details_hash_mismatch");
     }
 }

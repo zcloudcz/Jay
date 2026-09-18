@@ -136,4 +136,123 @@ void main() {
     expect(event.sizeBytes, fileBytes.length);
     expect(event.contentHashHex, crypto.sha256.convert(utf8.encode(envelope)).toString());
   });
+
+  group('call-event (H1)', () {
+    Map<String, dynamic> callEventBody({
+      String callId = 'c1',
+      String role = 'caller',
+      String peerDeviceId = 'bob',
+      String startedAt = '2026-09-18T12:00:00.000Z',
+      String? endedAt = '2026-09-18T12:05:00.000Z',
+      String media = 'audio',
+      String outcome = 'completed',
+    }) => {
+      'callId': callId,
+      'role': role,
+      'peerDeviceId': peerDeviceId,
+      'startedAt': startedAt,
+      'endedAt': endedAt,
+      'media': media,
+      'outcome': outcome,
+    };
+
+    Future<Map<String, dynamic>> deliverCallEvent(Map<String, dynamic> details) async => alice.messageTo(
+      'archiver',
+      {...await archiverKeys.getSignedIdentityBundle()},
+      jsonEncode(details),
+      groupId: 'g1',
+      type: 'call-event',
+    );
+
+    test('valid call-event is archived as call-metadata with matching hash/size', () async {
+      final body = jsonEncode(callEventBody());
+      final data = await deliverCallEvent(callEventBody());
+
+      final first = source.messages.first;
+      hub.deliver(data);
+      final event = await first;
+
+      expect(event.kind, 'call-metadata');
+      expect(event.detailsJson, body);
+      expect(event.sizeBytes, utf8.encode(body).length);
+      expect(event.contentHashHex, crypto.sha256.convert(utf8.encode(body)).toString());
+    });
+
+    test('unknown key is rejected, not emitted', () async {
+      final details = callEventBody()..['extra'] = 'nope';
+      final data = await deliverCallEvent(details);
+
+      var sawEvent = false;
+      final sub = source.messages.listen((_) => sawEvent = true);
+      hub.deliver(data);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await sub.cancel();
+
+      expect(sawEvent, isFalse);
+    });
+
+    test('missing key is rejected, not emitted', () async {
+      final details = callEventBody()..remove('outcome');
+      final data = await deliverCallEvent(details);
+
+      var sawEvent = false;
+      final sub = source.messages.listen((_) => sawEvent = true);
+      hub.deliver(data);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await sub.cancel();
+
+      expect(sawEvent, isFalse);
+    });
+
+    test('invalid enum value is rejected, not emitted', () async {
+      final data = await deliverCallEvent(callEventBody(outcome: 'bogus'));
+
+      var sawEvent = false;
+      final sub = source.messages.listen((_) => sawEvent = true);
+      hub.deliver(data);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await sub.cancel();
+
+      expect(sawEvent, isFalse);
+    });
+
+    test('unparseable timestamp is rejected, not emitted', () async {
+      final data = await deliverCallEvent(callEventBody(startedAt: 'not-a-date'));
+
+      var sawEvent = false;
+      final sub = source.messages.listen((_) => sawEvent = true);
+      hub.deliver(data);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await sub.cancel();
+
+      expect(sawEvent, isFalse);
+    });
+
+    test('endedAt before startedAt is rejected, not emitted', () async {
+      final data = await deliverCallEvent(callEventBody(
+        startedAt: '2026-09-18T12:05:00.000Z',
+        endedAt: '2026-09-18T12:00:00.000Z',
+      ));
+
+      var sawEvent = false;
+      final sub = source.messages.listen((_) => sawEvent = true);
+      hub.deliver(data);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await sub.cancel();
+
+      expect(sawEvent, isFalse);
+    });
+
+    test('null endedAt (call still in progress / never answered) is valid', () async {
+      final body = jsonEncode(callEventBody(endedAt: null));
+      final data = await deliverCallEvent(callEventBody(endedAt: null));
+
+      final first = source.messages.first;
+      hub.deliver(data);
+      final event = await first;
+
+      expect(event.kind, 'call-metadata');
+      expect(event.detailsJson, body);
+    });
+  });
 }

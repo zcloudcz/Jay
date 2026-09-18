@@ -16,6 +16,9 @@
 // ---------------------------------------------------------------------------
 
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using CallType.Api.Configuration;
@@ -42,7 +45,17 @@ public static partial class AuditArchiveEndpoints
     [GeneratedRegex("^[0-9a-fA-F]{64}$")]
     private static partial Regex ContentHashPattern();
 
-    private static readonly string[] AllowedKinds = ["text", "attachment", "call"];
+    private static readonly string[] AllowedKinds = ["text", "attachment", "call", "call-metadata"];
+
+    // H1: the exact shape the archiver's group_message_source.dart validates
+    // before hashing — kept identical on both sides so "well-formed" means
+    // the same thing whether the check runs client-side or here.
+    private static readonly string[] CallDetailsKeys =
+        ["callId", "role", "peerDeviceId", "startedAt", "endedAt", "media", "outcome"];
+    private static readonly string[] CallDetailsRoles = ["caller", "callee"];
+    private static readonly string[] CallDetailsMedia = ["audio", "video"];
+    private static readonly string[] CallDetailsOutcomes = ["completed", "missed", "rejected", "failed", "unavailable"];
+    private const int CallDetailsMaxLength = 1024;
 
     // A row that has never been superseded — a handful of retries is plenty
     // for a single-writer-per-organization archiver; anything beyond that
@@ -69,6 +82,28 @@ public static partial class AuditArchiveEndpoints
             return Results.UnprocessableEntity(new { error = "sizeBytes must not be negative." });
         if (!ContentHashPattern().IsMatch(request.ContentHash))
             return Results.UnprocessableEntity(new { error = "contentHash must be 64 hex characters (SHA-256)." });
+
+        // H1: details is the one place clear-text leaves the metadata archive
+        // level, so it is locked to exactly the one kind that needs it — never
+        // a side door for storing message content under a different kind.
+        if (request.Kind != "call-metadata")
+        {
+            if (request.Details is not null)
+                return Results.UnprocessableEntity(new { error = "details_not_allowed" });
+        }
+        else
+        {
+            if (request.Details is null || !IsWellFormedCallDetails(request.Details))
+                return Results.UnprocessableEntity(new { error = "invalid_call_details" });
+            // Binds the clear-text details into the existing hash chain without
+            // changing how hashes are computed: ContentHash must be exactly
+            // SHA-256 of the bytes actually stored, so a tampered/mismatched
+            // details string is caught here instead of silently diverging from
+            // what the chain claims to cover.
+            var detailsHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.Details)));
+            if (!string.Equals(detailsHash, request.ContentHash, StringComparison.OrdinalIgnoreCase))
+                return Results.UnprocessableEntity(new { error = "details_hash_mismatch" });
+        }
 
         var org = await auditDb.Organizations.FindAsync([orgId], ct);
         if (org is null) return Results.NotFound();
@@ -99,7 +134,8 @@ public static partial class AuditArchiveEndpoints
 
             var record = new AuditRecord(orgId, request.GroupId, request.MessageId, request.SenderDeviceId,
                 request.SentAt, now, request.Kind, request.SizeBytes, contentHash, ciphertextForArchive: null,
-                sequence, prevHash, ComputeHash(orgId, request, contentHash, now, sequence, prevHash));
+                sequence, prevHash, ComputeHash(orgId, request, contentHash, now, sequence, prevHash),
+                request.Details);
 
             auditDb.AuditRecords.Add(record);
             try
@@ -136,7 +172,49 @@ public static partial class AuditArchiveEndpoints
 
     private static AuditRecordDto ToDto(AuditRecord r) => new(r.OrganizationId, r.GroupId, r.MessageId,
         r.SenderDeviceId, r.SentAt, r.ArchivedAt, r.Kind, r.SizeBytes, Convert.ToHexString(r.ContentHash),
-        r.Sequence, Convert.ToHexString(r.Hash));
+        r.Sequence, Convert.ToHexString(r.Hash), r.DetailsJson);
+
+    // Mirrors the archiver's own validation (group_message_source.dart) so a
+    // "well-formed" call event means the same thing on both sides. Rejecting
+    // this here — not just trusting the client-computed contentHash — matters
+    // because details is clear text an auditor reads directly: garbage in is
+    // garbage an admin sees, hash or no hash.
+    private static bool IsWellFormedCallDetails(string details)
+    {
+        if (details.Length > CallDetailsMaxLength) return false;
+        JsonElement root;
+        try
+        {
+            root = JsonDocument.Parse(details).RootElement;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        if (root.ValueKind != JsonValueKind.Object) return false;
+
+        var keys = new List<string>();
+        foreach (var prop in root.EnumerateObject()) keys.Add(prop.Name);
+        if (keys.Count != CallDetailsKeys.Length || !CallDetailsKeys.All(keys.Contains)) return false;
+
+        if (root.GetProperty("callId").ValueKind != JsonValueKind.String) return false;
+        if (!CallDetailsRoles.Contains(root.GetProperty("role").GetString())) return false;
+        if (root.GetProperty("peerDeviceId").ValueKind != JsonValueKind.String) return false;
+        if (!CallDetailsMedia.Contains(root.GetProperty("media").GetString())) return false;
+        if (!CallDetailsOutcomes.Contains(root.GetProperty("outcome").GetString())) return false;
+
+        var startedAtRaw = root.GetProperty("startedAt");
+        if (startedAtRaw.ValueKind != JsonValueKind.String ||
+            !DateTimeOffset.TryParse(startedAtRaw.GetString(), out var startedAt))
+            return false;
+
+        var endedAtRaw = root.GetProperty("endedAt");
+        if (endedAtRaw.ValueKind == JsonValueKind.Null) return true;
+        if (endedAtRaw.ValueKind != JsonValueKind.String ||
+            !DateTimeOffset.TryParse(endedAtRaw.GetString(), out var endedAt))
+            return false;
+        return endedAt >= startedAt;
+    }
 
     private static async Task<IResult> GetCount(Guid orgId, ClaimsPrincipal user, BusinessModeOptions businessMode,
         HttpContext http, AppDbContext appDb, CancellationToken ct)
@@ -195,11 +273,11 @@ public static partial class AuditArchiveEndpoints
 }
 
 public record ArchiveRecordRequest(Guid GroupId, Guid MessageId, Guid SenderDeviceId, DateTimeOffset SentAt,
-    string Kind, long SizeBytes, string ContentHash);
+    string Kind, long SizeBytes, string ContentHash, string? Details = null);
 
 public record AuditRecordDto(Guid OrganizationId, Guid GroupId, Guid MessageId, Guid SenderDeviceId,
     DateTimeOffset SentAt, DateTimeOffset ArchivedAt, string Kind, long SizeBytes, string ContentHash,
-    long Sequence, string Hash);
+    long Sequence, string Hash, string? Details = null);
 
 public record AuditRecordCountDto(int Count, long LastSequence, string? LastHash,
     DateTimeOffset? LastArchivedAt, int PendingForAuditor, DateTimeOffset? OldestPendingAt);
