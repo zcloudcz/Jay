@@ -1,6 +1,5 @@
 {
   "@@locale": "sk",
-
   "commonCancel": "Zrušiť",
   "commonRetry": "Skúsiť znova",
   "commonAdd": "Pridať",
@@ -9,10 +8,8 @@
   "commonShare": "Zdieľať",
   "commonOpen": "Otvoriť",
   "commonLoading": "Načítava sa…",
-
   "navChats": "Čety",
   "navUpdates": "Aktuality",
-
   "lockUnlockTitle": "Odomknúť Jay",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "Odomknúť",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "Zabezpečené úložisko nie je dostupné. Skúste odomknúť znova.",
   "lockErrorRejected": "Odomknutie sa nepodarilo. Skúste to znova.",
   "lockErrorUnavailable": "Odomknutie nie je dostupné. Skúste to znova.",
-
   "callTitle": "Hovor",
   "callEnded": "Hovor ukončený",
   "callIncomingVoice": "Prichádzajúci hlasový hovor",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "Hovor sa nedá začať. Skontrolujte pripojenie a povolenia pre mikrofón a kameru.",
   "callErrorCannotAccept": "Hovor sa nedá prijať. Skontrolujte povolenia pre mikrofón a kameru.",
   "callErrorUserOffline": "Používateľ je práve offline. Skúste to neskôr.",
-
   "chatListNewGroup": "Nová skupina",
   "chatListMyIdentity": "Moja identita",
   "chatListOffline": "Ste offline — história je dostupná v tomto zariadení.",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "Skupinová konverzácia",
   "chatListEncryptedConversation": "Šifrovaná konverzácia",
   "chatListNewChat": "Nový čet",
-
   "chatVoiceCall": "Hlasový hovor",
   "chatVideoCall": "Videohovor",
   "chatCallFailed": "Hovor sa nepodarilo začať. Skontrolujte pripojenie a povolenia.",
@@ -76,12 +70,9 @@
   "chatInputHint": "Správa",
   "chatInputSend": "Odoslať",
   "chatInputNotSaved": "Správu sa nepodarilo uložiť. Koncept zostal tu.",
-
   "sizeBytes": "{count, plural, one{{count} bajt} few{{count} bajty} many{{count} bajtu} other{{count} bajtov}}",
   "sizeKilobytes": "{size} kB",
-
   "botNotice": "Bot — správy číta automatizovaný program prevádzkovaný treťou stranou. Označenie BOT si bot prideľuje sám a Jay ho neoveruje.",
-
   "contactsTitle": "Kontakty",
   "contactsScanQr": "Naskenovať QR kód",
   "contactsPasteInvite": "Vložiť pozvánku",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX alebo ct://…",
   "qrScanTitle": "Naskenovať QR kód",
   "qrScanHint": "Namierte na QR kód Jay",
-
   "groupNewTitle": "Nová skupina",
   "groupCreate": "Vytvoriť",
   "groupNameLabel": "Názov skupiny",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, one{{count} vybraný} few{{count} vybraní} many{{count} vybraného} other{{count} vybraných}}",
   "groupNoContacts": "Zatiaľ žiadne kontakty.\nNa vytvorenie skupiny najprv pridajte kontakty.",
   "groupCreateFailed": "Skupinu sa nepodarilo vytvoriť. Skontrolujte pripojenie a skúste to znova.",
-
   "onboardingTagline": "Bezpečne. Anonymne. Jednoducho.",
   "onboardingSettingUp": "Nastavujeme vaše zariadenie…",
   "onboardingGetStarted": "Začať",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "Zdieľajte tento QR kód a pridávajte kontakty",
   "onboardingStartMessaging": "Začať písať",
   "onboardingFailed": "Registrácia zlyhala",
-
   "settingsTitle": "Nastavenia",
   "settingsAppLock": "Zámok aplikácie",
   "settingsAppLockSubtitle": "PIN a biometrické overenie",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "Vynútiť TURN relay (diagnostika)",
   "settingsForceRelaySubtitle": "Ďalšie hovory pôjdu len cez relay. Pomalšie; po reštarte sa vypne.",
   "settingsVersion": "Jay {version} (beta)",
-
   "identityTitle": "Moja identita",
   "identityCopyInvite": "Kopírovať pozvánku",
   "identityInviteCopied": "Pozvánka skopírovaná",
-
   "appLockTitle": "Zámok aplikácie",
   "appLockExplanation": "Chráňte aplikáciu kódom PIN. Po zapnutí budete PIN zadávať pri každom otvorení Jay.",
   "appLockPin": "Zámok PIN",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "Aktuálny PIN",
   "appLockVerify": "Overiť",
   "appLockIncorrectPin": "Nesprávny PIN",
-
   "accountCreateTitle": "Vytvoriť účet",
   "accountLoginTitle": "Prihlásiť sa",
   "accountOptionalTitle": "Voliteľný účet",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "Nemáte účet? Zaregistrujte sa",
   "accountLinked": "Účet prepojený. Cloudová záloha je zapnutá.",
   "accountFailed": "Nepodarilo sa. Skontrolujte e-mail, heslovú frázu a pripojenie.",
-
   "backupTitle": "Cloudová záloha",
   "backupEncryptedTitle": "Koncovo šifrované",
   "backupExplanation": "Zálohuje sa história správ, vložené prílohy a kontakty; externé súbory a aktívne šifrovacie relácie súčasťou zálohy nie sú. Záloha je šifrovaná heslovou frázou, ktorú poznáte len vy. Server nikdy nevidí vaše správy ani kontakty v čitateľnej podobe.\n\nAk heslovú frázu zabudnete, zálohu nemožno obnoviť. Možnosť resetu neexistuje — je to zámer kvôli vašej bezpečnosti.",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "Neplatný súbor zálohy.",
   "backupErrorRestoreFailed": "Obnovenie zlyhalo. Skontrolujte heslovú frázu a súbor zálohy.",
   "backupErrorUnknown": "Niečo sa pokazilo. Skúste to znova.",
-
   "channelPublicNotice": "Príspevky v kanáli sú verejné a NIE SÚ koncovo šifrované.",
   "channelTitle": "Kanál",
   "channelNotAvailable": "Tento kanál nie je dostupný.",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "Správcovia kanála sa nedozvedia, kto nahlásenie poslal.",
   "channelReportSubmit": "Nahlásiť",
   "channelReportSent": "Nahlásenie odoslané.",
-
   "channelProfileBlockedChannels": "Blokované kanály",
   "channelProfileNotFound": "Kanál sa nenašiel. Skontrolujte odkaz a pripojenie.",
   "channelFollowers": "{count, plural, =0{Žiadni sledovatelia} one{{count} sledovateľ} few{{count} sledovatelia} many{{count} sledovateľa} other{{count} sledovateľov}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "Blokovať",
   "channelRoleOwner": "vlastník",
   "channelRoleAdmin": "správca",
-
   "channelOpenTitle": "Otvoriť kanál",
   "channelOpenLabel": "Identifikátor alebo odkaz kanála",
   "channelOpenHint": "CH-XXXX-XXXX alebo calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "Na vytvorenie kanála je potrebný registrovaný účet, aby kanál nezanikol spolu s týmto zariadením. Sledovať kanály možno aj bez účtu.",
   "channelRegisterOrLogin": "Registrovať alebo prihlásiť",
   "channelCreate": "Vytvoriť kanál",
-
   "channelAdminsTitle": "Správcovia kanála",
   "channelAdminsCurrent": "Aktuálni správcovia",
   "channelAdminsNone": "Zatiaľ žiadni správcovia.",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "Odobrať správcu",
   "channelAdminAdded": "Správca pridaný.",
   "channelAdminRemoved": "Správca odobraný.",
-
   "channelBlockedEmpty": "Žiadne blokované kanály.",
   "channelUnblock": "Odblokovať",
-
   "channelErrorBlocked": "Tento kanál je blokovaný. Najprv ho odblokujte v Nastaveniach.",
   "channelErrorAccountRequired": "Na vytvorenie kanála je potrebný registrovaný účet.",
   "channelErrorLimitReached": "Dosiahli ste limit kanálov, ktoré môžete vlastniť.",
@@ -288,5 +266,121 @@
   "channelErrorImageType": "Povolené sú len obrázky JPEG, PNG, WebP a GIF.",
   "channelErrorPostConflict": "Príspevok sa nepodarilo zverejniť. Skúste to znova.",
   "channelErrorForbidden": "Na túto akciu nemáte oprávnenie.",
-  "channelErrorGeneric": "Nepodarilo sa. Skontrolujte pripojenie."
+  "channelErrorGeneric": "Nepodarilo sa. Skontrolujte pripojenie.",
+  "orgSettingsTitle": "Organizácia",
+  "orgJoinTitle": "Pripojiť sa k organizácii",
+  "orgJoinCodeLabel": "Pozývací kód",
+  "orgJoinButton": "Pripojiť sa",
+  "orgJoinFailed": "Pripojenie zlyhalo. Skontrolujte kód a skúste to znova.",
+  "orgMembershipCard": "{orgName} — {role}",
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "orgCreateButton": "Vytvoriť organizáciu",
+  "orgCreateRequiresAccount": "Vytvorenie organizácie vyžaduje registrovaný účet.",
+  "orgMembersTitle": "Členovia",
+  "orgInviteCreate": "Vytvoriť pozvánku",
+  "orgInviteCodeLabel": "Pozývací kód: {code}",
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "orgSetAuditorLabel": "ID zariadenia audítora",
+  "orgExportAudit": "Exportovať administrátorský audit",
+  "orgArchiveActive": "Archív je aktívny.",
+  "orgArchiveInactive": "Do archívu zatiaľ neprichádzajú žiadne záznamy.",
+  "businessBannerText": "Túto konverzáciu archivuje organizácia {orgName}.",
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessAuditorTile": "Archív organizácie {orgName} (audítorský člen)",
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessInfoTitle": "O archivácii",
+  "businessInfoBody": "Organizácia {orgName} trvalo zaznamenáva, kto komu a kedy písal, veľkosť správy a hash obsahu — nikdy samotný text správy. Anonymné konverzácie mimo organizácie sa nikdy nearchivujú. Táto prvá verzia zatiaľ nešifruje hlavičky konverzácie ani neoveruje podpisy pre-key kľúčov; podrobnosti nájdete v dokumentácii aplikácie.",
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "orgErrorGeneric": "Niečo sa nepodarilo ({code}).",
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "Správu sa nepodarilo odoslať: v tejto konverzácii chýba audítorský člen organizácie.",
+  "emergencyTitle": "Núdzový kanál",
+  "emergencyKitsTitle": "Núdzové sady",
+  "emergencyIssueKit": "Vydať sadu",
+  "emergencyKitLabelField": "Popis",
+  "emergencyKitCountField": "Počet kódov",
+  "emergencyCodesWarning": "Tieto kódy sa zobrazia iba raz a už ich nemožno znovu zobraziť. Uložte si ich teraz.",
+  "emergencyRecoveryCode": "Obnovovací kód: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "Kopírovať všetko",
+  "emergencyShare": "Zdieľať",
+  "emergencyRevokeKit": "Zneplatniť",
+  "emergencyKitRevoked": "Zneplatnené",
+  "emergencyCodesRemaining": "Zostáva {remaining}/{total} kódov",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "Spustiť cvičenie",
+  "emergencyDrillsTitle": "Cvičenia",
+  "emergencyDrillStarted": "Cvičenie spustené",
+  "emergencyDrillConfirmed": "Potvrdilo {count}",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "Dokončiť cvičenie",
+  "emergencyExportProof": "Exportovať doklad",
+  "emergencyHaveCode": "Mám núdzový kód",
+  "emergencyEnrollCodeLabel": "Núdzový kód",
+  "emergencyEnrollButton": "Zapísať sa",
+  "emergencyEnrollFailed": "Nepodarilo sa zapísať. Skontrolujte kód a skúste to znova.",
+  "emergencyEnrollSuccess": "Zapísané — otvára sa núdzová konverzácia",
+  "emergencyDrillPromptTitle": "Núdzové cvičenie",
+  "emergencyDrillPromptBody": "Potvrďte, prosím, že ste túto správu dostali.",
+  "emergencyDrillConfirmButton": "Potvrdiť"
 }

@@ -1,6 +1,5 @@
 {
   "@@locale": "ar",
-
   "commonCancel": "إلغاء",
   "commonRetry": "إعادة المحاولة",
   "commonAdd": "إضافة",
@@ -9,10 +8,8 @@
   "commonShare": "مشاركة",
   "commonOpen": "فتح",
   "commonLoading": "جارٍ التحميل…",
-
   "navChats": "الدردشات",
   "navUpdates": "المستجدات",
-
   "lockUnlockTitle": "فتح قفل Jay",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "فتح القفل",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "التخزين الآمن غير متاح. حاول فتح القفل مرة أخرى.",
   "lockErrorRejected": "تعذّر فتح القفل. حاول مرة أخرى.",
   "lockErrorUnavailable": "فتح القفل غير متاح. حاول مرة أخرى.",
-
   "callTitle": "مكالمة",
   "callEnded": "انتهت المكالمة",
   "callIncomingVoice": "مكالمة صوتية واردة",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "تعذّر بدء المكالمة. تحقق من الاتصال ومن أذونات الميكروفون/الكاميرا.",
   "callErrorCannotAccept": "تعذّر قبول المكالمة. تحقق من أذونات الميكروفون/الكاميرا.",
   "callErrorUserOffline": "المستخدم غير متصل حاليًا. حاول مرة أخرى لاحقًا.",
-
   "chatListNewGroup": "مجموعة جديدة",
   "chatListMyIdentity": "هويتي",
   "chatListOffline": "غير متصل — سجلّك متاح على هذا الجهاز.",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "محادثة جماعية",
   "chatListEncryptedConversation": "محادثة مشفّرة",
   "chatListNewChat": "دردشة جديدة",
-
   "chatVoiceCall": "مكالمة صوتية",
   "chatVideoCall": "مكالمة فيديو",
   "chatCallFailed": "تعذّر بدء المكالمة. تحقق من الاتصال والأذونات.",
@@ -76,12 +70,9 @@
   "chatInputHint": "رسالة",
   "chatInputSend": "إرسال",
   "chatInputNotSaved": "لم يتم حفظ الرسالة. ما زالت مسودتك هنا.",
-
   "sizeBytes": "{count, plural, zero{{count} بايت} one{بايت واحد} two{بايتان} few{{count} بايتات} many{{count} بايتًا} other{{count} بايت}}",
   "sizeKilobytes": "{size} KB",
-
   "botNotice": "بوت — تتم قراءة الرسائل بواسطة برنامج آلي تشغّله جهة خارجية. تسمية BOT معلنة ذاتيًا ولم يتم التحقق منها من قِبل Jay.",
-
   "contactsTitle": "جهات الاتصال",
   "contactsScanQr": "مسح رمز QR",
   "contactsPasteInvite": "لصق الدعوة",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX أو ct://…",
   "qrScanTitle": "مسح رمز QR",
   "qrScanHint": "وجّه الكاميرا نحو رمز QR خاص بـ Jay",
-
   "groupNewTitle": "مجموعة جديدة",
   "groupCreate": "إنشاء",
   "groupNameLabel": "اسم المجموعة",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, zero{لم يتم تحديد أحد} one{تم تحديد واحد} two{تم تحديد اثنين} few{تم تحديد {count}} many{تم تحديد {count}} other{تم تحديد {count}}}",
   "groupNoContacts": "لا توجد جهات اتصال بعد.\nأضف جهات اتصال أولًا لإنشاء مجموعة.",
   "groupCreateFailed": "تعذّر إنشاء المجموعة. تحقق من الاتصال وحاول مرة أخرى.",
-
   "onboardingTagline": "آمن. مجهول الهوية. بسيط.",
   "onboardingSettingUp": "جارٍ إعداد جهازك…",
   "onboardingGetStarted": "ابدأ الآن",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "شارك رمز QR هذا لإضافة جهات اتصال",
   "onboardingStartMessaging": "ابدأ المراسلة",
   "onboardingFailed": "فشل التسجيل",
-
   "settingsTitle": "الإعدادات",
   "settingsAppLock": "قفل التطبيق",
   "settingsAppLockSubtitle": "رمز PIN والمصادقة بالمقاييس الحيوية",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "فرض استخدام مرحّل TURN (للتشخيص)",
   "settingsForceRelaySubtitle": "ستستخدم المكالمات التالية المرحّل فقط. أبطأ؛ ويُعاد الضبط عند إعادة التشغيل.",
   "settingsVersion": "Jay {version} تجريبي",
-
   "identityTitle": "هويتي",
   "identityCopyInvite": "نسخ الدعوة",
   "identityInviteCopied": "تم نسخ الدعوة",
-
   "appLockTitle": "قفل التطبيق",
   "appLockExplanation": "احمِ التطبيق برمز PIN. عند التفعيل، سيتعين عليك إدخال رمز PIN في كل مرة تفتح فيها Jay.",
   "appLockPin": "القفل برمز PIN",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "رمز PIN الحالي",
   "appLockVerify": "تحقّق",
   "appLockIncorrectPin": "رمز PIN غير صحيح",
-
   "accountCreateTitle": "إنشاء حساب",
   "accountLoginTitle": "تسجيل الدخول",
   "accountOptionalTitle": "حساب اختياري",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "تحتاج إلى حساب؟ سجّل",
   "accountLinked": "تم ربط الحساب. تم تفعيل النسخ الاحتياطي السحابي.",
   "accountFailed": "لم ينجح ذلك. تحقق من بريدك الإلكتروني وعبارة المرور والاتصال.",
-
   "backupTitle": "النسخ الاحتياطي السحابي",
   "backupEncryptedTitle": "مشفّر تمامًا بين الطرفين",
   "backupExplanation": "يشمل النسخ الاحتياطي سجل الرسائل والمرفقات المضمّنة وجهات الاتصال؛ ولا يشمل الملفات الخارجية وجلسات التشفير الجارية. نسختك الاحتياطية مشفّرة بعبارة مرور لا يعرفها أحد سواك. لا يرى الخادم رسائلك أو جهات اتصالك كنص غير مشفّر أبدًا.\n\nإذا نسيت عبارة المرور، فلن يمكن استرداد نسختك الاحتياطية. لا يوجد خيار لإعادة التعيين — وهذا مقصود حفاظًا على أمانك.",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "ملف النسخة الاحتياطية غير صالح.",
   "backupErrorRestoreFailed": "فشلت الاستعادة. تحقق من عبارة المرور وملف النسخة الاحتياطية.",
   "backupErrorUnknown": "حدث خطأ ما. يُرجى المحاولة مرة أخرى.",
-
   "channelPublicNotice": "منشورات القناة علنية و«ليست» مشفّرة تمامًا بين الطرفين.",
   "channelTitle": "قناة",
   "channelNotAvailable": "هذه القناة غير متاحة.",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "لن يعرف مشرفو القناة من الذي أبلغ.",
   "channelReportSubmit": "إبلاغ",
   "channelReportSent": "تم إرسال البلاغ.",
-
   "channelProfileBlockedChannels": "القنوات المحظورة",
   "channelProfileNotFound": "لم يتم العثور على القناة. تحقق من الرابط والاتصال.",
   "channelFollowers": "{count, plural, zero{لا يوجد متابعون} one{متابع واحد} two{متابعان} few{{count} متابعين} many{{count} متابعًا} other{{count} متابع}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "حظر",
   "channelRoleOwner": "المالك",
   "channelRoleAdmin": "مشرف",
-
   "channelOpenTitle": "فتح قناة",
   "channelOpenLabel": "معرّف القناة أو رابطها",
   "channelOpenHint": "CH-XXXX-XXXX أو calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "يتطلب إنشاء قناة حسابًا مسجّلًا، حتى لا تضيع القناة مع فقدان هذا الجهاز. تبقى متابعة القنوات ممكنة بدون حساب.",
   "channelRegisterOrLogin": "التسجيل أو تسجيل الدخول",
   "channelCreate": "إنشاء قناة",
-
   "channelAdminsTitle": "مشرفو القناة",
   "channelAdminsCurrent": "المشرفون الحاليون",
   "channelAdminsNone": "لا يوجد مشرفون بعد.",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "إزالة المشرف",
   "channelAdminAdded": "تمت إضافة المشرف.",
   "channelAdminRemoved": "تمت إزالة المشرف.",
-
   "channelBlockedEmpty": "لا توجد قنوات محظورة.",
   "channelUnblock": "إلغاء الحظر",
-
   "channelErrorBlocked": "هذه القناة محظورة. ألغِ حظرها من الإعدادات أولًا.",
   "channelErrorAccountRequired": "يلزم وجود حساب مسجّل لإنشاء قناة.",
   "channelErrorLimitReached": "لقد بلغت الحد الأقصى لعدد القنوات التي يمكنك امتلاكها.",
@@ -288,5 +266,121 @@
   "channelErrorImageType": "يُسمح فقط بصور JPEG وPNG وWebP وGIF.",
   "channelErrorPostConflict": "تعذّر نشر المنشور. حاول مرة أخرى.",
   "channelErrorForbidden": "غير مسموح لك بالقيام بذلك.",
-  "channelErrorGeneric": "لم ينجح ذلك. تحقق من الاتصال."
+  "channelErrorGeneric": "لم ينجح ذلك. تحقق من الاتصال.",
+  "orgSettingsTitle": "المؤسسة",
+  "orgJoinTitle": "الانضمام إلى مؤسسة",
+  "orgJoinCodeLabel": "رمز الدعوة",
+  "orgJoinButton": "انضمام",
+  "orgJoinFailed": "تعذر الانضمام. تحقق من الرمز وحاول مرة أخرى.",
+  "orgMembershipCard": "{orgName} — {role}",
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "orgCreateButton": "إنشاء مؤسسة",
+  "orgCreateRequiresAccount": "يتطلب إنشاء مؤسسة حسابًا مسجلًا.",
+  "orgMembersTitle": "الأعضاء",
+  "orgInviteCreate": "إنشاء دعوة",
+  "orgInviteCodeLabel": "رمز الدعوة: {code}",
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "orgSetAuditorLabel": "معرّف جهاز المدقق",
+  "orgExportAudit": "تصدير سجل تدقيق المسؤول",
+  "orgArchiveActive": "الأرشيف نشط.",
+  "orgArchiveInactive": "لا يستقبل الأرشيف سجلات بعد.",
+  "businessBannerText": "هذه المحادثة مؤرشفة بواسطة {orgName}.",
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessAuditorTile": "أرشيف {orgName} (عضو تدقيق)",
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessInfoTitle": "حول الأرشفة",
+  "businessInfoBody": "تحتفظ {orgName} بسجل دائم لمن راسل من ومتى، وحجم الرسالة، وتجزئة للمحتوى — وليس نص الرسالة نفسه أبدًا. لا يتم أبدًا أرشفة المحادثات المجهولة خارج المؤسسة. لا يقوم هذا الإصدار الأول بتشفير رؤوس المحادثة بعد ولا يتحقق من توقيعات المفاتيح المسبقة؛ راجع وثائق التطبيق للتفاصيل.",
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "orgErrorGeneric": "حدث خطأ ما ({code}).",
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "تعذر إرسال الرسالة: عضو التدقيق التابع للمؤسسة غير موجود في هذه المحادثة.",
+  "emergencyTitle": "قناة الطوارئ",
+  "emergencyKitsTitle": "مجموعات الطوارئ",
+  "emergencyIssueKit": "إصدار مجموعة",
+  "emergencyKitLabelField": "التسمية",
+  "emergencyKitCountField": "عدد الرموز",
+  "emergencyCodesWarning": "تظهر هذه الرموز مرة واحدة فقط ولا يمكن استرجاعها مرة أخرى. احفظها الآن.",
+  "emergencyRecoveryCode": "رمز الاسترداد: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "نسخ الكل",
+  "emergencyShare": "مشاركة",
+  "emergencyRevokeKit": "إبطال",
+  "emergencyKitRevoked": "تم الإبطال",
+  "emergencyCodesRemaining": "متبقٍ {remaining}/{total} رموز",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "بدء التمرين",
+  "emergencyDrillsTitle": "التمارين",
+  "emergencyDrillStarted": "بدأ التمرين",
+  "emergencyDrillConfirmed": "تم التأكيد من {count}",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "إنهاء التمرين",
+  "emergencyExportProof": "تصدير الإثبات",
+  "emergencyHaveCode": "لدي رمز طوارئ",
+  "emergencyEnrollCodeLabel": "رمز الطوارئ",
+  "emergencyEnrollButton": "تسجيل",
+  "emergencyEnrollFailed": "تعذر التسجيل. تحقق من الرمز وحاول مرة أخرى.",
+  "emergencyEnrollSuccess": "تم التسجيل — جارٍ فتح محادثة الطوارئ",
+  "emergencyDrillPromptTitle": "تمرين الطوارئ",
+  "emergencyDrillPromptBody": "يرجى تأكيد استلامك لهذه الرسالة.",
+  "emergencyDrillConfirmButton": "تأكيد"
 }

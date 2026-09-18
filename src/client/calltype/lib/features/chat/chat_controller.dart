@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import 'package:calltype_core/network/organization_api.dart';
 import '../../core/crypto/group_cipher.dart';
 import '../../core/crypto/session_manager.dart';
 import '../../core/network/api_client.dart';
@@ -38,6 +39,36 @@ class ChatController extends ChangeNotifier {
       if (message.conversationId == conversationId) _markRead();
     });
     _markRead();
+    _syncBusinessInfo();
+  }
+
+  /// Backfills the local `organizationId`/`organizationName` cache for this
+  /// conversation from the server, once. This is what lets the chat list
+  /// badge and this screen's banner appear WITHOUT a network call on every
+  /// render — see `Conversations` table doc in `calltype_core` (E05).
+  Future<void> _syncBusinessInfo() async {
+    final conversation = await (_db.select(
+      _db.conversations,
+    )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
+    if (conversation == null ||
+        conversation.type != 'group' ||
+        conversation.organizationId != null) {
+      return;
+    }
+    try {
+      final info = await _api.getGroupBusinessInfo(conversationId);
+      if (!info.isBusiness || _disposed) return;
+      await (_db.update(_db.conversations)
+            ..where((c) => c.id.equals(conversationId)))
+          .write(
+            ConversationsCompanion(
+              organizationId: Value(info.organizationId),
+              organizationName: Value(info.organizationName),
+            ),
+          );
+    } catch (_) {
+      // Best-effort cache warm-up; the banner simply won't show yet.
+    }
   }
   final AppDatabase _db;
   final SignalRClient _signalR;
@@ -51,6 +82,21 @@ class ChatController extends ChangeNotifier {
   List<Message> _messages = [];
   List<Message> get messages => List.unmodifiable(_messages);
   static const _uuid = Uuid();
+
+  /// Set when the hub rejects a send with `audit_recipient_missing` (Jay
+  /// Business mode, KB1) — the archiver was dropped from the fan-out, which
+  /// must never happen silently. Cleared on the next send attempt.
+  bool _auditRecipientMissing = false;
+  bool get auditRecipientMissing => _auditRecipientMissing;
+
+  /// One-shot read: the UI calls this to show its snackbar exactly once per
+  /// failure, instead of re-showing it on every rebuild while the flag
+  /// stays true.
+  bool consumeAuditRecipientMissing() {
+    final value = _auditRecipientMissing;
+    _auditRecipientMissing = false;
+    return value;
+  }
 
   Future<void> _markRead() async {
     await (_db.update(_db.conversations)
@@ -100,6 +146,7 @@ class ChatController extends ChangeNotifier {
       return;
     }
     await _status(messageId, 'sending');
+    _auditRecipientMissing = false;
     try {
       var stored = await (_db.select(
         _db.backupState,
@@ -183,7 +230,15 @@ class ChatController extends ChangeNotifier {
           _db.backupState,
         )..where((s) => s.key.equals('outbox:$messageId'))).go();
       });
-    } catch (_) {
+    } catch (e) {
+      // The hub reports the audit failure as a plain-text HubException
+      // message; surfacing it distinctly (rather than a generic "failed")
+      // is required by KB1 — this must never look like an ordinary
+      // delivery hiccup the user can ignore.
+      if (e.toString().contains('audit_recipient_missing')) {
+        _auditRecipientMissing = true;
+        notifyListeners();
+      }
       await _status(messageId, 'failed');
     }
   });

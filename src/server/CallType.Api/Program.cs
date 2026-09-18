@@ -22,6 +22,8 @@ using CallType.Api.Data;
 using CallType.Api.Endpoints;
 using CallType.Api.Hubs;
 using CallType.Api.Services;
+using CallType.Audit.Application;
+using CallType.Audit.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -107,6 +109,49 @@ builder.Services.AddScoped<ChannelService>();
 // is thread-safe and maintains an internal connection pool.
 builder.Services.AddSingleton(_ =>
     new BlobServiceClient(builder.Configuration.GetConnectionString("BlobStorage")));
+
+// Business mode (organizations + audit archive, docs/superpowers/plans/2026-09-18-business-mode.md)
+// is entirely optional: it is ON only when ConnectionStrings:Audit is
+// configured; otherwise every business endpoint answers 503
+// business_mode_disabled and the anonymous product works unchanged.
+//
+// The services below are registered UNCONDITIONALLY and the connection string
+// is read lazily from IConfiguration at resolve time — not from
+// builder.Configuration here. Two reasons, both found by the first real
+// Testcontainers run:
+//  1. Conditional registration made minimal-API parameter inference fail at
+//     startup for handlers that take these services, taking the whole API down
+//     in an anonymous-only deployment.
+//  2. WebApplicationFactory applies test configuration AFTER this file's
+//     top-level statements run, so a build-time read always saw "disabled".
+// Nothing connects to the audit database unless a business endpoint is
+// actually called with business mode enabled.
+builder.Services.AddSingleton(sp => new BusinessModeOptions
+{
+    Enabled = !string.IsNullOrEmpty(sp.GetRequiredService<IConfiguration>().GetConnectionString("Audit"))
+});
+builder.Services.AddDbContext<AuditDbContext>((sp, options) =>
+    options.UseNpgsql(
+        sp.GetRequiredService<IConfiguration>().GetConnectionString("Audit")
+        // Placeholder keeps DI resolvable when disabled; it is never opened
+        // because every caller checks BusinessModeOptions.Enabled first.
+        ?? "Host=business-mode-disabled"));
+
+// Organization context (E01) + business groups (E02). IDeliveryDirectory is
+// the seam CallType.Audit uses to look up Delivery data without ever
+// referencing AppDbContext (KB3). BusinessGroupService is the real
+// IEnrollmentRevokedHandler: revoking an enrollment removes the device from
+// the organization's groups.
+builder.Services.AddScoped<CallType.Audit.Application.IDeliveryDirectory, DeliveryDirectory>();
+builder.Services.AddScoped<BusinessGroupService>();
+builder.Services.AddScoped<IEnrollmentRevokedHandler>(sp => sp.GetRequiredService<BusinessGroupService>());
+builder.Services.AddScoped<CallType.Audit.OrgManagement.OrganizationAppService>();
+
+// Emergency channel (E07): kits/drills/proof live in the Audit DB
+// (EmergencyAppService); the Delivery-side emergency group is a separate
+// service (EmergencyGroupService) per the KB3 database split.
+builder.Services.AddScoped<CallType.Audit.Emergency.EmergencyAppService>();
+builder.Services.AddScoped<EmergencyGroupService>();
 
 // ReadinessService backs GET /health/ready — scoped because it depends on the
 // scoped AppDbContext (same lifetime rule as MessageQueueService above).
@@ -255,6 +300,9 @@ app.MapGroupEndpoints();
 app.MapBackupEndpoints();
 app.MapChannelEndpoints();
 app.MapTurnCredentialEndpoints();
+app.MapOrganizationEndpoints();
+app.MapAuditArchiveEndpoints();
+app.MapEmergencyEndpoints();
 
 // Map the SignalR hub at /hub. The hub is protected by [Authorize] — clients
 // must pass access_token as a query parameter during the WebSocket upgrade.
@@ -264,6 +312,26 @@ if (app.Configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup"))
 {
     await using var scope = app.Services.CreateAsyncScope();
     await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+
+    // The audit APP role may only INSERT/SELECT (KB3), so it must never run
+    // DDL. Startup migration therefore uses a separate schema-owner connection
+    // (ConnectionStrings:AuditMigrations). Without it the audit schema is left
+    // to the operator (`dotnet ef database update --context AuditDbContext`)
+    // rather than quietly granting the app role DDL rights.
+    var auditMigrationsConnection = app.Configuration.GetConnectionString("AuditMigrations");
+    var businessModeEnabled = app.Services.GetRequiredService<BusinessModeOptions>().Enabled;
+    if (businessModeEnabled && !string.IsNullOrEmpty(auditMigrationsConnection))
+    {
+        var migrationOptions = new DbContextOptionsBuilder<AuditDbContext>()
+            .UseNpgsql(auditMigrationsConnection).Options;
+        await using var migrationContext = new AuditDbContext(migrationOptions);
+        await migrationContext.Database.MigrateAsync();
+    }
+    else if (businessModeEnabled)
+    {
+        app.Logger.LogWarning(
+            "Business mode is enabled but ConnectionStrings:AuditMigrations is not set; audit schema migrations were NOT applied at startup.");
+    }
 }
 
 app.Run();

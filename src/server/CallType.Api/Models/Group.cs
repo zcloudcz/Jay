@@ -27,6 +27,23 @@ public class Group
 
     public DateTimeOffset CreatedAt { get; set; }
 
+    /// <summary>
+    /// Null for anonymous groups (the vast majority — never changes). Set only
+    /// for a business group owned by an organization (plan §1); Delivery knows
+    /// organizations only by this id — no FK into the separate Audit database
+    /// (KB3: the two databases stay independent, different credentials).
+    /// </summary>
+    public Guid? OrganizationId { get; set; }
+
+    /// <summary>
+    /// True for the one distinguished business group per organization used as
+    /// its emergency channel (E07, spec 2.3/2.6) — lets EmergencyEndpoints find
+    /// "the" emergency group without guessing among an org's other business
+    /// groups. Always false for anonymous groups and for ordinary business
+    /// groups created via POST /groups/business.
+    /// </summary>
+    public bool IsEmergencyChannel { get; set; }
+
     // Navigation property
     public List<GroupMember> Members { get; set; } = [];
 }

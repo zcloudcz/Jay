@@ -1,6 +1,5 @@
 {
   "@@locale": "nl",
-
   "commonCancel": "Annuleren",
   "commonRetry": "Opnieuw proberen",
   "commonAdd": "Toevoegen",
@@ -9,10 +8,8 @@
   "commonShare": "Delen",
   "commonOpen": "Openen",
   "commonLoading": "Laden…",
-
   "navChats": "Chats",
   "navUpdates": "Updates",
-
   "lockUnlockTitle": "Jay ontgrendelen",
   "lockPinLabel": "Pincode",
   "lockUnlockButton": "Ontgrendelen",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "De beveiligde opslag is niet beschikbaar. Probeer opnieuw te ontgrendelen.",
   "lockErrorRejected": "Ontgrendelen mislukt. Probeer het opnieuw.",
   "lockErrorUnavailable": "Ontgrendelen is niet beschikbaar. Probeer het opnieuw.",
-
   "callTitle": "Oproep",
   "callEnded": "Oproep beëindigd",
   "callIncomingVoice": "Inkomende spraakoproep",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "Kan de oproep niet starten. Controleer de verbinding en de machtigingen voor microfoon/camera.",
   "callErrorCannotAccept": "Kan de oproep niet opnemen. Controleer de machtigingen voor microfoon/camera.",
   "callErrorUserOffline": "De gebruiker is nu offline. Probeer het later opnieuw.",
-
   "chatListNewGroup": "Nieuwe groep",
   "chatListMyIdentity": "Mijn identiteit",
   "chatListOffline": "Offline — je geschiedenis is beschikbaar op dit apparaat.",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "Groepsgesprek",
   "chatListEncryptedConversation": "Versleuteld gesprek",
   "chatListNewChat": "Nieuwe chat",
-
   "chatVoiceCall": "Spraakoproep",
   "chatVideoCall": "Video-oproep",
   "chatCallFailed": "Kan de oproep niet starten. Controleer de verbinding en de machtigingen.",
@@ -76,12 +70,9 @@
   "chatInputHint": "Bericht",
   "chatInputSend": "Verzenden",
   "chatInputNotSaved": "Het bericht is niet opgeslagen. Je concept staat er nog.",
-
   "sizeBytes": "{count, plural, one{{count} byte} other{{count} bytes}}",
   "sizeKilobytes": "{size} KB",
-
   "botNotice": "Bot — berichten worden gelezen door een geautomatiseerd programma dat door een derde partij wordt beheerd. Het label BOT is een eigen verklaring en wordt niet door Jay geverifieerd.",
-
   "contactsTitle": "Contacten",
   "contactsScanQr": "QR-code scannen",
   "contactsPasteInvite": "Uitnodiging plakken",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX of ct://…",
   "qrScanTitle": "QR-code scannen",
   "qrScanHint": "Richt de camera op een QR-code van Jay",
-
   "groupNewTitle": "Nieuwe groep",
   "groupCreate": "Maken",
   "groupNameLabel": "Groepsnaam",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, one{{count} geselecteerd} other{{count} geselecteerd}}",
   "groupNoContacts": "Nog geen contacten.\nVoeg eerst contacten toe om een groep te maken.",
   "groupCreateFailed": "De groep kan niet worden gemaakt. Controleer de verbinding en probeer het opnieuw.",
-
   "onboardingTagline": "Veilig. Anoniem. Eenvoudig.",
   "onboardingSettingUp": "Je apparaat wordt ingesteld…",
   "onboardingGetStarted": "Aan de slag",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "Deel deze QR-code om contacten toe te voegen",
   "onboardingStartMessaging": "Begin met chatten",
   "onboardingFailed": "Registratie mislukt",
-
   "settingsTitle": "Instellingen",
   "settingsAppLock": "App-vergrendeling",
   "settingsAppLockSubtitle": "Pincode en biometrische verificatie",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "TURN-relay afdwingen (diagnose)",
   "settingsForceRelaySubtitle": "Volgende oproepen gaan alleen via de relay. Trager; wordt gereset bij opnieuw opstarten.",
   "settingsVersion": "Jay {version} bèta",
-
   "identityTitle": "Mijn identiteit",
   "identityCopyInvite": "Uitnodiging kopiëren",
   "identityInviteCopied": "Uitnodiging gekopieerd",
-
   "appLockTitle": "App-vergrendeling",
   "appLockExplanation": "Beveilig de app met een pincode. Als dit is ingeschakeld, moet je je pincode invoeren telkens wanneer je Jay opent.",
   "appLockPin": "Pincodevergrendeling",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "Huidige pincode",
   "appLockVerify": "Verifiëren",
   "appLockIncorrectPin": "Onjuiste pincode",
-
   "accountCreateTitle": "Account aanmaken",
   "accountLoginTitle": "Inloggen",
   "accountOptionalTitle": "Optioneel account",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "Nog geen account? Registreer",
   "accountLinked": "Account gekoppeld. Cloudback-up ingeschakeld.",
   "accountFailed": "Dat is niet gelukt. Controleer je e-mail, wachtwoordzin en verbinding.",
-
   "backupTitle": "Cloudback-up",
   "backupEncryptedTitle": "End-to-end versleuteld",
   "backupExplanation": "Van je berichtgeschiedenis, ingesloten bijlagen en contacten wordt een back-up gemaakt; externe bestanden en actieve versleutelingssessies zijn niet inbegrepen. Je back-up wordt versleuteld met een wachtwoordzin die alleen jij kent. De server ziet je berichten en contacten nooit als leesbare tekst.\n\nAls je je wachtwoordzin vergeet, kan je back-up niet worden hersteld. Er is geen mogelijkheid om die opnieuw in te stellen — dat is bewust zo ontworpen voor jouw veiligheid.",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "Ongeldig back-upbestand.",
   "backupErrorRestoreFailed": "Terugzetten mislukt. Controleer de wachtwoordzin en het back-upbestand.",
   "backupErrorUnknown": "Er is iets misgegaan. Probeer het opnieuw.",
-
   "channelPublicNotice": "Posts in kanalen zijn openbaar en NIET end-to-end versleuteld.",
   "channelTitle": "Kanaal",
   "channelNotAvailable": "Dit kanaal is niet beschikbaar.",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "De beheerders van het kanaal komen niet te weten wie de melding heeft gedaan.",
   "channelReportSubmit": "Rapporteren",
   "channelReportSent": "Melding verzonden.",
-
   "channelProfileBlockedChannels": "Geblokkeerde kanalen",
   "channelProfileNotFound": "Kanaal niet gevonden. Controleer de link en de verbinding.",
   "channelFollowers": "{count, plural, =0{Geen volgers} one{{count} volger} other{{count} volgers}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "Blokkeren",
   "channelRoleOwner": "eigenaar",
   "channelRoleAdmin": "beheerder",
-
   "channelOpenTitle": "Kanaal openen",
   "channelOpenLabel": "Kanaal-ID of link",
   "channelOpenHint": "CH-XXXX-XXXX of calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "Voor het maken van een kanaal is een geregistreerd account nodig, zodat het kanaal niet samen met dit apparaat verloren gaat. Kanalen volgen blijft mogelijk zonder account.",
   "channelRegisterOrLogin": "Registreren of inloggen",
   "channelCreate": "Kanaal maken",
-
   "channelAdminsTitle": "Kanaalbeheerders",
   "channelAdminsCurrent": "Huidige beheerders",
   "channelAdminsNone": "Nog geen beheerders.",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "Beheerder verwijderen",
   "channelAdminAdded": "Beheerder toegevoegd.",
   "channelAdminRemoved": "Beheerder verwijderd.",
-
   "channelBlockedEmpty": "Geen geblokkeerde kanalen.",
   "channelUnblock": "Deblokkeren",
-
   "channelErrorBlocked": "Dit kanaal is geblokkeerd. Deblokkeer het eerst in Instellingen.",
   "channelErrorAccountRequired": "Voor het maken van een kanaal is een geregistreerd account vereist.",
   "channelErrorLimitReached": "Je hebt het maximale aantal kanalen bereikt waarvan je eigenaar kunt zijn.",
@@ -288,5 +266,121 @@
   "channelErrorImageType": "Alleen afbeeldingen in JPEG, PNG, WebP en GIF zijn toegestaan.",
   "channelErrorPostConflict": "De post kan niet worden gepubliceerd. Probeer het opnieuw.",
   "channelErrorForbidden": "Je mag dit niet doen.",
-  "channelErrorGeneric": "Dat is niet gelukt. Controleer de verbinding."
+  "channelErrorGeneric": "Dat is niet gelukt. Controleer de verbinding.",
+  "orgSettingsTitle": "Organisatie",
+  "orgJoinTitle": "Lid worden van een organisatie",
+  "orgJoinCodeLabel": "Uitnodigingscode",
+  "orgJoinButton": "Deelnemen",
+  "orgJoinFailed": "Kon niet deelnemen. Controleer de code en probeer opnieuw.",
+  "orgMembershipCard": "{orgName} — {role}",
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "orgCreateButton": "Organisatie aanmaken",
+  "orgCreateRequiresAccount": "Voor het aanmaken van een organisatie is een geregistreerd account vereist.",
+  "orgMembersTitle": "Leden",
+  "orgInviteCreate": "Uitnodiging maken",
+  "orgInviteCodeLabel": "Uitnodigingscode: {code}",
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "orgSetAuditorLabel": "Apparaat-ID van de auditor",
+  "orgExportAudit": "Beheeraudit exporteren",
+  "orgArchiveActive": "Het archief is actief.",
+  "orgArchiveInactive": "Het archief ontvangt nog geen records.",
+  "businessBannerText": "Dit gesprek wordt gearchiveerd door {orgName}.",
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessAuditorTile": "Archief van {orgName} (auditlid)",
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessInfoTitle": "Over de archivering",
+  "businessInfoBody": "{orgName} houdt permanent bij wie met wie sprak, wanneer, de berichtgrootte en een inhoudshash — nooit de berichttekst zelf. Anonieme chats buiten een organisatie worden nooit gearchiveerd. Deze eerste versie versleutelt gespreksheaders nog niet en verifieert geen pre-key-handtekeningen; zie de documentatie van de app.",
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "orgErrorGeneric": "Er is iets misgegaan ({code}).",
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "Bericht kon niet worden verzonden: het auditlid van de organisatie ontbreekt in dit gesprek.",
+  "emergencyTitle": "Noodkanaal",
+  "emergencyKitsTitle": "Noodkits",
+  "emergencyIssueKit": "Kit uitgeven",
+  "emergencyKitLabelField": "Label",
+  "emergencyKitCountField": "Aantal codes",
+  "emergencyCodesWarning": "Deze codes worden slechts één keer getoond en kunnen niet opnieuw worden opgehaald. Bewaar ze nu.",
+  "emergencyRecoveryCode": "Herstelcode: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "Alles kopiëren",
+  "emergencyShare": "Delen",
+  "emergencyRevokeKit": "Intrekken",
+  "emergencyKitRevoked": "Ingetrokken",
+  "emergencyCodesRemaining": "Nog {remaining}/{total} codes over",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "Oefening starten",
+  "emergencyDrillsTitle": "Oefeningen",
+  "emergencyDrillStarted": "Oefening gestart",
+  "emergencyDrillConfirmed": "{count} bevestigd",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "Oefening voltooien",
+  "emergencyExportProof": "Bewijs exporteren",
+  "emergencyHaveCode": "Ik heb een noodcode",
+  "emergencyEnrollCodeLabel": "Noodcode",
+  "emergencyEnrollButton": "Inschrijven",
+  "emergencyEnrollFailed": "Inschrijven mislukt. Controleer de code en probeer het opnieuw.",
+  "emergencyEnrollSuccess": "Ingeschreven — noodgesprek wordt geopend",
+  "emergencyDrillPromptTitle": "Noodoefening",
+  "emergencyDrillPromptBody": "Bevestig dat u dit bericht heeft ontvangen.",
+  "emergencyDrillConfirmButton": "Bevestigen"
 }

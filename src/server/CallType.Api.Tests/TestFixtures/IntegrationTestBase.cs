@@ -23,9 +23,11 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Testcontainers.Azurite;
 using Testcontainers.PostgreSql;
 using CallType.Api.Data;
+using CallType.Audit.Infrastructure;
 
 namespace CallType.Api.Tests.TestFixtures;
 
@@ -54,6 +56,16 @@ public abstract class IntegrationTestBase : IAsyncLifetime
     /// </summary>
     protected HttpClient Client { get; private set; } = null!;
 
+    /// <summary>
+    /// Connection string for the Audit (business mode) database — a second,
+    /// physically separate database on the same Testcontainers Postgres
+    /// instance, mirroring production's separate-DB-separate-credentials
+    /// rule (KB3) without paying for a second container per test class.
+    /// Exposed so tests can open their own connection (e.g. to apply
+    /// infra/postgres/audit-roles.sql and verify the restricted app role).
+    /// </summary>
+    protected string AuditConnectionString { get; private set; } = null!;
+
     // Reusable key material for the auth helper. Tests that need specific keys
     // can still register devices manually.
     private static readonly string DefaultIdentityKey = Convert.ToBase64String([0x01, 0x02, 0x03]);
@@ -65,6 +77,12 @@ public abstract class IntegrationTestBase : IAsyncLifetime
         await Task.WhenAll(
             _postgres.StartAsync(),
             _azurite.StartAsync());
+
+        // Business mode's Audit database lives alongside the Delivery one in
+        // the same Postgres instance, under its own database name — see
+        // CreateAuditDatabaseAsync for why a second CREATE DATABASE is enough
+        // here instead of a second Testcontainer.
+        AuditConnectionString = await CreateAuditDatabaseAsync();
 
         Factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
@@ -81,7 +99,11 @@ public abstract class IntegrationTestBase : IAsyncLifetime
                         ["Jwt:Secret"] = "test-jwt-secret-at-least-32-characters-long!!",
                         ["Jwt:Issuer"] = "CallType.Api.Tests",
                         // Azurite connection string for blob storage tests.
-                        ["ConnectionStrings:BlobStorage"] = _azurite.GetConnectionString()
+                        ["ConnectionStrings:BlobStorage"] = _azurite.GetConnectionString(),
+                        // Presence of this key is what turns Business mode on
+                        // (BusinessModeOptions) — Program.cs reads it directly,
+                        // so no ConfigureServices override is needed for AuditDbContext.
+                        ["ConnectionStrings:Audit"] = AuditConnectionString
                     });
                 });
 
@@ -113,11 +135,37 @@ public abstract class IntegrationTestBase : IAsyncLifetime
 
         Client = Factory.CreateClient();
 
-        // Apply the schema to the fresh database. EnsureCreatedAsync is
+        // Apply the schema to the fresh databases. EnsureCreatedAsync is
         // sufficient here — we don't need migration history tracking in tests.
         using var scope = Factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         await db.Database.EnsureCreatedAsync();
+        var auditDb = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
+        await auditDb.Database.EnsureCreatedAsync();
+    }
+
+    /// <summary>
+    /// Creates a second database ("calltype_audit") on the same Testcontainers
+    /// Postgres instance and returns a connection string for it. A second
+    /// CREATE DATABASE is enough to prove separation-of-databases at the
+    /// application level (KB3) without the cost of a second Postgres
+    /// container per test class; the separation-of-CREDENTIALS half of KB3 is
+    /// what BusinessModeIntegrationTests verifies by applying
+    /// infra/postgres/audit-roles.sql against this same database.
+    /// </summary>
+    private async Task<string> CreateAuditDatabaseAsync()
+    {
+        var mainConnectionString = _postgres.GetConnectionString();
+
+        await using (var conn = new NpgsqlConnection(mainConnectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = new NpgsqlCommand("CREATE DATABASE calltype_audit;", conn);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        var auditBuilder = new NpgsqlConnectionStringBuilder(mainConnectionString) { Database = "calltype_audit" };
+        return auditBuilder.ConnectionString;
     }
 
     /// <summary>

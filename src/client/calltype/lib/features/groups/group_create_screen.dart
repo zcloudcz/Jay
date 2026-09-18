@@ -18,7 +18,17 @@ import 'group_controller.dart';
 /// Loads contacts from the database on init. The GroupController handles
 /// the actual group creation (API call + local DB insert).
 class GroupCreateScreen extends StatefulWidget {
-  const GroupCreateScreen({super.key});
+  const GroupCreateScreen({
+    super.key,
+    this.organizationId,
+    this.organizationName,
+  });
+
+  /// Set when creating a business group from Organization settings (E05).
+  /// The server is the actual enforcement point for "only enrolled members
+  /// allowed" — this screen only carries the id through to `createGroup`.
+  final String? organizationId;
+  final String? organizationName;
 
   @override
   State<GroupCreateScreen> createState() => _GroupCreateScreenState();
@@ -212,6 +222,8 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
     final groupId = await _controller.createGroup(
       _nameController.text,
       _selectedMembers.toList(),
+      organizationId: widget.organizationId,
+      organizationName: widget.organizationName,
     );
 
     if (groupId != null && mounted) {

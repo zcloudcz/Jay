@@ -1,6 +1,5 @@
 {
   "@@locale": "en",
-
   "commonCancel": "Cancel",
   "commonRetry": "Retry",
   "commonAdd": "Add",
@@ -9,28 +8,35 @@
   "commonShare": "Share",
   "commonOpen": "Open",
   "commonLoading": "Loading…",
-
   "navChats": "Chats",
-  "@navChats": {"description": "Bottom navigation tab with private conversations."},
+  "@navChats": {
+    "description": "Bottom navigation tab with private conversations."
+  },
   "navUpdates": "Updates",
-  "@navUpdates": {"description": "Bottom navigation tab and screen title listing followed public channels (like WhatsApp 'Updates')."},
-
+  "@navUpdates": {
+    "description": "Bottom navigation tab and screen title listing followed public channels (like WhatsApp 'Updates')."
+  },
   "lockUnlockTitle": "Unlock Jay",
-  "@lockUnlockTitle": {"description": "Title of the app-lock screen and reason shown in the OS biometric prompt. 'Jay' is the product name, do not translate."},
+  "@lockUnlockTitle": {
+    "description": "Title of the app-lock screen and reason shown in the OS biometric prompt. 'Jay' is the product name, do not translate."
+  },
   "lockPinLabel": "PIN",
   "lockUnlockButton": "Unlock",
   "lockUseBiometrics": "Use biometrics",
   "lockErrorStorageUnavailable": "Secure storage is unavailable. Try unlocking again.",
   "lockErrorRejected": "Could not unlock. Try again.",
-  "@lockErrorRejected": {"description": "Wrong PIN or rejected fingerprint/face."},
+  "@lockErrorRejected": {
+    "description": "Wrong PIN or rejected fingerprint/face."
+  },
   "lockErrorUnavailable": "Unlock is unavailable. Try again.",
-
   "callTitle": "Call",
   "callEnded": "Call ended",
   "callIncomingVoice": "Incoming voice call",
   "callIncomingVideo": "Incoming video call",
   "callStateCalling": "Calling…",
-  "@callStateCalling": {"description": "Outgoing call is ringing on the other side."},
+  "@callStateCalling": {
+    "description": "Outgoing call is ringing on the other side."
+  },
   "callStateConnecting": "Connecting…",
   "callStateConnected": "Connected",
   "callAccept": "Accept",
@@ -38,31 +44,47 @@
   "callEnd": "End call",
   "callClose": "Close",
   "callMic": "Mic",
-  "@callMic": {"description": "Short caption under a round in-call button; keep it very short."},
+  "@callMic": {
+    "description": "Short caption under a round in-call button; keep it very short."
+  },
   "callMicOff": "Mic off",
   "callSound": "Sound",
-  "@callSound": {"description": "Short caption under the in-call button that silences the other side; keep it very short."},
+  "@callSound": {
+    "description": "Short caption under the in-call button that silences the other side; keep it very short."
+  },
   "callSoundOff": "Sound off",
   "callCamera": "Camera",
   "callCameraOff": "Camera off",
   "callRoute": "Route",
-  "@callRoute": {"description": "Diagnostics button showing the network route (ICE candidate) of the call."},
+  "@callRoute": {
+    "description": "Diagnostics button showing the network route (ICE candidate) of the call."
+  },
   "callRouteNone": "No selected candidate yet",
-  "@callRouteNone": {"description": "Diagnostics: WebRTC has not selected an ICE candidate yet."},
+  "@callRouteNone": {
+    "description": "Diagnostics: WebRTC has not selected an ICE candidate yet."
+  },
   "callRouteSummary": "Route: {type} / {protocol}",
   "@callRouteSummary": {
     "description": "Diagnostics: technical ICE candidate type and protocol, e.g. 'Route: relay / udp'.",
-    "placeholders": {"type": {"type": "String"}, "protocol": {"type": "String"}}
+    "placeholders": {
+      "type": {
+        "type": "String"
+      },
+      "protocol": {
+        "type": "String"
+      }
+    }
   },
   "callErrorConnectionFailed": "Call connection failed.",
   "callErrorNoAnswer": "No answer or connection timed out.",
   "callErrorCannotStart": "Cannot start call. Check connection and microphone/camera permissions.",
   "callErrorCannotAccept": "Cannot accept call. Check microphone/camera permissions.",
   "callErrorUserOffline": "User is offline right now. Try again later.",
-
   "chatListNewGroup": "New group",
   "chatListMyIdentity": "My identity",
-  "@chatListMyIdentity": {"description": "Opens the screen with the user's own QR code and invite."},
+  "@chatListMyIdentity": {
+    "description": "Opens the screen with the user's own QR code and invite."
+  },
   "chatListOffline": "Offline — your history is available on this device.",
   "chatListReconnect": "Reconnect",
   "chatListCannotConnect": "Cannot connect. Check the network and retry.",
@@ -72,7 +94,6 @@
   "chatListGroupConversation": "Group conversation",
   "chatListEncryptedConversation": "Encrypted conversation",
   "chatListNewChat": "New chat",
-
   "chatVoiceCall": "Voice call",
   "chatVideoCall": "Video call",
   "chatCallFailed": "Unable to start the call. Check connection and permissions.",
@@ -80,54 +101,91 @@
   "chatEmpty": "No messages yet. Say hello!",
   "chatBotNoticeDismiss": "Got it",
   "chatAttachmentTooLarge": "Beta attachments support up to {maxKib} KiB.",
-  "@chatAttachmentTooLarge": {"placeholders": {"maxKib": {"type": "int"}}},
+  "@chatAttachmentTooLarge": {
+    "placeholders": {
+      "maxKib": {
+        "type": "int"
+      }
+    }
+  },
   "chatAttachmentFailed": "Unable to send attachment.",
   "chatAttachmentSaveFailed": "Unable to save attachment.",
   "chatAttachmentLabel": "{name} ({size})",
   "@chatAttachmentLabel": {
     "description": "Download button of a received file: file name and formatted size, e.g. 'notes.txt (12 KB)'.",
-    "placeholders": {"name": {"type": "String"}, "size": {"type": "String"}}
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
   },
   "chatStatusFailedRetry": "Failed — retry",
-  "@chatStatusFailedRetry": {"description": "Tappable status under an outgoing message that failed to send."},
+  "@chatStatusFailedRetry": {
+    "description": "Tappable status under an outgoing message that failed to send."
+  },
   "chatStatusSendingRetry": "Sending — retry",
   "chatStatusSent": "Sent",
   "chatInputAttach": "Attach file",
   "chatInputHint": "Message",
-  "@chatInputHint": {"description": "Placeholder in the message text field."},
+  "@chatInputHint": {
+    "description": "Placeholder in the message text field."
+  },
   "chatInputSend": "Send",
   "chatInputNotSaved": "Message was not saved. Your draft is still here.",
-
   "sizeBytes": "{count, plural, =1{1 byte} other{{count} bytes}}",
-  "@sizeBytes": {"placeholders": {"count": {"type": "int"}}},
+  "@sizeBytes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "sizeKilobytes": "{size} KB",
-  "@sizeKilobytes": {"placeholders": {"size": {"type": "String"}}},
-
+  "@sizeKilobytes": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "botNotice": "Bot — messages are read by an automated program operated by a third party. The BOT label is self-declared and not verified by Jay.",
-  "@botNotice": {"description": "Honest warning shown before adding / when chatting with a bot. Keep 'BOT' untranslated (it matches the badge) and 'Jay' (product name)."},
-
+  "@botNotice": {
+    "description": "Honest warning shown before adding / when chatting with a bot. Keep 'BOT' untranslated (it matches the badge) and 'Jay' (product name)."
+  },
   "contactsTitle": "Contacts",
   "contactsScanQr": "Scan QR code",
   "contactsPasteInvite": "Paste invite",
   "contactsAddByHandle": "Add by handle",
-  "@contactsAddByHandle": {"description": "A 'handle' is the user's public ID such as CT-AB12-CD34."},
+  "@contactsAddByHandle": {
+    "description": "A 'handle' is the user's public ID such as CT-AB12-CD34."
+  },
   "contactsEmptyTitle": "No contacts yet",
   "contactsEmptyHintScan": "Scan a QR code or add a handle",
   "contactsEmptyHintPaste": "Paste an invite or add a handle",
   "contactsEnterHandleOrInvite": "Enter handle or invite",
   "contactsAddContact": "Add contact",
   "contactsAdded": "Added {handle}",
-  "@contactsAdded": {"placeholders": {"handle": {"type": "String"}}},
+  "@contactsAdded": {
+    "placeholders": {
+      "handle": {
+        "type": "String"
+      }
+    }
+  },
   "contactsAddFailed": "Contact could not be added. Check the invite and connection.",
   "contactsNotFound": "Contact not found. Check the invite and connection.",
   "contactsConfirmAddTitle": "Add this contact?",
   "contactsAddDialogTitle": "Add Contact",
   "contactsHandleOrInviteLabel": "Handle or invite",
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX or ct://…",
-  "@contactsHandleOrInviteHint": {"description": "Only translate the word 'or'; the ID patterns stay as they are."},
+  "@contactsHandleOrInviteHint": {
+    "description": "Only translate the word 'or'; the ID patterns stay as they are."
+  },
   "qrScanTitle": "Scan QR Code",
   "qrScanHint": "Point at a Jay QR code",
-
   "groupNewTitle": "New Group",
   "groupCreate": "Create",
   "groupNameLabel": "Group name",
@@ -136,11 +194,14 @@
   "groupSelectedCount": "{count, plural, =1{1 selected} other{{count} selected}}",
   "@groupSelectedCount": {
     "description": "Number of contacts ticked as members of the new group.",
-    "placeholders": {"count": {"type": "int"}}
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "groupNoContacts": "No contacts yet.\nAdd contacts first to create a group.",
   "groupCreateFailed": "The group could not be created. Check the connection and try again.",
-
   "onboardingTagline": "Secure. Anonymous. Simple.",
   "onboardingSettingUp": "Setting up your device…",
   "onboardingGetStarted": "Get Started",
@@ -148,7 +209,6 @@
   "onboardingShareQr": "Share this QR code to add contacts",
   "onboardingStartMessaging": "Start Messaging",
   "onboardingFailed": "Registration failed",
-
   "settingsTitle": "Settings",
   "settingsAppLock": "App Lock",
   "settingsAppLockSubtitle": "PIN and biometric authentication",
@@ -161,15 +221,21 @@
   "settingsBlockedChannels": "Blocked channels",
   "settingsBlockedChannelsSubtitle": "Review and unblock channels",
   "settingsForceRelay": "Force TURN relay (diagnostics)",
-  "@settingsForceRelay": {"description": "Diagnostics switch; TURN is a technical term, do not translate it."},
+  "@settingsForceRelay": {
+    "description": "Diagnostics switch; TURN is a technical term, do not translate it."
+  },
   "settingsForceRelaySubtitle": "Next calls use the relay only. Slower; resets on restart.",
   "settingsVersion": "Jay {version} beta",
-  "@settingsVersion": {"placeholders": {"version": {"type": "String"}}},
-
+  "@settingsVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "identityTitle": "My identity",
   "identityCopyInvite": "Copy invite",
   "identityInviteCopied": "Invite copied",
-
   "appLockTitle": "App Lock",
   "appLockExplanation": "Protect the app with a PIN code. When enabled, you will need to enter your PIN each time you open Jay.",
   "appLockPin": "PIN Lock",
@@ -182,12 +248,13 @@
   "appLockPinTooShort": "PIN must be at least 4 digits",
   "appLockPinDigitsOnly": "PIN must contain only digits",
   "appLockSet": "Set",
-  "@appLockSet": {"description": "Dialog button confirming the new PIN."},
+  "@appLockSet": {
+    "description": "Dialog button confirming the new PIN."
+  },
   "appLockCurrentPinTitle": "Enter Current PIN",
   "appLockCurrentPinLabel": "Current PIN",
   "appLockVerify": "Verify",
   "appLockIncorrectPin": "Incorrect PIN",
-
   "accountCreateTitle": "Create Account",
   "accountLoginTitle": "Log In",
   "accountOptionalTitle": "Optional Account",
@@ -204,7 +271,6 @@
   "accountSwitchToRegister": "Need an account? Register",
   "accountLinked": "Account linked. Cloud backup enabled.",
   "accountFailed": "That did not work. Check your email, passphrase and connection.",
-
   "backupTitle": "Cloud Backup",
   "backupEncryptedTitle": "End-to-End Encrypted",
   "backupExplanation": "Message history, embedded attachments and contacts are backed up; external files and live encryption sessions are not included. Your backup is encrypted with a passphrase that only you know. The server never sees your messages or contacts in plaintext.\n\nIf you forget your passphrase, your backup cannot be recovered. There is no reset option — this is by design for your security.",
@@ -212,7 +278,16 @@
   "backupPassphraseHintCreate": "Choose a strong passphrase",
   "backupPassphraseHintRestore": "Enter your backup passphrase",
   "backupLimits": "Max file size: {maxMb} MB · Up to {maxCount} backups stored at once",
-  "@backupLimits": {"placeholders": {"maxMb": {"type": "int"}, "maxCount": {"type": "int"}}},
+  "@backupLimits": {
+    "placeholders": {
+      "maxMb": {
+        "type": "int"
+      },
+      "maxCount": {
+        "type": "int"
+      }
+    }
+  },
   "backupStored": "Stored backups",
   "backupDelete": "Delete backup",
   "backupCreate": "Create Backup",
@@ -232,22 +307,39 @@
   "backupErrorSessionExpired": "Your session expired. Please sign in again.",
   "backupErrorForbidden": "You do not have access to this backup.",
   "backupErrorLimitReached": "Backup limit reached (max {maxCount}). Delete an old backup to make room.",
-  "@backupErrorLimitReached": {"placeholders": {"maxCount": {"type": "int"}}},
+  "@backupErrorLimitReached": {
+    "placeholders": {
+      "maxCount": {
+        "type": "int"
+      }
+    }
+  },
   "backupErrorTooLarge": "File is too large (max {maxMb} MB).",
-  "@backupErrorTooLarge": {"placeholders": {"maxMb": {"type": "int"}}},
+  "@backupErrorTooLarge": {
+    "placeholders": {
+      "maxMb": {
+        "type": "int"
+      }
+    }
+  },
   "backupErrorNetwork": "Network error. Check your connection and try again.",
   "backupErrorRequestFailed": "Backup request failed ({statusCode}). Please try again.",
   "@backupErrorRequestFailed": {
     "description": "statusCode is the HTTP status, e.g. 500.",
-    "placeholders": {"statusCode": {"type": "int"}}
+    "placeholders": {
+      "statusCode": {
+        "type": "int"
+      }
+    }
   },
   "backupErrorNoBackups": "No cloud backups found.",
   "backupErrorInvalidFile": "Invalid backup file.",
   "backupErrorRestoreFailed": "Restore failed. Check the passphrase and backup file.",
   "backupErrorUnknown": "Something went wrong. Please try again.",
-
   "channelPublicNotice": "Channel posts are public and NOT end-to-end encrypted.",
-  "@channelPublicNotice": {"description": "Honest warning on every channel screen. Keep the emphasis on NOT (capitals where the script has them)."},
+  "@channelPublicNotice": {
+    "description": "Honest warning on every channel screen. Keep the emphasis on NOT (capitals where the script has them)."
+  },
   "channelTitle": "Channel",
   "channelNotAvailable": "This channel is not available.",
   "channelInfo": "Channel info",
@@ -255,7 +347,9 @@
   "channelLoadOlder": "Load older posts",
   "channelLoadOlderFailed": "Older posts could not be loaded.",
   "channelReact": "React",
-  "@channelReact": {"description": "Tooltip of the button that adds an emoji reaction to a post."},
+  "@channelReact": {
+    "description": "Tooltip of the button that adds an emoji reaction to a post."
+  },
   "channelPostOptions": "Post options",
   "channelReportPost": "Report post",
   "channelDeletePost": "Delete post",
@@ -274,11 +368,16 @@
   "channelReportReasonHelper": "The channel admins will not learn who reported.",
   "channelReportSubmit": "Report",
   "channelReportSent": "Report sent.",
-
   "channelProfileBlockedChannels": "Blocked channels",
   "channelProfileNotFound": "Channel not found. Check the link and connection.",
   "channelFollowers": "{count, plural, =0{No followers} =1{1 follower} other{{count} followers}}",
-  "@channelFollowers": {"placeholders": {"count": {"type": "int"}}},
+  "@channelFollowers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "channelFollow": "Follow",
   "channelUnfollow": "Unfollow",
   "channelOpenPosts": "Open posts",
@@ -291,27 +390,41 @@
   "channelNameLabel": "Channel name",
   "channelDescriptionLabel": "Description",
   "channelDeleteConfirmTitle": "Delete {name}?",
-  "@channelDeleteConfirmTitle": {"placeholders": {"name": {"type": "String"}}},
+  "@channelDeleteConfirmTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "channelDeleteConfirmBody": "The channel and all its posts disappear for every follower. This cannot be undone.",
   "channelBlockConfirmTitle": "Block {name}?",
-  "@channelBlockConfirmTitle": {"placeholders": {"name": {"type": "String"}}},
+  "@channelBlockConfirmTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "channelBlockConfirmBody": "You will stop following it, its posts are removed from this device and its links will no longer open. You can unblock it in Settings.",
   "channelBlockConfirm": "Block",
   "channelRoleOwner": "owner",
-  "@channelRoleOwner": {"description": "Lower-case role shown after the channel handle in a list, e.g. 'CH-AB12-CD34 · owner'."},
+  "@channelRoleOwner": {
+    "description": "Lower-case role shown after the channel handle in a list, e.g. 'CH-AB12-CD34 · owner'."
+  },
   "channelRoleAdmin": "admin",
-
   "channelOpenTitle": "Open channel",
   "channelOpenLabel": "Channel handle or link",
   "channelOpenHint": "CH-XXXX-XXXX or calltype://channel/…",
-  "@channelOpenHint": {"description": "Only translate the word 'or'; the ID and link patterns stay as they are."},
+  "@channelOpenHint": {
+    "description": "Only translate the word 'or'; the ID and link patterns stay as they are."
+  },
   "channelOpenTooltip": "Open channel by handle or link",
   "channelUpdatesEmpty": "You do not follow any channels yet. Open a channel from a link, QR code or handle.",
   "channelNew": "New channel",
   "channelCreateGate": "Creating a channel requires a registered account, so the channel is not lost together with this device. Following channels stays possible without an account.",
   "channelRegisterOrLogin": "Register or log in",
   "channelCreate": "Create channel",
-
   "channelAdminsTitle": "Channel admins",
   "channelAdminsCurrent": "Current admins",
   "channelAdminsNone": "No admins yet.",
@@ -321,10 +434,8 @@
   "channelAdminsRemove": "Remove admin",
   "channelAdminAdded": "Admin added.",
   "channelAdminRemoved": "Admin removed.",
-
   "channelBlockedEmpty": "No blocked channels.",
   "channelUnblock": "Unblock",
-
   "channelErrorBlocked": "This channel is blocked. Unblock it in Settings first.",
   "channelErrorAccountRequired": "A registered account is required to create a channel.",
   "channelErrorLimitReached": "You have reached the limit of channels you can own.",
@@ -336,5 +447,121 @@
   "channelErrorImageType": "Only JPEG, PNG, WebP and GIF images are allowed.",
   "channelErrorPostConflict": "The post could not be published. Try again.",
   "channelErrorForbidden": "You are not allowed to do this.",
-  "channelErrorGeneric": "That did not work. Check the connection."
+  "channelErrorGeneric": "That did not work. Check the connection.",
+  "orgSettingsTitle": "Organization",
+  "orgJoinTitle": "Join an organization",
+  "orgJoinCodeLabel": "Invite code",
+  "orgJoinButton": "Join",
+  "orgJoinFailed": "Could not join. Check the code and try again.",
+  "orgMembershipCard": "{orgName} — {role}",
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "orgCreateButton": "Create organization",
+  "orgCreateRequiresAccount": "Creating an organization requires a registered account.",
+  "orgMembersTitle": "Members",
+  "orgInviteCreate": "Create invite",
+  "orgInviteCodeLabel": "Invite code: {code}",
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "orgSetAuditorLabel": "Auditor device ID",
+  "orgExportAudit": "Export admin audit log",
+  "orgArchiveActive": "Archive is active.",
+  "orgArchiveInactive": "Archive is not receiving records yet.",
+  "businessBannerText": "This conversation is archived by {orgName}.",
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessAuditorTile": "{orgName} archive (audit member)",
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessInfoTitle": "About the archive",
+  "businessInfoBody": "{orgName} keeps a permanent record of who messaged whom, when, the message size, and a content hash — never the message text itself. Anonymous chats outside an organization are never archived. This first release does not yet encrypt conversation headers or verify pre-key signatures; see the app's documentation for details.",
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "orgErrorGeneric": "Something went wrong ({code}).",
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "This message could not be sent: the organization's archive member is missing from this conversation.",
+  "emergencyTitle": "Emergency channel",
+  "emergencyKitsTitle": "Emergency kits",
+  "emergencyIssueKit": "Issue kit",
+  "emergencyKitLabelField": "Label",
+  "emergencyKitCountField": "Number of codes",
+  "emergencyCodesWarning": "These codes are shown only once and cannot be retrieved again. Save them now.",
+  "emergencyRecoveryCode": "Recovery code: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "Copy all",
+  "emergencyShare": "Share",
+  "emergencyRevokeKit": "Revoke",
+  "emergencyKitRevoked": "Revoked",
+  "emergencyCodesRemaining": "{remaining}/{total} codes remaining",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "Start drill",
+  "emergencyDrillsTitle": "Drills",
+  "emergencyDrillStarted": "Drill started",
+  "emergencyDrillConfirmed": "{count} confirmed",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "Complete drill",
+  "emergencyExportProof": "Export proof",
+  "emergencyHaveCode": "I have an emergency code",
+  "emergencyEnrollCodeLabel": "Emergency code",
+  "emergencyEnrollButton": "Enroll",
+  "emergencyEnrollFailed": "Could not enroll. Check the code and try again.",
+  "emergencyEnrollSuccess": "Enrolled — opening the emergency conversation",
+  "emergencyDrillPromptTitle": "Emergency drill",
+  "emergencyDrillPromptBody": "Please confirm you received this message.",
+  "emergencyDrillConfirmButton": "Confirm"
 }

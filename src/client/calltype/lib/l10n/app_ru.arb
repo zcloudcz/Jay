@@ -1,6 +1,5 @@
 {
   "@@locale": "ru",
-
   "commonCancel": "Отмена",
   "commonRetry": "Повторить",
   "commonAdd": "Добавить",
@@ -9,10 +8,8 @@
   "commonShare": "Поделиться",
   "commonOpen": "Открыть",
   "commonLoading": "Загрузка…",
-
   "navChats": "Чаты",
   "navUpdates": "Каналы",
-
   "lockUnlockTitle": "Разблокировать Jay",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "Разблокировать",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "Защищённое хранилище недоступно. Попробуйте разблокировать ещё раз.",
   "lockErrorRejected": "Не удалось разблокировать. Попробуйте ещё раз.",
   "lockErrorUnavailable": "Разблокировка недоступна. Попробуйте ещё раз.",
-
   "callTitle": "Звонок",
   "callEnded": "Звонок завершён",
   "callIncomingVoice": "Входящий аудиозвонок",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "Не удалось начать звонок. Проверьте соединение и разрешения на микрофон и камеру.",
   "callErrorCannotAccept": "Не удалось принять звонок. Проверьте разрешения на микрофон и камеру.",
   "callErrorUserOffline": "Пользователь сейчас не в сети. Попробуйте позже.",
-
   "chatListNewGroup": "Новая группа",
   "chatListMyIdentity": "Мой профиль",
   "chatListOffline": "Нет сети — история доступна на этом устройстве.",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "Групповой чат",
   "chatListEncryptedConversation": "Зашифрованный чат",
   "chatListNewChat": "Новый чат",
-
   "chatVoiceCall": "Аудиозвонок",
   "chatVideoCall": "Видеозвонок",
   "chatCallFailed": "Не удалось начать звонок. Проверьте соединение и разрешения.",
@@ -76,12 +70,9 @@
   "chatInputHint": "Сообщение",
   "chatInputSend": "Отправить",
   "chatInputNotSaved": "Сообщение не сохранено. Черновик остался здесь.",
-
   "sizeBytes": "{count, plural, one{{count} байт} few{{count} байта} many{{count} байт} other{{count} байта}}",
   "sizeKilobytes": "{size} КБ",
-
   "botNotice": "Бот — сообщения читает автоматическая программа, которой управляет третья сторона. Метку BOT бот присваивает себе сам, Jay её не проверяет.",
-
   "contactsTitle": "Контакты",
   "contactsScanQr": "Сканировать QR-код",
   "contactsPasteInvite": "Вставить приглашение",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX или ct://…",
   "qrScanTitle": "Сканировать QR-код",
   "qrScanHint": "Наведите камеру на QR-код Jay",
-
   "groupNewTitle": "Новая группа",
   "groupCreate": "Создать",
   "groupNameLabel": "Название группы",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, one{Выбран {count}} few{Выбрано {count}} many{Выбрано {count}} other{Выбрано {count}}}",
   "groupNoContacts": "Контактов пока нет.\nСначала добавьте контакты, чтобы создать группу.",
   "groupCreateFailed": "Не удалось создать группу. Проверьте соединение и попробуйте ещё раз.",
-
   "onboardingTagline": "Безопасно. Анонимно. Просто.",
   "onboardingSettingUp": "Настраиваем ваше устройство…",
   "onboardingGetStarted": "Начать",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "Покажите этот QR-код, чтобы добавлять контакты",
   "onboardingStartMessaging": "Начать общение",
   "onboardingFailed": "Не удалось зарегистрироваться",
-
   "settingsTitle": "Настройки",
   "settingsAppLock": "Блокировка приложения",
   "settingsAppLockSubtitle": "PIN и биометрия",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "Только через TURN (диагностика)",
   "settingsForceRelaySubtitle": "Следующие звонки идут только через ретранслятор. Медленнее; сбрасывается при перезапуске.",
   "settingsVersion": "Jay {version} бета",
-
   "identityTitle": "Мой профиль",
   "identityCopyInvite": "Копировать приглашение",
   "identityInviteCopied": "Приглашение скопировано",
-
   "appLockTitle": "Блокировка приложения",
   "appLockExplanation": "Защитите приложение PIN-кодом. Если блокировка включена, PIN нужно будет вводить при каждом открытии Jay.",
   "appLockPin": "Блокировка по PIN",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "Текущий PIN",
   "appLockVerify": "Проверить",
   "appLockIncorrectPin": "Неверный PIN",
-
   "accountCreateTitle": "Создать аккаунт",
   "accountLoginTitle": "Войти",
   "accountOptionalTitle": "Аккаунт необязателен",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "Нет аккаунта? Зарегистрироваться",
   "accountLinked": "Аккаунт привязан. Облачная резервная копия включена.",
   "accountFailed": "Не получилось. Проверьте эл. почту, парольную фразу и соединение.",
-
   "backupTitle": "Облачная резервная копия",
   "backupEncryptedTitle": "Сквозное шифрование",
   "backupExplanation": "В резервную копию входят история сообщений, встроенные вложения и контакты; внешние файлы и активные сеансы шифрования в неё не входят. Резервная копия шифруется парольной фразой, которую знаете только вы. Сервер никогда не видит ваши сообщения и контакты в открытом виде.\n\nЕсли вы забудете парольную фразу, восстановить резервную копию будет невозможно. Сброса не существует — так задумано ради вашей безопасности.",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "Недопустимый файл резервной копии.",
   "backupErrorRestoreFailed": "Не удалось восстановить. Проверьте парольную фразу и файл резервной копии.",
   "backupErrorUnknown": "Что-то пошло не так. Попробуйте ещё раз.",
-
   "channelPublicNotice": "Публикации в канале общедоступны и НЕ защищены сквозным шифрованием.",
   "channelTitle": "Канал",
   "channelNotAvailable": "Этот канал недоступен.",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "Админы канала не узнают, кто отправил жалобу.",
   "channelReportSubmit": "Пожаловаться",
   "channelReportSent": "Жалоба отправлена.",
-
   "channelProfileBlockedChannels": "Заблокированные каналы",
   "channelProfileNotFound": "Канал не найден. Проверьте ссылку и соединение.",
   "channelFollowers": "{count, plural, =0{Нет подписчиков} one{{count} подписчик} few{{count} подписчика} many{{count} подписчиков} other{{count} подписчика}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "Заблокировать",
   "channelRoleOwner": "владелец",
   "channelRoleAdmin": "админ",
-
   "channelOpenTitle": "Открыть канал",
   "channelOpenLabel": "Идентификатор или ссылка канала",
   "channelOpenHint": "CH-XXXX-XXXX или calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "Для создания канала нужен зарегистрированный аккаунт, чтобы канал не был потерян вместе с этим устройством. Подписываться на каналы можно и без аккаунта.",
   "channelRegisterOrLogin": "Зарегистрироваться или войти",
   "channelCreate": "Создать канал",
-
   "channelAdminsTitle": "Админы канала",
   "channelAdminsCurrent": "Текущие админы",
   "channelAdminsNone": "Админов пока нет.",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "Снять админа",
   "channelAdminAdded": "Админ добавлен.",
   "channelAdminRemoved": "Админ снят.",
-
   "channelBlockedEmpty": "Заблокированных каналов нет.",
   "channelUnblock": "Разблокировать",
-
   "channelErrorBlocked": "Этот канал заблокирован. Сначала разблокируйте его в настройках.",
   "channelErrorAccountRequired": "Для создания канала нужен зарегистрированный аккаунт.",
   "channelErrorLimitReached": "Вы достигли лимита каналов, которыми можно владеть.",
@@ -288,5 +266,121 @@
   "channelErrorImageType": "Допускаются только изображения JPEG, PNG, WebP и GIF.",
   "channelErrorPostConflict": "Не удалось опубликовать. Попробуйте ещё раз.",
   "channelErrorForbidden": "У вас нет прав на это действие.",
-  "channelErrorGeneric": "Не получилось. Проверьте соединение."
+  "channelErrorGeneric": "Не получилось. Проверьте соединение.",
+  "orgSettingsTitle": "Организация",
+  "orgJoinTitle": "Присоединиться к организации",
+  "orgJoinCodeLabel": "Код приглашения",
+  "orgJoinButton": "Присоединиться",
+  "orgJoinFailed": "Не удалось присоединиться. Проверьте код и попробуйте снова.",
+  "orgMembershipCard": "{orgName} — {role}",
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "orgCreateButton": "Создать организацию",
+  "orgCreateRequiresAccount": "Для создания организации нужен зарегистрированный аккаунт.",
+  "orgMembersTitle": "Участники",
+  "orgInviteCreate": "Создать приглашение",
+  "orgInviteCodeLabel": "Код приглашения: {code}",
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "orgSetAuditorLabel": "ID устройства аудитора",
+  "orgExportAudit": "Экспортировать журнал административного аудита",
+  "orgArchiveActive": "Архив активен.",
+  "orgArchiveInactive": "В архив пока не поступают записи.",
+  "businessBannerText": "Этот разговор архивируется организацией {orgName}.",
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessAuditorTile": "Архив {orgName} (участник аудита)",
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessInfoTitle": "Об архивировании",
+  "businessInfoBody": "{orgName} постоянно хранит запись о том, кто кому и когда писал, размер сообщения и хеш содержимого — но никогда сам текст сообщения. Анонимные чаты вне организации никогда не архивируются. Эта первая версия пока не шифрует заголовки разговора и не проверяет подписи pre-key; подробности см. в документации приложения.",
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "orgErrorGeneric": "Что-то пошло не так ({code}).",
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "Не удалось отправить сообщение: в этом разговоре отсутствует участник аудита организации.",
+  "emergencyTitle": "Аварийный канал",
+  "emergencyKitsTitle": "Аварийные наборы",
+  "emergencyIssueKit": "Выдать набор",
+  "emergencyKitLabelField": "Метка",
+  "emergencyKitCountField": "Количество кодов",
+  "emergencyCodesWarning": "Эти коды показываются только один раз и больше не будут доступны. Сохраните их сейчас.",
+  "emergencyRecoveryCode": "Код восстановления: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "Копировать всё",
+  "emergencyShare": "Поделиться",
+  "emergencyRevokeKit": "Отозвать",
+  "emergencyKitRevoked": "Отозвано",
+  "emergencyCodesRemaining": "Осталось {remaining}/{total} кодов",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "Начать учение",
+  "emergencyDrillsTitle": "Учения",
+  "emergencyDrillStarted": "Учение начато",
+  "emergencyDrillConfirmed": "Подтвердили {count}",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "Завершить учение",
+  "emergencyExportProof": "Экспортировать доказательство",
+  "emergencyHaveCode": "У меня есть аварийный код",
+  "emergencyEnrollCodeLabel": "Аварийный код",
+  "emergencyEnrollButton": "Зарегистрироваться",
+  "emergencyEnrollFailed": "Не удалось зарегистрироваться. Проверьте код и попробуйте снова.",
+  "emergencyEnrollSuccess": "Зарегистрировано — открываем аварийный чат",
+  "emergencyDrillPromptTitle": "Аварийное учение",
+  "emergencyDrillPromptBody": "Пожалуйста, подтвердите получение этого сообщения.",
+  "emergencyDrillConfirmButton": "Подтвердить"
 }

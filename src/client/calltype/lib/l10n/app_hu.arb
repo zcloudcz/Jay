@@ -1,6 +1,5 @@
 {
   "@@locale": "hu",
-
   "commonCancel": "Mégse",
   "commonRetry": "Újra",
   "commonAdd": "Hozzáadás",
@@ -9,10 +8,8 @@
   "commonShare": "Megosztás",
   "commonOpen": "Megnyitás",
   "commonLoading": "Betöltés…",
-
   "navChats": "Csevegések",
   "navUpdates": "Újdonságok",
-
   "lockUnlockTitle": "Jay feloldása",
   "lockPinLabel": "PIN-kód",
   "lockUnlockButton": "Feloldás",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "A biztonságos tároló nem érhető el. Próbáld újra a feloldást.",
   "lockErrorRejected": "Nem sikerült feloldani. Próbáld újra.",
   "lockErrorUnavailable": "A feloldás nem érhető el. Próbáld újra.",
-
   "callTitle": "Hívás",
   "callEnded": "A hívás véget ért",
   "callIncomingVoice": "Bejövő hanghívás",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "A hívás nem indítható. Ellenőrizd a kapcsolatot és a mikrofon/kamera engedélyeit.",
   "callErrorCannotAccept": "A hívás nem fogadható. Ellenőrizd a mikrofon/kamera engedélyeit.",
   "callErrorUserOffline": "A felhasználó jelenleg offline. Próbáld újra később.",
-
   "chatListNewGroup": "Új csoport",
   "chatListMyIdentity": "Saját azonosítóm",
   "chatListOffline": "Offline – az előzményeid elérhetők ezen az eszközön.",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "Csoportos beszélgetés",
   "chatListEncryptedConversation": "Titkosított beszélgetés",
   "chatListNewChat": "Új csevegés",
-
   "chatVoiceCall": "Hanghívás",
   "chatVideoCall": "Videohívás",
   "chatCallFailed": "Nem sikerült elindítani a hívást. Ellenőrizd a kapcsolatot és az engedélyeket.",
@@ -76,12 +70,9 @@
   "chatInputHint": "Üzenet",
   "chatInputSend": "Küldés",
   "chatInputNotSaved": "Az üzenet nem lett elmentve. A piszkozatod még itt van.",
-
   "sizeBytes": "{count, plural, other{{count} bájt}}",
   "sizeKilobytes": "{size} KB",
-
   "botNotice": "Bot – az üzeneteket egy harmadik fél által üzemeltetett automatizált program olvassa. A BOT címke önbevalláson alapul, a Jay nem ellenőrzi.",
-
   "contactsTitle": "Névjegyek",
   "contactsScanQr": "QR-kód beolvasása",
   "contactsPasteInvite": "Meghívó beillesztése",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX vagy ct://…",
   "qrScanTitle": "QR-kód beolvasása",
   "qrScanHint": "Irányítsd a kamerát egy Jay QR-kódra",
-
   "groupNewTitle": "Új csoport",
   "groupCreate": "Létrehozás",
   "groupNameLabel": "Csoport neve",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, other{{count} kiválasztva}}",
   "groupNoContacts": "Még nincsenek névjegyek.\nCsoport létrehozásához előbb adj hozzá névjegyeket.",
   "groupCreateFailed": "Nem sikerült létrehozni a csoportot. Ellenőrizd a kapcsolatot, és próbáld újra.",
-
   "onboardingTagline": "Biztonságos. Névtelen. Egyszerű.",
   "onboardingSettingUp": "Az eszközöd beállítása…",
   "onboardingGetStarted": "Kezdjük",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "Oszd meg ezt a QR-kódot névjegyek hozzáadásához",
   "onboardingStartMessaging": "Üzenetküldés indítása",
   "onboardingFailed": "A regisztráció nem sikerült",
-
   "settingsTitle": "Beállítások",
   "settingsAppLock": "Alkalmazászár",
   "settingsAppLockSubtitle": "PIN-kód és biometrikus azonosítás",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "TURN-relé kényszerítése (diagnosztika)",
   "settingsForceRelaySubtitle": "A következő hívások csak a relén keresztül mennek. Lassabb; újraindításkor visszaáll.",
   "settingsVersion": "Jay {version} béta",
-
   "identityTitle": "Saját azonosítóm",
   "identityCopyInvite": "Meghívó másolása",
   "identityInviteCopied": "Meghívó kimásolva",
-
   "appLockTitle": "Alkalmazászár",
   "appLockExplanation": "Védd az alkalmazást PIN-kóddal. Ha be van kapcsolva, a Jay minden megnyitásakor meg kell adnod a PIN-kódodat.",
   "appLockPin": "PIN-zár",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "Jelenlegi PIN-kód",
   "appLockVerify": "Ellenőrzés",
   "appLockIncorrectPin": "Helytelen PIN-kód",
-
   "accountCreateTitle": "Fiók létrehozása",
   "accountLoginTitle": "Bejelentkezés",
   "accountOptionalTitle": "Nem kötelező fiók",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "Nincs még fiókod? Regisztrálj",
   "accountLinked": "Fiók összekapcsolva. A felhőmentés bekapcsolva.",
   "accountFailed": "Ez nem sikerült. Ellenőrizd az e-mail-címet, a jelmondatot és a kapcsolatot.",
-
   "backupTitle": "Felhőmentés",
   "backupEncryptedTitle": "Végpontok közötti titkosítás",
   "backupExplanation": "A mentés tartalmazza az üzenetelőzményeket, a beágyazott mellékleteket és a névjegyeket; a külső fájlokat és az élő titkosítási munkameneteket nem. A biztonsági mentést olyan jelmondat titkosítja, amelyet csak te ismersz. A szerver soha nem látja az üzeneteidet és a névjegyeidet titkosítatlan formában.\n\nHa elfelejted a jelmondatot, a biztonsági mentés nem állítható helyre. Visszaállítási lehetőség nincs – ez a biztonságod érdekében szándékosan van így.",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "Érvénytelen mentésfájl.",
   "backupErrorRestoreFailed": "A visszaállítás nem sikerült. Ellenőrizd a jelmondatot és a mentésfájlt.",
   "backupErrorUnknown": "Valami hiba történt. Próbáld újra.",
-
   "channelPublicNotice": "A csatorna bejegyzései nyilvánosak, és NEM végpontok között titkosítottak.",
   "channelTitle": "Csatorna",
   "channelNotAvailable": "Ez a csatorna nem érhető el.",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "A csatorna adminjai nem tudják meg, ki tett bejelentést.",
   "channelReportSubmit": "Jelentés",
   "channelReportSent": "Bejelentés elküldve.",
-
   "channelProfileBlockedChannels": "Letiltott csatornák",
   "channelProfileNotFound": "A csatorna nem található. Ellenőrizd a linket és a kapcsolatot.",
   "channelFollowers": "{count, plural, =0{Nincs követő} other{{count} követő}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "Letiltás",
   "channelRoleOwner": "tulajdonos",
   "channelRoleAdmin": "admin",
-
   "channelOpenTitle": "Csatorna megnyitása",
   "channelOpenLabel": "Csatornaazonosító vagy link",
   "channelOpenHint": "CH-XXXX-XXXX vagy calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "Csatorna létrehozásához regisztrált fiók szükséges, hogy a csatorna ne vesszen el ezzel az eszközzel együtt. Csatornákat fiók nélkül is követhetsz.",
   "channelRegisterOrLogin": "Regisztráció vagy bejelentkezés",
   "channelCreate": "Csatorna létrehozása",
-
   "channelAdminsTitle": "A csatorna adminjai",
   "channelAdminsCurrent": "Jelenlegi adminok",
   "channelAdminsNone": "Még nincsenek adminok.",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "Admin eltávolítása",
   "channelAdminAdded": "Admin hozzáadva.",
   "channelAdminRemoved": "Admin eltávolítva.",
-
   "channelBlockedEmpty": "Nincsenek letiltott csatornák.",
   "channelUnblock": "Tiltás feloldása",
-
   "channelErrorBlocked": "Ez a csatorna le van tiltva. Előbb oldd fel a tiltást a Beállításokban.",
   "channelErrorAccountRequired": "Csatorna létrehozásához regisztrált fiók szükséges.",
   "channelErrorLimitReached": "Elérted a birtokolható csatornák számának korlátját.",
@@ -288,5 +266,121 @@
   "channelErrorImageType": "Csak JPEG, PNG, WebP és GIF képek engedélyezettek.",
   "channelErrorPostConflict": "Nem sikerült közzétenni a bejegyzést. Próbáld újra.",
   "channelErrorForbidden": "Ezt nem teheted meg.",
-  "channelErrorGeneric": "Ez nem sikerült. Ellenőrizd a kapcsolatot."
+  "channelErrorGeneric": "Ez nem sikerült. Ellenőrizd a kapcsolatot.",
+  "orgSettingsTitle": "Szervezet",
+  "orgJoinTitle": "Csatlakozás egy szervezethez",
+  "orgJoinCodeLabel": "Meghívókód",
+  "orgJoinButton": "Csatlakozás",
+  "orgJoinFailed": "Nem sikerült csatlakozni. Ellenőrizd a kódot, és próbáld újra.",
+  "orgMembershipCard": "{orgName} — {role}",
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "orgCreateButton": "Szervezet létrehozása",
+  "orgCreateRequiresAccount": "Szervezet létrehozásához regisztrált fiók szükséges.",
+  "orgMembersTitle": "Tagok",
+  "orgInviteCreate": "Meghívó létrehozása",
+  "orgInviteCodeLabel": "Meghívókód: {code}",
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "orgSetAuditorLabel": "Auditor eszközazonosítója",
+  "orgExportAudit": "Adminisztrátori naplózás exportálása",
+  "orgArchiveActive": "Az archívum aktív.",
+  "orgArchiveInactive": "Az archívumba még nem érkeznek bejegyzések.",
+  "businessBannerText": "Ezt a beszélgetést a(z) {orgName} archiválja.",
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessAuditorTile": "{orgName} archívum (auditáló tag)",
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessInfoTitle": "Az archiválásról",
+  "businessInfoBody": "A(z) {orgName} tartósan rögzíti, ki kinek írt, mikor, az üzenet méretét és a tartalom hash-ét — soha nem magát az üzenet szövegét. A szervezeten kívüli névtelen csevegések soha nem kerülnek archiválásra. Ez az első verzió még nem titkosítja a beszélgetés fejléceit, és nem ellenőrzi a pre-key aláírásokat; részletek az alkalmazás dokumentációjában.",
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "orgErrorGeneric": "Valami hiba történt ({code}).",
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "Az üzenetet nem sikerült elküldeni: a szervezet auditáló tagja hiányzik ebből a beszélgetésből.",
+  "emergencyTitle": "Vészhelyzeti csatorna",
+  "emergencyKitsTitle": "Vészhelyzeti készletek",
+  "emergencyIssueKit": "Készlet kiadása",
+  "emergencyKitLabelField": "Címke",
+  "emergencyKitCountField": "Kódok száma",
+  "emergencyCodesWarning": "Ezek a kódok csak egyszer jelennek meg, és később már nem szerezhetők vissza. Mentse el őket most.",
+  "emergencyRecoveryCode": "Helyreállítási kód: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "Összes másolása",
+  "emergencyShare": "Megosztás",
+  "emergencyRevokeKit": "Visszavonás",
+  "emergencyKitRevoked": "Visszavonva",
+  "emergencyCodesRemaining": "{remaining}/{total} kód maradt",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "Gyakorlat indítása",
+  "emergencyDrillsTitle": "Gyakorlatok",
+  "emergencyDrillStarted": "Gyakorlat elindítva",
+  "emergencyDrillConfirmed": "{count} megerősítve",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "Gyakorlat lezárása",
+  "emergencyExportProof": "Igazolás exportálása",
+  "emergencyHaveCode": "Van vészhelyzeti kódom",
+  "emergencyEnrollCodeLabel": "Vészhelyzeti kód",
+  "emergencyEnrollButton": "Regisztráció",
+  "emergencyEnrollFailed": "A regisztráció nem sikerült. Ellenőrizze a kódot, és próbálja újra.",
+  "emergencyEnrollSuccess": "Regisztrálva — a vészhelyzeti beszélgetés megnyitása",
+  "emergencyDrillPromptTitle": "Vészhelyzeti gyakorlat",
+  "emergencyDrillPromptBody": "Kérjük, erősítse meg, hogy megkapta ezt az üzenetet.",
+  "emergencyDrillConfirmButton": "Megerősítés"
 }

@@ -76,6 +76,15 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => context.push('/channels/blocked'),
           ),
 
+          // -- Business mode (Jay) ---------------------------------------------
+          _SettingsTile(
+            icon: Icons.verified_user_rounded,
+            iconColor: colorScheme.primary,
+            title: l10n.orgSettingsTitle,
+            subtitle: l10n.orgJoinTitle,
+            onTap: () => context.push('/settings/organization'),
+          ),
+
           const Divider(indent: 16, endIndent: 16),
 
           // -- Diagnostics section --------------------------------------------

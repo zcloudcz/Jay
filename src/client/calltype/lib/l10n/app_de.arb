@@ -1,6 +1,5 @@
 {
   "@@locale": "de",
-
   "commonCancel": "Abbrechen",
   "commonRetry": "Erneut versuchen",
   "commonAdd": "Hinzufügen",
@@ -9,10 +8,8 @@
   "commonShare": "Teilen",
   "commonOpen": "Öffnen",
   "commonLoading": "Wird geladen…",
-
   "navChats": "Chats",
   "navUpdates": "Aktuelles",
-
   "lockUnlockTitle": "Jay entsperren",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "Entsperren",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "Der sichere Speicher ist nicht verfügbar. Versuche erneut zu entsperren.",
   "lockErrorRejected": "Entsperren fehlgeschlagen. Versuche es erneut.",
   "lockErrorUnavailable": "Entsperren ist nicht verfügbar. Versuche es erneut.",
-
   "callTitle": "Anruf",
   "callEnded": "Anruf beendet",
   "callIncomingVoice": "Eingehender Sprachanruf",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "Anruf kann nicht gestartet werden. Prüfe die Verbindung und die Berechtigungen für Mikrofon/Kamera.",
   "callErrorCannotAccept": "Anruf kann nicht angenommen werden. Prüfe die Berechtigungen für Mikrofon/Kamera.",
   "callErrorUserOffline": "Der Nutzer ist gerade offline. Versuche es später erneut.",
-
   "chatListNewGroup": "Neue Gruppe",
   "chatListMyIdentity": "Meine Identität",
   "chatListOffline": "Offline – dein Verlauf ist auf diesem Gerät verfügbar.",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "Gruppenunterhaltung",
   "chatListEncryptedConversation": "Verschlüsselte Unterhaltung",
   "chatListNewChat": "Neuer Chat",
-
   "chatVoiceCall": "Sprachanruf",
   "chatVideoCall": "Videoanruf",
   "chatCallFailed": "Der Anruf konnte nicht gestartet werden. Prüfe Verbindung und Berechtigungen.",
@@ -76,12 +70,9 @@
   "chatInputHint": "Nachricht",
   "chatInputSend": "Senden",
   "chatInputNotSaved": "Die Nachricht wurde nicht gespeichert. Dein Entwurf ist noch da.",
-
   "sizeBytes": "{count, plural, one{{count} Byte} other{{count} Bytes}}",
   "sizeKilobytes": "{size} KB",
-
   "botNotice": "Bot – Nachrichten werden von einem automatisierten Programm gelesen, das von einem Dritten betrieben wird. Die Kennzeichnung BOT ist eine Selbstauskunft und wird von Jay nicht überprüft.",
-
   "contactsTitle": "Kontakte",
   "contactsScanQr": "QR-Code scannen",
   "contactsPasteInvite": "Einladung einfügen",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX oder ct://…",
   "qrScanTitle": "QR-Code scannen",
   "qrScanHint": "Richte die Kamera auf einen Jay-QR-Code",
-
   "groupNewTitle": "Neue Gruppe",
   "groupCreate": "Erstellen",
   "groupNameLabel": "Gruppenname",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, one{{count} ausgewählt} other{{count} ausgewählt}}",
   "groupNoContacts": "Noch keine Kontakte.\nFüge zuerst Kontakte hinzu, um eine Gruppe zu erstellen.",
   "groupCreateFailed": "Die Gruppe konnte nicht erstellt werden. Prüfe die Verbindung und versuche es erneut.",
-
   "onboardingTagline": "Sicher. Anonym. Einfach.",
   "onboardingSettingUp": "Dein Gerät wird eingerichtet…",
   "onboardingGetStarted": "Los geht's",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "Teile diesen QR-Code, um Kontakte hinzuzufügen",
   "onboardingStartMessaging": "Jetzt schreiben",
   "onboardingFailed": "Registrierung fehlgeschlagen",
-
   "settingsTitle": "Einstellungen",
   "settingsAppLock": "App-Sperre",
   "settingsAppLockSubtitle": "PIN und biometrische Authentifizierung",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "TURN-Relay erzwingen (Diagnose)",
   "settingsForceRelaySubtitle": "Die nächsten Anrufe laufen nur über das Relay. Langsamer; wird beim Neustart zurückgesetzt.",
   "settingsVersion": "Jay {version} Beta",
-
   "identityTitle": "Meine Identität",
   "identityCopyInvite": "Einladung kopieren",
   "identityInviteCopied": "Einladung kopiert",
-
   "appLockTitle": "App-Sperre",
   "appLockExplanation": "Schütze die App mit einem PIN-Code. Wenn die Sperre aktiv ist, musst du deine PIN bei jedem Öffnen von Jay eingeben.",
   "appLockPin": "PIN-Sperre",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "Aktuelle PIN",
   "appLockVerify": "Bestätigen",
   "appLockIncorrectPin": "Falsche PIN",
-
   "accountCreateTitle": "Konto erstellen",
   "accountLoginTitle": "Anmelden",
   "accountOptionalTitle": "Optionales Konto",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "Noch kein Konto? Registrieren",
   "accountLinked": "Konto verknüpft. Cloud-Backup aktiviert.",
   "accountFailed": "Das hat nicht geklappt. Prüfe E-Mail, Passphrase und Verbindung.",
-
   "backupTitle": "Cloud-Backup",
   "backupEncryptedTitle": "Ende-zu-Ende-verschlüsselt",
   "backupExplanation": "Gesichert werden der Nachrichtenverlauf, eingebettete Anhänge und Kontakte; externe Dateien und laufende Verschlüsselungssitzungen sind nicht enthalten. Dein Backup wird mit einer Passphrase verschlüsselt, die nur du kennst. Der Server sieht deine Nachrichten und Kontakte niemals im Klartext.\n\nWenn du deine Passphrase vergisst, kann dein Backup nicht wiederhergestellt werden. Es gibt keine Möglichkeit zum Zurücksetzen – das ist zu deiner Sicherheit so gewollt.",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "Ungültige Backup-Datei.",
   "backupErrorRestoreFailed": "Wiederherstellung fehlgeschlagen. Prüfe die Passphrase und die Backup-Datei.",
   "backupErrorUnknown": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
-
   "channelPublicNotice": "Kanalbeiträge sind öffentlich und NICHT Ende-zu-Ende-verschlüsselt.",
   "channelTitle": "Kanal",
   "channelNotAvailable": "Dieser Kanal ist nicht verfügbar.",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "Die Kanal-Admins erfahren nicht, wer gemeldet hat.",
   "channelReportSubmit": "Melden",
   "channelReportSent": "Meldung gesendet.",
-
   "channelProfileBlockedChannels": "Blockierte Kanäle",
   "channelProfileNotFound": "Kanal nicht gefunden. Prüfe den Link und die Verbindung.",
   "channelFollowers": "{count, plural, =0{Keine Follower} one{{count} Follower} other{{count} Follower}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "Blockieren",
   "channelRoleOwner": "Inhaber",
   "channelRoleAdmin": "Admin",
-
   "channelOpenTitle": "Kanal öffnen",
   "channelOpenLabel": "Kanalkennung oder Link",
   "channelOpenHint": "CH-XXXX-XXXX oder calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "Zum Erstellen eines Kanals ist ein registriertes Konto nötig, damit der Kanal nicht zusammen mit diesem Gerät verloren geht. Kanälen folgen kannst du weiterhin ohne Konto.",
   "channelRegisterOrLogin": "Registrieren oder anmelden",
   "channelCreate": "Kanal erstellen",
-
   "channelAdminsTitle": "Kanal-Admins",
   "channelAdminsCurrent": "Aktuelle Admins",
   "channelAdminsNone": "Noch keine Admins.",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "Admin entfernen",
   "channelAdminAdded": "Admin hinzugefügt.",
   "channelAdminRemoved": "Admin entfernt.",
-
   "channelBlockedEmpty": "Keine blockierten Kanäle.",
   "channelUnblock": "Freigeben",
-
   "channelErrorBlocked": "Dieser Kanal ist blockiert. Gib ihn zuerst in den Einstellungen frei.",
   "channelErrorAccountRequired": "Zum Erstellen eines Kanals ist ein registriertes Konto erforderlich.",
   "channelErrorLimitReached": "Du hast die maximale Anzahl eigener Kanäle erreicht.",
@@ -288,5 +266,121 @@
   "channelErrorImageType": "Es sind nur Bilder in den Formaten JPEG, PNG, WebP und GIF erlaubt.",
   "channelErrorPostConflict": "Der Beitrag konnte nicht veröffentlicht werden. Versuche es erneut.",
   "channelErrorForbidden": "Das darfst du nicht tun.",
-  "channelErrorGeneric": "Das hat nicht geklappt. Prüfe die Verbindung."
+  "channelErrorGeneric": "Das hat nicht geklappt. Prüfe die Verbindung.",
+  "orgSettingsTitle": "Organisation",
+  "orgJoinTitle": "Einer Organisation beitreten",
+  "orgJoinCodeLabel": "Einladungscode",
+  "orgJoinButton": "Beitreten",
+  "orgJoinFailed": "Beitritt fehlgeschlagen. Code prüfen und erneut versuchen.",
+  "orgMembershipCard": "{orgName} — {role}",
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "orgCreateButton": "Organisation erstellen",
+  "orgCreateRequiresAccount": "Zum Erstellen einer Organisation ist ein registriertes Konto erforderlich.",
+  "orgMembersTitle": "Mitglieder",
+  "orgInviteCreate": "Einladung erstellen",
+  "orgInviteCodeLabel": "Einladungscode: {code}",
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "orgSetAuditorLabel": "Geräte-ID des Prüfers",
+  "orgExportAudit": "Admin-Prüfprotokoll exportieren",
+  "orgArchiveActive": "Das Archiv ist aktiv.",
+  "orgArchiveInactive": "Das Archiv erhält noch keine Einträge.",
+  "businessBannerText": "Diese Unterhaltung wird von {orgName} archiviert.",
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessAuditorTile": "{orgName}-Archiv (Prüfmitglied)",
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessInfoTitle": "Über die Archivierung",
+  "businessInfoBody": "{orgName} speichert dauerhaft, wer wem wann geschrieben hat, die Nachrichtengröße und einen Inhalts-Hash — niemals den Nachrichtentext selbst. Anonyme Chats außerhalb einer Organisation werden nie archiviert. Diese erste Version verschlüsselt Konversationsheader noch nicht und prüft keine Pre-Key-Signaturen; Details siehe App-Dokumentation.",
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "orgErrorGeneric": "Etwas ist schiefgelaufen ({code}).",
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "Die Nachricht konnte nicht gesendet werden: Das Prüfmitglied der Organisation fehlt in dieser Unterhaltung.",
+  "emergencyTitle": "Notfallkanal",
+  "emergencyKitsTitle": "Notfall-Kits",
+  "emergencyIssueKit": "Kit ausstellen",
+  "emergencyKitLabelField": "Bezeichnung",
+  "emergencyKitCountField": "Anzahl der Codes",
+  "emergencyCodesWarning": "Diese Codes werden nur einmal angezeigt und können nicht erneut abgerufen werden. Speichern Sie sie jetzt.",
+  "emergencyRecoveryCode": "Wiederherstellungscode: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "Alles kopieren",
+  "emergencyShare": "Teilen",
+  "emergencyRevokeKit": "Widerrufen",
+  "emergencyKitRevoked": "Widerrufen",
+  "emergencyCodesRemaining": "{remaining}/{total} Codes verbleibend",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "Übung starten",
+  "emergencyDrillsTitle": "Übungen",
+  "emergencyDrillStarted": "Übung gestartet",
+  "emergencyDrillConfirmed": "{count} bestätigt",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "Übung abschließen",
+  "emergencyExportProof": "Nachweis exportieren",
+  "emergencyHaveCode": "Ich habe einen Notfallcode",
+  "emergencyEnrollCodeLabel": "Notfallcode",
+  "emergencyEnrollButton": "Registrieren",
+  "emergencyEnrollFailed": "Registrierung fehlgeschlagen. Überprüfen Sie den Code und versuchen Sie es erneut.",
+  "emergencyEnrollSuccess": "Registriert — die Notfallkonversation wird geöffnet",
+  "emergencyDrillPromptTitle": "Notfallübung",
+  "emergencyDrillPromptBody": "Bitte bestätigen Sie den Erhalt dieser Nachricht.",
+  "emergencyDrillConfirmButton": "Bestätigen"
 }

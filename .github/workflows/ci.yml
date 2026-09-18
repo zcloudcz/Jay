@@ -70,6 +70,12 @@ jobs:
           dart pub get
           dart analyze
           dart test
+      - name: jay_archiver analyze + tests
+        working-directory: src/bots/jay_archiver
+        run: |
+          dart pub get
+          dart analyze
+          dart test
       - name: hermes_bridge analyze + tests + headless build
         working-directory: src/bots/hermes_bridge
         run: |

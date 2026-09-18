@@ -60,6 +60,17 @@ class Conversations extends Table {
   /// Badge count — reset to 0 when the user opens the conversation.
   IntColumn get unreadCount => integer().withDefault(const Constant(0))();
 
+  /// Business mode (Jay): set once when a group is created under an
+  /// organization, or backfilled after fetching `GET /groups/{id}` the first
+  /// time an existing business conversation is opened. Null = anonymous —
+  /// cached locally rather than re-fetched per row so the chat list can show
+  /// the archive badge without an API call per conversation (KB1/E05).
+  TextColumn get organizationId => text().nullable()();
+
+  /// Display name of the organization, cached alongside [organizationId] for
+  /// the banner/badge — avoids a second lookup just to show a label.
+  TextColumn get organizationName => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

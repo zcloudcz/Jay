@@ -1,6 +1,5 @@
 {
   "@@locale": "ro",
-
   "commonCancel": "Anulează",
   "commonRetry": "Reîncearcă",
   "commonAdd": "Adaugă",
@@ -9,10 +8,8 @@
   "commonShare": "Distribuie",
   "commonOpen": "Deschide",
   "commonLoading": "Se încarcă…",
-
   "navChats": "Conversații",
   "navUpdates": "Noutăți",
-
   "lockUnlockTitle": "Deblochează Jay",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "Deblochează",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "Stocarea securizată nu este disponibilă. Încearcă din nou să deblochezi.",
   "lockErrorRejected": "Deblocarea nu a reușit. Încearcă din nou.",
   "lockErrorUnavailable": "Deblocarea nu este disponibilă. Încearcă din nou.",
-
   "callTitle": "Apel",
   "callEnded": "Apel încheiat",
   "callIncomingVoice": "Apel vocal primit",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "Apelul nu poate fi inițiat. Verifică conexiunea și permisiunile pentru microfon/cameră.",
   "callErrorCannotAccept": "Apelul nu poate fi acceptat. Verifică permisiunile pentru microfon/cameră.",
   "callErrorUserOffline": "Utilizatorul este offline în acest moment. Încearcă mai târziu.",
-
   "chatListNewGroup": "Grup nou",
   "chatListMyIdentity": "Identitatea mea",
   "chatListOffline": "Offline — istoricul tău este disponibil pe acest dispozitiv.",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "Conversație de grup",
   "chatListEncryptedConversation": "Conversație criptată",
   "chatListNewChat": "Conversație nouă",
-
   "chatVoiceCall": "Apel vocal",
   "chatVideoCall": "Apel video",
   "chatCallFailed": "Apelul nu a putut fi inițiat. Verifică conexiunea și permisiunile.",
@@ -76,12 +70,9 @@
   "chatInputHint": "Mesaj",
   "chatInputSend": "Trimite",
   "chatInputNotSaved": "Mesajul nu a fost salvat. Ciorna ta este încă aici.",
-
   "sizeBytes": "{count, plural, one{{count} octet} few{{count} octeți} other{{count} de octeți}}",
   "sizeKilobytes": "{size} KB",
-
   "botNotice": "Bot — mesajele sunt citite de un program automat operat de o terță parte. Eticheta BOT este autodeclarată și nu este verificată de Jay.",
-
   "contactsTitle": "Contacte",
   "contactsScanQr": "Scanează codul QR",
   "contactsPasteInvite": "Lipește invitația",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX sau ct://…",
   "qrScanTitle": "Scanează codul QR",
   "qrScanHint": "Îndreaptă camera spre un cod QR Jay",
-
   "groupNewTitle": "Grup nou",
   "groupCreate": "Creează",
   "groupNameLabel": "Numele grupului",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, one{{count} contact selectat} few{{count} contacte selectate} other{{count} de contacte selectate}}",
   "groupNoContacts": "Niciun contact încă.\nAdaugă mai întâi contacte pentru a crea un grup.",
   "groupCreateFailed": "Grupul nu a putut fi creat. Verifică conexiunea și încearcă din nou.",
-
   "onboardingTagline": "Sigur. Anonim. Simplu.",
   "onboardingSettingUp": "Se configurează dispozitivul…",
   "onboardingGetStarted": "Începe",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "Distribuie acest cod QR pentru a adăuga contacte",
   "onboardingStartMessaging": "Începe să scrii mesaje",
   "onboardingFailed": "Înregistrarea a eșuat",
-
   "settingsTitle": "Setări",
   "settingsAppLock": "Blocarea aplicației",
   "settingsAppLockSubtitle": "PIN și autentificare biometrică",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "Forțează releul TURN (diagnosticare)",
   "settingsForceRelaySubtitle": "Următoarele apeluri folosesc doar releul. Mai lent; se resetează la repornire.",
   "settingsVersion": "Jay {version} beta",
-
   "identityTitle": "Identitatea mea",
   "identityCopyInvite": "Copiază invitația",
   "identityInviteCopied": "Invitație copiată",
-
   "appLockTitle": "Blocarea aplicației",
   "appLockExplanation": "Protejează aplicația cu un cod PIN. Când este activat, va trebui să introduci codul PIN de fiecare dată când deschizi Jay.",
   "appLockPin": "Blocare cu PIN",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "PIN actual",
   "appLockVerify": "Verifică",
   "appLockIncorrectPin": "PIN incorect",
-
   "accountCreateTitle": "Creează cont",
   "accountLoginTitle": "Conectare",
   "accountOptionalTitle": "Cont opțional",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "Nu ai cont? Înregistrează-te",
   "accountLinked": "Cont asociat. Backupul în cloud este activat.",
   "accountFailed": "Nu a funcționat. Verifică adresa de e-mail, fraza de acces și conexiunea.",
-
   "backupTitle": "Backup în cloud",
   "backupEncryptedTitle": "Criptat end-to-end",
   "backupExplanation": "Istoricul mesajelor, atașamentele încorporate și contactele sunt incluse în backup; fișierele externe și sesiunile de criptare active nu sunt incluse. Backupul tău este criptat cu o frază de acces pe care o știi doar tu. Serverul nu vede niciodată mesajele sau contactele tale în text clar.\n\nDacă uiți fraza de acces, backupul nu mai poate fi recuperat. Nu există opțiune de resetare — așa a fost conceput, pentru securitatea ta.",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "Fișier de backup nevalid.",
   "backupErrorRestoreFailed": "Restaurarea a eșuat. Verifică fraza de acces și fișierul de backup.",
   "backupErrorUnknown": "Ceva nu a mers bine. Încearcă din nou.",
-
   "channelPublicNotice": "Postările din canal sunt publice și NU sunt criptate end-to-end.",
   "channelTitle": "Canal",
   "channelNotAvailable": "Acest canal nu este disponibil.",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "Administratorii canalului nu vor afla cine a raportat.",
   "channelReportSubmit": "Raportează",
   "channelReportSent": "Raport trimis.",
-
   "channelProfileBlockedChannels": "Canale blocate",
   "channelProfileNotFound": "Canalul nu a fost găsit. Verifică linkul și conexiunea.",
   "channelFollowers": "{count, plural, =0{Niciun urmăritor} one{{count} urmăritor} few{{count} urmăritori} other{{count} de urmăritori}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "Blochează",
   "channelRoleOwner": "proprietar",
   "channelRoleAdmin": "administrator",
-
   "channelOpenTitle": "Deschide un canal",
   "channelOpenLabel": "Identificatorul sau linkul canalului",
   "channelOpenHint": "CH-XXXX-XXXX sau calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "Crearea unui canal necesită un cont înregistrat, pentru ca el să nu se piardă odată cu acest dispozitiv. Urmărirea canalelor rămâne posibilă și fără cont.",
   "channelRegisterOrLogin": "Înregistrează-te sau conectează-te",
   "channelCreate": "Creează canal",
-
   "channelAdminsTitle": "Administratorii canalului",
   "channelAdminsCurrent": "Administratori actuali",
   "channelAdminsNone": "Niciun administrator încă.",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "Elimină administratorul",
   "channelAdminAdded": "Administrator adăugat.",
   "channelAdminRemoved": "Administrator eliminat.",
-
   "channelBlockedEmpty": "Niciun canal blocat.",
   "channelUnblock": "Deblochează",
-
   "channelErrorBlocked": "Acest canal este blocat. Deblochează-l mai întâi din Setări.",
   "channelErrorAccountRequired": "Pentru a crea un canal este necesar un cont înregistrat.",
   "channelErrorLimitReached": "Ai atins limita de canale pe care le poți deține.",
@@ -288,5 +266,121 @@
   "channelErrorImageType": "Sunt permise doar imagini JPEG, PNG, WebP și GIF.",
   "channelErrorPostConflict": "Postarea nu a putut fi publicată. Încearcă din nou.",
   "channelErrorForbidden": "Nu ai permisiunea să faci asta.",
-  "channelErrorGeneric": "Nu a funcționat. Verifică conexiunea."
+  "channelErrorGeneric": "Nu a funcționat. Verifică conexiunea.",
+  "orgSettingsTitle": "Organizație",
+  "orgJoinTitle": "Alătură-te unei organizații",
+  "orgJoinCodeLabel": "Cod de invitație",
+  "orgJoinButton": "Alătură-te",
+  "orgJoinFailed": "Nu s-a putut realiza alăturarea. Verifică codul și încearcă din nou.",
+  "orgMembershipCard": "{orgName} — {role}",
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "orgCreateButton": "Creează organizație",
+  "orgCreateRequiresAccount": "Crearea unei organizații necesită un cont înregistrat.",
+  "orgMembersTitle": "Membri",
+  "orgInviteCreate": "Creează invitație",
+  "orgInviteCodeLabel": "Cod de invitație: {code}",
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "orgSetAuditorLabel": "ID-ul dispozitivului auditorului",
+  "orgExportAudit": "Exportă jurnalul de audit administrativ",
+  "orgArchiveActive": "Arhiva este activă.",
+  "orgArchiveInactive": "Arhiva nu primește încă înregistrări.",
+  "businessBannerText": "Această conversație este arhivată de {orgName}.",
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessAuditorTile": "Arhiva {orgName} (membru de audit)",
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessInfoTitle": "Despre arhivare",
+  "businessInfoBody": "{orgName} păstrează o înregistrare permanentă a cine a scris cui, când, dimensiunea mesajului și un hash al conținutului — niciodată textul mesajului. Conversațiile anonime din afara unei organizații nu sunt niciodată arhivate. Această primă versiune nu criptează încă anteturile conversației și nu verifică semnăturile pre-key; vezi documentația aplicației.",
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "orgErrorGeneric": "Ceva nu a funcționat ({code}).",
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "Mesajul nu a putut fi trimis: membrul de audit al organizației lipsește din această conversație.",
+  "emergencyTitle": "Canal de urgență",
+  "emergencyKitsTitle": "Kituri de urgență",
+  "emergencyIssueKit": "Emite kit",
+  "emergencyKitLabelField": "Etichetă",
+  "emergencyKitCountField": "Număr de coduri",
+  "emergencyCodesWarning": "Aceste coduri sunt afișate o singură dată și nu mai pot fi recuperate. Salvați-le acum.",
+  "emergencyRecoveryCode": "Cod de recuperare: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "Copiază tot",
+  "emergencyShare": "Partajează",
+  "emergencyRevokeKit": "Revocă",
+  "emergencyKitRevoked": "Revocat",
+  "emergencyCodesRemaining": "Mai rămân {remaining}/{total} coduri",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "Începe exercițiul",
+  "emergencyDrillsTitle": "Exerciții",
+  "emergencyDrillStarted": "Exercițiul a început",
+  "emergencyDrillConfirmed": "{count} confirmate",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "Finalizează exercițiul",
+  "emergencyExportProof": "Exportă dovada",
+  "emergencyHaveCode": "Am un cod de urgență",
+  "emergencyEnrollCodeLabel": "Cod de urgență",
+  "emergencyEnrollButton": "Înscrie-te",
+  "emergencyEnrollFailed": "Înscrierea a eșuat. Verificați codul și încercați din nou.",
+  "emergencyEnrollSuccess": "Înscris — se deschide conversația de urgență",
+  "emergencyDrillPromptTitle": "Exercițiu de urgență",
+  "emergencyDrillPromptBody": "Confirmați că ați primit acest mesaj.",
+  "emergencyDrillConfirmButton": "Confirmă"
 }

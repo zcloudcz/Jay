@@ -10,16 +10,20 @@ class GroupApi extends ApiClient {
   @override
   Future<Map<String, dynamic>> createGroup(
     String name,
-    List<String> members,
-  ) async => {'groupId': 'server-group'};
+    List<String> members, {
+    String? organizationId,
+  }) async => {'groupId': 'server-group'};
 }
 
 class PendingGroupApi extends ApiClient {
   PendingGroupApi() : super(baseUrl: 'http://unused');
   final response = Completer<Map<String, dynamic>>();
   @override
-  Future<Map<String, dynamic>> createGroup(String name, List<String> members) =>
-      response.future;
+  Future<Map<String, dynamic>> createGroup(
+    String name,
+    List<String> members, {
+    String? organizationId,
+  }) => response.future;
 }
 
 void main() {

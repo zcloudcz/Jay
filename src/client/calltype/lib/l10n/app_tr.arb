@@ -1,6 +1,5 @@
 {
   "@@locale": "tr",
-
   "commonCancel": "İptal",
   "commonRetry": "Tekrar dene",
   "commonAdd": "Ekle",
@@ -9,10 +8,8 @@
   "commonShare": "Paylaş",
   "commonOpen": "Aç",
   "commonLoading": "Yükleniyor…",
-
   "navChats": "Sohbetler",
   "navUpdates": "Güncellemeler",
-
   "lockUnlockTitle": "Jay kilidini aç",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "Kilidi aç",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "Güvenli depolama kullanılamıyor. Kilidi açmayı tekrar deneyin.",
   "lockErrorRejected": "Kilit açılamadı. Tekrar deneyin.",
   "lockErrorUnavailable": "Kilit açma kullanılamıyor. Tekrar deneyin.",
-
   "callTitle": "Arama",
   "callEnded": "Arama sona erdi",
   "callIncomingVoice": "Gelen sesli arama",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "Arama başlatılamıyor. Bağlantıyı ve mikrofon/kamera izinlerini kontrol edin.",
   "callErrorCannotAccept": "Arama kabul edilemiyor. Mikrofon/kamera izinlerini kontrol edin.",
   "callErrorUserOffline": "Kullanıcı şu anda çevrimdışı. Daha sonra tekrar deneyin.",
-
   "chatListNewGroup": "Yeni grup",
   "chatListMyIdentity": "Kimliğim",
   "chatListOffline": "Çevrimdışı — geçmişiniz bu cihazda kullanılabilir.",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "Grup sohbeti",
   "chatListEncryptedConversation": "Şifreli sohbet",
   "chatListNewChat": "Yeni sohbet",
-
   "chatVoiceCall": "Sesli arama",
   "chatVideoCall": "Görüntülü arama",
   "chatCallFailed": "Arama başlatılamadı. Bağlantıyı ve izinleri kontrol edin.",
@@ -76,12 +70,9 @@
   "chatInputHint": "Mesaj",
   "chatInputSend": "Gönder",
   "chatInputNotSaved": "Mesaj kaydedilmedi. Taslağınız hâlâ burada.",
-
   "sizeBytes": "{count, plural, other{{count} bayt}}",
   "sizeKilobytes": "{size} KB",
-
   "botNotice": "Bot — mesajlar, üçüncü bir tarafın işlettiği otomatik bir program tarafından okunur. BOT etiketi kendi beyanına dayanır ve Jay tarafından doğrulanmamıştır.",
-
   "contactsTitle": "Kişiler",
   "contactsScanQr": "QR kodunu tara",
   "contactsPasteInvite": "Daveti yapıştır",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX veya ct://…",
   "qrScanTitle": "QR kodunu tara",
   "qrScanHint": "Kamerayı bir Jay QR koduna tutun",
-
   "groupNewTitle": "Yeni grup",
   "groupCreate": "Oluştur",
   "groupNameLabel": "Grup adı",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, other{{count} kişi seçildi}}",
   "groupNoContacts": "Henüz kişi yok.\nGrup oluşturmak için önce kişi ekleyin.",
   "groupCreateFailed": "Grup oluşturulamadı. Bağlantıyı kontrol edip tekrar deneyin.",
-
   "onboardingTagline": "Güvenli. Anonim. Basit.",
   "onboardingSettingUp": "Cihazınız ayarlanıyor…",
   "onboardingGetStarted": "Başla",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "Kişi eklemek için bu QR kodunu paylaşın",
   "onboardingStartMessaging": "Mesajlaşmaya başla",
   "onboardingFailed": "Kayıt başarısız oldu",
-
   "settingsTitle": "Ayarlar",
   "settingsAppLock": "Uygulama kilidi",
   "settingsAppLockSubtitle": "PIN ve biyometrik kimlik doğrulama",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "TURN aktarıcısını zorla (tanılama)",
   "settingsForceRelaySubtitle": "Sonraki aramalar yalnızca aktarıcıyı kullanır. Daha yavaştır; yeniden başlatınca sıfırlanır.",
   "settingsVersion": "Jay {version} beta",
-
   "identityTitle": "Kimliğim",
   "identityCopyInvite": "Daveti kopyala",
   "identityInviteCopied": "Davet kopyalandı",
-
   "appLockTitle": "Uygulama kilidi",
   "appLockExplanation": "Uygulamayı bir PIN koduyla koruyun. Etkinleştirildiğinde, Jay uygulamasını her açtığınızda PIN kodunuzu girmeniz gerekir.",
   "appLockPin": "PIN kilidi",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "Mevcut PIN",
   "appLockVerify": "Doğrula",
   "appLockIncorrectPin": "Yanlış PIN",
-
   "accountCreateTitle": "Hesap oluştur",
   "accountLoginTitle": "Giriş yap",
   "accountOptionalTitle": "İsteğe bağlı hesap",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "Hesabınız yok mu? Kaydolun",
   "accountLinked": "Hesap bağlandı. Bulut yedekleme etkinleştirildi.",
   "accountFailed": "İşlem başarısız oldu. E-postanızı, parola cümlenizi ve bağlantınızı kontrol edin.",
-
   "backupTitle": "Bulut yedekleme",
   "backupEncryptedTitle": "Uçtan uca şifreli",
   "backupExplanation": "Mesaj geçmişi, gömülü ekler ve kişiler yedeklenir; harici dosyalar ve etkin şifreleme oturumları dahil değildir. Yedeğiniz yalnızca sizin bildiğiniz bir parola cümlesiyle şifrelenir. Sunucu, mesajlarınızı veya kişilerinizi hiçbir zaman düz metin olarak görmez.\n\nParola cümlenizi unutursanız yedeğiniz kurtarılamaz. Sıfırlama seçeneği yoktur — bu, güvenliğiniz için bilinçli bir tasarım tercihidir.",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "Geçersiz yedek dosyası.",
   "backupErrorRestoreFailed": "Geri yükleme başarısız oldu. Parola cümlesini ve yedek dosyasını kontrol edin.",
   "backupErrorUnknown": "Bir şeyler ters gitti. Lütfen tekrar deneyin.",
-
   "channelPublicNotice": "Kanal gönderileri herkese açıktır ve uçtan uca şifreli DEĞİLDİR.",
   "channelTitle": "Kanal",
   "channelNotAvailable": "Bu kanal kullanılamıyor.",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "Kanal yöneticileri kimin şikayet ettiğini öğrenmez.",
   "channelReportSubmit": "Şikayet et",
   "channelReportSent": "Şikayet gönderildi.",
-
   "channelProfileBlockedChannels": "Engellenen kanallar",
   "channelProfileNotFound": "Kanal bulunamadı. Bağlantı adresini ve internet bağlantınızı kontrol edin.",
   "channelFollowers": "{count, plural, =0{Takipçi yok} other{{count} takipçi}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "Engelle",
   "channelRoleOwner": "sahip",
   "channelRoleAdmin": "yönetici",
-
   "channelOpenTitle": "Kanal aç",
   "channelOpenLabel": "Kanal kimliği veya bağlantısı",
   "channelOpenHint": "CH-XXXX-XXXX veya calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "Kanal oluşturmak için kayıtlı bir hesap gerekir; böylece kanal bu cihazla birlikte kaybolmaz. Kanalları takip etmek hesap olmadan da mümkündür.",
   "channelRegisterOrLogin": "Kaydol veya giriş yap",
   "channelCreate": "Kanal oluştur",
-
   "channelAdminsTitle": "Kanal yöneticileri",
   "channelAdminsCurrent": "Mevcut yöneticiler",
   "channelAdminsNone": "Henüz yönetici yok.",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "Yöneticiliği kaldır",
   "channelAdminAdded": "Yönetici eklendi.",
   "channelAdminRemoved": "Yönetici kaldırıldı.",
-
   "channelBlockedEmpty": "Engellenen kanal yok.",
   "channelUnblock": "Engeli kaldır",
-
   "channelErrorBlocked": "Bu kanal engellendi. Önce Ayarlar bölümünden engeli kaldırın.",
   "channelErrorAccountRequired": "Kanal oluşturmak için kayıtlı bir hesap gerekir.",
   "channelErrorLimitReached": "Sahip olabileceğiniz kanal sınırına ulaştınız.",
@@ -288,5 +266,121 @@
   "channelErrorImageType": "Yalnızca JPEG, PNG, WebP ve GIF görsellerine izin verilir.",
   "channelErrorPostConflict": "Gönderi yayınlanamadı. Tekrar deneyin.",
   "channelErrorForbidden": "Bunu yapma izniniz yok.",
-  "channelErrorGeneric": "İşlem başarısız oldu. Bağlantıyı kontrol edin."
+  "channelErrorGeneric": "İşlem başarısız oldu. Bağlantıyı kontrol edin.",
+  "orgSettingsTitle": "Organizasyon",
+  "orgJoinTitle": "Bir organizasyona katıl",
+  "orgJoinCodeLabel": "Davet kodu",
+  "orgJoinButton": "Katıl",
+  "orgJoinFailed": "Katılınamadı. Kodu kontrol edip tekrar deneyin.",
+  "orgMembershipCard": "{orgName} — {role}",
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "orgCreateButton": "Organizasyon oluştur",
+  "orgCreateRequiresAccount": "Organizasyon oluşturmak için kayıtlı bir hesap gerekir.",
+  "orgMembersTitle": "Üyeler",
+  "orgInviteCreate": "Davet oluştur",
+  "orgInviteCodeLabel": "Davet kodu: {code}",
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "orgSetAuditorLabel": "Denetçi cihaz kimliği",
+  "orgExportAudit": "Yönetici denetim günlüğünü dışa aktar",
+  "orgArchiveActive": "Arşiv etkin.",
+  "orgArchiveInactive": "Arşive henüz kayıt gelmiyor.",
+  "businessBannerText": "Bu konuşma {orgName} tarafından arşivleniyor.",
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessAuditorTile": "{orgName} arşivi (denetim üyesi)",
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessInfoTitle": "Arşivleme hakkında",
+  "businessInfoBody": "{orgName}, kimin kime ne zaman yazdığını, mesaj boyutunu ve içerik özetini kalıcı olarak kaydeder — asla mesaj metnini değil. Organizasyon dışındaki anonim sohbetler asla arşivlenmez. Bu ilk sürüm henüz konuşma başlıklarını şifrelemez ve ön anahtar imzalarını doğrulamaz; ayrıntılar için uygulama belgelerine bakın.",
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "orgErrorGeneric": "Bir şeyler yanlış gitti ({code}).",
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "Mesaj gönderilemedi: bu konuşmada organizasyonun denetim üyesi eksik.",
+  "emergencyTitle": "Acil durum kanalı",
+  "emergencyKitsTitle": "Acil durum kitleri",
+  "emergencyIssueKit": "Kit oluştur",
+  "emergencyKitLabelField": "Etiket",
+  "emergencyKitCountField": "Kod sayısı",
+  "emergencyCodesWarning": "Bu kodlar yalnızca bir kez gösterilir ve tekrar alınamaz. Şimdi kaydedin.",
+  "emergencyRecoveryCode": "Kurtarma kodu: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "Tümünü kopyala",
+  "emergencyShare": "Paylaş",
+  "emergencyRevokeKit": "İptal et",
+  "emergencyKitRevoked": "İptal edildi",
+  "emergencyCodesRemaining": "{remaining}/{total} kod kaldı",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "Tatbikatı başlat",
+  "emergencyDrillsTitle": "Tatbikatlar",
+  "emergencyDrillStarted": "Tatbikat başladı",
+  "emergencyDrillConfirmed": "{count} onaylandı",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "Tatbikatı tamamla",
+  "emergencyExportProof": "Kanıtı dışa aktar",
+  "emergencyHaveCode": "Acil durum kodum var",
+  "emergencyEnrollCodeLabel": "Acil durum kodu",
+  "emergencyEnrollButton": "Kaydol",
+  "emergencyEnrollFailed": "Kayıt olunamadı. Kodu kontrol edip tekrar deneyin.",
+  "emergencyEnrollSuccess": "Kaydedildi — acil durum görüşmesi açılıyor",
+  "emergencyDrillPromptTitle": "Acil durum tatbikatı",
+  "emergencyDrillPromptBody": "Lütfen bu mesajı aldığınızı onaylayın.",
+  "emergencyDrillConfirmButton": "Onayla"
 }

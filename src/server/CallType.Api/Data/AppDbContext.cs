@@ -131,6 +131,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<Group>(entity =>
         {
             entity.HasKey(g => g.GroupId);
+
+            // Business mode (plan §1): "which groups belong to organization X"
+            // backs E02's revocation flow (remove a device from all its
+            // organization's groups) and admin listing. Sparse in practice —
+            // most groups are anonymous and this column is null.
+            entity.HasIndex(g => g.OrganizationId);
         });
 
         // -----------------------------------------------------------------

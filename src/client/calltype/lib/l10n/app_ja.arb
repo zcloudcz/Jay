@@ -1,6 +1,5 @@
 {
   "@@locale": "ja",
-
   "commonCancel": "キャンセル",
   "commonRetry": "再試行",
   "commonAdd": "追加",
@@ -9,10 +8,8 @@
   "commonShare": "共有",
   "commonOpen": "開く",
   "commonLoading": "読み込み中…",
-
   "navChats": "チャット",
   "navUpdates": "アップデート",
-
   "lockUnlockTitle": "Jay のロックを解除",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "ロック解除",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "セキュアストレージを利用できません。もう一度ロック解除をお試しください。",
   "lockErrorRejected": "ロックを解除できませんでした。もう一度お試しください。",
   "lockErrorUnavailable": "ロック解除を利用できません。もう一度お試しください。",
-
   "callTitle": "通話",
   "callEnded": "通話が終了しました",
   "callIncomingVoice": "音声通話の着信",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "通話を開始できません。接続とマイク/カメラの権限を確認してください。",
   "callErrorCannotAccept": "通話に応答できません。マイク/カメラの権限を確認してください。",
   "callErrorUserOffline": "相手は現在オフラインです。後でもう一度お試しください。",
-
   "chatListNewGroup": "新しいグループ",
   "chatListMyIdentity": "自分の ID",
   "chatListOffline": "オフライン — 履歴はこの端末で引き続き確認できます。",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "グループの会話",
   "chatListEncryptedConversation": "暗号化された会話",
   "chatListNewChat": "新しいチャット",
-
   "chatVoiceCall": "音声通話",
   "chatVideoCall": "ビデオ通話",
   "chatCallFailed": "通話を開始できません。接続と権限を確認してください。",
@@ -76,12 +70,9 @@
   "chatInputHint": "メッセージ",
   "chatInputSend": "送信",
   "chatInputNotSaved": "メッセージを保存できませんでした。下書きはそのまま残っています。",
-
   "sizeBytes": "{count, plural, other{{count} バイト}}",
   "sizeKilobytes": "{size} KB",
-
   "botNotice": "ボット — メッセージは第三者が運用する自動プログラムによって読み取られます。BOT ラベルは自己申告であり、Jay による確認は行われていません。",
-
   "contactsTitle": "連絡先",
   "contactsScanQr": "QR コードをスキャン",
   "contactsPasteInvite": "招待を貼り付け",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX または ct://…",
   "qrScanTitle": "QR コードをスキャン",
   "qrScanHint": "Jay の QR コードにカメラを向けてください",
-
   "groupNewTitle": "新しいグループ",
   "groupCreate": "作成",
   "groupNameLabel": "グループ名",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, other{{count} 人を選択中}}",
   "groupNoContacts": "連絡先はまだありません。\nグループを作成するには、先に連絡先を追加してください。",
   "groupCreateFailed": "グループを作成できませんでした。接続を確認して、もう一度お試しください。",
-
   "onboardingTagline": "安全。匿名。シンプル。",
   "onboardingSettingUp": "端末を設定しています…",
   "onboardingGetStarted": "はじめる",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "この QR コードを共有して連絡先を追加しましょう",
   "onboardingStartMessaging": "メッセージを始める",
   "onboardingFailed": "登録に失敗しました",
-
   "settingsTitle": "設定",
   "settingsAppLock": "アプリロック",
   "settingsAppLockSubtitle": "PIN と生体認証",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "TURN リレーを強制(診断用)",
   "settingsForceRelaySubtitle": "以降の通話はリレーのみを使用します。速度は低下し、再起動するとリセットされます。",
   "settingsVersion": "Jay {version} ベータ版",
-
   "identityTitle": "自分の ID",
   "identityCopyInvite": "招待をコピー",
   "identityInviteCopied": "招待をコピーしました",
-
   "appLockTitle": "アプリロック",
   "appLockExplanation": "PIN コードでアプリを保護します。有効にすると、Jay を開くたびに PIN の入力が必要になります。",
   "appLockPin": "PIN ロック",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "現在の PIN",
   "appLockVerify": "確認",
   "appLockIncorrectPin": "PIN が正しくありません",
-
   "accountCreateTitle": "アカウントを作成",
   "accountLoginTitle": "ログイン",
   "accountOptionalTitle": "アカウントは任意です",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "アカウントが必要ですか?登録",
   "accountLinked": "アカウントを連携しました。クラウドバックアップが有効になりました。",
   "accountFailed": "うまくいきませんでした。メールアドレス、パスフレーズ、接続を確認してください。",
-
   "backupTitle": "クラウドバックアップ",
   "backupEncryptedTitle": "エンドツーエンド暗号化",
   "backupExplanation": "メッセージ履歴、埋め込まれた添付ファイル、連絡先がバックアップされます。外部ファイルと進行中の暗号化セッションは含まれません。バックアップは、あなただけが知っているパスフレーズで暗号化されます。サーバーがあなたのメッセージや連絡先を平文で見ることは決してありません。\n\nパスフレーズを忘れると、バックアップは復元できません。リセットする方法はありません — これはあなたの安全のための意図的な設計です。",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "バックアップファイルが無効です。",
   "backupErrorRestoreFailed": "復元に失敗しました。パスフレーズとバックアップファイルを確認してください。",
   "backupErrorUnknown": "問題が発生しました。もう一度お試しください。",
-
   "channelPublicNotice": "チャンネルの投稿は公開されており、エンドツーエンド暗号化は【されていません】。",
   "channelTitle": "チャンネル",
   "channelNotAvailable": "このチャンネルは利用できません。",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "誰が報告したかはチャンネルの管理者には知らされません。",
   "channelReportSubmit": "報告",
   "channelReportSent": "報告を送信しました。",
-
   "channelProfileBlockedChannels": "ブロックしたチャンネル",
   "channelProfileNotFound": "チャンネルが見つかりません。リンクと接続を確認してください。",
   "channelFollowers": "{count, plural, =0{フォロワーはいません} other{フォロワー {count} 人}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "ブロック",
   "channelRoleOwner": "オーナー",
   "channelRoleAdmin": "管理者",
-
   "channelOpenTitle": "チャンネルを開く",
   "channelOpenLabel": "チャンネル ID またはリンク",
   "channelOpenHint": "CH-XXXX-XXXX または calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "チャンネルを作成するには登録済みのアカウントが必要です。これにより、この端末を失ってもチャンネルが失われません。チャンネルのフォローはアカウントなしでも可能です。",
   "channelRegisterOrLogin": "登録またはログイン",
   "channelCreate": "チャンネルを作成",
-
   "channelAdminsTitle": "チャンネルの管理者",
   "channelAdminsCurrent": "現在の管理者",
   "channelAdminsNone": "管理者はまだいません。",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "管理者から外す",
   "channelAdminAdded": "管理者を追加しました。",
   "channelAdminRemoved": "管理者から外しました。",
-
   "channelBlockedEmpty": "ブロックしたチャンネルはありません。",
   "channelUnblock": "ブロック解除",
-
   "channelErrorBlocked": "このチャンネルはブロックされています。先に「設定」でブロックを解除してください。",
   "channelErrorAccountRequired": "チャンネルを作成するには登録済みのアカウントが必要です。",
   "channelErrorLimitReached": "所有できるチャンネル数の上限に達しました。",
@@ -288,5 +266,121 @@
   "channelErrorImageType": "使用できる画像は JPEG、PNG、WebP、GIF のみです。",
   "channelErrorPostConflict": "投稿を公開できませんでした。もう一度お試しください。",
   "channelErrorForbidden": "この操作を行う権限がありません。",
-  "channelErrorGeneric": "うまくいきませんでした。接続を確認してください。"
+  "channelErrorGeneric": "うまくいきませんでした。接続を確認してください。",
+  "orgSettingsTitle": "組織",
+  "orgJoinTitle": "組織に参加",
+  "orgJoinCodeLabel": "招待コード",
+  "orgJoinButton": "参加する",
+  "orgJoinFailed": "参加できませんでした。コードを確認して再試行してください。",
+  "orgMembershipCard": "{orgName} — {role}",
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "orgCreateButton": "組織を作成",
+  "orgCreateRequiresAccount": "組織の作成には登録済みアカウントが必要です。",
+  "orgMembersTitle": "メンバー",
+  "orgInviteCreate": "招待を作成",
+  "orgInviteCodeLabel": "招待コード：{code}",
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "orgSetAuditorLabel": "監査担当者のデバイスID",
+  "orgExportAudit": "管理者監査ログをエクスポート",
+  "orgArchiveActive": "アーカイブは有効です。",
+  "orgArchiveInactive": "アーカイブにはまだ記録が届いていません。",
+  "businessBannerText": "この会話は{orgName}によってアーカイブされています。",
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessAuditorTile": "{orgName}アーカイブ（監査メンバー）",
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessInfoTitle": "アーカイブについて",
+  "businessInfoBody": "{orgName}は、誰が誰にいつメッセージを送ったか、メッセージのサイズ、内容のハッシュ値を永続的に記録します — メッセージの本文そのものは記録しません。組織外の匿名チャットが記録されることはありません。この最初のバージョンでは、会話ヘッダーの暗号化やプレキー署名の検証はまだ行われていません。詳細はアプリのドキュメントを参照してください。",
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "orgErrorGeneric": "問題が発生しました（{code}）。",
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "メッセージを送信できませんでした：この会話に組織の監査メンバーがいません。",
+  "emergencyTitle": "緊急チャンネル",
+  "emergencyKitsTitle": "緊急キット",
+  "emergencyIssueKit": "キットを発行",
+  "emergencyKitLabelField": "ラベル",
+  "emergencyKitCountField": "コードの数",
+  "emergencyCodesWarning": "これらのコードは一度しか表示されず、再度取得することはできません。今すぐ保存してください。",
+  "emergencyRecoveryCode": "復旧コード: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "すべてコピー",
+  "emergencyShare": "共有",
+  "emergencyRevokeKit": "取り消す",
+  "emergencyKitRevoked": "取り消し済み",
+  "emergencyCodesRemaining": "残り {remaining}/{total} コード",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "訓練を開始",
+  "emergencyDrillsTitle": "訓練",
+  "emergencyDrillStarted": "訓練を開始しました",
+  "emergencyDrillConfirmed": "{count} 件確認済み",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "訓練を完了",
+  "emergencyExportProof": "証明書をエクスポート",
+  "emergencyHaveCode": "緊急コードを持っています",
+  "emergencyEnrollCodeLabel": "緊急コード",
+  "emergencyEnrollButton": "登録",
+  "emergencyEnrollFailed": "登録できませんでした。コードを確認して再試行してください。",
+  "emergencyEnrollSuccess": "登録しました。緊急会話を開いています",
+  "emergencyDrillPromptTitle": "緊急訓練",
+  "emergencyDrillPromptBody": "このメッセージを受信したことを確認してください。",
+  "emergencyDrillConfirmButton": "確認"
 }

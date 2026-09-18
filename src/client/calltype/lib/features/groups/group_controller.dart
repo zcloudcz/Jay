@@ -55,7 +55,16 @@ class GroupController extends ChangeNotifier {
   /// [name] is the human-readable group name displayed in the chat list.
   /// [memberDeviceIds] are the device UUIDs of the group members (excluding
   /// the local device, which is added server-side automatically).
-  Future<String?> createGroup(String name, List<String> memberDeviceIds) async {
+  /// [organizationId]/[organizationName] make this a business group (Jay
+  /// Business mode): the server adds the organization's auditor as a member
+  /// and every send in this conversation must fan out to it (KB1). Null for
+  /// an ordinary anonymous group — the default, unchanged behavior.
+  Future<String?> createGroup(
+    String name,
+    List<String> memberDeviceIds, {
+    String? organizationId,
+    String? organizationName,
+  }) async {
     if (_isLoading || _disposed) return null;
     if (name.trim().isEmpty || memberDeviceIds.isEmpty) {
       _error = 'Group name and at least one member are required';
@@ -71,6 +80,7 @@ class GroupController extends ChangeNotifier {
       final result = await _apiClient.createGroup(
         name.trim(),
         memberDeviceIds.toSet().toList(),
+        organizationId: organizationId,
       );
       final groupId = result['groupId'] as String;
 
@@ -81,6 +91,8 @@ class GroupController extends ChangeNotifier {
         id: groupId,
         type: 'group',
         title: Value(name.trim()),
+        organizationId: Value(organizationId),
+        organizationName: Value(organizationName),
       );
 
       await _db.into(_db.conversations).insert(companion);

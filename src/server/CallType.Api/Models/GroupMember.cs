@@ -19,6 +19,10 @@ public class GroupMember
     /// Role within the group. Defaults to "member". "admin" can add/remove
     /// members and change group metadata. Kept as a short string (max 10)
     /// for extensibility without schema changes.
+    /// "auditor" (business mode, plan docs/superpowers/plans/2026-09-18-business-mode.md
+    /// KB1/KB2) marks the organization's silent archive member in a business
+    /// group — Delivery only stores the label; enforcing that every business
+    /// group has exactly one and that it can't be removed is E02's job.
     /// </summary>
     public string Role { get; set; } = "member";
 

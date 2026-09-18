@@ -83,6 +83,7 @@ class SignalRClient {
   final _onCallSignal = StreamController<Map<String, dynamic>>.broadcast();
   final _onChannelPost = StreamController<Map<String, dynamic>>.broadcast();
   final _onChannelDeleted = StreamController<Map<String, dynamic>>.broadcast();
+  final _onEmergencyDrill = StreamController<Map<String, dynamic>>.broadcast();
 
   /// Fires when a new encrypted message arrives from the server.
   /// Payload: {senderId, encryptedBody, createdAt, groupId?}
@@ -103,6 +104,12 @@ class SignalRClient {
 
   /// Fires when a followed channel was deleted. Payload: {channelId}
   Stream<Map<String, dynamic>> get onChannelDeleted => _onChannelDeleted.stream;
+
+  /// Fires when an org-admin starts an emergency drill (E07) — pushed only to
+  /// currently-online members of the organization's emergency group, since
+  /// there is no server-originated encrypted group-message path.
+  /// Payload: {organizationId, drillId, startedAt}
+  Stream<Map<String, dynamic>> get onEmergencyDrill => _onEmergencyDrill.stream;
 
   /// Whether the hub connection is currently active.
   bool get connected => _hubConnection?.isConnected ?? false;
@@ -158,6 +165,10 @@ class SignalRClient {
     _hubConnection!.on(
       'ChannelDeleted',
       (arguments) => _forward(arguments, _onChannelDeleted),
+    );
+    _hubConnection!.on(
+      'EmergencyDrill',
+      (arguments) => _forward(arguments, _onEmergencyDrill),
     );
 
     // Notify UI when connection state changes (e.g. for offline banner).
@@ -348,6 +359,7 @@ class SignalRClient {
     _onCallSignal.close();
     _onChannelPost.close();
     _onChannelDeleted.close();
+    _onEmergencyDrill.close();
   }
 
   void dispose() => close();

@@ -1,6 +1,5 @@
 {
   "@@locale": "hi",
-
   "commonCancel": "रद्द करें",
   "commonRetry": "फिर कोशिश करें",
   "commonAdd": "जोड़ें",
@@ -9,10 +8,8 @@
   "commonShare": "शेयर करें",
   "commonOpen": "खोलें",
   "commonLoading": "लोड हो रहा है…",
-
   "navChats": "चैट",
   "navUpdates": "अपडेट",
-
   "lockUnlockTitle": "Jay अनलॉक करें",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "अनलॉक करें",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "सुरक्षित स्टोरेज उपलब्ध नहीं है। फिर से अनलॉक करने की कोशिश करें।",
   "lockErrorRejected": "अनलॉक नहीं हो सका। फिर कोशिश करें।",
   "lockErrorUnavailable": "अनलॉक उपलब्ध नहीं है। फिर कोशिश करें।",
-
   "callTitle": "कॉल",
   "callEnded": "कॉल खत्म हुई",
   "callIncomingVoice": "इनकमिंग वॉइस कॉल",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "कॉल शुरू नहीं हो सकी। कनेक्शन और माइक्रोफ़ोन/कैमरा की अनुमतियाँ जाँचें।",
   "callErrorCannotAccept": "कॉल स्वीकार नहीं हो सकी। माइक्रोफ़ोन/कैमरा की अनुमतियाँ जाँचें।",
   "callErrorUserOffline": "यूज़र अभी ऑफ़लाइन है। बाद में फिर कोशिश करें।",
-
   "chatListNewGroup": "नया ग्रुप",
   "chatListMyIdentity": "मेरी पहचान",
   "chatListOffline": "ऑफ़लाइन — आपकी हिस्ट्री इस डिवाइस पर उपलब्ध है।",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "ग्रुप चैट",
   "chatListEncryptedConversation": "एन्क्रिप्टेड चैट",
   "chatListNewChat": "नई चैट",
-
   "chatVoiceCall": "वॉइस कॉल",
   "chatVideoCall": "वीडियो कॉल",
   "chatCallFailed": "कॉल शुरू नहीं हो सकी। कनेक्शन और अनुमतियाँ जाँचें।",
@@ -76,12 +70,9 @@
   "chatInputHint": "मैसेज",
   "chatInputSend": "भेजें",
   "chatInputNotSaved": "मैसेज सेव नहीं हुआ। आपका ड्राफ़्ट यहीं है।",
-
   "sizeBytes": "{count, plural, one{{count} बाइट} other{{count} बाइट}}",
   "sizeKilobytes": "{size} KB",
-
   "botNotice": "बॉट — मैसेज एक ऑटोमेटेड प्रोग्राम पढ़ता है, जिसे कोई तीसरा पक्ष चलाता है। BOT लेबल बॉट ने खुद लगाया है और Jay ने इसकी पुष्टि नहीं की है।",
-
   "contactsTitle": "कॉन्टैक्ट",
   "contactsScanQr": "QR कोड स्कैन करें",
   "contactsPasteInvite": "इनवाइट पेस्ट करें",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX या ct://…",
   "qrScanTitle": "QR कोड स्कैन करें",
   "qrScanHint": "कैमरा Jay के QR कोड की ओर करें",
-
   "groupNewTitle": "नया ग्रुप",
   "groupCreate": "बनाएँ",
   "groupNameLabel": "ग्रुप का नाम",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, one{{count} चुना गया} other{{count} चुने गए}}",
   "groupNoContacts": "अभी कोई कॉन्टैक्ट नहीं है।\nग्रुप बनाने के लिए पहले कॉन्टैक्ट जोड़ें।",
   "groupCreateFailed": "ग्रुप नहीं बन सका। कनेक्शन जाँचें और फिर कोशिश करें।",
-
   "onboardingTagline": "सुरक्षित। गुमनाम। आसान।",
   "onboardingSettingUp": "आपका डिवाइस सेट अप हो रहा है…",
   "onboardingGetStarted": "शुरू करें",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "कॉन्टैक्ट जोड़ने के लिए यह QR कोड शेयर करें",
   "onboardingStartMessaging": "मैसेज भेजना शुरू करें",
   "onboardingFailed": "रजिस्ट्रेशन नहीं हो सका",
-
   "settingsTitle": "सेटिंग",
   "settingsAppLock": "ऐप लॉक",
   "settingsAppLockSubtitle": "PIN और बायोमेट्रिक पुष्टि",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "सिर्फ़ TURN रिले (डायग्नोस्टिक)",
   "settingsForceRelaySubtitle": "अगली कॉल सिर्फ़ रिले से जाएँगी। धीमा; रीस्टार्ट पर रीसेट हो जाता है।",
   "settingsVersion": "Jay {version} बीटा",
-
   "identityTitle": "मेरी पहचान",
   "identityCopyInvite": "इनवाइट कॉपी करें",
   "identityInviteCopied": "इनवाइट कॉपी हो गया",
-
   "appLockTitle": "ऐप लॉक",
   "appLockExplanation": "ऐप को PIN कोड से सुरक्षित करें। चालू होने पर, Jay को हर बार खोलते समय आपको अपना PIN डालना होगा।",
   "appLockPin": "PIN लॉक",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "मौजूदा PIN",
   "appLockVerify": "पुष्टि करें",
   "appLockIncorrectPin": "गलत PIN",
-
   "accountCreateTitle": "अकाउंट बनाएँ",
   "accountLoginTitle": "लॉग इन करें",
   "accountOptionalTitle": "अकाउंट ज़रूरी नहीं",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "अकाउंट चाहिए? रजिस्टर करें",
   "accountLinked": "अकाउंट लिंक हो गया। क्लाउड बैकअप चालू है।",
   "accountFailed": "यह नहीं हो सका। अपना ईमेल, पासफ़्रेज़ और कनेक्शन जाँचें।",
-
   "backupTitle": "क्लाउड बैकअप",
   "backupEncryptedTitle": "एंड-टू-एंड एन्क्रिप्टेड",
   "backupExplanation": "मैसेज हिस्ट्री, एम्बेड किए गए अटैचमेंट और कॉन्टैक्ट का बैकअप लिया जाता है; बाहरी फ़ाइलें और चालू एन्क्रिप्शन सेशन इसमें शामिल नहीं हैं। आपका बैकअप ऐसे पासफ़्रेज़ से एन्क्रिप्ट होता है जो सिर्फ़ आपको पता है। सर्वर आपके मैसेज या कॉन्टैक्ट कभी भी सादे टेक्स्ट में नहीं देखता।\n\nअगर आप अपना पासफ़्रेज़ भूल गए, तो आपका बैकअप वापस नहीं पाया जा सकता। रीसेट का कोई विकल्प नहीं है — आपकी सुरक्षा के लिए इसे जान-बूझकर ऐसा बनाया गया है।",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "बैकअप फ़ाइल अमान्य है।",
   "backupErrorRestoreFailed": "रीस्टोर नहीं हो सका। पासफ़्रेज़ और बैकअप फ़ाइल जाँचें।",
   "backupErrorUnknown": "कुछ गड़बड़ हो गई। कृपया फिर कोशिश करें।",
-
   "channelPublicNotice": "चैनल की पोस्ट सार्वजनिक हैं और ये एंड-टू-एंड एन्क्रिप्टेड नहीं हैं।",
   "channelTitle": "चैनल",
   "channelNotAvailable": "यह चैनल उपलब्ध नहीं है।",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "चैनल के एडमिन को पता नहीं चलेगा कि रिपोर्ट किसने की।",
   "channelReportSubmit": "रिपोर्ट करें",
   "channelReportSent": "रिपोर्ट भेज दी गई।",
-
   "channelProfileBlockedChannels": "ब्लॉक किए गए चैनल",
   "channelProfileNotFound": "चैनल नहीं मिला। लिंक और कनेक्शन जाँचें।",
   "channelFollowers": "{count, plural, =0{कोई फ़ॉलोअर नहीं} one{{count} फ़ॉलोअर} other{{count} फ़ॉलोअर}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "ब्लॉक करें",
   "channelRoleOwner": "मालिक",
   "channelRoleAdmin": "एडमिन",
-
   "channelOpenTitle": "चैनल खोलें",
   "channelOpenLabel": "चैनल का हैंडल या लिंक",
   "channelOpenHint": "CH-XXXX-XXXX या calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "चैनल बनाने के लिए रजिस्टर्ड अकाउंट ज़रूरी है, ताकि इस डिवाइस के साथ चैनल भी न खो जाए। चैनल फ़ॉलो करना बिना अकाउंट के भी मुमकिन है।",
   "channelRegisterOrLogin": "रजिस्टर या लॉग इन करें",
   "channelCreate": "चैनल बनाएँ",
-
   "channelAdminsTitle": "चैनल के एडमिन",
   "channelAdminsCurrent": "मौजूदा एडमिन",
   "channelAdminsNone": "अभी कोई एडमिन नहीं है।",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "एडमिन से हटाएँ",
   "channelAdminAdded": "एडमिन जोड़ा गया।",
   "channelAdminRemoved": "एडमिन हटाया गया।",
-
   "channelBlockedEmpty": "कोई चैनल ब्लॉक नहीं है।",
   "channelUnblock": "अनब्लॉक करें",
-
   "channelErrorBlocked": "यह चैनल ब्लॉक है। पहले इसे सेटिंग में अनब्लॉक करें।",
   "channelErrorAccountRequired": "चैनल बनाने के लिए रजिस्टर्ड अकाउंट ज़रूरी है।",
   "channelErrorLimitReached": "आप जितने चैनल के मालिक हो सकते हैं, उसकी सीमा पूरी हो गई है।",
@@ -288,5 +266,121 @@
   "channelErrorImageType": "सिर्फ़ JPEG, PNG, WebP और GIF इमेज की अनुमति है।",
   "channelErrorPostConflict": "पोस्ट पब्लिश नहीं हो सकी। फिर कोशिश करें।",
   "channelErrorForbidden": "आपको ऐसा करने की अनुमति नहीं है।",
-  "channelErrorGeneric": "यह नहीं हो सका। कनेक्शन जाँचें।"
+  "channelErrorGeneric": "यह नहीं हो सका। कनेक्शन जाँचें।",
+  "orgSettingsTitle": "संगठन",
+  "orgJoinTitle": "किसी संगठन से जुड़ें",
+  "orgJoinCodeLabel": "आमंत्रण कोड",
+  "orgJoinButton": "जुड़ें",
+  "orgJoinFailed": "जुड़ नहीं सके। कोड जाँचकर फिर से प्रयास करें।",
+  "orgMembershipCard": "{orgName} — {role}",
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
+  "orgCreateButton": "संगठन बनाएं",
+  "orgCreateRequiresAccount": "संगठन बनाने के लिए पंजीकृत खाता आवश्यक है।",
+  "orgMembersTitle": "सदस्य",
+  "orgInviteCreate": "आमंत्रण बनाएं",
+  "orgInviteCodeLabel": "आमंत्रण कोड: {code}",
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "orgSetAuditorLabel": "ऑडिटर डिवाइस आईडी",
+  "orgExportAudit": "व्यवस्थापक ऑडिट लॉग निर्यात करें",
+  "orgArchiveActive": "संग्रह सक्रिय है।",
+  "orgArchiveInactive": "संग्रह में अभी तक कोई रिकॉर्ड नहीं आया है।",
+  "businessBannerText": "इस बातचीत को {orgName} द्वारा संग्रहीत किया जाता है।",
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessAuditorTile": "{orgName} संग्रह (ऑडिट सदस्य)",
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "businessInfoTitle": "संग्रह के बारे में",
+  "businessInfoBody": "{orgName} स्थायी रूप से यह रिकॉर्ड रखता है कि किसने किसे कब संदेश भेजा, संदेश का आकार और सामग्री का हैश — कभी भी संदेश का पाठ नहीं। संगठन के बाहर की गुमनाम चैट कभी संग्रहीत नहीं होतीं। यह पहला संस्करण अभी बातचीत के हेडर एन्क्रिप्ट नहीं करता और न ही प्री-की हस्ताक्षर सत्यापित करता है; विवरण के लिए ऐप का दस्तावेज़ देखें।",
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
+  "orgErrorGeneric": "कुछ गड़बड़ हो गई ({code})।",
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "संदेश नहीं भेजा जा सका: इस बातचीत में संगठन का ऑडिट सदस्य मौजूद नहीं है।",
+  "emergencyTitle": "आपातकालीन चैनल",
+  "emergencyKitsTitle": "आपातकालीन किट",
+  "emergencyIssueKit": "किट जारी करें",
+  "emergencyKitLabelField": "लेबल",
+  "emergencyKitCountField": "कोड की संख्या",
+  "emergencyCodesWarning": "ये कोड केवल एक बार दिखाए जाते हैं और दोबारा प्राप्त नहीं किए जा सकते। इन्हें अभी सहेजें।",
+  "emergencyRecoveryCode": "रिकवरी कोड: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "सभी कॉपी करें",
+  "emergencyShare": "साझा करें",
+  "emergencyRevokeKit": "रद्द करें",
+  "emergencyKitRevoked": "रद्द किया गया",
+  "emergencyCodesRemaining": "{remaining}/{total} कोड शेष",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "अभ्यास शुरू करें",
+  "emergencyDrillsTitle": "अभ्यास",
+  "emergencyDrillStarted": "अभ्यास शुरू हुआ",
+  "emergencyDrillConfirmed": "{count} पुष्टि की गई",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "अभ्यास पूर्ण करें",
+  "emergencyExportProof": "प्रमाण निर्यात करें",
+  "emergencyHaveCode": "मेरे पास आपातकालीन कोड है",
+  "emergencyEnrollCodeLabel": "आपातकालीन कोड",
+  "emergencyEnrollButton": "नामांकन करें",
+  "emergencyEnrollFailed": "नामांकन नहीं हो सका। कोड जाँचें और पुनः प्रयास करें।",
+  "emergencyEnrollSuccess": "नामांकित — आपातकालीन वार्तालाप खोला जा रहा है",
+  "emergencyDrillPromptTitle": "आपातकालीन अभ्यास",
+  "emergencyDrillPromptBody": "कृपया पुष्टि करें कि आपको यह संदेश मिला है।",
+  "emergencyDrillConfirmButton": "पुष्टि करें"
 }
