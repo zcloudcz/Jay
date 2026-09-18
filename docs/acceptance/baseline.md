@@ -1,5 +1,7 @@
 # B00 — baseline a integrace (2026-09-16)
 
+> Historický záznam stavu k 2026-09-16. Údaje „Docker nedostupný“, „Testcontainers BLOCKED“ a „hosted CI NOT_RUN“ už neplatí — aktuální stav: `docs/HANDOFF-2026-09-18.md`.
+
 ## Baseline
 
 - Baseline commit: `17a8196` (`codex/beta-B00`) — snapshot všech dosud necommitnutých beta změn; `FABLE.md` a `.claude/` zůstávají netrackované.

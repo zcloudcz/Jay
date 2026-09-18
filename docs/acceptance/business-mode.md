@@ -1,6 +1,6 @@
 # Jay Business — přejímka kroku 1 (E06), stav 2026-09-18
 
-Integrační větev `business/base` (lokální, nepushnutá). Základ: `feat/bots-channels` @ `158b8d9`. Statusy dle K06.
+Sloučeno do `feat/bots-channels` = `master`, pushnuto a nasazeno na betu (Business režim zapnutý). Balíčky níže vznikly na větvích `business/*` nad `feat/bots-channels` @ `158b8d9`. Statusy dle K06. Jak navázat: `docs/HANDOFF-2026-09-18.md`.
 
 ## Balíčky
 
@@ -52,8 +52,9 @@ Integrační větev `business/base` (lokální, nepushnutá). Základ: `feat/bot
 
 ## Blokace přejímky
 
-1. Docker/CI: integrační testy neproběhly. Hosted CI vyžaduje Actions minuty (private repo) nebo dočasně public repo — **pozor: repo teď obsahuje `docs/superpowers/specs/2026-09-15-typecall-spec-v0.2.md` s obchodní strategií** (zatím nepushnuto).
-2. Validační milník spec kap. 12 nesplněn — E03b/E04/MLS krok 2 čekají.
+1. ~~Docker/CI: integrační testy neproběhly.~~ Vyřešeno 2026-09-18: lokálně i v hosted CI (testovací brána `deploy.yml`) zelené. Actions na privátním repu kvůli billingu nenastartují → CI/deploy jen v krátkém PUBLIC okně; vlastník rozhodl, že obchodní specifikace v repu v tom okně být smí.
+2. Archivátor `jay_archiver` na betě neběží (není rozhodnuto kde) → firemní zprávy se zatím nearchivují. Ruční přejímka UI na zařízení NOT_RUN.
+3. Validační milník spec kap. 12 nesplněn — E03b/E04/MLS krok 2 čekají.
 
 ## Nálezy z prvního E2E běhu (2026-09-18)
 

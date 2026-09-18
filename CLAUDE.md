@@ -17,6 +17,12 @@ A WhatsApp-like messaging app with strong privacy:
 - **Store-and-forward** — server holds encrypted messages until delivered,
   then deletes. 30-day TTL.
 - **Contact discovery** via QR code or invite link. No address book sync.
+- **Two modes, one product.** Anonymous E2E (above, unchanged) and **Business**:
+  organization + roles, a VISIBLE silent auditor member in every business
+  conversation, append-only metadata archive, emergency channel. Never a
+  hidden audit. Business mode is optional on the server: ON only when
+  `ConnectionStrings:Audit` is set, otherwise its endpoints answer 503
+  `business_mode_disabled`. Status: `docs/acceptance/business-mode.md`.
 
 ## Stack
 
@@ -51,7 +57,13 @@ CallType/
 │   │   │   ├── Hubs/                           # SignalR hubs
 │   │   │   ├── Services/                       # Business logic services
 │   │   │   └── Migrations/                     # EF Core migrations
+│   │   ├── CallType.Audit/                     # Business mode: separate Audit DB (own DbContext + migrations), org/roles, hash-chained archive, emergency kits
 │   │   └── CallType.Api.Tests/                 # Integration tests (Testcontainers)
+│   ├── bots/                                   # Pure Dart, no Flutter SDK
+│   │   ├── calltype_bot/                       # Headless E2E device runtime
+│   │   ├── hermes_bridge/                      # First bot: bridge to Hermes Agent
+│   │   └── jay_archiver/                       # The auditor device: archives business groups (+ live E2E tests in test/e2e)
+│   ├── client/calltype_core/                   # Pure Dart protocol core shared by app and bots: crypto, API client, SignalR, drift schema
 │   └── client/calltype/                        # Flutter app
 │       └── lib/
 │           ├── core/crypto/                    # E2EE (pure Dart, `cryptography` pkg)
@@ -72,12 +84,36 @@ dotnet test src/server/CallType.Api.Tests    # requires Docker (Testcontainers)
 
 ### Client
 ```bash
-cd src/client/calltype
+# The drift schema lives in calltype_core and its database.g.dart is
+# git-ignored — generate it there FIRST or the app does not compile.
+cd src/client/calltype_core
+flutter pub get
+dart run build_runner build --delete-conflicting-outputs
+flutter test
+
+cd ../calltype
 flutter pub get
 dart run build_runner build --delete-conflicting-outputs
 flutter test
 flutter run -d chrome
 ```
+
+### Bots and live E2E
+```bash
+cd src/bots/jay_archiver && dart test          # same for calltype_bot, hermes_bridge
+
+# Live end-to-end (real crypto, real hub, real archiver) against local compose:
+docker compose up -d --build api
+cd src/bots/jay_archiver && JAY_E2E_API=http://localhost:8080 dart test test/e2e
+```
+The E2E tests are skipped without `JAY_E2E_API`. **Never point them at beta or
+production** — the Audit database is append-only, every run leaves an
+undeletable organization. The API allows 10 "auth" calls per minute per IP and
+the two E2E files use exactly 10, so a re-run within the same minute gets 429.
+Mocks of the server's JSON must be copied from the contract
+(`docs/superpowers/plans/2026-09-18-business-mode-contracts.md`), not assumed:
+the first live run found a client that was green against mocks of its own
+wrong assumptions.
 
 ### Localization (client)
 
@@ -152,6 +188,14 @@ dotnet ef database update --project src/server/CallType.Api
 
 All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 — with the single deliberate exception of channels, which are public and not E2E.
+
+Business mode keeps its data in a **second, physically separate database**
+(`calltype_audit`, `AuditDbContext` in `CallType.Audit`): organizations,
+invites, enrollments, hash-chained `AuditRecord` (message METADATA only — never
+content) and `AdminAuditEvent`, emergency kits/codes/drills. The running API
+connects as a role that may only INSERT/SELECT (`infra/postgres/audit-roles.sql`);
+schema changes are applied by a separate ops role. Treat it as append-only:
+check every precondition BEFORE the first write, nothing can be cleaned up later.
 
 ## API endpoints
 
@@ -240,9 +284,11 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 
 - Full design spec: `docs/superpowers/specs/2026-05-28-calltype-design.md`
 - Original implementation plan (26 tasks, 7 phases): `docs/superpowers/plans/2026-05-28-calltype-implementation.md`
-- **Current work — beta completion:** `docs/superpowers/plans/2026-09-16-beta-zadani.md` (+ `-kontrakty`, `-vyvoj`, `-infrastruktura`); status and evidence in `docs/acceptance/` and `docs/ops/`.
-- Channels — `docs/superpowers/plans/2026-09-16-channels.md` (§7 overrides §1–§6). Server API + hub done; client and acceptance (C03/C04) pending.
-- Next feature (not started): Bots as E2E clients, first bot = Hermes Agent — `docs/superpowers/plans/2026-09-17-bots.md`.
+- **Where things stand / how to resume:** `docs/HANDOFF-2026-09-18.md`.
+- Beta completion: `docs/superpowers/plans/2026-09-16-beta-zadani.md` (+ `-kontrakty`, `-vyvoj`, `-infrastruktura`); status and evidence in `docs/acceptance/` and `docs/ops/`. Device acceptance (`docs/acceptance/matrix.md`) is mostly NOT_RUN.
+- Channels (`docs/superpowers/plans/2026-09-16-channels.md`, §7 overrides §1–§6) and bots (`docs/superpowers/plans/2026-09-17-bots.md`): implemented and deployed; manual acceptance in `docs/acceptance/bots-channels.md` is NOT_RUN.
+- **Business mode:** `docs/superpowers/plans/2026-09-18-business-mode.md` (+ `-contracts`). Step 1 is deployed and switched on on beta; acceptance and findings in `docs/acceptance/business-mode.md`. Full-content archive (E03b), four-eyes access (E04), Merkle + qualified timestamps (KB4) and MLS (step 2, `spikes/mls/REPORT.md`) wait for validation with three organizations.
+- NIS2 / auditability (N01–N10, nothing started): `docs/superpowers/plans/2026-09-18-nis2-auditovatelnost.md`.
 
 ## Deploy
 
@@ -252,3 +298,13 @@ tests → API + five client builds with manifests → OIDC deploy to the existin
 App Service / Static Web App → smoke. It never provisions infrastructure; IaC
 lives in `infra/beta-appservice.bicep`. `infra/main.bicep`, `infra/beta-vm.bicep`
 and `infra/beta-compose.yml` are historical and must not be deployed.
+
+GitHub Actions do not start on the private repo (billing) — a run then ends as
+"failure" with zero jobs, which says nothing about the code. CI and deploys run
+in a short PUBLIC window (`/gh-actions-public`): flip to public FIRST, push
+after, always flip back. Each window and each deploy needs the owner's OK.
+
+Audit-database migrations are NOT applied by the deploy or at startup on beta
+(`ConnectionStrings__AuditMigrations` is deliberately unset so the ops password
+never sits next to the app password). A change to `CallType.Audit/Migrations`
+means a manual step before the deploy — see `docs/HANDOFF-2026-09-18.md`.
