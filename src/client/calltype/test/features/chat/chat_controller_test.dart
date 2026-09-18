@@ -134,4 +134,54 @@ void main() {
       await carol.close();
     },
   );
+
+  test(
+    // E05 KB1 regression: the fan-out must never skip a member the server
+    // returned — the auditor is just another entry in that list, added by
+    // the server on group creation. If a future change filtered members by
+    // role or type, this would catch it going missing from the envelope.
+    'business group send fans out to every server-reported member, including the auditor',
+    () async {
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+      final alice = await TestDevice.create('alice');
+      final auditor = await TestDevice.create('auditor-device');
+      final transport = Transport()..fail = false;
+      final inbox = MessageInboxService(
+        database: alice.db,
+        sessionManager: alice.sessions,
+        incomingMessages: const Stream.empty(),
+      );
+      await alice.db
+          .into(alice.db.conversations)
+          .insert(
+            ConversationsCompanion.insert(
+              id: 'biz-group',
+              type: 'group',
+              title: const Value('Acme Deal'),
+              organizationId: const Value('org1'),
+              organizationName: const Value('Acme'),
+            ),
+          );
+      final controller = ChatController(
+        database: alice.db,
+        signalRClient: transport,
+        sessionManager: alice.sessions,
+        inbox: inbox,
+        apiClient: ChatApi([auditor]),
+        conversationId: 'biz-group',
+        myDeviceId: alice.id,
+      );
+
+      await controller.sendMessage('deal terms attached');
+
+      expect(transport.envelopes.single.keys, contains('auditor-device'));
+      expect(controller.consumeAuditRecipientMissing(), isFalse);
+
+      controller.dispose();
+      await inbox.dispose();
+      transport.dispose();
+      await alice.close();
+      await auditor.close();
+    },
+  );
 }

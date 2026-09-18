@@ -15,7 +15,11 @@ class PendingApi extends ApiClient {
   final result = Completer<Map<String, dynamic>>();
   int requests = 0;
   @override
-  Future<Map<String, dynamic>> createGroup(String name, List<String> members) {
+  Future<Map<String, dynamic>> createGroup(
+    String name,
+    List<String> members, {
+    String? organizationId,
+  }) {
     requests++;
     return result.future;
   }

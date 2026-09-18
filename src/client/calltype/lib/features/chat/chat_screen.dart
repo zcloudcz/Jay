@@ -13,6 +13,7 @@ import 'attachment.dart';
 import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/bot_badge.dart';
+import '../organization/business_banner.dart';
 
 /// One-time notice shown the first time a chat with a bot is opened: the
 /// conversation is end-to-end encrypted, but the other end is an automated
@@ -144,7 +145,16 @@ class ChatScreen extends StatelessWidget {
         contact?.userHandle ??
         contactId;
     final isBot = contact?.isBot ?? false;
+    final organizationName = conversation?.organizationName;
     final l10n = context.l10n;
+    if (controller.consumeAuditRecipientMissing()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.hubErrorAuditRecipientMissing)),
+        );
+      });
+    }
     return Scaffold(
       appBar: AppBar(
         title: NameWithBotBadge(name: name, isBot: isBot),
@@ -173,6 +183,12 @@ class ChatScreen extends StatelessWidget {
               child: Text(l10n.chatOffline),
             ),
           if (isBot) _BotNotice(contactId: contactId),
+          // Business mode (Jay, KB1): permanent, non-dismissable — see
+          // BusinessBanner's doc for why there is no close action.
+          if (organizationName != null) ...[
+            BusinessBanner(organizationName: organizationName),
+            AuditorMemberTile(organizationName: organizationName),
+          ],
           Expanded(
             child: controller.messages.isEmpty
                 ? Center(child: Text(l10n.chatEmpty))
