@@ -6,9 +6,7 @@
 // model in infra/postgres/audit-roles.sql actually blocks UPDATE/DELETE on
 // audit tables — the entire point of KB3's append-only guarantee.
 //
-// BLOCKED on this machine: Testcontainers needs Docker, which is not
-// installed here. This file compiles and is believed correct, but has not
-// been executed — see the E00 final report / MEMORY.md.
+// Requires Docker (Testcontainers), like every IntegrationTestBase test.
 // ---------------------------------------------------------------------------
 
 using System.Net;

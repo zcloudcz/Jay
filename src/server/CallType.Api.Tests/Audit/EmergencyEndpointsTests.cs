@@ -41,7 +41,12 @@ public class EmergencyEndpointsTests : IntegrationTestBase
     private async Task<(Guid OrgId, Guid AuditorDeviceId)> SeedOrgWithAdminAsync(Guid adminDeviceId)
     {
         var orgId = Guid.NewGuid();
-        var auditorDeviceId = Guid.NewGuid();
+        // The auditor must be a real registered device (GroupMember.DeviceId is an FK
+        // to Devices). Registering re-points Client's Bearer token, so restore the
+        // caller's (admin's) header afterwards.
+        var callerAuth = Client.DefaultRequestHeaders.Authorization;
+        var (auditorDeviceId, _, _) = await RegisterAndAuthenticateAsync();
+        Client.DefaultRequestHeaders.Authorization = callerAuth;
         var ownerAccountId = Guid.NewGuid();
 
         using var scope = Factory.Services.CreateScope();

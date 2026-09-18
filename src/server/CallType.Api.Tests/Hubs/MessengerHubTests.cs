@@ -591,7 +591,8 @@ public class MessengerHubTests : IntegrationTestBase
         // the org's auditor device, or the message would never be archived.
         var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
         var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
-        var auditor = Guid.NewGuid();
+        // Real registered device: GroupMember.DeviceId is an FK to Devices.
+        var (auditor, _) = await RegisterDeviceAndGetTokenAsync();
         var group = Guid.NewGuid();
         using (var scope = Factory.Services.CreateScope())
         {

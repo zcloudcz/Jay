@@ -20,7 +20,7 @@ Integrační větev `business/base` (lokální, nepushnutá). Základ: `feat/bot
 | --- | --- |
 | `dotnet build CallType.sln -c Release` | 0 chyb |
 | Backend unit testy bez DB (audit doména, HashChain, validator, emergency codes/proof, CSV escaping, TURN, FCM) | 77/77 PASS |
-| Backend integrační testy (Testcontainers: business groups, hub KB2, org endpoints, archive API, emergency endpoints, audit role INSERT/SELECT only) | **BLOCKED** — Docker na tomto stroji nedostupný; napsané a kompilují; nutný běh v CI |
+| Backend integrační testy (Testcontainers: business groups, hub KB2, org endpoints, archive API, emergency endpoints, audit role INSERT/SELECT only) | **PASS** — 2026-09-18 lokálně (Docker/Testcontainers), `dotnet test src/server/CallType.Api.Tests -c Release`: 325/325. První běh odhalil start API bez Business režimu (`af32ce9`) a 14 chyb v testech/fixture (auditor bez řádku v `Devices`, pořadí autentizace, REVOKE na neexistující `__EFMigrationsHistory`); produktový kód beze změny. Běh v CI zatím ne |
 | `calltype_core` analyze + test | 114/114 PASS |
 | `calltype` analyze + gen-l10n + test (vč. ARB parity 19 jazyků) | 188/188 PASS |
 | `jay_archiver` analyze + test | 10/10 PASS |
@@ -28,12 +28,12 @@ Integrační větev `business/base` (lokální, nepushnutá). Základ: `feat/bot
 
 ## Kontrakty — stav
 
-- **KB1** viditelný auditor: server vytváří auditora atomicky, odebrání → 409; klient: trvalý banner, auditor v seznamu členů bez akce odebrání — implementováno, integrační/widget testy (widget PASS, integrační BLOCKED).
-- **KB2** vynucení na serveru: `audit_recipient_missing` v hubu — implementováno; test BLOCKED (Docker). Známá mez (obsahová shoda) trvá do MLS.
-- **KB3** archiv metadata-only, app role INSERT/SELECT, řetěz — implementováno; test role BLOCKED.
+- **KB1** viditelný auditor: server vytváří auditora atomicky, odebrání → 409; klient: trvalý banner, auditor v seznamu členů bez akce odebrání — implementováno, integrační/widget testy (widget PASS, integrační PASS).
+- **KB2** vynucení na serveru: `audit_recipient_missing` v hubu — implementováno; test PASS. Známá mez (obsahová shoda) trvá do MLS.
+- **KB3** archiv metadata-only, app role INSERT/SELECT, řetěz — implementováno; test role PASS.
 - **KB4** Merkle + razítko — NOT IMPLEMENTED (mimo krok 1).
 - **KB5** čtyři oči — NOT IMPLEMENTED (E04, čeká na validační milník).
-- **KB6** admin audit log + export — implementováno; řetěz test BLOCKED.
+- **KB6** admin audit log + export — implementováno; řetěz test PASS.
 
 ## Známé limity kroku 1
 
