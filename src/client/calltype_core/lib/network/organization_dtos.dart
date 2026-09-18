@@ -48,6 +48,21 @@ class OrgMemberInfo {
       );
 }
 
+/// One entry of GET /orgs/{id}/enrollments — an actively enrolled device.
+/// Device id only: the endpoint deliberately never exposes account ids or
+/// emails of enrolled devices to other members.
+class OrgEnrollmentInfo {
+  const OrgEnrollmentInfo({required this.deviceId, required this.enrolledAt});
+  final String deviceId;
+  final String enrolledAt;
+
+  factory OrgEnrollmentInfo.fromJson(Map<String, dynamic> json) =>
+      OrgEnrollmentInfo(
+        deviceId: json['deviceId'] as String,
+        enrolledAt: json['enrolledAt'] as String,
+      );
+}
+
 class OrgInviteInfo {
   const OrgInviteInfo({required this.code, required this.expiresAt});
   final String code;

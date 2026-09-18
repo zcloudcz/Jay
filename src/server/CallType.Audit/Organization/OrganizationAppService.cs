@@ -113,6 +113,29 @@ public class OrganizationAppService(AuditDbContext db, IDeliveryDirectory delive
     }
 
     // -----------------------------------------------------------------
+    // GET /orgs/{id}/enrollments
+    // -----------------------------------------------------------------
+    /// <summary>
+    /// Device ids only — no account ids, no emails (privacy: enrolled devices
+    /// are never told who else is enrolled beyond that bare list). Used by the
+    /// client to pre-filter the business-group member picker to devices the
+    /// server will actually accept, instead of failing only after submit.
+    /// </summary>
+    public async Task<List<OrgEnrollmentDto>> GetEnrollmentsAsync(Guid organizationId, Guid? accountId, Guid deviceId, CancellationToken ct)
+    {
+        var org = await LoadOrgAsync(organizationId, ct);
+        if (!await IsMemberOrEnrolledAsync(org, accountId, deviceId, ct))
+            // Same visibility rule as GetOrganizationAsync — 404, not 403, so existence isn't leaked.
+            throw new DomainRuleViolation("org_not_found", "Organization not found.");
+
+        return await db.OrgEnrollments
+            .Where(e => e.OrganizationId == organizationId && e.RevokedAt == null)
+            .OrderBy(e => e.EnrolledAt)
+            .Select(e => new OrgEnrollmentDto(e.DeviceId, e.EnrolledAt))
+            .ToListAsync(ct);
+    }
+
+    // -----------------------------------------------------------------
     // PATCH /orgs/{id}
     // -----------------------------------------------------------------
     public async Task UpdateOrganizationAsync(Guid organizationId, Guid actorAccountId, string? name,

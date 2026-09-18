@@ -98,6 +98,7 @@
   "groupSelectMembers": "Vyberte členy",
   "groupSelectedCount": "{count, plural, one{{count} vybraný} few{{count} vybraní} many{{count} vybraného} other{{count} vybraných}}",
   "groupNoContacts": "Zatím žádné kontakty.\nPro vytvoření skupiny nejdřív přidejte kontakty.",
+  "groupNoEnrolledContacts": "Žádný z vašich kontaktů zatím není v této organizaci evidován.\nNejdřív je pozvěte.",
   "groupCreateFailed": "Skupinu se nepodařilo vytvořit. Zkontrolujte připojení a zkuste to znovu.",
   "onboardingTagline": "Bezpečně. Anonymně. Jednoduše.",
   "onboardingSettingUp": "Nastavujeme vaše zařízení…",

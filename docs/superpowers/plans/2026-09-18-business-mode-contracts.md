@@ -193,6 +193,7 @@ enrollment via invite code does not.
 | `POST /orgs` | `{ name }` | 201 `{ organizationId, name }` | Caller becomes `Owner`. One owned org per account (409 `org_limit`). |
 | `GET /orgs/mine` | — | 200 `[{ organizationId, name, role, archiveLevel, auditorDeviceId }]` | Union of account membership and device enrollment. |
 | `GET /orgs/{id}` | — | 200 `{ organizationId, name, createdAt, archiveLevel, auditorDeviceId, members: [{ accountId, role, addedAt }] }` | 404 (not 403) for non-members — existence is not leaked. |
+| `GET /orgs/{id}/enrollments` | — | 200 `[{ deviceId, enrolledAt }]` | Active (non-revoked) enrollments only, device ids only (no account ids, no emails). Same visibility rule as `GET /orgs/{id}`: caller must be a member or an enrolled device, else 404. Used by the client to filter the business-group member picker to devices the server will accept (W1-B). |
 | `PATCH /orgs/{id}` | `{ name?, archiveLevel? }` | 204 | OrgAdmin+. |
 | `PUT /orgs/{id}/members/{accountId}` | `{ role }` | 204 | OrgAdmin+. `role: "Owner"` → 409 `owner_transfer_unsupported` (no ownership transfer in E01). Uses the new `Organization.ChangeMemberRole` (see below), not Remove+AddMember. |
 | `DELETE /orgs/{id}/members/{accountId}` | — | 204 | OrgAdmin+. 409 `last_owner`/`last_admin`, 404 `member_not_found`. |

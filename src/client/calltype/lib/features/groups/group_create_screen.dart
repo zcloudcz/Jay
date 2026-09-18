@@ -1,3 +1,4 @@
+import 'package:calltype_core/network/organization_api.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -48,6 +49,13 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
   List<dynamic> _contacts = [];
   bool _loading = true;
 
+  /// Device ids enrolled in [GroupCreateScreen.organizationId], or null when
+  /// this isn't a business group, or when the enrollment list couldn't be
+  /// loaded — either way the picker falls back to showing every contact and
+  /// lets the server enforce membership as before (W1-B: don't block group
+  /// creation just because this pre-filter failed to load).
+  Set<String>? _enrolledDeviceIds;
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +67,18 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
     _nameController.addListener(_refresh);
   }
 
+  /// Contacts to offer in the picker. For a business group, intersected with
+  /// the organization's enrolled devices (once loaded) — the server rejects
+  /// non-enrolled devices with 403 `not_enrolled` anyway, so filtering here
+  /// just surfaces that up front instead of after submit.
+  List<dynamic> get _pickableContacts {
+    final enrolled = _enrolledDeviceIds;
+    if (enrolled == null) return _contacts;
+    return _contacts
+        .where((contact) => enrolled.contains(contact.deviceId as String))
+        .toList();
+  }
+
   @override
   void dispose() {
     _controller.removeListener(_refresh);
@@ -67,14 +87,33 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
     super.dispose();
   }
 
-  /// Loads contacts from the database to populate the member selection list.
+  /// Loads contacts from the database to populate the member selection list,
+  /// and — for a business group — the organization's enrolled device ids to
+  /// pre-filter that list.
   Future<void> _loadContacts() async {
     if (!mounted) return;
     final db = context.read<AppDatabase>();
+    final apiClient = context.read<ApiClient>();
     final contacts = await db.select(db.contacts).get();
+
+    Set<String>? enrolledDeviceIds;
+    final organizationId = widget.organizationId;
+    if (organizationId != null) {
+      try {
+        final enrollments = await apiClient.getOrganizationEnrollments(
+          organizationId,
+        );
+        enrolledDeviceIds = enrollments.map((e) => e.deviceId).toSet();
+      } catch (_) {
+        // Leave it null — see _enrolledDeviceIds doc: fall back to showing
+        // every contact rather than blocking group creation on this lookup.
+      }
+    }
+
     if (mounted) {
       setState(() {
         _contacts = contacts;
+        _enrolledDeviceIds = enrolledDeviceIds;
         _loading = false;
       });
     }
@@ -160,10 +199,12 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
 
                 // -- Contact list with checkboxes -----------------------------
                 Expanded(
-                  child: _contacts.isEmpty
+                  child: _pickableContacts.isEmpty
                       ? Center(
                           child: Text(
-                            l10n.groupNoContacts,
+                            _contacts.isEmpty
+                                ? l10n.groupNoContacts
+                                : l10n.groupNoEnrolledContacts,
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: colorScheme.onSurfaceVariant,
@@ -171,9 +212,9 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
                           ),
                         )
                       : ListView.builder(
-                          itemCount: _contacts.length,
+                          itemCount: _pickableContacts.length,
                           itemBuilder: (context, index) {
-                            final contact = _contacts[index];
+                            final contact = _pickableContacts[index];
                             final deviceId = contact.deviceId as String;
                             final name =
                                 (contact.displayName as String?) ??

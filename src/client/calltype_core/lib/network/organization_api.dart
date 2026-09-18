@@ -62,6 +62,21 @@ extension OrganizationApi on ApiClient {
         .toList();
   }
 
+  /// GET /orgs/{id}/enrollments — device ids of active (non-revoked)
+  /// enrollments, used to pre-filter the business-group member picker to
+  /// devices the server will actually accept (W1-B).
+  Future<List<OrgEnrollmentInfo>> getOrganizationEnrollments(
+    String organizationId,
+  ) async {
+    final response = await transport.get<List<dynamic>>(
+      '/orgs/$organizationId/enrollments',
+    );
+    return response.data!
+        .cast<Map<String, dynamic>>()
+        .map(OrgEnrollmentInfo.fromJson)
+        .toList();
+  }
+
   /// PUT /orgs/{id}/members/{accountId} {role} — set/promote a member's role.
   Future<void> setOrganizationMemberRole(
     String organizationId,

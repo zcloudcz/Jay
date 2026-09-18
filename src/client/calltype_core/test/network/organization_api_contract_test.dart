@@ -115,4 +115,17 @@ void main() {
 
     expect((await api.updateOrganization('org-1', name: 'Acme')).name, 'Acme');
   });
+
+  test('getOrganizationEnrollments reads device ids only', () async {
+    final (api, _) = client({
+      'GET /orgs/org-1/enrollments': (200, [
+        {'deviceId': 'dev-9', 'enrolledAt': '2026-09-18T00:00:00Z'},
+      ]),
+    });
+
+    final enrollments = await api.getOrganizationEnrollments('org-1');
+
+    expect(enrollments.single.deviceId, 'dev-9');
+    expect(enrollments.single.enrolledAt, '2026-09-18T00:00:00Z');
+  });
 }

@@ -98,6 +98,7 @@
   "groupSelectMembers": "Leden selecteren",
   "groupSelectedCount": "{count, plural, one{{count} geselecteerd} other{{count} geselecteerd}}",
   "groupNoContacts": "Nog geen contacten.\nVoeg eerst contacten toe om een groep te maken.",
+  "groupNoEnrolledContacts": "Geen van je contacten is nog ingeschreven bij deze organisatie.\nNodig ze eerst uit.",
   "groupCreateFailed": "De groep kan niet worden gemaakt. Controleer de verbinding en probeer het opnieuw.",
   "onboardingTagline": "Veilig. Anoniem. Eenvoudig.",
   "onboardingSettingUp": "Je apparaat wordt ingesteld…",

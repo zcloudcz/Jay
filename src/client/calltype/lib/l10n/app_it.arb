@@ -98,6 +98,7 @@
   "groupSelectMembers": "Seleziona i membri",
   "groupSelectedCount": "{count, plural, one{{count} selezionato} other{{count} selezionati}}",
   "groupNoContacts": "Ancora nessun contatto.\nAggiungi prima dei contatti per creare un gruppo.",
+  "groupNoEnrolledContacts": "Nessuno dei tuoi contatti è ancora iscritto a questa organizzazione.\nInvitali prima.",
   "groupCreateFailed": "Impossibile creare il gruppo. Controlla la connessione e riprova.",
   "onboardingTagline": "Sicuro. Anonimo. Semplice.",
   "onboardingSettingUp": "Configurazione del dispositivo…",

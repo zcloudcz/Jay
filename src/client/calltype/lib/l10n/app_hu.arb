@@ -98,6 +98,7 @@
   "groupSelectMembers": "Tagok kiválasztása",
   "groupSelectedCount": "{count, plural, other{{count} kiválasztva}}",
   "groupNoContacts": "Még nincsenek névjegyek.\nCsoport létrehozásához előbb adj hozzá névjegyeket.",
+  "groupNoEnrolledContacts": "Egyik névjegyed sincs még regisztrálva ebben a szervezetben.\nElőbb hívd meg őket.",
   "groupCreateFailed": "Nem sikerült létrehozni a csoportot. Ellenőrizd a kapcsolatot, és próbáld újra.",
   "onboardingTagline": "Biztonságos. Névtelen. Egyszerű.",
   "onboardingSettingUp": "Az eszközöd beállítása…",
