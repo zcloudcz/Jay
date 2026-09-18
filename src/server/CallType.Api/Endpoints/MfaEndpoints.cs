@@ -63,7 +63,8 @@ public static class MfaEndpoints
     // POST /accounts/{accountId}/mfa/enroll/start
     // -----------------------------------------------------------------------
     private static async Task<IResult> EnrollStart(
-        Guid accountId, ClaimsPrincipal user, AppDbContext db, MfaEncryptionService encryption, CancellationToken ct)
+        Guid accountId, EnrollStartRequest request, ClaimsPrincipal user, AppDbContext db,
+        MfaEncryptionService encryption, TimeProvider clock, CancellationToken ct)
     {
         if (!await AccountEndpoints.IsLinkedAsync(user, accountId, db, ct)) return Results.Forbid();
         if (!encryption.IsConfigured) return NotConfigured();
@@ -71,8 +72,21 @@ public static class MfaEndpoints
         var account = await db.Accounts.AsNoTracking().SingleOrDefaultAsync(a => a.AccountId == accountId, ct);
         if (account is null) return Results.NotFound(new { error = "Account not found." });
 
+        // Whoever starts enrollment is handed the secret, so a stolen device JWT
+        // alone must not be enough: the thief could enrol THEIR authenticator and
+        // lock the real owner out of organization administration. Same proof of
+        // the account's auth key that linking a device and deleting the account
+        // require.
+        byte[] authKey;
+        try { authKey = Convert.FromBase64String(request.AuthKey ?? ""); }
+        catch (FormatException) { return Results.Forbid(); }
+        if (authKey.Length == 0 || !await AccountEndpoints.VerifyAuthKeyAsync(authKey, account.AuthKeyHash))
+            return Results.Forbid();
+
         var mfa = await db.AccountMfas.SingleOrDefaultAsync(m => m.AccountId == accountId, ct);
         if (mfa is { Enabled: true }) return AlreadyEnabled();
+        // A restart must not be a way around the lockout below.
+        if (mfa?.LockedUntil is { } startLockedUntil && startLockedUntil > clock.GetUtcNow()) return Locked();
 
         var secret = RandomNumberGenerator.GetBytes(SecretBytes);
         var encryptedSecret = encryption.Encrypt(secret);
@@ -83,12 +97,12 @@ public static class MfaEndpoints
         }
         else
         {
-            // Re-starting before confirm replaces the pending secret and
-            // resets any leftover attempt/replay state from the previous
-            // (never-confirmed) attempt.
+            // Re-starting before confirm replaces the pending secret and its
+            // replay state. The failure counter is deliberately KEPT: every
+            // guess has the same 3-in-a-million chance whatever the secret,
+            // so resetting it here would turn start-guess-start into an
+            // unlimited guessing loop.
             mfa.EncryptedSecret = encryptedSecret;
-            mfa.FailedAttempts = 0;
-            mfa.LockedUntil = null;
             mfa.LastAcceptedStep = null;
         }
         await db.SaveChangesAsync(ct);
@@ -105,17 +119,27 @@ public static class MfaEndpoints
     // -----------------------------------------------------------------------
     private static async Task<IResult> EnrollConfirm(
         Guid accountId, EnrollConfirmRequest request, ClaimsPrincipal user,
-        AppDbContext db, MfaEncryptionService encryption, TotpService totp, CancellationToken ct)
+        AppDbContext db, MfaEncryptionService encryption, TotpService totp, TimeProvider clock, CancellationToken ct)
     {
         if (!await AccountEndpoints.IsLinkedAsync(user, accountId, db, ct)) return Results.Forbid();
         if (!encryption.IsConfigured) return NotConfigured();
 
         var mfa = await db.AccountMfas.SingleOrDefaultAsync(m => m.AccountId == accountId, ct);
         if (mfa is null || mfa.Enabled) return mfa is { Enabled: true } ? AlreadyEnabled() : ConfirmInvalidCode();
+        // Same lockout as verify: confirm is a code check like any other.
+        if (mfa.LockedUntil is { } lockedUntil && lockedUntil > clock.GetUtcNow()) return Locked();
 
         var secret = encryption.Decrypt(mfa.EncryptedSecret);
         var step = totp.MatchStep(secret, request.Code ?? "");
-        if (step is null) return ConfirmInvalidCode();
+        if (step is null)
+        {
+            // RegisterFailureAsync answers with verify's 401; confirm keeps its
+            // documented 400 unless this very failure tripped the lock.
+            var failure = await RegisterFailureAsync(db, accountId, clock, ct);
+            return failure is IStatusCodeHttpResult { StatusCode: StatusCodes.Status429TooManyRequests }
+                ? failure
+                : ConfirmInvalidCode();
+        }
 
         var codes = Enumerable.Range(0, MfaBackupCodes.CodeCount).Select(_ => MfaBackupCodes.Generate()).ToList();
         foreach (var code in codes)
@@ -295,6 +319,7 @@ public static class MfaEndpoints
 // ---------------------------------------------------------------------------
 
 public record MfaStatusResponse(bool Enabled, DateTimeOffset? ConfirmedAt, int BackupCodesRemaining);
+public record EnrollStartRequest(string? AuthKey);
 public record EnrollStartResponse(string SecretBase32, string OtpauthUri);
 public record EnrollConfirmRequest(string? Code);
 public record EnrollConfirmResponse(List<string> BackupCodes);

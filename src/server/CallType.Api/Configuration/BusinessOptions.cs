@@ -12,17 +12,13 @@ public class BusinessOptions
 {
     public const string SectionName = "Business";
 
-    /// <summary>
-    /// How long after a disconnect the auditor device is still treated as
-    /// "alive" — so a routine archiver restart doesn't bounce business
-    /// messages while it reconnects. 120 s default.
-    /// </summary>
-    public int AuditorDisconnectGraceSeconds { get; set; } = 120;
 
     /// <summary>
     /// If the oldest un-acked QueuedMessage addressed to the auditor is older
     /// than this, the auditor is considered stuck and business messaging
-    /// fails closed. 300 s default.
+    /// fails closed. Default 24 h: far below the 30-day TTL after which queued
+    /// copies (and with them archive records) would be lost for good, far above
+    /// any restart, upgrade or overnight outage of the archiver.
     /// </summary>
-    public int AuditorMaxBacklogAgeSeconds { get; set; } = 300;
+    public int AuditorMaxBacklogAgeSeconds { get; set; } = 86400;
 }

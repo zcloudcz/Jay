@@ -47,20 +47,10 @@ void main() {
         expect(await device.api.enrollWithInvite(invite.code), orgId);
       }
 
-      // W2-F: business communication is fail-closed on a dead auditor — with
-      // nobody connected yet (including the auditor), creation must be
-      // refused before anything is written.
-      await expectLater(
-        owner.api.createGroup('ignored', [member.id], organizationId: orgId),
-        throwsA(
-          isA<DioException>()
-              .having((e) => e.response?.statusCode, 'status', 503)
-              .having((e) => (e.response?.data as Map?)?['code'], 'code', 'auditor_unavailable'),
-        ),
-      );
-
-      // The real archiver, running as the auditor device — connected FIRST
-      // so the group can actually be created (W2-F needs the auditor alive).
+      // The real archiver, running as the auditor device. (It does not have
+      // to be connected for the group to be created or for messages to be
+      // accepted — its copies would simply wait in the queue; business traffic
+      // only stops once that queue has gone unprocessed for 24 h.)
       await Future.wait([owner, member, auditor].map((d) => d.signalR.connect()));
       final archiver = Archiver(
         source: SignalGroupMessageSource(signalR: auditor.signalR, sessions: auditor.sessions),

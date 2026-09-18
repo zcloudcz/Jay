@@ -121,8 +121,17 @@ class FakeHub implements HubTransport {
   Future<void> start() async => _connected = true;
   @override
   Future<void> stop() async => _connected = false;
+  /// Every hub method the client invoked, in order (same helper shape as
+  /// calltype_bot's FakeHub).
+  final _invocations = <List<Object>>[];
+  List<List<Object>> calls(String method) => [
+    for (final i in _invocations)
+      if (i.first == method) i,
+  ];
+
   @override
-  Future<void> invoke(String method, [List<Object> args = const []]) async {}
+  Future<void> invoke(String method, [List<Object> args = const []]) async =>
+      _invocations.add([method, ...args]);
 }
 
 /// A loopback `POST /orgs/{orgId}/audit/records` endpoint. Tests configure

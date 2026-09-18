@@ -5,14 +5,16 @@
 // auditor (the emergency group is the one deliberate exception, handled by
 // callers checking Group.IsEmergencyChannel before calling this service).
 //
-// "Alive" = both:
-//  1. connected right now, or disconnected less than AuditorDisconnectGraceSeconds
-//     ago — MessengerHub's in-process connection map is the only presence
-//     source (single API instance by design; after a restart nobody is
-//     connected and there is no disconnect record, which correctly reads as
-//     NOT alive until the archiver reconnects);
-//  2. not stuck — the oldest un-acked QueuedMessage addressed to the auditor
-//     is younger than AuditorMaxBacklogAgeSeconds.
+// "Alive" = the auditor keeps up: the oldest un-acked GROUP QueuedMessage
+// addressed to it is younger than AuditorMaxBacklogAgeSeconds (default 24 h).
+//
+// Being CONNECTED is deliberately not required (the first version of this
+// service did require it). The auditor is an ordinary store-and-forward
+// recipient: while the archiver is down its copies wait in the queue and are
+// archived when it returns, so the archive ends up complete, only late. What
+// must never happen is the silent loss at the far end of that: queued copies
+// expire after 30 days. Stopping business traffic once the backlog is a day
+// old leaves weeks to bring the archiver back before anything is lost.
 //
 // Short-lived per-organization cache so the hot send path (every group
 // message) doesn't run the backlog query per message. 5 s default, matching
@@ -25,7 +27,6 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using CallType.Api.Configuration;
 using CallType.Api.Data;
-using CallType.Api.Hubs;
 using CallType.Audit.Infrastructure;
 
 namespace CallType.Api.Services;
@@ -64,13 +65,14 @@ public class AuditorLivenessService(
         if (auditorDeviceId is not { } deviceId)
             return false;
 
-        if (!IsConnectedOrWithinGrace(deviceId))
-            return false;
-
         // Oldest un-acked message for the auditor — the existing (RecipientId,
         // CreatedAt) index covers this as an index-only scan.
         var oldestPending = await db.QueuedMessages.AsNoTracking()
-            .Where(m => m.RecipientId == deviceId && m.AcknowledgedAt == null)
+            // GROUP messages only. Anyone may address a 1:1 message to any device
+            // id, and the archiver never processes those - counting them would
+            // let a single outsider message block a whole organization's
+            // business traffic. Group sends are membership-checked by the hub.
+            .Where(m => m.RecipientId == deviceId && m.GroupId != null && m.AcknowledgedAt == null)
             .OrderBy(m => m.CreatedAt)
             .Select(m => (DateTimeOffset?)m.CreatedAt)
             .FirstOrDefaultAsync(ct);
@@ -79,17 +81,6 @@ public class AuditorLivenessService(
 
         var age = DateTimeOffset.UtcNow - oldest;
         return age.TotalSeconds < options.Value.AuditorMaxBacklogAgeSeconds;
-    }
-
-    private bool IsConnectedOrWithinGrace(Guid deviceId)
-    {
-        if (MessengerHub.IsOnline(deviceId))
-            return true;
-        var lastDisconnectedAt = MessengerHub.GetLastDisconnectedAt(deviceId);
-        if (lastDisconnectedAt is null)
-            return false; // never seen since process start
-        return (DateTimeOffset.UtcNow - lastDisconnectedAt.Value).TotalSeconds
-               < options.Value.AuditorDisconnectGraceSeconds;
     }
 
     private void LogTransition(Guid organizationId, bool alive)

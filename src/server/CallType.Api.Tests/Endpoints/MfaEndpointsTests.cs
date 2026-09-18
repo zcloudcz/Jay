@@ -62,7 +62,7 @@ public class MfaEndpointsTests : IntegrationTestBase
 
     private static async Task<(string SecretBase32, string OtpauthUri)> EnrollStartAsync(HttpClient client, Guid accountId)
     {
-        var response = await client.PostAsync($"/accounts/{accountId}/mfa/enroll/start", null);
+        var response = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/enroll/start", new { authKey = ValidAuthKey });
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         return (body.GetProperty("secretBase32").GetString()!, body.GetProperty("otpauthUri").GetString()!);
@@ -139,6 +139,38 @@ public class MfaEndpointsTests : IntegrationTestBase
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString().Should().Be("mfa_invalid_code");
+    }
+
+    [Fact]
+    public async Task EnrollStart_WithoutTheAccountAuthKey_IsForbidden()
+    {
+        // A stolen device JWT must not be enough to enrol the thief's authenticator.
+        var (client, _, accountId) = await CreateLinkedAccountClientAsync($"nokeyproof-{Guid.NewGuid():N}@example.com");
+
+        var wrongKey = Convert.ToBase64String(new byte[] { 9, 9, 9, 9 });
+        var response = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/enroll/start", new { authKey = wrongKey });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task EnrollConfirm_LocksAfterFiveFailures_AndARestartDoesNotLiftTheLock()
+    {
+        // Found by the security review: confirm had no attempt limit, and
+        // enroll/start reset the counter — together an unlimited guessing loop.
+        var (client, _, accountId) = await CreateLinkedAccountClientAsync($"confirmlock-{Guid.NewGuid():N}@example.com");
+        await EnrollStartAsync(client, accountId);
+
+        for (var i = 0; i < 4; i++)
+        {
+            var wrong = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/enroll/confirm", new { code = "000000" });
+            wrong.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        }
+        var fifth = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/enroll/confirm", new { code = "000000" });
+        fifth.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+
+        var restart = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/enroll/start", new { authKey = ValidAuthKey });
+        restart.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
     }
 
     [Fact]
@@ -304,7 +336,7 @@ public class MfaEndpointsTests : IntegrationTestBase
 
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        var response = await client.PostAsync($"/accounts/{accountId}/mfa/enroll/start", null);
+        var response = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/enroll/start", new { authKey = ValidAuthKey });
 
         response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
         (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString().Should().Be("mfa_not_configured");

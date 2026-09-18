@@ -318,15 +318,15 @@ organization's EMERGENCY group (`Group.IsEmergencyChannel == true`) is the
 one deliberate exception and stays fail-OPEN — messages just wait in the
 auditor's queue (30-day TTL).
 
-"Alive" (`CallType.Api.Services.AuditorLivenessService.IsAliveAsync`) = BOTH:
-1. the auditor device is connected to the hub right now, or disconnected less
-   than `Business:AuditorDisconnectGraceSeconds` ago (default 120 s) —
-   `MessengerHub`'s in-process connection map plus a new `LastDisconnectedAt`
-   map (same static, single-API-instance pattern as `OnlineDevices`); never
-   seen since process start reads as NOT alive.
-2. the oldest un-acked `QueuedMessage` addressed to the auditor is younger
-   than `Business:AuditorMaxBacklogAgeSeconds` (default 300 s) — one query on
-   the existing `(RecipientId, CreatedAt)` index.
+"Alive" (`CallType.Api.Services.AuditorLivenessService.IsAliveAsync`) = the
+oldest un-acked GROUP `QueuedMessage` addressed to the auditor is younger than
+`Business:AuditorMaxBacklogAgeSeconds` (default 86400 s = 24 h) — one query on
+the existing `(RecipientId, CreatedAt)` index. Being connected is NOT required
+(owner decision 2026-09-18, superseding the first version of this rule): the
+auditor is a store-and-forward recipient, its copies wait in the queue during an
+outage and are archived on return. The rule exists to stop traffic long before
+the 30-day queue TTL would silently drop records. 1:1 messages addressed to the
+auditor never count (anyone may send them; the archiver acks and drops them).
 
 Result is cached per organization for 5 s (`IMemoryCache`) so the hot send
 path doesn't run the backlog query per message.
@@ -343,10 +343,8 @@ NOT enforced on: adding a member to an existing business group (no content
 flows by that act), the emergency kit/enroll paths.
 
 Config keys (`CallType.Api.Configuration.BusinessOptions`, section
-`Business`): `Business:AuditorDisconnectGraceSeconds` (env
-`Business__AuditorDisconnectGraceSeconds`, default 120),
-`Business:AuditorMaxBacklogAgeSeconds` (env
-`Business__AuditorMaxBacklogAgeSeconds`, default 300).
+`Business`): `Business:AuditorMaxBacklogAgeSeconds` (env
+`Business__AuditorMaxBacklogAgeSeconds`, default 86400).
 
 ## HashChain rules added in B00 review
 

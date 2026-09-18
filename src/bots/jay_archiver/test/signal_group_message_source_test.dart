@@ -77,7 +77,7 @@ void main() {
     expect(event.contentHashHex, crypto.sha256.convert(utf8.encode(body)).toString());
   });
 
-  test('1:1 (non-group) messages are ignored', () async {
+  test('1:1 (non-group) messages are dropped: acked, never decrypted or emitted', () async {
     final data = await alice.messageTo(
       'archiver',
       {...await archiverKeys.getSignedIdentityBundle()},
@@ -93,6 +93,9 @@ void main() {
     await sub.cancel();
 
     expect(sawEvent, isFalse);
+    // Acked so the server stops redelivering it — anyone can address a direct
+    // message to the auditor's device id.
+    expect(hub.calls('AcknowledgeMessage'), hasLength(1));
   });
 
   test('undecryptable messages are logged by id only, never emitted', () async {

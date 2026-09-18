@@ -85,13 +85,29 @@ class SignalGroupMessageSource implements GroupMessageSource {
     controller.onListen = () {
       controller.addStream(
         _signalR.onMessage
-            .where((data) => data['groupId'] != null)
+            .where(_isGroupMessageElseDrop)
             .asyncMap(_decrypt)
             .where((event) => event != null)
             .cast<IncomingGroupMessage>(),
       );
     };
     return controller.stream;
+  }
+
+  /// The auditor only ever belongs to business GROUPS. A 1:1 message can be
+  /// addressed to its device id by anyone; it is acknowledged WITHOUT being
+  /// decrypted and dropped — left un-acked it would be redelivered every 15 s
+  /// until its 30-day TTL, by every sender who cares to try.
+  bool _isGroupMessageElseDrop(Map<String, dynamic> data) {
+    if (data['groupId'] != null) return true;
+    final senderId = data['senderId'] as String?;
+    final messageId = data['messageId'] as String?;
+    if (senderId != null && messageId != null) {
+      unawaited(
+        _signalR.acknowledgeMessage(senderId, messageId).catchError((_) {}),
+      );
+    }
+    return false;
   }
 
   Future<IncomingGroupMessage?> _decrypt(Map<String, dynamic> data) {

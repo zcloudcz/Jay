@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 
 using System.Security.Cryptography;
+using System.Text;
 
 namespace CallType.Api.Services;
 
@@ -63,7 +64,10 @@ public class TotpService(TimeProvider clock)
         for (var delta = -1; delta <= 1; delta++)
         {
             var step = current + delta;
-            if (ComputeCode(secret, step) == code) return step;
+            // Constant-time: do not leak how many leading digits matched.
+            if (CryptographicOperations.FixedTimeEquals(
+                    Encoding.ASCII.GetBytes(ComputeCode(secret, step)), Encoding.ASCII.GetBytes(code)))
+                return step;
         }
         return null;
     }

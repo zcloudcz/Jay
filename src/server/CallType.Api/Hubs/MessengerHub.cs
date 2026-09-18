@@ -42,12 +42,6 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
     // but we need the connection map to survive across all instances.
     private static readonly ConcurrentDictionary<Guid, string> OnlineDevices = new();
 
-    // Last time each device disconnected — used by AuditorLivenessService's
-    // grace period (W2-F) so a routine archiver restart doesn't immediately
-    // fail-close business messaging while it reconnects. Never cleared on
-    // reconnect: an "alive" check consults OnlineDevices first, so a stale
-    // timestamp here is harmless once the device is back online.
-    private static readonly ConcurrentDictionary<Guid, DateTimeOffset> LastDisconnectedAt = new();
 
     public override async Task OnConnectedAsync()
     {
@@ -85,7 +79,6 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
             // Only remove if the stored connection ID matches ours — prevents
             // a stale disconnect from removing a newer reconnection's entry.
             OnlineDevices.TryRemove(new KeyValuePair<Guid, string>(deviceId, Context.ConnectionId));
-            LastDisconnectedAt[deviceId] = DateTimeOffset.UtcNow;
         }
 
         return base.OnDisconnectedAsync(exception);
@@ -275,14 +268,6 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
     /// </summary>
     internal static bool TryGetConnectionId(Guid deviceId, out string connectionId) =>
         OnlineDevices.TryGetValue(deviceId, out connectionId!);
-
-    /// <summary>
-    /// Lets AuditorLivenessService (W2-F) decide "alive" without exposing the
-    /// connection maps themselves. Null means never seen since process start
-    /// (single-instance API by design — no disconnect record survives a restart).
-    /// </summary>
-    internal static DateTimeOffset? GetLastDisconnectedAt(Guid deviceId) =>
-        LastDisconnectedAt.TryGetValue(deviceId, out var at) ? at : null;
 
     /// <summary>
     /// Subscribes THIS connection to every channel the caller follows, owns or

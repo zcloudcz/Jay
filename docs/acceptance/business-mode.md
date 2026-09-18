@@ -42,17 +42,24 @@ kontroly. Výjimka dle vlastníka: nouzový kanál organizace
 právě pro chvíli, kdy infrastruktura padá — zprávy tam čekají ve frontě
 auditora (30denní TTL).
 
-„Naživu" = auditor je připojený k hubu právě teď, nebo se odpojil před méně
-než `Business:AuditorDisconnectGraceSeconds` (výchozí 120 s — restart
-archivátoru zprávy nezastaví), **a zároveň** nejstarší nepotvrzená
-`QueuedMessage` adresovaná auditorovi je mladší než
-`Business:AuditorMaxBacklogAgeSeconds` (výchozí 300 s — jinak je archiv
-zaseklý). Výsledek se cachuje 5 s na organizaci (`AuditorLivenessService`),
-ať se dotaz na frontu nespouští při každé zprávě.
+„Naživu" = auditor stíhá: nejstarší nepotvrzená **skupinová** `QueuedMessage`
+adresovaná auditorovi je mladší než `Business:AuditorMaxBacklogAgeSeconds`
+(výchozí 24 h). Výsledek se cachuje 5 s na organizaci
+(`AuditorLivenessService`), ať se dotaz na frontu nespouští při každé zprávě.
 
-Dopad na dostupnost: výpadek archivátoru delší než grace period zastaví
-firemní zasílání zpráv pro danou organizaci, dokud se archivátor
-nepřipojí zpět. Anonymní režim tím není nijak dotčen.
+Připojení auditora se **nevyžaduje** (rozhodnutí vlastníka 2026-09-18 večer,
+nahrazuje první verzi pravidla z téhož dne): auditor je běžný příjemce
+store-and-forward, jeho kopie při výpadku čekají ve frontě a po návratu
+archivátoru se doarchivují — archiv je úplný, jen opožděný. Pojistka hlídá
+opačný konec: kopie ve frontě po 30 dnech propadnou, a tím by záznamy v archivu
+tiše chyběly. Provoz se proto zastaví po 24 h nezpracované fronty, tedy týdny
+předtím, než by se cokoli ztratilo. Zprávy 1:1 adresované auditorovi se do
+fronty nepočítají (poslat je může kdokoli; archivátor je potvrdí a zahodí).
+
+Dopad na dostupnost: restart, upgrade ani několikahodinový výpadek archivátoru
+firemní zprávy nezastaví. Výpadek delší než 24 h zastaví firemní zasílání zpráv
+pro danou organizaci, dokud archivátor frontu nezpracuje. Anonymní režim tím
+není nijak dotčen.
 
 ## Kontrakty — stav
 

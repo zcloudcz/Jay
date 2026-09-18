@@ -715,7 +715,9 @@ public class MessengerHubTests : IntegrationTestBase
         if (staleBacklogCreatedAt is { } createdAt)
             db.QueuedMessages.Add(new QueuedMessage
             {
-                MessageId = Guid.NewGuid(), RecipientId = auditor, SenderId = sender,
+                // A GROUP message: only those count as archive backlog (a 1:1
+                // message to the auditor can come from anyone and is never archived).
+                MessageId = Guid.NewGuid(), GroupId = group, RecipientId = auditor, SenderId = sender,
                 EncryptedBody = [0x01], CreatedAt = createdAt, ExpiresAt = createdAt.AddDays(30)
             });
         await db.SaveChangesAsync();
@@ -723,10 +725,12 @@ public class MessengerHubTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task Business_send_is_rejected_when_the_auditor_has_never_connected()
+    public async Task Business_send_is_accepted_and_queued_while_the_auditor_is_offline()
     {
-        // W2-F (a): a business group whose auditor was never seen since
-        // process start must fail closed — no disconnect record exists yet.
+        // The auditor is an ordinary store-and-forward recipient: while it is
+        // offline its copy waits in the queue and is archived on reconnect, so
+        // a short outage must NOT stop business traffic (owner decision
+        // 2026-09-18, replacing the earlier "must be connected" rule).
         var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
         var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
         var (auditor, _) = await RegisterDeviceAndGetTokenAsync(); // never connects
@@ -736,15 +740,13 @@ public class MessengerHubTests : IntegrationTestBase
         await sending.StartAsync();
         var id = Guid.NewGuid();
 
-        var send = () => sending.InvokeAsync("SendReliableGroupMessage", group, id,
+        await sending.InvokeAsync("SendReliableGroupMessage", group, id,
             new Dictionary<Guid, string> { [recipient] = "AQI=", [auditor] = "AQI=" });
-        (await send.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>()).Which.Message
-            .Should().Contain("auditor_unavailable");
 
         using var verify = Factory.Services.CreateScope();
         var written = await verify.ServiceProvider.GetRequiredService<AppDbContext>()
             .QueuedMessages.AsNoTracking().Where(m => m.MessageId == id).CountAsync();
-        written.Should().Be(0, "a fail-closed rejection must not partially persist any recipient's message");
+        written.Should().Be(2, "the auditor's copy waits in the queue until the archiver returns");
 
         await sending.StopAsync();
     }
@@ -779,14 +781,16 @@ public class MessengerHubTests : IntegrationTestBase
     [Fact]
     public async Task Business_send_is_rejected_when_the_auditor_backlog_is_stale()
     {
-        // W2-F (c): auditor connected, but not "keeping up" — an old un-acked
-        // message addressed to it means the archive is stuck.
+        // The one fail-closed condition: the auditor has not consumed its queue
+        // for longer than the threshold. Queued copies expire after 30 days, so
+        // an archiver that never comes back would silently lose records —
+        // business traffic stops long before that, whether or not it is online.
         var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
         var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
         var (auditor, auditorToken) = await RegisterDeviceAndGetTokenAsync();
         var organizationId = await CreateBusinessOrganizationAsync(auditor);
         var group = await CreateBusinessGroupWithAuditorAsync(sender, recipient, auditor, organizationId,
-            staleBacklogCreatedAt: DateTimeOffset.UtcNow.AddSeconds(-600)); // default threshold is 300 s
+            staleBacklogCreatedAt: DateTimeOffset.UtcNow.AddDays(-2)); // default threshold is 24 h
         await using var sending = CreateHubConnection(sender, senderToken);
         await using var auditing = CreateHubConnection(auditor, auditorToken);
         await sending.StartAsync();
@@ -803,53 +807,41 @@ public class MessengerHubTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task Business_send_respects_the_disconnect_grace_period()
+    public async Task An_old_direct_message_to_the_auditor_does_not_block_business_traffic()
     {
-        // W2-F (d): within grace -> accepted, after grace -> rejected. Grace
-        // is lowered to 1 s via a derived factory (pattern: OrganizationEndpointsTests
-        // .Endpoints_return_503_when_business_mode_is_disabled) so the test
-        // doesn't wait 120 s.
-        await using var factory = Factory.WithWebHostBuilder(builder =>
-            builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(
-                new Dictionary<string, string?> { ["Business:AuditorDisconnectGraceSeconds"] = "1" })));
-
+        // Security review finding: ANY device may address a 1:1 message to the
+        // auditor's device id, and the archiver never processes (so never acks)
+        // those. If they counted as archive backlog, one outsider message would
+        // shut down a whole organization's business messaging.
         var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
         var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
         var (auditor, auditorToken) = await RegisterDeviceAndGetTokenAsync();
+        var (outsider, _) = await RegisterDeviceAndGetTokenAsync();
         var organizationId = await CreateBusinessOrganizationAsync(auditor);
         var group = await CreateBusinessGroupWithAuditorAsync(sender, recipient, auditor, organizationId);
-
-        // A derived factory needs its own HttpMessageHandler/hub connections —
-        // reusing Factory.Server would talk to the wrong config.
-        var derivedServer = factory.Server;
-        HubConnection Connect(Guid deviceId, string token) => new HubConnectionBuilder()
-            .WithUrl($"{derivedServer.BaseAddress}hub?access_token={token}",
-                options => options.HttpMessageHandlerFactory = _ => derivedServer.CreateHandler())
-            .Build();
-
-        await using var sending = Connect(sender, senderToken);
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var old = DateTimeOffset.UtcNow.AddDays(-2);
+            db.QueuedMessages.Add(new QueuedMessage
+            {
+                MessageId = Guid.NewGuid(), GroupId = null, RecipientId = auditor, SenderId = outsider,
+                EncryptedBody = [0x01], CreatedAt = old, ExpiresAt = old.AddDays(30)
+            });
+            await db.SaveChangesAsync();
+        }
+        await using var sending = CreateHubConnection(sender, senderToken);
+        await using var auditing = CreateHubConnection(auditor, auditorToken);
         await sending.StartAsync();
-        var auditing = Connect(auditor, auditorToken);
         await auditing.StartAsync();
-        await auditing.StopAsync(); // disconnect right away — starts the grace window
-        await auditing.DisposeAsync();
+        // Full hub round trip: OnConnectedAsync has registered the auditor by now.
+        await auditing.InvokeAsync("RequestPendingMessages");
 
-        // Still within the 1 s grace window: accepted.
-        var idWithinGrace = Guid.NewGuid();
-        await sending.InvokeAsync("SendReliableGroupMessage", group, idWithinGrace,
+        await sending.InvokeAsync("SendReliableGroupMessage", group, Guid.NewGuid(),
             new Dictionary<Guid, string> { [recipient] = "AQI=", [auditor] = "AQI=" });
-
-        // The first send cached an "alive" verdict for AuditorLivenessService's
-        // own 5 s TTL (separate from the 1 s grace period) — wait past BOTH,
-        // or the second send would read the stale cached verdict.
-        await Task.Delay(TimeSpan.FromSeconds(6));
-        var idAfterGrace = Guid.NewGuid();
-        var send = () => sending.InvokeAsync("SendReliableGroupMessage", group, idAfterGrace,
-            new Dictionary<Guid, string> { [recipient] = "AQI=", [auditor] = "AQI=" });
-        (await send.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>()).Which.Message
-            .Should().Contain("auditor_unavailable");
 
         await sending.StopAsync();
+        await auditing.StopAsync();
     }
 
     [Fact]
@@ -865,6 +857,13 @@ public class MessengerHubTests : IntegrationTestBase
         using (var scope = Factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            // A two-day-old un-acked group message = the auditor counts as dead.
+            var stale = DateTimeOffset.UtcNow.AddDays(-2);
+            db.QueuedMessages.Add(new QueuedMessage
+            {
+                MessageId = Guid.NewGuid(), GroupId = Guid.NewGuid(), RecipientId = auditor, SenderId = sender,
+                EncryptedBody = [0x01], CreatedAt = stale, ExpiresAt = stale.AddDays(30)
+            });
             db.Groups.Add(new Group
             {
                 GroupId = group, CreatedBy = sender, CreatedAt = DateTimeOffset.UtcNow,

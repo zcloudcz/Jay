@@ -159,10 +159,22 @@ public class BusinessGroupEndpointsTests : IntegrationTestBase
     public async Task Business_group_creation_is_rejected_with_503_when_the_auditor_is_dead()
     {
         // W2-F (f): a business conversation must not be CREATED while the
-        // organization's auditor is dead — never connected here.
+        // organization's auditor is dead = has not consumed its queue for longer
+        // than the threshold (default 24 h). Merely being offline is fine.
         var (auditor, _, _) = await RegisterAndAuthenticateAsync();
         var (creator, _, _) = await RegisterAndAuthenticateAsync();
         var organizationId = await CreateOrganizationAsync(auditor, creator);
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CallType.Api.Data.AppDbContext>();
+            var stale = DateTimeOffset.UtcNow.AddDays(-2);
+            db.QueuedMessages.Add(new CallType.Api.Models.QueuedMessage
+            {
+                MessageId = Guid.NewGuid(), GroupId = Guid.NewGuid(), RecipientId = auditor, SenderId = creator,
+                EncryptedBody = [0x01], CreatedAt = stale, ExpiresAt = stale.AddDays(30)
+            });
+            await db.SaveChangesAsync();
+        }
 
         var response = await Client.PostAsJsonAsync("/groups/business", new { organizationId, memberDeviceIds = Array.Empty<Guid>() });
 
