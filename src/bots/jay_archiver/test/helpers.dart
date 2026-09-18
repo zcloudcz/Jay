@@ -9,6 +9,19 @@ import 'package:calltype_core/storage/database.dart';
 import 'package:calltype_core/storage/secret_store.dart';
 import 'package:drift/native.dart';
 
+/// Polls until [condition] holds. A fixed sleep is a guess about how fast the
+/// machine is — it failed on a slow CI runner — so tests wait for the
+/// observable effect instead (same helper as calltype_bot's tests).
+Future<void> until(bool Function() condition) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 20));
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      throw TimeoutException('Condition never held');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+}
+
 class _MemoryStore extends SecretStore {
   final _values = <String, String>{};
   @override

@@ -61,7 +61,7 @@ void main() {
     unawaited(archiver.run());
 
     source.push(_message());
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await until(() => source.acks.isNotEmpty);
 
     expect(fakeApi.requests, hasLength(1));
     expect(source.acks, hasLength(1));
@@ -83,7 +83,7 @@ void main() {
     unawaited(archiver.run());
 
     source.push(_message());
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await until(() => fakeApi.requests.length == 2);
 
     expect(fakeApi.requests, hasLength(2)); // both attempts were tried
     expect(source.acks, isEmpty);
@@ -98,9 +98,9 @@ void main() {
     unawaited(archiver.run());
 
     source.push(_message());
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await until(() => source.acks.length == 1);
     source.push(_message()); // redelivered, e.g. server's pending-message sweep
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await until(() => source.acks.length == 2);
 
     expect(fakeApi.requests, hasLength(1));
     expect(source.acks, hasLength(2)); // still acked both times
@@ -133,7 +133,7 @@ void main() {
     // Archiver itself has no path that could leak a plaintext body even if
     // a future change accidentally added one to IncomingGroupMessage.
     source.push(_message());
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await until(() => source.acks.isNotEmpty);
 
     for (final request in fakeApi.requests) {
       expect(request.toString(), isNot(contains(plaintextMarker)));
@@ -154,7 +154,7 @@ void main() {
       final archiver = Archiver(source: source, api: dio, organizationId: 'org1');
       unawaited(archiver.run());
       source.push(_message());
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await until(() => source.acks.isNotEmpty);
       await archiver.stop();
 
       // The archiver never wrote anything to this directory in the first
