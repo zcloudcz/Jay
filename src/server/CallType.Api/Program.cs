@@ -291,6 +291,9 @@ app.UseAuthorization();
 // (k8s, Azure App Service) and integration tests. See HealthEndpoints.cs.
 app.MapHealthEndpoints();
 
+// RFC 9116 security.txt (N04) — 404 until Security:ContactUri is configured.
+app.MapSecurityTxtEndpoints();
+
 // Auth endpoints use the stricter "auth" rate limiter to slow down brute-force.
 app.MapAuthEndpoints();
 

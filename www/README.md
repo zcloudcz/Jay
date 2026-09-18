@@ -19,6 +19,17 @@ Current product claims are grounded in README and the beta-status / Azure beta p
 
 Competitor pricing checked 16 September 2026. Sources are linked in both HTML pages. Cost ranges, currency conversions, DPH treatment and conversion rates are explicitly planning assumptions. The beta Azure estimate excludes full existing-server and staffing costs. No traction, security audit, SLA or trademark availability is claimed.
 
+## security.txt
+
+`.well-known/security.txt` (RFC 9116) has its `Contact` line commented out —
+the real security contact is not known yet (`TODO(owner): security contact
+e-mail`, see `docs/security/incident-response.md`). **Fill it in and
+uncomment before publishing this site**; a wrong or missing contact is
+better than a fabricated one. The API serves its own copy at
+`GET /.well-known/security.txt`, driven by config key `Security:ContactUri`
+(404 while unset) — the two are independent files and must be updated
+together.
+
 ## Before publication
 
 Confirm brand/domain clearance, billing terms and exact legal/operator details. Replace the general ZCloud contact destination with an approved direct business contact if desired. Set the canonical URL and social preview image once the actual public hostname is chosen. No hostname is fabricated in metadata. Recheck pricing and beta status before publishing. The website itself does not collect data; the linked beta is a separate application.
