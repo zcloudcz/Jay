@@ -54,6 +54,10 @@ void main() {
         'E2E emergency ${DateTime.now().toIso8601String()}',
       )).organizationId;
 
+      // N03b: every admin call below (including the "too early" one right
+      // after) needs a step-up token. Org creation itself does not.
+      await owner.enrollAndVerifyMfa();
+
       // The emergency group is a business group, so it needs the auditor first.
       await expectLater(
         owner.api.issueEmergencyKit(orgId, label: 'too early', count: 1),

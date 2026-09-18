@@ -39,6 +39,11 @@ void main() {
 
       final org = await owner.api.createOrganization('E2E ${DateTime.now().toIso8601String()}');
       final orgId = org.organizationId;
+
+      // N03b: every admin call below needs a step-up token. Org creation
+      // itself does not (a fresh owner has no MFA enrolled yet).
+      await owner.enrollAndVerifyMfa();
+
       await owner.api.setAuditorDevice(orgId, auditor.id);
 
       // Invites are single-use, and the creator must be enrolled too.
