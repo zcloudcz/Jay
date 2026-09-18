@@ -101,7 +101,7 @@ jobs:
           restore-keys: nuget-${{ runner.os }}-
       - name: Backend tests
         run: dotnet test src/server/CallType.Api.Tests --configuration Release --logger trx --results-directory TestResults
-      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: '3.41.x'
           cache: true
@@ -265,7 +265,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version: '3.41.x'
           cache: true
