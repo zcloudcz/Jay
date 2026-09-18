@@ -1,6 +1,6 @@
 # Boti + Kanály — přejímka (T05 / C04)
 
-Statusy: PASS / FAIL / BLOCKED / NOT_RUN. PASS jen pro skutečně provedený scénář. Větev `feat/bots-channels`, **nenasazeno** — scénáře vyžadují deploy API (migrace `BotsAndChannels`) + webu a u botů běžící Hermes Agent.
+Statusy: PASS / FAIL / BLOCKED / NOT_RUN. PASS jen pro skutečně provedený scénář. **Nasazeno 2026-09-18** z commitu `f754469` (deploy.yml run 35320291750, CI run 35319355975 — vše zelené vč. Testcontainers). Scénáře u botů vyžadují běžící Hermes Agent.
 
 Plány: `docs/superpowers/plans/2026-09-17-bots.md`, `2026-09-16-channels.md` (§7), exekuce `2026-09-17-bots-channels-paralelni.md`.
 
@@ -9,11 +9,11 @@ Plány: `docs/superpowers/plans/2026-09-17-bots.md`, `2026-09-16-channels.md` (�
 | Co | Stav |
 | --- | --- |
 | Server build, DB-free testy | PASS |
-| Server integrační testy (Testcontainers: `ChannelEndpointsTests`, `ChannelPostCleanupServiceTests`, `ChannelSchemaTests`, IsBot v `DeviceEndpointsTests`) | NOT_RUN — Docker na vývojovém stroji neběží; první běh = hosted CI |
-| Migrace `BotsAndChannels` proti PostgreSQL | NOT_RUN |
+| Server integrační testy (Testcontainers: `ChannelEndpointsTests`, `ChannelPostCleanupServiceTests`, `ChannelSchemaTests`, IsBot v `DeviceEndpointsTests`) | PASS — hosted CI run 35319355975 (2026-09-18) |
+| Migrace `BotsAndChannels` proti PostgreSQL | PASS — Testcontainers v CI + produkční start API (deploy run 35320291750, /health 200) |
 | `calltype_core`, `calltype_bot`, `hermes_bridge` — `dart analyze` + `dart test` | PASS |
 | Flutter `analyze` + `test`, `flutter build web --release` | PASS |
-| Android / iOS / Windows / macOS build po vytěžení `calltype_core` | NOT_RUN — ověří `deploy.yml` |
+| Android / iOS / Windows / macOS build po vytěžení `calltype_core` | PASS — CI run 35319355975 |
 | Vlastní SignalR transport bota proti ASP.NET Core hubu | NOT_RUN — testován jen proti fake serveru |
 | Code review + security review serveru (statické) | bez blokujících nálezů |
 
