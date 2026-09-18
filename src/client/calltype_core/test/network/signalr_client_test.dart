@@ -50,6 +50,7 @@ void main() {
       'CallSignal',
       'ReceiveChannelPost',
       'ChannelDeleted',
+      'EmergencyDrill',
     });
 
     await client.sendMessage('bob', 'cipher', messageId: 'm1');

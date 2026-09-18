@@ -1,6 +1,5 @@
 {
   "@@locale": "pl",
-
   "commonCancel": "Anuluj",
   "commonRetry": "Ponów",
   "commonAdd": "Dodaj",
@@ -9,10 +8,8 @@
   "commonShare": "Udostępnij",
   "commonOpen": "Otwórz",
   "commonLoading": "Ładowanie…",
-
   "navChats": "Czaty",
   "navUpdates": "Aktualności",
-
   "lockUnlockTitle": "Odblokuj Jay",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "Odblokuj",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "Bezpieczny magazyn jest niedostępny. Spróbuj odblokować ponownie.",
   "lockErrorRejected": "Nie udało się odblokować. Spróbuj ponownie.",
   "lockErrorUnavailable": "Odblokowanie jest niedostępne. Spróbuj ponownie.",
-
   "callTitle": "Połączenie",
   "callEnded": "Połączenie zakończone",
   "callIncomingVoice": "Przychodzące połączenie głosowe",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "Nie można rozpocząć połączenia. Sprawdź połączenie z siecią oraz uprawnienia do mikrofonu i kamery.",
   "callErrorCannotAccept": "Nie można odebrać połączenia. Sprawdź uprawnienia do mikrofonu i kamery.",
   "callErrorUserOffline": "Użytkownik jest teraz offline. Spróbuj później.",
-
   "chatListNewGroup": "Nowa grupa",
   "chatListMyIdentity": "Moja tożsamość",
   "chatListOffline": "Jesteś offline — historia jest dostępna na tym urządzeniu.",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "Rozmowa grupowa",
   "chatListEncryptedConversation": "Rozmowa szyfrowana",
   "chatListNewChat": "Nowy czat",
-
   "chatVoiceCall": "Połączenie głosowe",
   "chatVideoCall": "Połączenie wideo",
   "chatCallFailed": "Nie udało się rozpocząć połączenia. Sprawdź połączenie z siecią i uprawnienia.",
@@ -76,12 +70,9 @@
   "chatInputHint": "Wiadomość",
   "chatInputSend": "Wyślij",
   "chatInputNotSaved": "Wiadomość nie została zapisana. Wersja robocza nadal tu jest.",
-
   "sizeBytes": "{count, plural, one{{count} bajt} few{{count} bajty} many{{count} bajtów} other{{count} bajta}}",
   "sizeKilobytes": "{size} kB",
-
   "botNotice": "Bot — wiadomości czyta zautomatyzowany program obsługiwany przez stronę trzecią. Oznaczenie BOT bot nadaje sobie sam i Jay go nie weryfikuje.",
-
   "contactsTitle": "Kontakty",
   "contactsScanQr": "Zeskanuj kod QR",
   "contactsPasteInvite": "Wklej zaproszenie",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX lub ct://…",
   "qrScanTitle": "Zeskanuj kod QR",
   "qrScanHint": "Skieruj aparat na kod QR Jay",
-
   "groupNewTitle": "Nowa grupa",
   "groupCreate": "Utwórz",
   "groupNameLabel": "Nazwa grupy",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, one{Wybrano: {count}} few{Wybrano: {count}} many{Wybrano: {count}} other{Wybrano: {count}}}",
   "groupNoContacts": "Brak kontaktów.\nNajpierw dodaj kontakty, aby utworzyć grupę.",
   "groupCreateFailed": "Nie udało się utworzyć grupy. Sprawdź połączenie i spróbuj ponownie.",
-
   "onboardingTagline": "Bezpiecznie. Anonimowo. Prosto.",
   "onboardingSettingUp": "Konfigurujemy Twoje urządzenie…",
   "onboardingGetStarted": "Zaczynamy",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "Udostępnij ten kod QR, aby dodawać kontakty",
   "onboardingStartMessaging": "Zacznij pisać",
   "onboardingFailed": "Rejestracja nie powiodła się",
-
   "settingsTitle": "Ustawienia",
   "settingsAppLock": "Blokada aplikacji",
   "settingsAppLockSubtitle": "PIN i uwierzytelnianie biometryczne",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "Wymuś przekaźnik TURN (diagnostyka)",
   "settingsForceRelaySubtitle": "Kolejne połączenia pójdą tylko przez przekaźnik. Wolniej; wyłącza się po restarcie.",
   "settingsVersion": "Jay {version} (beta)",
-
   "identityTitle": "Moja tożsamość",
   "identityCopyInvite": "Kopiuj zaproszenie",
   "identityInviteCopied": "Skopiowano zaproszenie",
-
   "appLockTitle": "Blokada aplikacji",
   "appLockExplanation": "Chroń aplikację kodem PIN. Po włączeniu trzeba będzie podać PIN przy każdym otwarciu Jay.",
   "appLockPin": "Blokada kodem PIN",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "Obecny PIN",
   "appLockVerify": "Zweryfikuj",
   "appLockIncorrectPin": "Nieprawidłowy PIN",
-
   "accountCreateTitle": "Utwórz konto",
   "accountLoginTitle": "Zaloguj się",
   "accountOptionalTitle": "Konto opcjonalne",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "Nie masz konta? Zarejestruj się",
   "accountLinked": "Konto połączone. Kopia zapasowa w chmurze włączona.",
   "accountFailed": "Nie udało się. Sprawdź e-mail, frazę hasła i połączenie.",
-
   "backupTitle": "Kopia zapasowa w chmurze",
   "backupEncryptedTitle": "Szyfrowanie end-to-end",
   "backupExplanation": "Kopia zapasowa obejmuje historię wiadomości, osadzone załączniki i kontakty; nie obejmuje plików zewnętrznych ani aktywnych sesji szyfrowania. Kopia jest szyfrowana frazą hasła, którą znasz tylko Ty. Serwer nigdy nie widzi Twoich wiadomości ani kontaktów w postaci jawnej.\n\nJeśli zapomnisz frazy hasła, kopii zapasowej nie da się odzyskać. Nie ma opcji resetowania — to celowe rozwiązanie dla Twojego bezpieczeństwa.",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "Nieprawidłowy plik kopii zapasowej.",
   "backupErrorRestoreFailed": "Przywracanie nie powiodło się. Sprawdź frazę hasła i plik kopii zapasowej.",
   "backupErrorUnknown": "Coś poszło nie tak. Spróbuj ponownie.",
-
   "channelPublicNotice": "Posty na kanale są publiczne i NIE SĄ szyfrowane end-to-end.",
   "channelTitle": "Kanał",
   "channelNotAvailable": "Ten kanał jest niedostępny.",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "Administratorzy kanału nie dowiedzą się, kto wysłał zgłoszenie.",
   "channelReportSubmit": "Zgłoś",
   "channelReportSent": "Zgłoszenie wysłane.",
-
   "channelProfileBlockedChannels": "Zablokowane kanały",
   "channelProfileNotFound": "Nie znaleziono kanału. Sprawdź link i połączenie.",
   "channelFollowers": "{count, plural, =0{Brak obserwujących} one{{count} obserwujący} few{{count} obserwujących} many{{count} obserwujących} other{{count} obserwującego}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "Zablokuj",
   "channelRoleOwner": "właściciel",
   "channelRoleAdmin": "administrator",
-
   "channelOpenTitle": "Otwórz kanał",
   "channelOpenLabel": "Identyfikator lub link kanału",
   "channelOpenHint": "CH-XXXX-XXXX lub calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "Utworzenie kanału wymaga zarejestrowanego konta, aby kanał nie przepadł razem z tym urządzeniem. Obserwowanie kanałów jest możliwe także bez konta.",
   "channelRegisterOrLogin": "Zarejestruj się lub zaloguj",
   "channelCreate": "Utwórz kanał",
-
   "channelAdminsTitle": "Administratorzy kanału",
   "channelAdminsCurrent": "Obecni administratorzy",
   "channelAdminsNone": "Brak administratorów.",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "Usuń administratora",
   "channelAdminAdded": "Dodano administratora.",
   "channelAdminRemoved": "Usunięto administratora.",
-
   "channelBlockedEmpty": "Brak zablokowanych kanałów.",
   "channelUnblock": "Odblokuj",
-
   "channelErrorBlocked": "Ten kanał jest zablokowany. Najpierw odblokuj go w Ustawieniach.",
   "channelErrorAccountRequired": "Do utworzenia kanału wymagane jest zarejestrowane konto.",
   "channelErrorLimitReached": "Osiągnięto limit kanałów, których możesz być właścicielem.",
@@ -295,25 +273,114 @@
   "orgJoinButton": "Dołącz",
   "orgJoinFailed": "Nie udało się dołączyć. Sprawdź kod i spróbuj ponownie.",
   "orgMembershipCard": "{orgName} — {role}",
-  "@orgMembershipCard": {"placeholders": {"orgName": {"type": "String"}, "role": {"type": "String"}}},
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
   "orgCreateButton": "Utwórz organizację",
   "orgCreateRequiresAccount": "Utworzenie organizacji wymaga zarejestrowanego konta.",
   "orgMembersTitle": "Członkowie",
   "orgInviteCreate": "Utwórz zaproszenie",
   "orgInviteCodeLabel": "Kod zaproszenia: {code}",
-  "@orgInviteCodeLabel": {"placeholders": {"code": {"type": "String"}}},
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
   "orgSetAuditorLabel": "ID urządzenia audytora",
   "orgExportAudit": "Eksportuj dziennik audytu administratora",
   "orgArchiveActive": "Archiwum jest aktywne.",
   "orgArchiveInactive": "Do archiwum nie trafiają jeszcze żadne wpisy.",
   "businessBannerText": "Ta rozmowa jest archiwizowana przez {orgName}.",
-  "@businessBannerText": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "businessAuditorTile": "Archiwum {orgName} (członek audytu)",
-  "@businessAuditorTile": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "businessInfoTitle": "O archiwizacji",
   "businessInfoBody": "{orgName} przechowuje trwały zapis tego, kto do kogo pisał, kiedy, rozmiar wiadomości i hash treści — nigdy samej treści wiadomości. Anonimowe czaty poza organizacją nigdy nie są archiwizowane. Ta pierwsza wersja nie szyfruje jeszcze nagłówków rozmowy ani nie weryfikuje podpisów kluczy pre-key; szczegóły w dokumentacji aplikacji.",
-  "@businessInfoBody": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "orgErrorGeneric": "Coś poszło nie tak ({code}).",
-  "@orgErrorGeneric": {"placeholders": {"code": {"type": "String"}}},
-  "hubErrorAuditRecipientMissing": "Nie udało się wysłać wiadomości: w tej rozmowie brakuje członka audytu organizacji."
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "Nie udało się wysłać wiadomości: w tej rozmowie brakuje członka audytu organizacji.",
+  "emergencyTitle": "Kanał awaryjny",
+  "emergencyKitsTitle": "Zestawy awaryjne",
+  "emergencyIssueKit": "Wydaj zestaw",
+  "emergencyKitLabelField": "Etykieta",
+  "emergencyKitCountField": "Liczba kodów",
+  "emergencyCodesWarning": "Te kody są wyświetlane tylko raz i nie można ich odzyskać ponownie. Zapisz je teraz.",
+  "emergencyRecoveryCode": "Kod odzyskiwania: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "Kopiuj wszystko",
+  "emergencyShare": "Udostępnij",
+  "emergencyRevokeKit": "Unieważnij",
+  "emergencyKitRevoked": "Unieważniono",
+  "emergencyCodesRemaining": "Pozostało {remaining}/{total} kodów",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "Rozpocznij ćwiczenie",
+  "emergencyDrillsTitle": "Ćwiczenia",
+  "emergencyDrillStarted": "Ćwiczenie rozpoczęte",
+  "emergencyDrillConfirmed": "Potwierdzono {count}",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "Zakończ ćwiczenie",
+  "emergencyExportProof": "Eksportuj dowód",
+  "emergencyHaveCode": "Mam kod awaryjny",
+  "emergencyEnrollCodeLabel": "Kod awaryjny",
+  "emergencyEnrollButton": "Zarejestruj",
+  "emergencyEnrollFailed": "Nie udało się zarejestrować. Sprawdź kod i spróbuj ponownie.",
+  "emergencyEnrollSuccess": "Zarejestrowano — otwieranie konwersacji awaryjnej",
+  "emergencyDrillPromptTitle": "Ćwiczenie awaryjne",
+  "emergencyDrillPromptBody": "Potwierdź, że otrzymałeś tę wiadomość.",
+  "emergencyDrillConfirmButton": "Potwierdź"
 }

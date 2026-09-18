@@ -1,6 +1,5 @@
 {
   "@@locale": "zh",
-
   "commonCancel": "取消",
   "commonRetry": "重试",
   "commonAdd": "添加",
@@ -9,10 +8,8 @@
   "commonShare": "分享",
   "commonOpen": "打开",
   "commonLoading": "正在加载…",
-
   "navChats": "聊天",
   "navUpdates": "动态",
-
   "lockUnlockTitle": "解锁 Jay",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "解锁",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "安全存储不可用。请重新尝试解锁。",
   "lockErrorRejected": "无法解锁。请重试。",
   "lockErrorUnavailable": "解锁功能不可用。请重试。",
-
   "callTitle": "通话",
   "callEnded": "通话已结束",
   "callIncomingVoice": "语音通话来电",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "无法发起通话。请检查网络连接以及麦克风/摄像头权限。",
   "callErrorCannotAccept": "无法接听通话。请检查麦克风/摄像头权限。",
   "callErrorUserOffline": "对方当前不在线。请稍后再试。",
-
   "chatListNewGroup": "新建群组",
   "chatListMyIdentity": "我的身份",
   "chatListOffline": "离线 — 您的聊天记录仍可在此设备上查看。",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "群组会话",
   "chatListEncryptedConversation": "加密会话",
   "chatListNewChat": "新建聊天",
-
   "chatVoiceCall": "语音通话",
   "chatVideoCall": "视频通话",
   "chatCallFailed": "无法发起通话。请检查网络连接和权限。",
@@ -76,12 +70,9 @@
   "chatInputHint": "消息",
   "chatInputSend": "发送",
   "chatInputNotSaved": "消息未能保存。您的草稿仍保留在这里。",
-
   "sizeBytes": "{count, plural, other{{count} 字节}}",
   "sizeKilobytes": "{size} KB",
-
   "botNotice": "机器人 — 消息会由第三方运营的自动程序读取。BOT 标签由对方自行声明,未经 Jay 验证。",
-
   "contactsTitle": "联系人",
   "contactsScanQr": "扫描 QR 码",
   "contactsPasteInvite": "粘贴邀请",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX 或 ct://…",
   "qrScanTitle": "扫描 QR 码",
   "qrScanHint": "对准 Jay 的 QR 码",
-
   "groupNewTitle": "新建群组",
   "groupCreate": "创建",
   "groupNameLabel": "群组名称",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, other{已选择 {count} 人}}",
   "groupNoContacts": "暂无联系人。\n请先添加联系人,再创建群组。",
   "groupCreateFailed": "无法创建群组。请检查网络连接后重试。",
-
   "onboardingTagline": "安全。匿名。简单。",
   "onboardingSettingUp": "正在设置您的设备…",
   "onboardingGetStarted": "开始使用",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "分享此 QR 码以添加联系人",
   "onboardingStartMessaging": "开始聊天",
   "onboardingFailed": "注册失败",
-
   "settingsTitle": "设置",
   "settingsAppLock": "应用锁",
   "settingsAppLockSubtitle": "PIN 和生物识别验证",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "强制使用 TURN 中继(诊断)",
   "settingsForceRelaySubtitle": "之后的通话仅通过中继进行。速度较慢;重启后恢复默认。",
   "settingsVersion": "Jay {version} 测试版",
-
   "identityTitle": "我的身份",
   "identityCopyInvite": "复制邀请",
   "identityInviteCopied": "邀请已复制",
-
   "appLockTitle": "应用锁",
   "appLockExplanation": "使用 PIN 码保护应用。启用后,每次打开 Jay 都需要输入 PIN。",
   "appLockPin": "PIN 锁",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "当前 PIN",
   "appLockVerify": "验证",
   "appLockIncorrectPin": "PIN 不正确",
-
   "accountCreateTitle": "创建账号",
   "accountLoginTitle": "登录",
   "accountOptionalTitle": "可选账号",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "还没有账号?注册",
   "accountLinked": "账号已关联。云备份已启用。",
   "accountFailed": "操作失败。请检查您的邮箱、密码短语和网络连接。",
-
   "backupTitle": "云备份",
   "backupEncryptedTitle": "端到端加密",
   "backupExplanation": "备份内容包括消息记录、内嵌附件和联系人;不包括外部文件和正在使用的加密会话。您的备份使用只有您知道的密码短语加密。服务器永远无法看到您的消息或联系人的明文。\n\n如果您忘记了密码短语,备份将无法恢复。没有重置选项 — 这是为了您的安全而特意设计的。",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "备份文件无效。",
   "backupErrorRestoreFailed": "恢复失败。请检查密码短语和备份文件。",
   "backupErrorUnknown": "出了点问题。请重试。",
-
   "channelPublicNotice": "频道帖子是公开的,并且【没有】端到端加密。",
   "channelTitle": "频道",
   "channelNotAvailable": "此频道不可用。",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "频道管理员不会知道是谁举报的。",
   "channelReportSubmit": "举报",
   "channelReportSent": "举报已发送。",
-
   "channelProfileBlockedChannels": "已屏蔽的频道",
   "channelProfileNotFound": "未找到频道。请检查链接和网络连接。",
   "channelFollowers": "{count, plural, =0{暂无关注者} other{{count} 位关注者}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "屏蔽",
   "channelRoleOwner": "所有者",
   "channelRoleAdmin": "管理员",
-
   "channelOpenTitle": "打开频道",
   "channelOpenLabel": "频道 ID 或链接",
   "channelOpenHint": "CH-XXXX-XXXX 或 calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "创建频道需要已注册的账号,这样频道才不会随此设备一起丢失。没有账号仍然可以关注频道。",
   "channelRegisterOrLogin": "注册或登录",
   "channelCreate": "创建频道",
-
   "channelAdminsTitle": "频道管理员",
   "channelAdminsCurrent": "当前管理员",
   "channelAdminsNone": "暂无管理员。",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "移除管理员",
   "channelAdminAdded": "已添加管理员。",
   "channelAdminRemoved": "已移除管理员。",
-
   "channelBlockedEmpty": "没有已屏蔽的频道。",
   "channelUnblock": "取消屏蔽",
-
   "channelErrorBlocked": "此频道已被屏蔽。请先在“设置”中取消屏蔽。",
   "channelErrorAccountRequired": "创建频道需要已注册的账号。",
   "channelErrorLimitReached": "您拥有的频道数量已达上限。",
@@ -295,25 +273,114 @@
   "orgJoinButton": "加入",
   "orgJoinFailed": "加入失败，请检查邀请码后重试。",
   "orgMembershipCard": "{orgName} — {role}",
-  "@orgMembershipCard": {"placeholders": {"orgName": {"type": "String"}, "role": {"type": "String"}}},
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
   "orgCreateButton": "创建组织",
   "orgCreateRequiresAccount": "创建组织需要已注册的账户。",
   "orgMembersTitle": "成员",
   "orgInviteCreate": "创建邀请",
   "orgInviteCodeLabel": "邀请码：{code}",
-  "@orgInviteCodeLabel": {"placeholders": {"code": {"type": "String"}}},
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
   "orgSetAuditorLabel": "审计员设备 ID",
   "orgExportAudit": "导出管理员审计日志",
   "orgArchiveActive": "存档已生效。",
   "orgArchiveInactive": "存档尚未收到任何记录。",
   "businessBannerText": "此对话由 {orgName} 存档。",
-  "@businessBannerText": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "businessAuditorTile": "{orgName} 存档（审计成员）",
-  "@businessAuditorTile": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "businessInfoTitle": "关于存档",
   "businessInfoBody": "{orgName} 会永久记录谁在何时给谁发送了消息、消息大小以及内容哈希值——但绝不会记录消息正文本身。组织之外的匿名聊天永远不会被存档。此首个版本尚未对会话头进行加密，也未验证预共享密钥签名；详情请参阅应用文档。",
-  "@businessInfoBody": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "orgErrorGeneric": "出了点问题（{code}）。",
-  "@orgErrorGeneric": {"placeholders": {"code": {"type": "String"}}},
-  "hubErrorAuditRecipientMissing": "消息发送失败：此对话中缺少组织的审计成员。"
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "消息发送失败：此对话中缺少组织的审计成员。",
+  "emergencyTitle": "应急频道",
+  "emergencyKitsTitle": "应急套件",
+  "emergencyIssueKit": "发放套件",
+  "emergencyKitLabelField": "标签",
+  "emergencyKitCountField": "代码数量",
+  "emergencyCodesWarning": "这些代码仅显示一次，之后无法再次获取。请立即保存。",
+  "emergencyRecoveryCode": "恢复代码：{code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "全部复制",
+  "emergencyShare": "分享",
+  "emergencyRevokeKit": "撤销",
+  "emergencyKitRevoked": "已撤销",
+  "emergencyCodesRemaining": "剩余 {remaining}/{total} 个代码",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "开始演练",
+  "emergencyDrillsTitle": "演练",
+  "emergencyDrillStarted": "演练已开始",
+  "emergencyDrillConfirmed": "已确认 {count} 个",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "完成演练",
+  "emergencyExportProof": "导出证明",
+  "emergencyHaveCode": "我有应急代码",
+  "emergencyEnrollCodeLabel": "应急代码",
+  "emergencyEnrollButton": "注册",
+  "emergencyEnrollFailed": "注册失败。请检查代码并重试。",
+  "emergencyEnrollSuccess": "已注册——正在打开应急对话",
+  "emergencyDrillPromptTitle": "应急演练",
+  "emergencyDrillPromptBody": "请确认您已收到此消息。",
+  "emergencyDrillConfirmButton": "确认"
 }

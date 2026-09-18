@@ -95,6 +95,12 @@ class _OrganizationScreenState extends State<OrganizationScreen> {
               },
         child: Text(l10n.orgJoinButton),
       ),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
+        icon: const Icon(Icons.emergency_outlined),
+        label: Text(l10n.emergencyHaveCode),
+        onPressed: () => context.push('/settings/organization/emergency-enroll'),
+      ),
       const Divider(height: 32),
       Text(l10n.orgCreateRequiresAccount),
       const SizedBox(height: 8),
@@ -139,6 +145,14 @@ class _OrganizationScreenState extends State<OrganizationScreen> {
         ),
       ),
       if (isAdmin) ...[
+        const Divider(height: 32),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.emergency_outlined),
+          label: Text(l10n.emergencyTitle),
+          onPressed: () => context.push(
+            '/settings/organization/emergency?orgId=${org.organizationId}',
+          ),
+        ),
         const Divider(height: 32),
         Text(l10n.orgMembersTitle, style: Theme.of(context).textTheme.titleMedium),
         for (final member in controller.members)

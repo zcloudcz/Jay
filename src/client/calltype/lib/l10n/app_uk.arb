@@ -1,6 +1,5 @@
 {
   "@@locale": "uk",
-
   "commonCancel": "Скасувати",
   "commonRetry": "Повторити",
   "commonAdd": "Додати",
@@ -9,10 +8,8 @@
   "commonShare": "Поділитися",
   "commonOpen": "Відкрити",
   "commonLoading": "Завантаження…",
-
   "navChats": "Чати",
   "navUpdates": "Канали",
-
   "lockUnlockTitle": "Розблокувати Jay",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "Розблокувати",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "Захищене сховище недоступне. Спробуйте розблокувати ще раз.",
   "lockErrorRejected": "Не вдалося розблокувати. Спробуйте ще раз.",
   "lockErrorUnavailable": "Розблокування недоступне. Спробуйте ще раз.",
-
   "callTitle": "Дзвінок",
   "callEnded": "Дзвінок завершено",
   "callIncomingVoice": "Вхідний аудіодзвінок",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "Не вдалося почати дзвінок. Перевірте з'єднання та дозволи на мікрофон і камеру.",
   "callErrorCannotAccept": "Не вдалося прийняти дзвінок. Перевірте дозволи на мікрофон і камеру.",
   "callErrorUserOffline": "Користувач зараз не в мережі. Спробуйте пізніше.",
-
   "chatListNewGroup": "Нова група",
   "chatListMyIdentity": "Мій профіль",
   "chatListOffline": "Немає мережі — історія доступна на цьому пристрої.",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "Груповий чат",
   "chatListEncryptedConversation": "Зашифрований чат",
   "chatListNewChat": "Новий чат",
-
   "chatVoiceCall": "Аудіодзвінок",
   "chatVideoCall": "Відеодзвінок",
   "chatCallFailed": "Не вдалося почати дзвінок. Перевірте з'єднання та дозволи.",
@@ -76,12 +70,9 @@
   "chatInputHint": "Повідомлення",
   "chatInputSend": "Надіслати",
   "chatInputNotSaved": "Повідомлення не збережено. Чернетка залишилася тут.",
-
   "sizeBytes": "{count, plural, one{{count} байт} few{{count} байти} many{{count} байтів} other{{count} байта}}",
   "sizeKilobytes": "{size} КБ",
-
   "botNotice": "Бот — повідомлення читає автоматична програма, якою керує третя сторона. Позначку BOT бот присвоює собі сам, Jay її не перевіряє.",
-
   "contactsTitle": "Контакти",
   "contactsScanQr": "Сканувати QR-код",
   "contactsPasteInvite": "Вставити запрошення",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX або ct://…",
   "qrScanTitle": "Сканувати QR-код",
   "qrScanHint": "Наведіть камеру на QR-код Jay",
-
   "groupNewTitle": "Нова група",
   "groupCreate": "Створити",
   "groupNameLabel": "Назва групи",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, one{Вибрано {count}} few{Вибрано {count}} many{Вибрано {count}} other{Вибрано {count}}}",
   "groupNoContacts": "Контактів поки немає.\nСпочатку додайте контакти, щоб створити групу.",
   "groupCreateFailed": "Не вдалося створити групу. Перевірте з'єднання та спробуйте ще раз.",
-
   "onboardingTagline": "Безпечно. Анонімно. Просто.",
   "onboardingSettingUp": "Налаштовуємо ваш пристрій…",
   "onboardingGetStarted": "Почати",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "Покажіть цей QR-код, щоб додавати контакти",
   "onboardingStartMessaging": "Почати спілкування",
   "onboardingFailed": "Не вдалося зареєструватися",
-
   "settingsTitle": "Налаштування",
   "settingsAppLock": "Блокування застосунку",
   "settingsAppLockSubtitle": "PIN і біометрія",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "Лише через TURN (діагностика)",
   "settingsForceRelaySubtitle": "Наступні дзвінки йдуть лише через ретранслятор. Повільніше; скидається після перезапуску.",
   "settingsVersion": "Jay {version} бета",
-
   "identityTitle": "Мій профіль",
   "identityCopyInvite": "Копіювати запрошення",
   "identityInviteCopied": "Запрошення скопійовано",
-
   "appLockTitle": "Блокування застосунку",
   "appLockExplanation": "Захистіть застосунок PIN-кодом. Якщо блокування ввімкнено, PIN потрібно буде вводити щоразу, коли ви відкриваєте Jay.",
   "appLockPin": "Блокування за PIN",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "Поточний PIN",
   "appLockVerify": "Перевірити",
   "appLockIncorrectPin": "Неправильний PIN",
-
   "accountCreateTitle": "Створити обліковий запис",
   "accountLoginTitle": "Увійти",
   "accountOptionalTitle": "Обліковий запис необов'язковий",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "Немає облікового запису? Зареєструватися",
   "accountLinked": "Обліковий запис прив'язано. Хмарну резервну копію ввімкнено.",
   "accountFailed": "Не вийшло. Перевірте ел. пошту, парольну фразу та з'єднання.",
-
   "backupTitle": "Хмарна резервна копія",
   "backupEncryptedTitle": "Наскрізне шифрування",
   "backupExplanation": "До резервної копії входять історія повідомлень, вбудовані вкладення та контакти; зовнішні файли й активні сеанси шифрування до неї не входять. Резервна копія шифрується парольною фразою, яку знаєте лише ви. Сервер ніколи не бачить ваші повідомлення та контакти у відкритому вигляді.\n\nЯкщо ви забудете парольну фразу, відновити резервну копію буде неможливо. Скидання не існує — так задумано заради вашої безпеки.",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "Недійсний файл резервної копії.",
   "backupErrorRestoreFailed": "Не вдалося відновити. Перевірте парольну фразу та файл резервної копії.",
   "backupErrorUnknown": "Щось пішло не так. Спробуйте ще раз.",
-
   "channelPublicNotice": "Дописи в каналі загальнодоступні й НЕ захищені наскрізним шифруванням.",
   "channelTitle": "Канал",
   "channelNotAvailable": "Цей канал недоступний.",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "Адміни каналу не дізнаються, хто надіслав скаргу.",
   "channelReportSubmit": "Поскаржитися",
   "channelReportSent": "Скаргу надіслано.",
-
   "channelProfileBlockedChannels": "Заблоковані канали",
   "channelProfileNotFound": "Канал не знайдено. Перевірте посилання та з'єднання.",
   "channelFollowers": "{count, plural, =0{Немає підписників} one{{count} підписник} few{{count} підписники} many{{count} підписників} other{{count} підписника}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "Заблокувати",
   "channelRoleOwner": "власник",
   "channelRoleAdmin": "адмін",
-
   "channelOpenTitle": "Відкрити канал",
   "channelOpenLabel": "Ідентифікатор або посилання каналу",
   "channelOpenHint": "CH-XXXX-XXXX або calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "Для створення каналу потрібен зареєстрований обліковий запис, щоб канал не було втрачено разом із цим пристроєм. Підписуватися на канали можна й без облікового запису.",
   "channelRegisterOrLogin": "Зареєструватися або ввійти",
   "channelCreate": "Створити канал",
-
   "channelAdminsTitle": "Адміни каналу",
   "channelAdminsCurrent": "Поточні адміни",
   "channelAdminsNone": "Адмінів поки немає.",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "Зняти адміна",
   "channelAdminAdded": "Адміна додано.",
   "channelAdminRemoved": "Адміна знято.",
-
   "channelBlockedEmpty": "Заблокованих каналів немає.",
   "channelUnblock": "Розблокувати",
-
   "channelErrorBlocked": "Цей канал заблоковано. Спочатку розблокуйте його в налаштуваннях.",
   "channelErrorAccountRequired": "Для створення каналу потрібен зареєстрований обліковий запис.",
   "channelErrorLimitReached": "Ви досягли ліміту каналів, якими можна володіти.",
@@ -295,25 +273,114 @@
   "orgJoinButton": "Приєднатися",
   "orgJoinFailed": "Не вдалося приєднатися. Перевірте код і спробуйте ще раз.",
   "orgMembershipCard": "{orgName} — {role}",
-  "@orgMembershipCard": {"placeholders": {"orgName": {"type": "String"}, "role": {"type": "String"}}},
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
   "orgCreateButton": "Створити організацію",
   "orgCreateRequiresAccount": "Для створення організації потрібен зареєстрований обліковий запис.",
   "orgMembersTitle": "Учасники",
   "orgInviteCreate": "Створити запрошення",
   "orgInviteCodeLabel": "Код запрошення: {code}",
-  "@orgInviteCodeLabel": {"placeholders": {"code": {"type": "String"}}},
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
   "orgSetAuditorLabel": "ID пристрою аудитора",
   "orgExportAudit": "Експортувати журнал адмін-аудиту",
   "orgArchiveActive": "Архів активний.",
   "orgArchiveInactive": "До архіву поки не надходять записи.",
   "businessBannerText": "Цю розмову архівує організація {orgName}.",
-  "@businessBannerText": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "businessAuditorTile": "Архів {orgName} (учасник аудиту)",
-  "@businessAuditorTile": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "businessInfoTitle": "Про архівування",
   "businessInfoBody": "{orgName} постійно зберігає інформацію про те, хто кому й коли писав, розмір повідомлення та хеш вмісту — але ніколи сам текст повідомлення. Анонімні чати поза організацією ніколи не архівуються. Ця перша версія ще не шифрує заголовки розмови і не перевіряє підписи pre-key; деталі в документації застосунку.",
-  "@businessInfoBody": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "orgErrorGeneric": "Щось пішло не так ({code}).",
-  "@orgErrorGeneric": {"placeholders": {"code": {"type": "String"}}},
-  "hubErrorAuditRecipientMissing": "Не вдалося надіслати повідомлення: у цій розмові відсутній учасник аудиту організації."
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "Не вдалося надіслати повідомлення: у цій розмові відсутній учасник аудиту організації.",
+  "emergencyTitle": "Аварійний канал",
+  "emergencyKitsTitle": "Аварійні набори",
+  "emergencyIssueKit": "Видати набір",
+  "emergencyKitLabelField": "Мітка",
+  "emergencyKitCountField": "Кількість кодів",
+  "emergencyCodesWarning": "Ці коди показуються лише один раз і більше їх отримати не можна. Збережіть їх зараз.",
+  "emergencyRecoveryCode": "Код відновлення: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "Копіювати все",
+  "emergencyShare": "Поділитися",
+  "emergencyRevokeKit": "Відкликати",
+  "emergencyKitRevoked": "Відкликано",
+  "emergencyCodesRemaining": "Залишилося {remaining}/{total} кодів",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "Почати навчання",
+  "emergencyDrillsTitle": "Навчання",
+  "emergencyDrillStarted": "Навчання розпочато",
+  "emergencyDrillConfirmed": "Підтвердило {count}",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "Завершити навчання",
+  "emergencyExportProof": "Експортувати доказ",
+  "emergencyHaveCode": "У мене є аварійний код",
+  "emergencyEnrollCodeLabel": "Аварійний код",
+  "emergencyEnrollButton": "Зареєструватися",
+  "emergencyEnrollFailed": "Не вдалося зареєструватися. Перевірте код і спробуйте ще раз.",
+  "emergencyEnrollSuccess": "Зареєстровано — відкриваємо аварійну розмову",
+  "emergencyDrillPromptTitle": "Аварійне навчання",
+  "emergencyDrillPromptBody": "Будь ласка, підтвердьте отримання цього повідомлення.",
+  "emergencyDrillConfirmButton": "Підтвердити"
 }

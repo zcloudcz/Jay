@@ -404,8 +404,27 @@ Error mapping (`EmergencyEndpoints.MapViolation`): `org_not_found`/`kit_not_foun
 Admin-audit event types added: `emergency_kit_issued`, `emergency_kit_revoked`,
 `emergency_device_enrolled`, `emergency_drill_started`, `emergency_drill_completed`.
 
-**Not implemented in this pass (see E07 final report):** client UI
-(`lib/features/organization/emergency/**`, `emergency_api.dart`), ARB strings,
-and the Testcontainers integration test suite — server domain/application/
-endpoint code and DB-free unit tests are done and green; the rest is flagged
-`NOT_RUN` for a follow-up pass, not silently skipped.
+**Known limitation — no cross-database transaction on enroll:**
+`EmergencyAppService.EnrollAsync` marks the code `UsedAt` (Audit DB) and
+commits *before* `EmergencyEndpoints.Enroll` calls `EmergencyGroupService` to
+add the device to the Delivery-DB emergency group. These are two physically
+separate databases (KB3) with separate credentials, so there is no
+distributed transaction tying them together. If the process crashes or the
+Delivery write fails between the two calls, the code is burned (marked used,
+so it can never be retried) but the device never joined the group.
+**Operator remedy: issue the device a new code** (`POST
+.../emergency/kits`) — there is no automatic reconciliation, and none is
+planned; the two-database split (an explicit KB3 requirement, so a
+compromised Delivery DB can never touch archive data) makes a single atomic
+commit structurally impossible here, the same tradeoff `OrgEnrollment.Enroll`
+already accepts for the ordinary invite-enroll path. A retry-safe redesign
+(e.g. a Delivery-side outbox reconciled against Audit DB state) is future
+work if this proves to bite in practice, not attempted in E07.
+
+**Not implemented in the first pass, completed in the second commit (see E07
+final report):** client UI (`lib/features/organization/emergency/**`,
+`calltype_core/lib/network/emergency_api.dart`), the `EmergencyDrill` hub
+handler in `signalr_client.dart`, ARB strings in all 19 locales, and widget
+tests. The Testcontainers integration suite (`EmergencyEndpointsTests.cs`)
+was added compile-only and is `BLOCKED` — no Docker on this machine, same
+status as `BusinessModeIntegrationTests`/`AuditArchiveEndpointsTests`.

@@ -1,6 +1,5 @@
 {
   "@@locale": "cs",
-
   "commonCancel": "Zrušit",
   "commonRetry": "Zkusit znovu",
   "commonAdd": "Přidat",
@@ -9,10 +8,8 @@
   "commonShare": "Sdílet",
   "commonOpen": "Otevřít",
   "commonLoading": "Načítání…",
-
   "navChats": "Chaty",
   "navUpdates": "Aktuality",
-
   "lockUnlockTitle": "Odemknout Jay",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "Odemknout",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "Zabezpečené úložiště není dostupné. Zkuste odemknout znovu.",
   "lockErrorRejected": "Odemknutí se nezdařilo. Zkuste to znovu.",
   "lockErrorUnavailable": "Odemknutí není dostupné. Zkuste to znovu.",
-
   "callTitle": "Hovor",
   "callEnded": "Hovor ukončen",
   "callIncomingVoice": "Příchozí hlasový hovor",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "Hovor nelze zahájit. Zkontrolujte připojení a oprávnění k mikrofonu a kameře.",
   "callErrorCannotAccept": "Hovor nelze přijmout. Zkontrolujte oprávnění k mikrofonu a kameře.",
   "callErrorUserOffline": "Uživatel je právě offline. Zkuste to později.",
-
   "chatListNewGroup": "Nová skupina",
   "chatListMyIdentity": "Moje identita",
   "chatListOffline": "Jste offline — historie je dostupná v tomto zařízení.",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "Skupinová konverzace",
   "chatListEncryptedConversation": "Šifrovaná konverzace",
   "chatListNewChat": "Nový chat",
-
   "chatVoiceCall": "Hlasový hovor",
   "chatVideoCall": "Videohovor",
   "chatCallFailed": "Hovor se nepodařilo zahájit. Zkontrolujte připojení a oprávnění.",
@@ -76,12 +70,9 @@
   "chatInputHint": "Zpráva",
   "chatInputSend": "Odeslat",
   "chatInputNotSaved": "Zprávu se nepodařilo uložit. Koncept zůstal zde.",
-
   "sizeBytes": "{count, plural, one{{count} bajt} few{{count} bajty} many{{count} bajtu} other{{count} bajtů}}",
   "sizeKilobytes": "{size} kB",
-
   "botNotice": "Bot — zprávy čte automatizovaný program provozovaný třetí stranou. Označení BOT si bot přiděluje sám a Jay ho neověřuje.",
-
   "contactsTitle": "Kontakty",
   "contactsScanQr": "Naskenovat QR kód",
   "contactsPasteInvite": "Vložit pozvánku",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX nebo ct://…",
   "qrScanTitle": "Naskenovat QR kód",
   "qrScanHint": "Namiřte na QR kód Jay",
-
   "groupNewTitle": "Nová skupina",
   "groupCreate": "Vytvořit",
   "groupNameLabel": "Název skupiny",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, one{{count} vybraný} few{{count} vybraní} many{{count} vybraného} other{{count} vybraných}}",
   "groupNoContacts": "Zatím žádné kontakty.\nPro vytvoření skupiny nejdřív přidejte kontakty.",
   "groupCreateFailed": "Skupinu se nepodařilo vytvořit. Zkontrolujte připojení a zkuste to znovu.",
-
   "onboardingTagline": "Bezpečně. Anonymně. Jednoduše.",
   "onboardingSettingUp": "Nastavujeme vaše zařízení…",
   "onboardingGetStarted": "Začít",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "Sdílejte tento QR kód a přidávejte kontakty",
   "onboardingStartMessaging": "Začít psát",
   "onboardingFailed": "Registrace selhala",
-
   "settingsTitle": "Nastavení",
   "settingsAppLock": "Zámek aplikace",
   "settingsAppLockSubtitle": "PIN a biometrické ověření",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "Vynutit TURN relay (diagnostika)",
   "settingsForceRelaySubtitle": "Další hovory půjdou jen přes relay. Pomalejší; po restartu se vypne.",
   "settingsVersion": "Jay {version} (beta)",
-
   "identityTitle": "Moje identita",
   "identityCopyInvite": "Kopírovat pozvánku",
   "identityInviteCopied": "Pozvánka zkopírována",
-
   "appLockTitle": "Zámek aplikace",
   "appLockExplanation": "Chraňte aplikaci kódem PIN. Po zapnutí budete PIN zadávat při každém otevření Jay.",
   "appLockPin": "Zámek PIN",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "Současný PIN",
   "appLockVerify": "Ověřit",
   "appLockIncorrectPin": "Nesprávný PIN",
-
   "accountCreateTitle": "Vytvořit účet",
   "accountLoginTitle": "Přihlásit se",
   "accountOptionalTitle": "Volitelný účet",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "Nemáte účet? Zaregistrujte se",
   "accountLinked": "Účet propojen. Cloudová záloha je zapnutá.",
   "accountFailed": "Nepovedlo se. Zkontrolujte e-mail, heslovou frázi a připojení.",
-
   "backupTitle": "Cloudová záloha",
   "backupEncryptedTitle": "Koncově šifrované",
   "backupExplanation": "Zálohuje se historie zpráv, vložené přílohy a kontakty; externí soubory a aktivní šifrovací relace součástí zálohy nejsou. Záloha je šifrovaná heslovou frází, kterou znáte jen vy. Server nikdy nevidí vaše zprávy ani kontakty v čitelné podobě.\n\nPokud heslovou frázi zapomenete, zálohu nelze obnovit. Možnost resetu neexistuje — je to záměr kvůli vaší bezpečnosti.",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "Neplatný soubor zálohy.",
   "backupErrorRestoreFailed": "Obnovení selhalo. Zkontrolujte heslovou frázi a soubor zálohy.",
   "backupErrorUnknown": "Něco se pokazilo. Zkuste to znovu.",
-
   "channelPublicNotice": "Příspěvky v kanálu jsou veřejné a NEJSOU koncově šifrované.",
   "channelTitle": "Kanál",
   "channelNotAvailable": "Tento kanál není dostupný.",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "Správci kanálu se nedozvědí, kdo nahlášení poslal.",
   "channelReportSubmit": "Nahlásit",
   "channelReportSent": "Nahlášení odesláno.",
-
   "channelProfileBlockedChannels": "Blokované kanály",
   "channelProfileNotFound": "Kanál nenalezen. Zkontrolujte odkaz a připojení.",
   "channelFollowers": "{count, plural, =0{Žádní sledující} one{{count} sledující} few{{count} sledující} many{{count} sledujícího} other{{count} sledujících}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "Blokovat",
   "channelRoleOwner": "vlastník",
   "channelRoleAdmin": "správce",
-
   "channelOpenTitle": "Otevřít kanál",
   "channelOpenLabel": "Identifikátor nebo odkaz kanálu",
   "channelOpenHint": "CH-XXXX-XXXX nebo calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "K vytvoření kanálu je potřeba registrovaný účet, aby kanál nezanikl spolu s tímto zařízením. Sledovat kanály lze i bez účtu.",
   "channelRegisterOrLogin": "Registrovat nebo přihlásit",
   "channelCreate": "Vytvořit kanál",
-
   "channelAdminsTitle": "Správci kanálu",
   "channelAdminsCurrent": "Současní správci",
   "channelAdminsNone": "Zatím žádní správci.",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "Odebrat správce",
   "channelAdminAdded": "Správce přidán.",
   "channelAdminRemoved": "Správce odebrán.",
-
   "channelBlockedEmpty": "Žádné blokované kanály.",
   "channelUnblock": "Odblokovat",
-
   "channelErrorBlocked": "Tento kanál je blokovaný. Nejdřív ho odblokujte v Nastavení.",
   "channelErrorAccountRequired": "K vytvoření kanálu je potřeba registrovaný účet.",
   "channelErrorLimitReached": "Dosáhli jste limitu kanálů, které můžete vlastnit.",
@@ -295,25 +273,114 @@
   "orgJoinButton": "Připojit se",
   "orgJoinFailed": "Připojení se nezdařilo. Zkontrolujte kód a zkuste to znovu.",
   "orgMembershipCard": "{orgName} — {role}",
-  "@orgMembershipCard": {"placeholders": {"orgName": {"type": "String"}, "role": {"type": "String"}}},
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
   "orgCreateButton": "Vytvořit organizaci",
   "orgCreateRequiresAccount": "Vytvoření organizace vyžaduje registrovaný účet.",
   "orgMembersTitle": "Členové",
   "orgInviteCreate": "Vytvořit pozvánku",
   "orgInviteCodeLabel": "Pozvánkový kód: {code}",
-  "@orgInviteCodeLabel": {"placeholders": {"code": {"type": "String"}}},
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
   "orgSetAuditorLabel": "ID zařízení auditora",
   "orgExportAudit": "Exportovat administrátorský audit",
   "orgArchiveActive": "Archiv je aktivní.",
   "orgArchiveInactive": "Do archivu zatím nepřicházejí žádné záznamy.",
   "businessBannerText": "Tuto konverzaci archivuje organizace {orgName}.",
-  "@businessBannerText": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "businessAuditorTile": "Archiv organizace {orgName} (auditní člen)",
-  "@businessAuditorTile": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "businessInfoTitle": "O archivaci",
   "businessInfoBody": "Organizace {orgName} trvale zaznamenává, kdo komu a kdy psal, velikost zprávy a hash obsahu — nikdy samotný text zprávy. Anonymní konverzace mimo organizaci se nikdy nearchivují. Tato první verze zatím nešifruje hlavičky konverzace ani neověřuje podpisy pre-key klíčů; podrobnosti najdete v dokumentaci aplikace.",
-  "@businessInfoBody": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "orgErrorGeneric": "Něco se nepovedlo ({code}).",
-  "@orgErrorGeneric": {"placeholders": {"code": {"type": "String"}}},
-  "hubErrorAuditRecipientMissing": "Zprávu se nepodařilo odeslat: v této konverzaci chybí auditní člen organizace."
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "Zprávu se nepodařilo odeslat: v této konverzaci chybí auditní člen organizace.",
+  "emergencyTitle": "Nouzový kanál",
+  "emergencyKitsTitle": "Nouzové sady",
+  "emergencyIssueKit": "Vydat sadu",
+  "emergencyKitLabelField": "Popisek",
+  "emergencyKitCountField": "Počet kódů",
+  "emergencyCodesWarning": "Tyto kódy se zobrazí pouze jednou a už je nelze znovu zobrazit. Uložte si je nyní.",
+  "emergencyRecoveryCode": "Obnovovací kód: {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "Zkopírovat vše",
+  "emergencyShare": "Sdílet",
+  "emergencyRevokeKit": "Zneplatnit",
+  "emergencyKitRevoked": "Zneplatněno",
+  "emergencyCodesRemaining": "Zbývá {remaining}/{total} kódů",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "Spustit cvičení",
+  "emergencyDrillsTitle": "Cvičení",
+  "emergencyDrillStarted": "Cvičení zahájeno",
+  "emergencyDrillConfirmed": "Potvrdilo {count}",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "Dokončit cvičení",
+  "emergencyExportProof": "Exportovat doklad",
+  "emergencyHaveCode": "Mám nouzový kód",
+  "emergencyEnrollCodeLabel": "Nouzový kód",
+  "emergencyEnrollButton": "Zapsat se",
+  "emergencyEnrollFailed": "Nepodařilo se zapsat. Zkontrolujte kód a zkuste to znovu.",
+  "emergencyEnrollSuccess": "Zapsáno — otevírá se nouzová konverzace",
+  "emergencyDrillPromptTitle": "Nouzové cvičení",
+  "emergencyDrillPromptBody": "Potvrďte prosím, že jste tuto zprávu obdrželi.",
+  "emergencyDrillConfirmButton": "Potvrdit"
 }

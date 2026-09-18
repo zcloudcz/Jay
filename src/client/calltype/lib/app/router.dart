@@ -28,6 +28,9 @@ import '../features/chat_list/chat_list_screen.dart';
 import '../features/contacts/contacts_screen.dart';
 import '../features/contacts/qr_scanner_screen.dart';
 import '../features/groups/group_create_screen.dart';
+import '../features/organization/emergency/emergency_controller.dart';
+import '../features/organization/emergency/emergency_enroll_screen.dart';
+import '../features/organization/emergency/emergency_screen.dart';
 import '../features/organization/organization_controller.dart';
 import '../features/organization/organization_screen.dart';
 import '../features/onboarding/onboarding_controller.dart';
@@ -232,6 +235,29 @@ final router = GoRouter(
                   ..load(),
             child: const OrganizationScreen(),
           ),
+          routes: [
+            GoRoute(
+              path: 'emergency',
+              builder: (context, state) {
+                final organizationId = state.uri.queryParameters['orgId']!;
+                return ChangeNotifierProvider(
+                  create: (ctx) => EmergencyController(
+                    apiClient: ctx.read<ApiClient>(),
+                    organizationId: organizationId,
+                  )..load(),
+                  child: EmergencyScreen(organizationId: organizationId),
+                );
+              },
+            ),
+            GoRoute(
+              path: 'emergency-enroll',
+              builder: (context, state) => ChangeNotifierProvider(
+                create: (ctx) =>
+                    EmergencyEnrollController(apiClient: ctx.read<ApiClient>()),
+                child: const EmergencyEnrollScreen(),
+              ),
+            ),
+          ],
         ),
         GoRoute(
           path: 'backup',

@@ -1,6 +1,5 @@
 {
   "@@locale": "fr",
-
   "commonCancel": "Annuler",
   "commonRetry": "Réessayer",
   "commonAdd": "Ajouter",
@@ -9,10 +8,8 @@
   "commonShare": "Partager",
   "commonOpen": "Ouvrir",
   "commonLoading": "Chargement…",
-
   "navChats": "Discussions",
   "navUpdates": "Actus",
-
   "lockUnlockTitle": "Déverrouiller Jay",
   "lockPinLabel": "PIN",
   "lockUnlockButton": "Déverrouiller",
@@ -20,7 +17,6 @@
   "lockErrorStorageUnavailable": "Le stockage sécurisé est indisponible. Réessayez de déverrouiller.",
   "lockErrorRejected": "Déverrouillage impossible. Réessayez.",
   "lockErrorUnavailable": "Le déverrouillage est indisponible. Réessayez.",
-
   "callTitle": "Appel",
   "callEnded": "Appel terminé",
   "callIncomingVoice": "Appel vocal entrant",
@@ -46,7 +42,6 @@
   "callErrorCannotStart": "Impossible de lancer l'appel. Vérifiez la connexion et les autorisations du micro et de la caméra.",
   "callErrorCannotAccept": "Impossible d'accepter l'appel. Vérifiez les autorisations du micro et de la caméra.",
   "callErrorUserOffline": "Cette personne est hors ligne pour le moment. Réessayez plus tard.",
-
   "chatListNewGroup": "Nouveau groupe",
   "chatListMyIdentity": "Mon identité",
   "chatListOffline": "Hors ligne — votre historique reste disponible sur cet appareil.",
@@ -58,7 +53,6 @@
   "chatListGroupConversation": "Conversation de groupe",
   "chatListEncryptedConversation": "Conversation chiffrée",
   "chatListNewChat": "Nouvelle discussion",
-
   "chatVoiceCall": "Appel vocal",
   "chatVideoCall": "Appel vidéo",
   "chatCallFailed": "Impossible de lancer l'appel. Vérifiez la connexion et les autorisations.",
@@ -76,12 +70,9 @@
   "chatInputHint": "Message…",
   "chatInputSend": "Envoyer",
   "chatInputNotSaved": "Le message n'a pas été enregistré. Votre brouillon est toujours là.",
-
   "sizeBytes": "{count, plural, one{{count} octet} other{{count} octets}}",
   "sizeKilobytes": "{size} Ko",
-
   "botNotice": "Bot — les messages sont lus par un programme automatisé exploité par un tiers. Le libellé BOT est déclaré par le bot lui-même et n'est pas vérifié par Jay.",
-
   "contactsTitle": "Contacts",
   "contactsScanQr": "Scanner un code QR",
   "contactsPasteInvite": "Coller une invitation",
@@ -100,7 +91,6 @@
   "contactsHandleOrInviteHint": "CT-XXXX-XXXX ou ct://…",
   "qrScanTitle": "Scanner un code QR",
   "qrScanHint": "Visez un code QR Jay",
-
   "groupNewTitle": "Nouveau groupe",
   "groupCreate": "Créer",
   "groupNameLabel": "Nom du groupe",
@@ -109,7 +99,6 @@
   "groupSelectedCount": "{count, plural, one{{count} sélectionné} other{{count} sélectionnés}}",
   "groupNoContacts": "Aucun contact pour l'instant.\nAjoutez d'abord des contacts pour créer un groupe.",
   "groupCreateFailed": "Impossible de créer le groupe. Vérifiez la connexion et réessayez.",
-
   "onboardingTagline": "Sécurisé. Anonyme. Simple.",
   "onboardingSettingUp": "Configuration de votre appareil…",
   "onboardingGetStarted": "Commencer",
@@ -117,7 +106,6 @@
   "onboardingShareQr": "Partagez ce code QR pour ajouter des contacts",
   "onboardingStartMessaging": "Commencer à discuter",
   "onboardingFailed": "Échec de l'enregistrement",
-
   "settingsTitle": "Paramètres",
   "settingsAppLock": "Verrouillage de l'application",
   "settingsAppLockSubtitle": "Code PIN et authentification biométrique",
@@ -132,11 +120,9 @@
   "settingsForceRelay": "Forcer le relais TURN (diagnostic)",
   "settingsForceRelaySubtitle": "Les prochains appels passent uniquement par le relais. Plus lent ; réinitialisé au redémarrage.",
   "settingsVersion": "Jay {version} bêta",
-
   "identityTitle": "Mon identité",
   "identityCopyInvite": "Copier l'invitation",
   "identityInviteCopied": "Invitation copiée",
-
   "appLockTitle": "Verrouillage de l'application",
   "appLockExplanation": "Protégez l'application avec un code PIN. Une fois activé, vous devrez saisir votre PIN à chaque ouverture de Jay.",
   "appLockPin": "Verrouillage par PIN",
@@ -153,7 +139,6 @@
   "appLockCurrentPinLabel": "PIN actuel",
   "appLockVerify": "Vérifier",
   "appLockIncorrectPin": "PIN incorrect",
-
   "accountCreateTitle": "Créer un compte",
   "accountLoginTitle": "Se connecter",
   "accountOptionalTitle": "Compte facultatif",
@@ -170,7 +155,6 @@
   "accountSwitchToRegister": "Pas de compte ? Inscrivez-vous",
   "accountLinked": "Compte associé. Sauvegarde cloud activée.",
   "accountFailed": "Cela n'a pas fonctionné. Vérifiez votre e-mail, votre phrase secrète et la connexion.",
-
   "backupTitle": "Sauvegarde cloud",
   "backupEncryptedTitle": "Chiffrée de bout en bout",
   "backupExplanation": "L'historique des messages, les pièces jointes intégrées et les contacts sont sauvegardés ; les fichiers externes et les sessions de chiffrement actives ne sont pas inclus. Votre sauvegarde est chiffrée avec une phrase secrète que vous seul connaissez. Le serveur ne voit jamais vos messages ni vos contacts en clair.\n\nSi vous oubliez votre phrase secrète, votre sauvegarde ne pourra pas être récupérée. Il n'existe aucune option de réinitialisation — c'est voulu, pour votre sécurité.",
@@ -204,7 +188,6 @@
   "backupErrorInvalidFile": "Fichier de sauvegarde non valide.",
   "backupErrorRestoreFailed": "Échec de la restauration. Vérifiez la phrase secrète et le fichier de sauvegarde.",
   "backupErrorUnknown": "Une erreur s'est produite. Veuillez réessayer.",
-
   "channelPublicNotice": "Les publications des chaînes sont publiques et ne sont PAS chiffrées de bout en bout.",
   "channelTitle": "Chaîne",
   "channelNotAvailable": "Cette chaîne n'est pas disponible.",
@@ -231,7 +214,6 @@
   "channelReportReasonHelper": "Les administrateurs de la chaîne ne sauront pas qui a fait le signalement.",
   "channelReportSubmit": "Signaler",
   "channelReportSent": "Signalement envoyé.",
-
   "channelProfileBlockedChannels": "Chaînes bloquées",
   "channelProfileNotFound": "Chaîne introuvable. Vérifiez le lien et la connexion.",
   "channelFollowers": "{count, plural, =0{Aucun abonné} one{{count} abonné} other{{count} abonnés}}",
@@ -253,7 +235,6 @@
   "channelBlockConfirm": "Bloquer",
   "channelRoleOwner": "propriétaire",
   "channelRoleAdmin": "administrateur",
-
   "channelOpenTitle": "Ouvrir une chaîne",
   "channelOpenLabel": "Identifiant ou lien de la chaîne",
   "channelOpenHint": "CH-XXXX-XXXX ou calltype://channel/…",
@@ -263,7 +244,6 @@
   "channelCreateGate": "La création d'une chaîne nécessite un compte enregistré, afin que la chaîne ne soit pas perdue avec cet appareil. Il reste possible de suivre des chaînes sans compte.",
   "channelRegisterOrLogin": "S'inscrire ou se connecter",
   "channelCreate": "Créer la chaîne",
-
   "channelAdminsTitle": "Administrateurs de la chaîne",
   "channelAdminsCurrent": "Administrateurs actuels",
   "channelAdminsNone": "Aucun administrateur pour l'instant.",
@@ -273,10 +253,8 @@
   "channelAdminsRemove": "Retirer l'administrateur",
   "channelAdminAdded": "Administrateur ajouté.",
   "channelAdminRemoved": "Administrateur retiré.",
-
   "channelBlockedEmpty": "Aucune chaîne bloquée.",
   "channelUnblock": "Débloquer",
-
   "channelErrorBlocked": "Cette chaîne est bloquée. Débloquez-la d'abord dans les Paramètres.",
   "channelErrorAccountRequired": "Un compte enregistré est nécessaire pour créer une chaîne.",
   "channelErrorLimitReached": "Vous avez atteint le nombre maximal de chaînes dont vous pouvez être propriétaire.",
@@ -295,25 +273,114 @@
   "orgJoinButton": "Rejoindre",
   "orgJoinFailed": "Impossible de rejoindre. Vérifiez le code et réessayez.",
   "orgMembershipCard": "{orgName} — {role}",
-  "@orgMembershipCard": {"placeholders": {"orgName": {"type": "String"}, "role": {"type": "String"}}},
+  "@orgMembershipCard": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
   "orgCreateButton": "Créer une organisation",
   "orgCreateRequiresAccount": "Créer une organisation nécessite un compte enregistré.",
   "orgMembersTitle": "Membres",
   "orgInviteCreate": "Créer une invitation",
   "orgInviteCodeLabel": "Code d'invitation : {code}",
-  "@orgInviteCodeLabel": {"placeholders": {"code": {"type": "String"}}},
+  "@orgInviteCodeLabel": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
   "orgSetAuditorLabel": "ID de l'appareil de l'auditeur",
   "orgExportAudit": "Exporter le journal d'audit administrateur",
   "orgArchiveActive": "L'archive est active.",
   "orgArchiveInactive": "L'archive ne reçoit pas encore d'enregistrements.",
   "businessBannerText": "Cette conversation est archivée par {orgName}.",
-  "@businessBannerText": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessBannerText": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "businessAuditorTile": "Archive de {orgName} (membre d'audit)",
-  "@businessAuditorTile": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessAuditorTile": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "businessInfoTitle": "À propos de l'archive",
   "businessInfoBody": "{orgName} conserve un enregistrement permanent de qui a écrit à qui, quand, la taille du message et un hash du contenu — jamais le texte du message lui-même. Les discussions anonymes en dehors d'une organisation ne sont jamais archivées. Cette première version ne chiffre pas encore les en-têtes de conversation ni ne vérifie les signatures des pre-keys ; voir la documentation de l'application.",
-  "@businessInfoBody": {"placeholders": {"orgName": {"type": "String"}}},
+  "@businessInfoBody": {
+    "placeholders": {
+      "orgName": {
+        "type": "String"
+      }
+    }
+  },
   "orgErrorGeneric": "Une erreur s'est produite ({code}).",
-  "@orgErrorGeneric": {"placeholders": {"code": {"type": "String"}}},
-  "hubErrorAuditRecipientMissing": "Ce message n'a pas pu être envoyé : le membre d'audit de l'organisation est absent de cette conversation."
+  "@orgErrorGeneric": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "hubErrorAuditRecipientMissing": "Ce message n'a pas pu être envoyé : le membre d'audit de l'organisation est absent de cette conversation.",
+  "emergencyTitle": "Canal d'urgence",
+  "emergencyKitsTitle": "Kits d'urgence",
+  "emergencyIssueKit": "Émettre un kit",
+  "emergencyKitLabelField": "Libellé",
+  "emergencyKitCountField": "Nombre de codes",
+  "emergencyCodesWarning": "Ces codes ne s'affichent qu'une seule fois et ne peuvent plus être récupérés. Enregistrez-les maintenant.",
+  "emergencyRecoveryCode": "Code de récupération : {code}",
+  "@emergencyRecoveryCode": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "emergencyCopyAll": "Tout copier",
+  "emergencyShare": "Partager",
+  "emergencyRevokeKit": "Révoquer",
+  "emergencyKitRevoked": "Révoqué",
+  "emergencyCodesRemaining": "{remaining}/{total} codes restants",
+  "@emergencyCodesRemaining": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyStartDrill": "Démarrer l'exercice",
+  "emergencyDrillsTitle": "Exercices",
+  "emergencyDrillStarted": "Exercice démarré",
+  "emergencyDrillConfirmed": "{count} confirmé(s)",
+  "@emergencyDrillConfirmed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emergencyCompleteDrill": "Terminer l'exercice",
+  "emergencyExportProof": "Exporter la preuve",
+  "emergencyHaveCode": "J'ai un code d'urgence",
+  "emergencyEnrollCodeLabel": "Code d'urgence",
+  "emergencyEnrollButton": "S'inscrire",
+  "emergencyEnrollFailed": "Impossible de s'inscrire. Vérifiez le code et réessayez.",
+  "emergencyEnrollSuccess": "Inscrit — ouverture de la conversation d'urgence",
+  "emergencyDrillPromptTitle": "Exercice d'urgence",
+  "emergencyDrillPromptBody": "Veuillez confirmer que vous avez reçu ce message.",
+  "emergencyDrillConfirmButton": "Confirmer"
 }
