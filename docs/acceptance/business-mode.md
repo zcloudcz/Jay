@@ -28,7 +28,8 @@ Integrační větev `business/base` (lokální, nepushnutá). Základ: `feat/bot
 | End-to-end nouzový enrollment (E07) | NOT_RUN |
 | UI průchod na zařízení (banner KB1, auditor bez akce odebrání, obrazovka organizace) | NOT_RUN — ruční |
 | Nasazení na betu | **PASS** — 2026-09-18, `25b5844`, [run 35337715526](https://github.com/zcloudcz/Jay/actions/runs/35337715526): testy, API, 5 klientských buildů, deploy API + web, smoke. Po deployi `/health/ready` 200, web 200. Business režim při deployi vypnutý; anonymní Jay beze změny |
-| Zapnutí Business režimu na betě | **PASS (čtení)** — 2026-09-18: DB `calltype_audit` + role dle `audit-roles.sql`, `ConnectionStrings__Audit` (app role), migrace ručně jako ops (`AuditMigrations` v App Service záměrně nenastaven). Autentizovaný `GET /orgs/mine` → 200 `[]`. Zápis do auditu na betě NOT_RUN. **Nasazený webový klient má chyby níže → obrazovka organizace na betě nefunguje do dalšího deploye** |
+| Zapnutí Business režimu na betě | **PASS (čtení)** — 2026-09-18: DB `calltype_audit` + role dle `audit-roles.sql`, `ConnectionStrings__Audit` (app role), migrace ručně jako ops (`AuditMigrations` v App Service záměrně nenastaven). Autentizovaný `GET /orgs/mine` → 200 `[]`. Zápis do auditu na betě NOT_RUN. Klient s chybami níže byl na betě jen mezi deployi `25b5844` a `9e0f7ae` |
+| Nasazení oprav klienta | **PASS** — 2026-09-18, `9e0f7ae`, [run 35347457939](https://github.com/zcloudcz/Jay/actions/runs/35347457939) (testy, buildy, deploy, smoke); `/health/ready` 200, web 200. Obrazovka organizace na betě po opravě ručně NOT_RUN |
 
 ## Kontrakty — stav
 
