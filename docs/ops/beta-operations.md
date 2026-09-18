@@ -32,6 +32,15 @@ a samostatné kontroly zálohy/certifikátu/TURN, ne jen `/health`.
   message ani stack trace (typicky connection string bývá v `Npgsql` výjimkách — ověřit, že
   middleware chyby loguje bez tohoto detailu do veřejně čitelných logů).
 
+## security.txt (N04)
+
+Volitelné app setting `Security__ContactUri` řídí `GET /.well-known/security.txt`
+(RFC 9116) — prázdné/nenastavené = endpoint vrací 404 (raději žádný soubor
+než chybný kontakt). Skutečný bezpečnostní kontakt zatím není určen, viz
+`docs/security/incident-response.md` §3 — nenastavovat, dokud nebude znám.
+Není v `infra/beta-appservice.bicep`; doplnit ručně v App Service konfiguraci,
+až bude kontakt k dispozici.
+
 ## Postupy při incidentu
 
 Každý postup: detekce → read-only diagnóza → povolená náprava → rollback → potvrzení obnovení.

@@ -1,0 +1,8 @@
+# RFC 9116 security.txt — TODO(owner): fill in the real contact before publishing.
+# The contact is not known yet (see docs/security/incident-response.md, §3);
+# do not invent an address. Once known, uncomment and fill the line below and
+# remove this comment block.
+#
+# Contact: mailto:TODO(owner): security contact e-mail
+# Expires: 2027-09-18T00:00:00Z
+# Preferred-Languages: cs, en
