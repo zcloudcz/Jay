@@ -25,6 +25,7 @@ Integrační větev `business/base` (lokální, nepushnutá). Základ: `feat/bot
 | `calltype` analyze + gen-l10n + test (vč. ARB parity 19 jazyků) | 188/188 PASS |
 | `jay_archiver` analyze + test | 10/10 PASS |
 | End-to-end (klient ↔ reálný server, archivátor běžící, nouzový enrollment) | NOT_RUN |
+| Nasazení na betu | **PASS** — 2026-09-18, `25b5844`, [run 35337715526](https://github.com/zcloudcz/Jay/actions/runs/35337715526): testy, API, 5 klientských buildů, deploy API + web, smoke. Po deployi `/health/ready` 200, web 200. Business režim **vypnutý** (`ConnectionStrings__Audit` nenastaven) — ověřeno jen, že anonymní Jay běží beze změny; business endpointy na betě NOT_RUN |
 
 ## Kontrakty — stav
 
