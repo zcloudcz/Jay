@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:calltype_core/auth/auth_service.dart';
 import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/network/mfa_api.dart';
+import 'package:calltype_core/storage/secret_store.dart';
 import 'package:dio/dio.dart';
 import 'package:test/test.dart';
 
@@ -17,6 +19,9 @@ class _FakeServer implements HttpClientAdapter {
   final Map<String, (int, Object?)> _routes;
   final requests = <String, String?>{};
 
+  /// The Authorization header each request actually went out with.
+  final authorization = <String, String?>{};
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -24,6 +29,7 @@ class _FakeServer implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     final key = '${options.method} ${options.path}';
+    authorization[key] = options.headers['Authorization'] as String?;
     final bytes = requestStream == null
         ? <int>[]
         : (await requestStream.toList()).expand((chunk) => chunk).toList();
@@ -110,6 +116,34 @@ void main() {
     });
 
     expect(await api.confirmMfaEnrollment('acc-1', '123456'), codes);
+  });
+
+  test('with a real AuthService the step-up token still wins over the device token', () async {
+    // Found by the live E2E run: the client is always built WITH an
+    // AuthService in the app and in bots; its interceptor wrote the normal
+    // device token over the step-up one, so admin calls kept answering
+    // mfa_required. The other tests here build the client without one.
+    final now = DateTime.utc(2026, 9, 18, 12, 0, 0);
+    final server = _FakeServer({
+      'POST /accounts/acc-1/mfa/verify': (200, {
+        'token': 'stepup-jwt',
+        'expiresAt': now.add(const Duration(minutes: 15)).toIso8601String(),
+      }),
+      'GET /orgs/org-1/emergency/kits': (200, <Object>[]),
+    });
+    final dio = Dio(BaseOptions(baseUrl: 'http://test'))..httpClientAdapter = server;
+    final api = ApiClient(
+      baseUrl: 'http://test',
+      dio: dio,
+      authService: _FixedTokenAuthService('device-jwt'),
+      now: () => now,
+    );
+
+    await api.verifyMfa('acc-1', code: '654321');
+    expect(server.authorization['POST /accounts/acc-1/mfa/verify'], 'Bearer device-jwt');
+
+    await api.transport.get<List<dynamic>>('/orgs/org-1/emergency/kits');
+    expect(server.authorization['GET /orgs/org-1/emergency/kits'], 'Bearer stepup-jwt');
   });
 
   test('verifyMfa stashes the step-up token so the NEXT request carries it', () async {
@@ -246,4 +280,22 @@ void main() {
 
     expect(mfaErrorCode(caught!), 'mfa_locked');
   });
+}
+
+class _NoStore extends SecretStore {
+  @override
+  Future<String?> read(String key) async => null;
+  @override
+  Future<void> write(String key, String value) async {}
+  @override
+  Future<void> delete(String key) async {}
+}
+
+/// An AuthService that always hands out the same device token — enough to put
+/// the real `_AuthInterceptor` into the interceptor chain.
+class _FixedTokenAuthService extends AuthService {
+  _FixedTokenAuthService(this._token) : super(secureStorage: _NoStore(), baseUrl: 'http://unused');
+  final String _token;
+  @override
+  Future<String?> getToken({bool forceRefresh = false}) async => _token;
 }

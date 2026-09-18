@@ -27,12 +27,16 @@ class ApiClient {
     DateTime Function() now = DateTime.now,
   }) : _dio = dio ?? Dio(BaseOptions(baseUrl: baseUrl)),
        _now = now {
-    // The step-up interceptor must run BEFORE the auth one so it can
-    // override the Bearer header the auth interceptor would otherwise set.
-    _dio.interceptors.add(_StepUpInterceptor(this));
+    // Dio runs request interceptors in the order they were added, and the
+    // LAST one to write the Authorization header wins. The step-up interceptor
+    // therefore goes AFTER the auth one: added first, its header was silently
+    // overwritten by the normal device token and every admin call kept
+    // answering mfa_required (found by the live E2E run — the contract tests
+    // had built the client without an AuthService and could not see it).
     if (authService != null) {
       _dio.interceptors.add(_AuthInterceptor(authService, _dio));
     }
+    _dio.interceptors.add(_StepUpInterceptor(this));
   }
 
   final Dio _dio;
