@@ -123,7 +123,7 @@ public static class PrivacyEndpoints
     // -----------------------------------------------------------------------
     private static async Task<IResult> DeleteAccount(
         Guid accountId, [FromBody] DeleteAccountRequest request, ClaimsPrincipal user, AppDbContext db,
-        BlobServiceClient blobService, ChannelService channels,
+        BlobServiceClient blobService, ChannelService channels, ILoggerFactory loggerFactory,
         BusinessModeOptions businessMode, HttpContext http, CancellationToken ct)
     {
         if (!await AccountEndpoints.IsLinkedAsync(user, accountId, db, ct)) return Results.Forbid();
@@ -187,9 +187,11 @@ public static class PrivacyEndpoints
 
         // Blob deletion runs AFTER the DB commit: if it fails here the account
         // is already gone and cannot be un-deleted to retry cleanly, so a
-        // failure is logged (by BlobServiceClient's own diagnostics / caller)
-        // and left as an orphaned blob for manual/ops cleanup rather than
-        // resurrecting account state to paper over a storage hiccup.
+        // failure leaves an orphaned blob for ops cleanup rather than
+        // resurrecting account state to paper over a storage hiccup. It MUST
+        // be logged: the blob is an (encrypted) backup of a data subject who
+        // asked to be erased, and nothing else would ever point at it again.
+        var logger = loggerFactory.CreateLogger("CallType.Api.Privacy");
         var containerClient = blobService.GetBlobContainerClient(BackupContainerName);
         foreach (var blobPath in backupBlobPaths)
         {
@@ -200,10 +202,12 @@ public static class PrivacyEndpoints
             {
                 await containerClient.GetBlobClient(relativePath).DeleteIfExistsAsync(cancellationToken: ct);
             }
-            catch
+            catch (Exception ex)
             {
                 // Best-effort: the account row is already committed as deleted.
-                // Swallowing here is deliberate — see the comment above.
+                // The path holds ids only (no e-mail, no content).
+                logger.LogError(ex, "Backup blob {BlobPath} of deleted account {AccountId} could not be removed; delete it manually.",
+                    relativePath, accountId);
             }
         }
 
