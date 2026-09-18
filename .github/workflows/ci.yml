@@ -38,6 +38,13 @@ jobs:
           name: backend-test-results
           path: TestResults
           retention-days: 14
+      # N06: dotnet list --vulnerable exits 0 even when it finds something,
+      # so infra/ci/check-dotnet-vulnerable.sh parses its output and fails
+      # explicitly. Same script runs locally — see docs/security/vulnerability-management.md.
+      - name: Fail on known vulnerable NuGet packages (N06)
+        run: |
+          chmod +x infra/ci/check-dotnet-vulnerable.sh
+          infra/ci/check-dotnet-vulnerable.sh src/server/CallType.Api src/server/CallType.Audit src/server/CallType.Api.Tests
 
   flutter:
     runs-on: ubuntu-latest
@@ -87,6 +94,22 @@ jobs:
       - run: dart run build_runner build --delete-conflicting-outputs
       - run: flutter analyze
       - run: flutter test
+      # N06: OSV-Scanner over every pub lockfile. The action's own CLI fails
+      # (non-zero exit) as soon as it finds a known vulnerability that isn't
+      # in osv-scanner.toml's dated allow-list — that failure blocks this job.
+      # `uses:` steps ignore the job's `defaults.run.working-directory` (that
+      # only applies to `run:` steps), so paths here are relative to the repo
+      # root, not to src/client/calltype like the steps above.
+      - name: OSV-Scanner over Dart/Flutter lockfiles (N06)
+        uses: google/osv-scanner-action/osv-scanner-action@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
+        with:
+          scan-args: |-
+            --lockfile=./src/client/calltype/pubspec.lock
+            --lockfile=./src/client/calltype_core/pubspec.lock
+            --lockfile=./src/bots/calltype_bot/pubspec.lock
+            --lockfile=./src/bots/hermes_bridge/pubspec.lock
+            --lockfile=./src/bots/jay_archiver/pubspec.lock
+            --config=./osv-scanner.toml
 
   # Bicep lint gate: any change under infra/ must at least compile. This does
   # NOT run `az deployment ... what-if` or touch Azure — that stays a manual,

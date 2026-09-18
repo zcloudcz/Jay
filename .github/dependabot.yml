@@ -1,0 +1,64 @@
+# N06 (docs/superpowers/plans/2026-09-18-nis2-auditovatelnost.md, §3): weekly
+# dependency update PRs, one ecosystem entry per package directory since
+# Dependabot's `pub` support looks at a single directory, not a workspace.
+version: 2
+updates:
+  - package-ecosystem: "nuget"
+    directory: "/src/server"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pub"
+    directory: "/src/client/calltype"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pub"
+    directory: "/src/client/calltype_core"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pub"
+    directory: "/src/bots/calltype_bot"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pub"
+    directory: "/src/bots/hermes_bridge"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "pub"
+    directory: "/src/bots/jay_archiver"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
