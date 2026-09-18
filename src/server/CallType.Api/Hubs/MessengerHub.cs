@@ -105,10 +105,27 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         if (encryptedPayloads.Count > 256)
             throw new HubException("Group message exceeds maximum member count");
         var sender = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
-        var members = await db.GroupMembers.Where(m => m.GroupId == groupId)
-            .Select(m => m.DeviceId).ToListAsync(Context.ConnectionAborted);
+        // Single query carries both membership and the auditor lookup (KB2) —
+        // Group.OrganizationId and Role come along for free on each row, so
+        // enforcing KB2 costs no extra round trip over the membership check
+        // that already existed here.
+        var membership = await db.GroupMembers.Where(m => m.GroupId == groupId)
+            .Select(m => new { m.DeviceId, m.Role, m.Group.OrganizationId }).ToListAsync(Context.ConnectionAborted);
+        var members = membership.Select(m => m.DeviceId).ToList();
         if (!members.Contains(sender) || encryptedPayloads.Keys.Any(id => !members.Contains(id)))
             throw new HubException("Sender and recipients must be group members");
+        // KB2 — server-side enforcement: a business group's fan-out must
+        // always include a payload for the organization's auditor device, or
+        // the message would never reach the archive. The auditor row is
+        // added atomically with the group (BusinessGroupService), so its
+        // absence here means either not a business group (OrganizationId ==
+        // null, skip) or a bug/tamper attempt.
+        if (membership.Count > 0 && membership[0].OrganizationId is not null)
+        {
+            var auditorDeviceId = membership.SingleOrDefault(m => m.Role == "auditor")?.DeviceId;
+            if (auditorDeviceId is null || !encryptedPayloads.ContainsKey(auditorDeviceId.Value))
+                throw new HubException("audit_recipient_missing");
+        }
         var decoded = encryptedPayloads.Where(p => p.Key != sender)
             .ToDictionary(p => p.Key, p => DecodePayload(p.Value));
         var messages = new List<QueuedMessage>();

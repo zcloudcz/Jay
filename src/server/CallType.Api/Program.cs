@@ -22,6 +22,7 @@ using CallType.Api.Data;
 using CallType.Api.Endpoints;
 using CallType.Api.Hubs;
 using CallType.Api.Services;
+using CallType.Audit.Application;
 using CallType.Audit.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -122,12 +123,15 @@ if (businessModeEnabled)
     builder.Services.AddDbContext<AuditDbContext>(options =>
         options.UseNpgsql(auditConnectionString));
 
-    // Organization context (E01). IDeliveryDirectory/IEnrollmentRevokedHandler
-    // are the seams CallType.Audit uses to reach Delivery data/behavior
-    // without ever referencing AppDbContext directly (KB3). The no-op
-    // revocation handler is overridden once E02 registers its real one.
+    // Organization context (E01) + business groups (E02). IDeliveryDirectory
+    // is the seam CallType.Audit uses to look up Delivery data without ever
+    // referencing AppDbContext (KB3). BusinessGroupService is the real
+    // IEnrollmentRevokedHandler: revoking an enrollment removes the device
+    // from the organization's groups. Everything here is registered only when
+    // business mode is on, so nothing resolves it in an anonymous deployment.
     builder.Services.AddScoped<CallType.Audit.Application.IDeliveryDirectory, DeliveryDirectory>();
-    builder.Services.AddSingleton<CallType.Audit.Application.IEnrollmentRevokedHandler, CallType.Audit.Application.NoOpEnrollmentRevokedHandler>();
+    builder.Services.AddScoped<BusinessGroupService>();
+    builder.Services.AddScoped<IEnrollmentRevokedHandler>(sp => sp.GetRequiredService<BusinessGroupService>());
     builder.Services.AddScoped<CallType.Audit.OrgManagement.OrganizationAppService>();
 }
 

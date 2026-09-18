@@ -585,6 +585,88 @@ public class MessengerHubTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task Business_group_fanout_without_auditor_payload_is_rejected_and_nothing_is_queued()
+    {
+        // KB2 — server-side enforcement: a business group's fan-out MUST name
+        // the org's auditor device, or the message would never be archived.
+        var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
+        var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
+        var auditor = Guid.NewGuid();
+        var group = Guid.NewGuid();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Groups.Add(new Group { GroupId = group, CreatedBy = sender, CreatedAt = DateTimeOffset.UtcNow, OrganizationId = Guid.NewGuid() });
+            db.GroupMembers.AddRange(
+                new GroupMember { GroupId = group, DeviceId = sender, Role = "admin" },
+                new GroupMember { GroupId = group, DeviceId = recipient, Role = "member" },
+                new GroupMember { GroupId = group, DeviceId = auditor, Role = "auditor" });
+            await db.SaveChangesAsync();
+        }
+        await using var sending = CreateHubConnection(sender, senderToken);
+        await sending.StartAsync();
+        var id = Guid.NewGuid();
+
+        // Act — a payload that omits the auditor must be rejected outright.
+        var send = () => sending.InvokeAsync("SendReliableGroupMessage", group, id,
+            new Dictionary<Guid, string> { [recipient] = "AQI=" });
+        await send.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>();
+
+        using var verify = Factory.Services.CreateScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var written = await verifyDb.QueuedMessages.AsNoTracking().Where(m => m.MessageId == id).CountAsync();
+        written.Should().Be(0, "a rejected KB2 fan-out must not partially persist any recipient's message");
+
+        await sending.StopAsync();
+    }
+
+    [Fact]
+    public async Task Business_group_fanout_with_auditor_payload_delivers_to_everyone_exactly_once()
+    {
+        var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
+        var (recipient, recipientToken) = await RegisterDeviceAndGetTokenAsync();
+        var (auditor, auditorToken) = await RegisterDeviceAndGetTokenAsync();
+        var group = Guid.NewGuid();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Groups.Add(new Group { GroupId = group, CreatedBy = sender, CreatedAt = DateTimeOffset.UtcNow, OrganizationId = Guid.NewGuid() });
+            db.GroupMembers.AddRange(
+                new GroupMember { GroupId = group, DeviceId = sender, Role = "admin" },
+                new GroupMember { GroupId = group, DeviceId = recipient, Role = "member" },
+                new GroupMember { GroupId = group, DeviceId = auditor, Role = "auditor" });
+            await db.SaveChangesAsync();
+        }
+        await using var sending = CreateHubConnection(sender, senderToken);
+        await using var receiving = CreateHubConnection(recipient, recipientToken);
+        await using var auditing = CreateHubConnection(auditor, auditorToken);
+        var recipientMsg = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var auditorMsg = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        receiving.On<JsonElement>("ReceiveMessage", m => recipientMsg.TrySetResult(m));
+        auditing.On<JsonElement>("ReceiveMessage", m => auditorMsg.TrySetResult(m));
+        await sending.StartAsync();
+        await receiving.StartAsync();
+        await auditing.StartAsync();
+        var id = Guid.NewGuid();
+
+        await sending.InvokeAsync("SendReliableGroupMessage", group, id,
+            new Dictionary<Guid, string> { [recipient] = "AQI=", [auditor] = "AQI=" });
+
+        (await recipientMsg.Task.WaitAsync(TimeSpan.FromSeconds(10))).GetProperty("messageId").GetGuid().Should().Be(id);
+        (await auditorMsg.Task.WaitAsync(TimeSpan.FromSeconds(10))).GetProperty("messageId").GetGuid().Should().Be(id);
+
+        using var verify = Factory.Services.CreateScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var forAuditor = await verifyDb.QueuedMessages.AsNoTracking()
+            .Where(m => m.RecipientId == auditor && m.MessageId == id).CountAsync();
+        forAuditor.Should().Be(1, "the auditor must be delivered to exactly once, like any other recipient");
+
+        await sending.StopAsync();
+        await receiving.StopAsync();
+        await auditing.StopAsync();
+    }
+
+    [Fact]
     public async Task Attachment_sized_encoded_payload_is_queued_and_oversize_is_rejected()
     {
         var (sender, token) = await RegisterDeviceAndGetTokenAsync();

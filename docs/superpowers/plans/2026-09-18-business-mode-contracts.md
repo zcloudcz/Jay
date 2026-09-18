@@ -275,6 +275,39 @@ namespace is `CallType.Audit.OrgManagement`, not `CallType.Audit.Organization`
 (`CS0118: Organization is a namespace but is used like a type`) once a
 sibling namespace shares that name. Folder path and namespace are
 intentionally different here.
+## E02 additions — business groups in Delivery, KB1/KB2 enforcement
+
+- `IEnrollmentRevokedHandler` (`CallType.Audit.Application`, defined by E02
+  since E01 hadn't shipped it yet): `Task OnEnrollmentRevokedAsync(Guid organizationId, Guid deviceId, CancellationToken)`.
+  Implemented by `CallType.Api.Services.BusinessGroupService`, registered in DI
+  (both as itself and as `IEnrollmentRevokedHandler`) only when
+  `BusinessModeOptions.Enabled` — E01 resolves it via `IEnrollmentRevokedHandler`
+  when it revokes an `OrgEnrollment`.
+- `POST /groups/business` — a **new, separate** endpoint (not a field added to
+  the existing `POST /groups`), so the anonymous path is untouched. Body:
+  `{ organizationId: Guid, memberDeviceIds: Guid[]? }` (caller device is always
+  added, same as `/groups`). A business 1:1 is the same call with one other
+  member. Responses: `201` with `{ groupId }` (auditor device added with
+  `Role = "auditor"` in the same `SaveChangesAsync` as the group); `503
+  { error: "business_mode_disabled" }`; `409 { error: "auditor_not_configured" }`
+  when `Organization.AuditorDeviceId` is null; `403` when a member (or the
+  caller) is not actively enrolled (`OrgEnrollment.RevokedAt == null`) in that
+  organization; `400 { error: "too_many_members" | "device_not_found" }`.
+- `PUT /groups/{id}/members` now also enforces enrollment when the target
+  group has `OrganizationId != null`: `403` if the device isn't actively
+  enrolled in that organization.
+- `DELETE /groups/{id}/members/{deviceId}` — new `409 { error: "auditor_immutable" }`
+  when `deviceId`'s `GroupMember.Role == "auditor"` (KB1: checked before the
+  existing last-admin check).
+- Hub `SendReliableGroupMessage`/`SendGroupMessage`: when the target group has
+  `OrganizationId != null`, `encryptedPayloads` MUST contain an entry for the
+  group's `"auditor"` member, or the call throws
+  `HubException("audit_recipient_missing")` before any `QueuedMessage` is
+  persisted (KB2). Cost: the existing membership query now also selects
+  `Role` and `Group.OrganizationId` — no extra round trip. `TypingIndicator`
+  and `CallSignal` carry no per-recipient encrypted payload, so KB2 does not
+  apply to them; attachments go through the same `SendReliableGroupMessage`
+  path as any other encrypted payload, so they're covered.
 
 ## HashChain rules added in B00 review
 
