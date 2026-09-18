@@ -1,0 +1,20 @@
+name: jay_archiver
+description: "Headless archiver device for Jay Business mode (E03): joins organization groups as the auditor, decrypts in memory, and writes metadata-only audit records. Pure Dart, no Flutter SDK."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  calltype_core:
+    path: ../../client/calltype_core
+  calltype_bot:
+    path: ../calltype_bot
+  dio: ^5.9.2
+  crypto: ^3.0.7
+  drift: ^2.33.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^6.0.0
