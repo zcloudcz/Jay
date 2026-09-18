@@ -36,6 +36,16 @@ public class EmergencyAppService(AuditDbContext db)
         if (string.IsNullOrWhiteSpace(label) || label.Length > 200 || label.Contains('') || label.Contains('\0'))
             throw new DomainRuleViolation("invalid_label", "Invalid label.");
 
+        // Checked BEFORE anything is written: the emergency group is a business
+        // group and cannot exist without its auditor (KB1). This database is
+        // append-only, so a kit written ahead of a failing precondition would
+        // stay forever — with codes nobody was ever shown — and appear in the
+        // proof export.
+        var hasAuditor = await db.Organizations
+            .AnyAsync(o => o.OrganizationId == organizationId && o.AuditorDeviceId != null, ct);
+        if (!hasAuditor)
+            throw new DomainRuleViolation("auditor_not_configured", "Organization has no auditor device configured yet.");
+
         var kitId = Guid.NewGuid();
         var recoveryCode = EmergencyCodes.Generate();
         var kit = new EmergencyKit(kitId, organizationId, EmergencyCodes.Hash(recoveryCode), label.Trim(), now);

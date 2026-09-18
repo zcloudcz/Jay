@@ -69,6 +69,32 @@ public class EmergencyEndpointsTests : IntegrationTestBase
         Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
     [Fact]
+    public async Task Issuing_a_kit_without_an_auditor_is_rejected_and_stores_nothing()
+    {
+        // Found by the live E2E run: the 409 used to come AFTER the kit had been
+        // written, leaving an orphan kit (codes nobody ever saw) in the
+        // append-only audit database and in the proof export.
+        var (adminDeviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var (orgId, _) = await SeedOrgWithAdminAsync(adminDeviceId);
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
+            (await db.Organizations.SingleAsync(o => o.OrganizationId == orgId)).AuditorDeviceId = null;
+            await db.SaveChangesAsync();
+        }
+
+        var response = await Client.PostAsJsonAsync($"/orgs/{orgId}/emergency/kits", new { label = "too early", count = 2 });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString()
+            .Should().Be("auditor_not_configured");
+        using var verify = Factory.Services.CreateScope();
+        var auditDb = verify.ServiceProvider.GetRequiredService<AuditDbContext>();
+        (await auditDb.EmergencyKits.AnyAsync(k => k.OrganizationId == orgId)).Should().BeFalse();
+        (await auditDb.EmergencyEnrollmentCodes.AnyAsync(c => c.OrganizationId == orgId)).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task Issuing_a_kit_stores_only_hashes_never_the_plaintext_codes()
     {
         var (adminDeviceId, adminToken, _) = await RegisterAndAuthenticateAsync();
