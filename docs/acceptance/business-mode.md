@@ -110,3 +110,43 @@ Sloučeno do `feat/bots-channels`, **nenasazeno**. Na sloučeném stromu: backen
 `b3e6ad7`, [run 35371895476](https://github.com/zcloudcz/Jay/actions/runs/35371895476): testy, API, 5 klientských buildů, deploy API + web a smoke PASS; migrace `AccountMfa` (hlavní DB) proběhla při startu. Po deployi `/health/ready` 200, web 200, `/.well-known/security.txt` 200 s kontaktem vlastníka. Na betě předem: `audit-roles-upgrade-2026-09-18.sql` a `Mfa__EncryptionKey` (provedl vlastník). Run je celkově červený jen kvůli novému jobu `sbom-dart` (špatný název formátu `cyclonedx-1.5` → `cyclonedx-1-5`, opraveno); na nasazení nemá vliv. CI run 35371900486 (poprvé s OSV-Scannerem a kontrolou NuGet zranitelností) PASS.
 
 Zpětná vazba z bety (vlastník, video hovor, relay ON i OFF): první hovor se naváže, druhý většinou ne; spojení pomalé, video trhané; chat, párování a QR v pořádku. Příčina druhého hovoru: `SessionOverlay` čekal na dokončení `router.push()`, které `go_router` 17 po `context.go()` nikdy nedokončí → příznak „obrazovka hovoru je otevřená" zůstal viset. Opraveno v `60d261e` (+ regresní test, + omezení snímání videa na 640×480/24 fps). Nasazení opravy: NOT_RUN. Pomalé navazování spojení: neanalyzováno.
+
+## N03 — MFA (2026-09-18)
+
+Balíček N03 dokončen ve třech vrstvách: N03a/b (server — enrollment, verify,
+step-up token, vynucení na `OrganizationEndpoints`/`EmergencyEndpoints`),
+N03c (`calltype_core`: `mfa_api.dart`, `withMfa`), N03d (tato vrstva —
+Flutter app).
+
+**Hotovo:**
+- Sekce „Dvoufázové ověření" na obrazovce organizace (`mfa_section.dart`):
+  stav, enrollment (heslová fráze → QR/secret → potvrzení kódem → 10
+  záložních kódů zobrazených jen jednou), vypnutí, regenerace záložních kódů.
+- `OrganizationController` i `EmergencyController` obalují každé
+  administrátorské volání pomocí `withMfa` přes společný `_run` — 403
+  `mfa_required` otevře dialog (`mfa_flow.dart`); zrušení dialogu vede na
+  klidný uzamčený stav (`MfaLockedPlaceholder`, tlačítko „Odemknout"), nikdy
+  na syrovou chybu ani smyčku dialogů. Běžný člen (bez admin role) žádný
+  dialog nikdy nevidí — `load()` se pro něj vůbec nedotazuje na
+  administrátorská data.
+- Neenrollovaný účet: dialog nejprve vysvětlí, že administrace organizace
+  vyžaduje dvoufázové ověření, a provede enrollmentem, než požádá o čerstvý
+  kód a zopakuje původní akci (přesně jednou).
+- 35 nových ARB klíčů, přeloženo do všech 19 jazyků (strojově, česky
+  přirozeně).
+- Testy: `mfa_controller_test.dart` (enrollment, špatný kód, zámek),
+  `organization_mfa_test.dart` (retry po ověření, zámek při zrušení, běžný
+  člen bez promptu) — `flutter analyze` čistý, `flutter test` 200/200
+  (`calltype`), 140/140 (`calltype_core`).
+
+**NEBYLO spuštěno / chybí:**
+- Widget test celého dialogového toku (QR obrazovka, skenování, apod.) —
+  pouze na úrovni controlleru s fake HTTP adaptérem, ne přes skutečné
+  `pumpWidget` s dialogy.
+- Živé E2E proti docker-compose s reálným MFA na botech NOT_RUN zde (dělá
+  integrátor) — `enrollAndVerifyMfa()` je zapojen do
+  `business_mode_e2e_test.dart` a `emergency_enrollment_e2e_test.dart`.
+- Ruční přejímka UI na zařízení NOT_RUN.
+- `updateOrganization`/`removeOrganizationMember`/`getAuditArchiveStatus` v
+  `calltype_core` nemají dosud žádné volání z UI (obrazovka je nenabízí) —
+  nic k obalení `withMfa`, ale až budou přidány, musí jít stejnou cestou.

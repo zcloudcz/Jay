@@ -64,3 +64,24 @@ Postup:
 
 Náhradní osoba pro tento postup není určena — zapsáno jako známé riziko
 (stejně jako u kontaktu pro `security.txt`).
+
+## Jak si to admin zapne v aplikaci
+
+Na obrazovce organizace (jen pro Owner/OrgAdmin/AuditorApprover) je sekce
+„Dvoufázové ověření". Zapnutí: heslová fráze účtu → naskenování QR kódu
+(nebo ruční zadání zobrazeného secretu) v autentikátoru → potvrzení 6místným
+kódem → 10 záložních kódů zobrazených **jen jednou** (je nutné je hned
+uložit — aplikace je znovu nezobrazí). Odtud jde ověření kdykoli vypnout
+(vyžaduje platný kód) nebo vygenerovat nové záložní kódy (vyžaduje čerstvé
+ověření).
+
+Jakmile má admin MFA zapnuté, každá administrátorská akce (nastavení
+auditora, pozvánky, role členů, export auditu, nouzové sady/cvičení) si při
+potřebě čerstvého ověření sama vyžádá dialog s 6místným kódem (nebo
+záložním kódem). Pokud MFA ještě zapnuté není, dialog to nejdřív vysvětlí a
+provede enrollmentem, než akci zopakuje.
+
+**Co uživatel vidí, když je uzamčeno:** pokud dialog zavře/zruší, obrazovka
+místo syrové chyby zobrazí klidný uzamčený stav s tlačítkem „Odemknout" —
+nikdy smyčku dialogů. Běžný člen organizace (bez administrátorské role)
+žádný z těchto dialogů nikdy nevidí.
