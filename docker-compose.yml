@@ -38,6 +38,11 @@ services:
       - Jwt__Secret=dev-secret-min-32-characters-long!!
       - Jwt__Issuer=CallType.Api
       - Turn__SharedSecret=dev-turn-secret
+      # TOTP MFA (N03a) secret-at-rest key — `openssl rand -base64 32` in production.
+      - Mfa__EncryptionKey=ZGV2LW1mYS1rZXktMzItYnl0ZXMtbG9jYWwtb25seSE=
+      # Local dev only: live E2E tests (src/bots/jay_archiver/test/e2e) make more
+      # than 10 "auth" calls/minute; production keeps the default (10).
+      - RateLimiting__AuthPermitLimit=60
     depends_on:
       db:
         condition: service_healthy

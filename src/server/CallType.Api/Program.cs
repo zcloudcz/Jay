@@ -83,6 +83,13 @@ else
 // No DbContext dependency, no mutable state.
 builder.Services.AddSingleton<JwtService>();
 
+// MFA (N03a): TimeProvider is injected everywhere time-of-check matters so
+// tests can control it; MfaEncryptionService/TotpService are singletons
+// (config read once resp. no state beyond the injected clock).
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<MfaEncryptionService>();
+builder.Services.AddSingleton<TotpService>();
+
 // MessageCleanupService runs hourly to bulk-delete expired queued messages.
 // Prevents unbounded storage growth from abandoned devices that never reconnect.
 builder.Services.AddHostedService<MessageCleanupService>();
@@ -208,6 +215,12 @@ builder.Services.AddCors(options =>
 // Two buckets: "api" for general endpoints (100 req/min) and "auth" for
 // authentication endpoints (10 req/min). The auth limiter is stricter to
 // slow down credential brute-force attempts.
+// Limits are configurable (default matches the previous hardcoded values) so
+// docker-compose can raise the "auth" limit for local live E2E runs — those
+// need more than 10 auth calls/minute — while production keeps the stricter
+// default. See RateLimiting__AuthPermitLimit in docker-compose.yml.
+var apiPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:ApiPermitLimit") ?? 100;
+var authPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:AuthPermitLimit") ?? 10;
 builder.Services.AddRateLimiter(options =>
 {
     options.AddPolicy("api", context =>
@@ -220,14 +233,14 @@ builder.Services.AddRateLimiter(options =>
             : $"device:{device}";
         return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 100, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+            PermitLimit = apiPermitLimit, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
         });
     });
     options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
         context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+            PermitLimit = authPermitLimit, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
         }));
 
     // 429 Too Many Requests — standard HTTP status for rate limiting.
@@ -315,6 +328,7 @@ app.MapAuthEndpoints();
 
 app.MapDeviceEndpoints();
 app.MapAccountEndpoints();
+app.MapMfaEndpoints();
 app.MapGroupEndpoints();
 app.MapBackupEndpoints();
 app.MapChannelEndpoints();

@@ -233,6 +233,11 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
 | `DELETE /devices/{deviceId}` | GDPR (N09): device forgets itself — keys, queue, memberships, channel activity, push token; 409 `device_is_auditor` if it is an organization's auditor | ✅ Done |
 | `DELETE /accounts/{accountId}` | GDPR (N09): account deletion (requires `authKey` proof, irreversible) — links, backups (DB + Blob), owned channels soft-deleted; 409 `account_owns_organization` | ✅ Done |
 | `GET /accounts/{accountId}/export` | GDPR (N09): everything the server holds about the account, JSON — see `docs/security/data-subject-rights.md` | ✅ Done |
+| `GET /accounts/{id}/mfa` | TOTP MFA status (`enabled`, `confirmedAt`, `backupCodesRemaining`) | ✅ Done |
+| `POST /accounts/{id}/mfa/enroll/start` / `.../enroll/confirm` | Start/confirm TOTP enrollment; confirm returns 10 one-time backup codes | ✅ Done |
+| `POST /accounts/{id}/mfa/verify` | Verify a TOTP or backup code, returns a short-lived step-up token (`amr=totp`) | ✅ Done |
+| `POST /accounts/{id}/mfa/backup-codes/regenerate` | Invalidate + reissue backup codes (requires a step-up token) | ✅ Done |
+| `POST /accounts/{id}/mfa/disable` | Disable MFA (requires a valid code) | ✅ Done |
 
 ## Conventions
 
