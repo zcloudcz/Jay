@@ -433,17 +433,19 @@ class CallTypeBot {
     // error path). Add a persistent outbox like the app's if this bites.
     for (var attempt = 1; ; attempt++) {
       try {
-        for (final entry in envelopes.entries) {
-          groupId == null
-              ? await _signalR.sendMessage(
-                  entry.key,
-                  entry.value,
-                  messageId: messageId,
-                )
-              : await _signalR.sendGroupMessage(groupId, {
-                  entry.key: entry.value,
-                }, messageId: messageId);
-        }
+        // Groups: the whole fan-out in one call (see sendGroupMessage) —
+        // a business group rejects any call without the auditor's envelope.
+        groupId == null
+            ? await _signalR.sendMessage(
+                envelopes.keys.single,
+                envelopes.values.single,
+                messageId: messageId,
+              )
+            : await _signalR.sendGroupMessage(
+                groupId,
+                envelopes,
+                messageId: messageId,
+              );
         return;
       } catch (_) {
         if (attempt == 3) rethrow;

@@ -3,6 +3,8 @@ import 'package:calltype_core/network/signalr_client.dart';
 import 'package:test/test.dart';
 
 void main() {
+  _groupFanOutTests();
+
   test('offline send fails instead of claiming successful delivery', () async {
     final client = SignalRClient(
       baseUrl: 'http://localhost',
@@ -93,6 +95,43 @@ void main() {
     ]);
     expect(notifications, 2);
   });
+}
+
+// KB2 (Business mode): the hub rejects any group call that lacks the auditor's
+// envelope, so a fan-out split into one call per recipient can never succeed
+// in a business group. Everything must travel in ONE call.
+void _groupFanOutTests() {
+  test('group fan-out goes out as ONE hub call carrying every recipient', () async {
+    final (client, transport) = await _connected();
+
+    await client.sendGroupMessage('g', {'bob': 'b', 'carol': 'c', 'auditor': 'a'}, messageId: 'm1');
+
+    expect(transport.invocations, [
+      ['SendReliableGroupMessage', 'g', 'm1', {'bob': 'b', 'carol': 'c', 'auditor': 'a'}],
+    ]);
+  });
+
+  test('a fan-out over the hub frame limit falls back to one call per recipient', () async {
+    final (client, transport) = await _connected();
+    final big = 'x' * (500 * 1024);
+
+    await client.sendGroupMessage('g', {'bob': big, 'carol': big}, messageId: 'm1');
+
+    expect(transport.invocations.map((i) => (i[3] as Map).keys.single), ['bob', 'carol']);
+  });
+}
+
+/// Connected client + its fake transport, for wire-contract tests.
+Future<(SignalRClient, _FakeTransport)> _connected() async {
+  late _FakeTransport transport;
+  final client = SignalRClient(
+    baseUrl: 'http://localhost',
+    deviceId: 'device',
+    transportFactory: (_, _) => transport = _FakeTransport(),
+  );
+  addTearDown(client.dispose);
+  await client.connect();
+  return (client, transport);
 }
 
 class _CountingClient extends SignalRClient {

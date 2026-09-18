@@ -75,12 +75,14 @@ void main() {
       await first.sendMessage('hello team');
       final failed = await alice.db.select(alice.db.messages).getSingle();
       expect(failed.status, 'failed');
-      expect(transport.envelopes.single.keys.toSet(), {'bob'});
+      // One hub call carries the whole fan-out (KB2 needs the auditor's
+      // envelope in every call, so it can never be split per recipient).
+      expect(transport.envelopes.single.keys.toSet(), {'bob', 'carol'});
       first.dispose();
       transport.fail = false;
       final second = controller();
       await second.retryMessage(failed.id);
-      expect(transport.ids, [failed.id, failed.id, failed.id]);
+      expect(transport.ids, [failed.id, failed.id]);
       expect(transport.envelopes[1], transport.envelopes[0]);
       expect(
         (await alice.db.select(alice.db.messages).getSingle()).status,

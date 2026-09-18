@@ -212,11 +212,13 @@ class ChatController extends ChangeNotifier {
           .cast<String, String>();
       final groupId = outbox['groupId'] as String?;
       if (groupId != null) {
-        for (final entry in envelopes.entries) {
-          await _signalR.sendGroupMessage(groupId, {
-            entry.key: entry.value,
-          }, messageId: messageId);
-        }
+        // The whole fan-out in one call (see sendGroupMessage): a business
+        // group rejects any call without the auditor's envelope (KB2).
+        await _signalR.sendGroupMessage(
+          groupId,
+          envelopes,
+          messageId: messageId,
+        );
       } else {
         await _signalR.sendMessage(
           envelopes.keys.single,

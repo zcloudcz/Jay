@@ -224,17 +224,35 @@ class SignalRClient {
   ///
   /// [groupId] is the group's UUID.
   /// [encryptedPayloads] maps deviceId -> base64 ciphertext for each
-  /// group member (each gets a uniquely encrypted copy).
+  /// group member (each gets a uniquely encrypted copy). Pass the WHOLE
+  /// fan-out: in a business group the hub rejects any call that lacks the
+  /// auditor's envelope (`audit_recipient_missing`, KB2), and one call is also
+  /// one server transaction — every recipient is queued, or none.
   Future<void> sendGroupMessage(
     String groupId,
     Map<String, String> encryptedPayloads, {
     String? messageId,
   }) async {
-    await _requireConnection().invoke(
-      messageId == null ? 'SendGroupMessage' : 'SendReliableGroupMessage',
-      <Object>[groupId, ?messageId, encryptedPayloads],
-    );
+    final connection = _requireConnection();
+    final size = encryptedPayloads.values.fold(0, (n, v) => n + v.length);
+    // ponytail: the hub accepts frames up to 1 MiB (Program.cs). A 256 KB
+    // attachment for 3+ members does not fit, so that case falls back to one
+    // call per recipient — fine in anonymous groups, but a business group
+    // then fails with audit_recipient_missing. Upgrade path: attachments as
+    // encrypted blobs instead of inline bodies.
+    final calls = size <= _maxFanOutChars
+        ? [encryptedPayloads]
+        : [for (final e in encryptedPayloads.entries) {e.key: e.value}];
+    for (final payloads in calls) {
+      await connection.invoke(
+        messageId == null ? 'SendGroupMessage' : 'SendReliableGroupMessage',
+        <Object>[groupId, ?messageId, payloads],
+      );
+    }
   }
+
+  /// Headroom under the hub's 1 MiB frame limit for JSON framing and ids.
+  static const _maxFanOutChars = 900 * 1024;
 
   Future<void> acknowledgeMessage(String senderId, String messageId) async {
     await _requireConnection().invoke(

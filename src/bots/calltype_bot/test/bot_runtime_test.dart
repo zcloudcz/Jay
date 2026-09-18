@@ -187,6 +187,10 @@ void main() {
     expect(seen.single.conversationId, groupId);
 
     final sends = hub.calls('SendReliableGroupMessage');
+    // ONE call for the whole group: a business group's hub rejects any call
+    // that lacks the auditor's envelope (KB2), so per-recipient calls would
+    // make the bot mute there.
+    expect(sends, hasLength(1));
     final recipients = {
       for (final s in sends) ...(s[2] as Map<String, String>).keys,
     };
