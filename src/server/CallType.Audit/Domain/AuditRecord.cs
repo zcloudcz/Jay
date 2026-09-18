@@ -12,6 +12,15 @@
 // computed once in the archiver's memory and immediately discarded (E03).
 // CiphertextForArchive stays null for ArchiveLevel.Metadata; it only gets a
 // value once E03b (ArchiveLevel.Full) exists.
+//
+// DetailsJson (H1) is the one deliberate exception to "plaintext never
+// stored at Metadata level": for kind "call-metadata" the body IS the
+// metadata the owner wants to read (who, with whom, how long, outcome) — it
+// contains no conversation content, so it is kept in clear rather than
+// reduced to a hash like every other kind. It is NOT part of the hash-chain
+// canonical form on its own (see AuditArchiveEndpoints.ComputeHash) —
+// integrity instead comes from ContentHash, which the endpoint verifies
+// equals SHA-256(UTF8(DetailsJson)) before ever storing it.
 // ---------------------------------------------------------------------------
 
 namespace CallType.Audit.Domain;
@@ -32,6 +41,10 @@ public class AuditRecord
     public long SizeBytes { get; private set; }
     public byte[] ContentHash { get; private set; } = [];
     public byte[]? CiphertextForArchive { get; private set; }
+
+    /// <summary>Clear-text structured metadata for kind "call-metadata"; null for every other kind.</summary>
+    public string? DetailsJson { get; private set; }
+
     public long Sequence { get; private set; }
     public byte[] PrevHash { get; private set; } = [];
     public byte[] Hash { get; private set; } = [];
@@ -42,7 +55,7 @@ public class AuditRecord
 
     public AuditRecord(Guid organizationId, Guid groupId, Guid messageId, Guid senderDeviceId,
         DateTimeOffset sentAt, DateTimeOffset archivedAt, string kind, long sizeBytes, byte[] contentHash,
-        byte[]? ciphertextForArchive, long sequence, byte[] prevHash, byte[] hash)
+        byte[]? ciphertextForArchive, long sequence, byte[] prevHash, byte[] hash, string? detailsJson = null)
     {
         OrganizationId = organizationId;
         GroupId = groupId;
@@ -57,5 +70,6 @@ public class AuditRecord
         Sequence = sequence;
         PrevHash = prevHash;
         Hash = hash;
+        DetailsJson = detailsJson;
     }
 }

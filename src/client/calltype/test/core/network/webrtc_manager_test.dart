@@ -22,7 +22,7 @@ class TestSignal extends SignalRClient {
   @override
   Stream<Map<String, dynamic>> get onCallSignal => signals.stream;
   @override
-  Future<void> sendCallSignal(String peer, String type, String payload) async {
+  Future<void> sendCallSignal(String peer, String type, String payload, {String? businessGroupId}) async {
     sent.add(type);
     payloads.add(payload);
     await onSend?.call(type);

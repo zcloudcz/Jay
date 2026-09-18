@@ -20,7 +20,7 @@ class _Signal extends SignalRClient {
   @override
   Stream<Map<String, dynamic>> get onCallSignal => signals.stream;
   @override
-  Future<void> sendCallSignal(String peer, String type, String payload) async {}
+  Future<void> sendCallSignal(String peer, String type, String payload, {String? businessGroupId}) async {}
 
   void offer(String callId) => signals.add({
     'senderId': 'caller',

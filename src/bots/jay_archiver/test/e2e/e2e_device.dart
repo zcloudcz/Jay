@@ -119,6 +119,36 @@ class E2eDevice {
     return messageId;
   }
 
+  /// H1: sends a "call-event" group message — the ordinary E2E message a
+  /// client sends into a business conversation when a call ends, fanned out
+  /// like `sendToGroup` but with a typed body instead of free text.
+  Future<String> sendCallEvent(
+    String groupId,
+    List<String> recipients,
+    Map<String, dynamic> details,
+  ) async {
+    final messageId = uuid();
+    final payload = jsonEncode({
+      'v': 1,
+      'id': messageId,
+      'body': jsonEncode(details),
+      'type': 'call-event',
+      'groupId': groupId,
+      'groupName': null,
+      'createdAt': DateTime.now().toUtc().toIso8601String(),
+    });
+    final encrypted = await GroupCipher(
+      sessionManager: sessions,
+      ensureSession: _ensureSession,
+    ).encryptForGroup(groupId, recipients, payload);
+    await signalR.sendGroupMessage(
+      groupId,
+      encrypted.map((id, bytes) => MapEntry(id, base64Encode(bytes))),
+      messageId: messageId,
+    );
+    return messageId;
+  }
+
   Future<void> close() async {
     signalR.close();
     await _db.close();

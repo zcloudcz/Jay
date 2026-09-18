@@ -18,6 +18,7 @@ class IncomingGroupMessage {
     required this.kind,
     required this.sizeBytes,
     required this.contentHashHex,
+    this.detailsJson,
   });
 
   final String messageId;
@@ -25,14 +26,19 @@ class IncomingGroupMessage {
   final String senderId;
   final DateTime sentAt;
 
-  /// "text" | "attachment" — call metadata is out of scope for E03-lite
-  /// (no call-signaling archival exists yet in the Delivery hub).
+  /// "text" | "attachment" | "call-metadata".
   final String kind;
   final int sizeBytes;
 
-  /// Lowercase hex SHA-256 of the plaintext (text) or of the decrypted
-  /// attachment envelope (attachment) — see ArchiveRecordRequest.ContentHash.
+  /// Lowercase hex SHA-256 of the plaintext (text/attachment) or of
+  /// [detailsJson] (call-metadata) — see ArchiveRecordRequest.ContentHash.
   final String contentHashHex;
+
+  /// H1: only set for kind "call-metadata" — the exact call-event body
+  /// string this was hashed from, sent verbatim as `details` so the
+  /// archive keeps it readable (owner decision: a call is metadata, not
+  /// content, so it is kept in clear rather than reduced to a hash).
+  final String? detailsJson;
 }
 
 /// The seam between "how we get plaintext to hash" and "what we do with the
@@ -141,11 +147,34 @@ class SignalGroupMessageSource implements GroupMessageSource {
 
       final body = payload['body'] as String;
       final type = payload['type'] as String? ?? 'text';
-      // Only "text" and "file" (the app's own wire types, see
-      // message_inbox_service.dart) exist today; anything else is an
-      // unsupported message this archiver version cannot hash meaningfully.
-      if (type != 'text' && type != 'file') {
+      // "text"/"file" are the app's own wire types (message_inbox_service.dart);
+      // "call-event" (H1) is a client-generated report of a finished/missed
+      // call. Anything else is an unsupported message this archiver version
+      // cannot hash meaningfully.
+      if (type != 'text' && type != 'file' && type != 'call-event') {
         throw FormatException('Unsupported message type "$type"');
+      }
+
+      final sentAt =
+          DateTime.tryParse(payload['createdAt'] as String? ?? '') ??
+          DateTime.now().toUtc();
+
+      if (type == 'call-event') {
+        // Strict validation — same discipline as an undecryptable message:
+        // a malformed call-event is not emitted (and so never acked), it is
+        // just logged by id and left for the server to redeliver.
+        _validateCallEventBody(body);
+        return IncomingGroupMessage(
+          messageId: messageId,
+          groupId: groupId,
+          senderId: senderId,
+          sentAt: sentAt,
+          kind: 'call-metadata',
+          sizeBytes: utf8.encode(body).length,
+          contentHashHex: crypto.sha256.convert(utf8.encode(body)).toString(),
+          // Verbatim — the server re-hashes this and must match contentHashHex.
+          detailsJson: body,
+        );
       }
 
       final int sizeBytes;
@@ -164,9 +193,7 @@ class SignalGroupMessageSource implements GroupMessageSource {
         messageId: messageId,
         groupId: groupId,
         senderId: senderId,
-        sentAt:
-            DateTime.tryParse(payload['createdAt'] as String? ?? '') ??
-            DateTime.now().toUtc(),
+        sentAt: sentAt,
         kind: type == 'file' ? 'attachment' : 'text',
         sizeBytes: sizeBytes,
         contentHashHex: crypto.sha256.convert(utf8.encode(body)).toString(),
@@ -185,4 +212,82 @@ class SignalGroupMessageSource implements GroupMessageSource {
   @override
   Future<void> ack({required String senderId, required String messageId}) =>
       _signalR.acknowledgeMessage(senderId, messageId);
+}
+
+// H1: the exact key set/enum rules the server (AuditArchiveEndpoints) also
+// checks — kept identical on both sides so "well-formed" means the same
+// thing whether validated here or there.
+const _callDetailsKeys = {
+  'callId',
+  'role',
+  'peerDeviceId',
+  'startedAt',
+  'endedAt',
+  'media',
+  'outcome',
+};
+const _callDetailsRoles = {'caller', 'callee'};
+const _callDetailsMedia = {'audio', 'video'};
+const _callDetailsOutcomes = {
+  'completed',
+  'missed',
+  'rejected',
+  'failed',
+  'unavailable',
+};
+const _callDetailsMaxLength = 1024;
+
+/// Throws [FormatException] on anything that isn't exactly the call-event
+/// body shape (docs/superpowers/plans/2026-09-18-business-mode-contracts.md,
+/// H1): no unknown/missing keys, closed enums, parseable timestamps,
+/// endedAt >= startedAt when both are present.
+void _validateCallEventBody(String body) {
+  if (body.length > _callDetailsMaxLength) {
+    throw const FormatException('call-event body exceeds max length');
+  }
+  final decoded = jsonDecode(body);
+  if (decoded is! Map<String, dynamic>) {
+    throw const FormatException('call-event body must be a JSON object');
+  }
+  if (decoded.length != _callDetailsKeys.length ||
+      !_callDetailsKeys.every(decoded.containsKey)) {
+    throw const FormatException('call-event body has unknown/missing keys');
+  }
+  if (decoded['callId'] is! String) {
+    throw const FormatException('call-event callId must be a string');
+  }
+  if (!_callDetailsRoles.contains(decoded['role'])) {
+    throw const FormatException('call-event role invalid');
+  }
+  if (decoded['peerDeviceId'] is! String) {
+    throw const FormatException('call-event peerDeviceId must be a string');
+  }
+  if (!_callDetailsMedia.contains(decoded['media'])) {
+    throw const FormatException('call-event media invalid');
+  }
+  if (!_callDetailsOutcomes.contains(decoded['outcome'])) {
+    throw const FormatException('call-event outcome invalid');
+  }
+
+  final startedAtRaw = decoded['startedAt'];
+  if (startedAtRaw is! String) {
+    throw const FormatException('call-event startedAt must be a string');
+  }
+  final startedAt = DateTime.tryParse(startedAtRaw);
+  if (startedAt == null) {
+    throw const FormatException('call-event startedAt does not parse');
+  }
+
+  final endedAtRaw = decoded['endedAt'];
+  if (endedAtRaw == null) return;
+  if (endedAtRaw is! String) {
+    throw const FormatException('call-event endedAt must be a string or null');
+  }
+  final endedAt = DateTime.tryParse(endedAtRaw);
+  if (endedAt == null) {
+    throw const FormatException('call-event endedAt does not parse');
+  }
+  if (endedAt.isBefore(startedAt)) {
+    throw const FormatException('call-event endedAt before startedAt');
+  }
 }

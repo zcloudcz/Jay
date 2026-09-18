@@ -109,6 +109,39 @@ void main() {
         count = await owner.api.getAuditRecordCount(orgId);
       }
       expect(count, 1, reason: 'the archiver should have written one metadata record');
+
+      // H1: a business call offer is logged BEFORE the callee answers
+      // (businessGroupId travels on the relayed signal), and the call-event
+      // both sides send afterward archives as a readable call-metadata record.
+      final signalReceived = member.signalR.onCallSignal.first;
+      await owner.signalR.sendCallSignal(
+        member.id,
+        'offer',
+        '{"sdp":"dummy"}',
+        businessGroupId: groupId,
+      );
+      final signal = await signalReceived.timeout(const Duration(seconds: 20));
+      expect(signal['businessGroupId'], groupId);
+
+      final callId = uuid();
+      final startedAt = DateTime.now().toUtc();
+      final endedAt = startedAt.add(const Duration(minutes: 3));
+      await owner.sendCallEvent(groupId, [member.id, auditor.id], {
+        'callId': callId,
+        'role': 'caller',
+        'peerDeviceId': member.id,
+        'startedAt': startedAt.toIso8601String(),
+        'endedAt': endedAt.toIso8601String(),
+        'media': 'audio',
+        'outcome': 'completed',
+      });
+
+      var callCount = 0;
+      for (var i = 0; i < 40 && callCount < 2; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        callCount = await owner.api.getAuditRecordCount(orgId);
+      }
+      expect(callCount, 2, reason: 'the archive should now also hold the call-metadata record');
     },
   );
 }

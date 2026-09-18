@@ -164,6 +164,9 @@ namespace CallType.Audit.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("bytea");
 
+                    b.Property<string>("DetailsJson")
+                        .HasColumnType("text");
+
                     b.Property<Guid>("GroupId")
                         .HasColumnType("uuid");
 

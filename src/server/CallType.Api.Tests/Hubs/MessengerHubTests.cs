@@ -262,6 +262,12 @@ public class MessengerHubTests : IntegrationTestBase
 
         await connectionA.StartAsync();
         await connectionB.StartAsync();
+        // OnConnectedAsync registers the connection in OnlineDevices, but
+        // StartAsync can return before that registration is observably done
+        // server-side — this made the test flaky. A full round trip (any hub
+        // method) guarantees the server has processed B's connection before A
+        // sends the offer, without guessing a fixed sleep.
+        await connectionB.InvokeAsync("RequestPendingMessages");
 
         // Act — Client A sends a call offer to Client B.
         await connectionA.InvokeAsync("CallSignal", deviceB, "offer", "{\"sdp\":\"test\"}");
@@ -313,6 +319,191 @@ public class MessengerHubTests : IntegrationTestBase
         lock (signals) signals.Should().HaveCount(1);
 
         await connectionA.StopAsync();
+    }
+
+    [Fact]
+    public async Task Business_call_offer_relays_and_carries_businessGroupId()
+    {
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (deviceB, tokenB) = await RegisterDeviceAndGetTokenAsync();
+        var (auditor, _) = await RegisterDeviceAndGetTokenAsync();
+        var organizationId = await CreateBusinessOrganizationAsync(auditor);
+        var group = await CreateBusinessGroupWithAuditorAsync(deviceA, deviceB, auditor, organizationId);
+
+        var signalTcs = new TaskCompletionSource<JsonElement>();
+        await using var connectionA = CreateHubConnection(deviceA, tokenA);
+        await using var connectionB = CreateHubConnection(deviceB, tokenB);
+        connectionB.On<JsonElement>("CallSignal", signal => signalTcs.TrySetResult(signal));
+        await connectionA.StartAsync();
+        await connectionB.StartAsync();
+        await connectionB.InvokeAsync("RequestPendingMessages");
+
+        await connectionA.InvokeAsync("BusinessCallSignal", deviceB, "offer", "{\"sdp\":\"test\"}", group);
+
+        var received = await signalTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        received.GetProperty("signalType").GetString().Should().Be("offer");
+        received.GetProperty("businessGroupId").GetGuid().Should().Be(group,
+            "the callee must see the business group BEFORE answering");
+    }
+
+    [Fact]
+    public async Task Anonymous_call_signal_still_works_with_exactly_three_arguments()
+    {
+        // Regression: H1 added BusinessCallSignal as a SEPARATE hub method
+        // specifically so this old 3-argument invocation of CallSignal never
+        // has to change. Mirrors CallSignal_relays_to_online_target but
+        // exists to name the H1 concern explicitly.
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (deviceB, tokenB) = await RegisterDeviceAndGetTokenAsync();
+        var signalTcs = new TaskCompletionSource<JsonElement>();
+        await using var connectionA = CreateHubConnection(deviceA, tokenA);
+        await using var connectionB = CreateHubConnection(deviceB, tokenB);
+        connectionB.On<JsonElement>("CallSignal", signal => signalTcs.TrySetResult(signal));
+        await connectionA.StartAsync();
+        await connectionB.StartAsync();
+        await connectionB.InvokeAsync("RequestPendingMessages");
+
+        await connectionA.InvokeAsync("CallSignal", deviceB, "offer", "{\"sdp\":\"test\"}");
+
+        var received = await signalTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        received.GetProperty("signalType").GetString().Should().Be("offer");
+    }
+
+    [Fact]
+    public async Task Business_call_from_a_non_member_is_rejected()
+    {
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (deviceB, _) = await RegisterDeviceAndGetTokenAsync();
+        var (auditor, _) = await RegisterDeviceAndGetTokenAsync();
+        var (outsider, outsiderToken) = await RegisterDeviceAndGetTokenAsync();
+        var organizationId = await CreateBusinessOrganizationAsync(auditor);
+        var group = await CreateBusinessGroupWithAuditorAsync(deviceA, deviceB, auditor, organizationId);
+
+        await using var connection = CreateHubConnection(outsider, outsiderToken);
+        await connection.StartAsync();
+
+        var send = () => connection.InvokeAsync("BusinessCallSignal", deviceB, "offer", "{}", group);
+        await send.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>()
+            .Where(e => e.Message.Contains("not_a_business_member"));
+    }
+
+    [Fact]
+    public async Task Business_call_against_a_non_business_group_is_rejected()
+    {
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (deviceB, _) = await RegisterDeviceAndGetTokenAsync();
+        var group = Guid.NewGuid();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Groups.Add(new Group { GroupId = group, CreatedBy = deviceA, CreatedAt = DateTimeOffset.UtcNow });
+            db.GroupMembers.AddRange(
+                new GroupMember { GroupId = group, DeviceId = deviceA },
+                new GroupMember { GroupId = group, DeviceId = deviceB });
+            await db.SaveChangesAsync();
+        }
+        await using var connection = CreateHubConnection(deviceA, tokenA);
+        await connection.StartAsync();
+
+        var send = () => connection.InvokeAsync("BusinessCallSignal", deviceB, "offer", "{}", group);
+        await send.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>()
+            .Where(e => e.Message.Contains("not_a_business_member"));
+    }
+
+    [Fact]
+    public async Task Business_call_offer_is_rejected_when_the_auditor_backlog_is_stale()
+    {
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (deviceB, _) = await RegisterDeviceAndGetTokenAsync();
+        var (auditor, _) = await RegisterDeviceAndGetTokenAsync();
+        var organizationId = await CreateBusinessOrganizationAsync(auditor);
+        // Default Business:AuditorMaxBacklogAgeSeconds is 24h; 25h old is stale.
+        var group = await CreateBusinessGroupWithAuditorAsync(deviceA, deviceB, auditor, organizationId,
+            staleBacklogCreatedAt: DateTimeOffset.UtcNow.AddHours(-25));
+
+        await using var connection = CreateHubConnection(deviceA, tokenA);
+        await connection.StartAsync();
+
+        var send = () => connection.InvokeAsync("BusinessCallSignal", deviceB, "offer", "{}", group);
+        await send.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>()
+            .Where(e => e.Message.Contains("auditor_unavailable"));
+    }
+
+    [Fact]
+    public async Task Business_call_answer_ice_and_hangup_are_not_liveness_gated()
+    {
+        // Only the OFFER checks auditor liveness — a call already in
+        // progress must not be interrupted mid-flight by a backlog that grew
+        // stale after the offer succeeded.
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (deviceB, tokenB) = await RegisterDeviceAndGetTokenAsync();
+        var (auditor, _) = await RegisterDeviceAndGetTokenAsync();
+        var organizationId = await CreateBusinessOrganizationAsync(auditor);
+        var group = await CreateBusinessGroupWithAuditorAsync(deviceA, deviceB, auditor, organizationId,
+            staleBacklogCreatedAt: DateTimeOffset.UtcNow.AddHours(-25));
+
+        await using var connectionA = CreateHubConnection(deviceA, tokenA);
+        await using var connectionB = CreateHubConnection(deviceB, tokenB);
+        var signals = new List<JsonElement>();
+        connectionB.On<JsonElement>("CallSignal", s => { lock (signals) signals.Add(s); });
+        await connectionA.StartAsync();
+        await connectionB.StartAsync();
+        await connectionB.InvokeAsync("RequestPendingMessages");
+
+        await connectionA.InvokeAsync("BusinessCallSignal", deviceB, "answer", "{}", group);
+        await connectionA.InvokeAsync("BusinessCallSignal", deviceB, "ice-candidate", "{}", group);
+        await connectionA.InvokeAsync("BusinessCallSignal", deviceB, "hangup", "{}", group);
+        await Task.Delay(300);
+
+        lock (signals) signals.Should().HaveCount(3, "answer/ice/hangup must not be blocked by auditor liveness");
+    }
+
+    [Fact]
+    public async Task Business_call_offer_in_the_emergency_group_is_exempt_from_auditor_liveness()
+    {
+        // Same "auditor is dead" setup as Emergency_group_send_succeeds_even_with_a_dead_auditor,
+        // but for the call path — the group itself must be IsEmergencyChannel,
+        // which CreateBusinessGroupWithAuditorAsync doesn't build, so this
+        // seeds it directly.
+        var (deviceA, tokenA) = await RegisterDeviceAndGetTokenAsync();
+        var (deviceB, tokenB) = await RegisterDeviceAndGetTokenAsync();
+        var (auditor, _) = await RegisterDeviceAndGetTokenAsync();
+        var organizationId = await CreateBusinessOrganizationAsync(auditor);
+        var group = Guid.NewGuid();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var stale = DateTimeOffset.UtcNow.AddHours(-25);
+            db.QueuedMessages.Add(new QueuedMessage
+            {
+                MessageId = Guid.NewGuid(), GroupId = Guid.NewGuid(), RecipientId = auditor, SenderId = deviceA,
+                EncryptedBody = [0x01], CreatedAt = stale, ExpiresAt = stale.AddDays(30)
+            });
+            db.Groups.Add(new Group
+            {
+                GroupId = group, CreatedBy = deviceA, CreatedAt = DateTimeOffset.UtcNow,
+                OrganizationId = organizationId, IsEmergencyChannel = true
+            });
+            db.GroupMembers.AddRange(
+                new GroupMember { GroupId = group, DeviceId = deviceA, Role = "admin" },
+                new GroupMember { GroupId = group, DeviceId = deviceB, Role = "member" },
+                new GroupMember { GroupId = group, DeviceId = auditor, Role = "auditor" });
+            await db.SaveChangesAsync();
+        }
+
+        var signalTcs = new TaskCompletionSource<JsonElement>();
+        await using var connectionA = CreateHubConnection(deviceA, tokenA);
+        await using var connectionB = CreateHubConnection(deviceB, tokenB);
+        connectionB.On<JsonElement>("CallSignal", signal => signalTcs.TrySetResult(signal));
+        await connectionA.StartAsync();
+        await connectionB.StartAsync();
+        await connectionB.InvokeAsync("RequestPendingMessages");
+
+        await connectionA.InvokeAsync("BusinessCallSignal", deviceB, "offer", "{}", group);
+
+        var received = await signalTcs.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        received.GetProperty("signalType").GetString().Should().Be("offer",
+            "a drill/incident in the emergency channel must not be blockable by archive backlog");
     }
 
     [Fact]
