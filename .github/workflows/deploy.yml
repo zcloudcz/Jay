@@ -190,7 +190,11 @@ jobs:
       - name: Generate API SBOM (CycloneDX, N06)
         run: |
           dotnet tool install --global CycloneDX --version 6.2.0
-          dotnet CycloneDX src/server/CallType.Api -o . -f api-sbom.cdx.json -j
+          # Point at the .csproj, not the folder: given a directory the tool
+          # exits 0 with an EMPTY component list (verified locally, 6.2.0).
+          dotnet CycloneDX src/server/CallType.Api/CallType.Api.csproj -o . -fn api-sbom.cdx.json -F Json
+          # An SBOM with no components is a silent failure — refuse it.
+          grep -q '"purl"' api-sbom.cdx.json
       - uses: actions/upload-artifact@v4
         with:
           name: calltype-release-api-${{ inputs.commit_sha }}
