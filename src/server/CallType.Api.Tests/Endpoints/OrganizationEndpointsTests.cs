@@ -26,7 +26,9 @@ public class OrganizationEndpointsTests : IntegrationTestBase
     /// <summary>
     /// Registers+authenticates a device, registers an account, and links the
     /// two — the "OrgAdmin+ endpoints require a registered account" flow
-    /// almost every test here needs before it can call POST /orgs.
+    /// almost every test here needs before it can call POST /orgs. Also
+    /// enrols+verifies MFA (N03b) and points Client at the resulting step-up
+    /// token, since every OrgAdmin+ mutation below now requires one.
     /// </summary>
     private async Task<(Guid DeviceId, Guid AccountId)> CreateAccountLinkedDeviceAsync(string email)
     {
@@ -39,6 +41,9 @@ public class OrganizationEndpointsTests : IntegrationTestBase
 
         var linkResponse = await Client.PostAsJsonAsync($"/accounts/{accountId}/devices/{deviceId}", new { authKey = ValidAuthKey });
         linkResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var stepUpToken = await EnrollAndVerifyMfaAsync(Client, accountId, ValidAuthKey);
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", stepUpToken);
 
         return (deviceId, accountId);
     }
@@ -234,11 +239,13 @@ public class OrganizationEndpointsTests : IntegrationTestBase
         // Register+authenticate the owner device first so we can keep its
         // token, since RegisterAndAuthenticateAsync always re-points Client's
         // Bearer token to the LAST registered device.
-        var (ownerDeviceId, ownerToken, _) = await RegisterAndAuthenticateAsync();
+        var (ownerDeviceId, _, _) = await RegisterAndAuthenticateAsync();
         var accountResponse = await Client.PostAsJsonAsync("/accounts", new { email = "enroll-owner3@example.com", authKey = ValidAuthKey });
         var ownerAccountId = Guid.Parse((await accountResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accountId").GetString()!);
         (await Client.PostAsJsonAsync($"/accounts/{ownerAccountId}/devices/{ownerDeviceId}", new { authKey = ValidAuthKey }))
             .StatusCode.Should().Be(HttpStatusCode.OK);
+        var ownerStepUpToken = await EnrollAndVerifyMfaAsync(Client, ownerAccountId, ValidAuthKey);
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ownerStepUpToken);
         var orgId = await CreateOrganizationAsync("Acme");
 
         var inviteResponse = await Client.PostAsJsonAsync($"/orgs/{orgId}/invites", new { });
@@ -248,7 +255,7 @@ public class OrganizationEndpointsTests : IntegrationTestBase
         (await Client.PostAsJsonAsync("/orgs/enroll", new { code })).StatusCode.Should().Be(HttpStatusCode.OK);
 
         // Re-authenticate as the owner (an OrgAdmin+) to revoke, then read the list back as the same owner.
-        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ownerToken);
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ownerStepUpToken);
         (await Client.DeleteAsync($"/orgs/{orgId}/enrollments/{memberDeviceId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         var response = await Client.GetAsync($"/orgs/{orgId}/enrollments");

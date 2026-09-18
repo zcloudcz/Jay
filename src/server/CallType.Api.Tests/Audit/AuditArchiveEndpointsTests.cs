@@ -29,6 +29,10 @@ namespace CallType.Api.Tests.Audit;
 
 public class AuditArchiveEndpointsTests : IntegrationTestBase
 {
+    private static readonly string ValidAuthKey = Convert.ToBase64String(
+        [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+         0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10]);
+
     private async Task<Guid> SeedOrganizationAsync(Guid? auditorDeviceId)
     {
         var orgId = Guid.NewGuid();
@@ -133,20 +137,26 @@ public class AuditArchiveEndpointsTests : IntegrationTestBase
         var forbidden = await Client.GetAsync($"/orgs/{orgId}/audit/records/count");
         forbidden.StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-        // Link a fresh device to an OrgAdmin account and try again.
+        // Link a fresh device to an OrgAdmin account and try again. The account is
+        // created through the real /accounts endpoint (not inserted directly) so it
+        // has a genuine AuthKeyHash — N03b's MFA step-up needs to verify that key.
+        var accountResponse = await Client.PostAsJsonAsync("/accounts", new { email = "admin@acme.test", authKey = ValidAuthKey });
+        var accountId = Guid.Parse((await accountResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accountId").GetString()!);
+        (await Client.PostAsJsonAsync($"/accounts/{accountId}/devices/{auditorDeviceId}", new { authKey = ValidAuthKey }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
         using (var scope = Factory.Services.CreateScope())
         {
-            var appDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var auditDb = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
-            var accountId = Guid.NewGuid();
-            appDb.Accounts.Add(new Account { AccountId = accountId, Email = "admin@acme.test", CreatedAt = DateTimeOffset.UtcNow });
-            appDb.AccountDevices.Add(new AccountDevice { AccountId = accountId, DeviceId = auditorDeviceId, LinkedAt = DateTimeOffset.UtcNow });
-            await appDb.SaveChangesAsync();
-
             var org = await auditDb.Organizations.SingleAsync(o => o.OrganizationId == orgId);
             org.AddMember(accountId, OrgRole.OrgAdmin, DateTimeOffset.UtcNow);
             await auditDb.SaveChangesAsync();
         }
+
+        // N03b: the count endpoint is admin-gated, so it now also requires a
+        // fresh MFA step-up for that same (device-identified) admin account.
+        var stepUpToken = await EnrollAndVerifyMfaAsync(Client, accountId, ValidAuthKey);
+        Client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", stepUpToken);
 
         var ok = await Client.GetAsync($"/orgs/{orgId}/audit/records/count");
         ok.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -168,14 +178,19 @@ public class AuditArchiveEndpointsTests : IntegrationTestBase
         var archived = await Client.PostAsJsonAsync($"/orgs/{orgId}/audit/records", ValidRecordBody(Guid.NewGuid(), auditorDeviceId));
         archived.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // Give the auditor device an OrgAdmin-linked account so GET .../count is allowed.
+        // Give the auditor device an OrgAdmin-linked account so GET .../count is
+        // allowed. The account is created through the real /accounts endpoint (not
+        // inserted directly) so it has a genuine AuthKeyHash — N03b's MFA step-up
+        // needs to verify that key.
+        var accountResponse = await Client.PostAsJsonAsync("/accounts", new { email = "admin2@acme.test", authKey = ValidAuthKey });
+        var accountId = Guid.Parse((await accountResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accountId").GetString()!);
+        (await Client.PostAsJsonAsync($"/accounts/{accountId}/devices/{auditorDeviceId}", new { authKey = ValidAuthKey }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
         using (var scope = Factory.Services.CreateScope())
         {
             var appDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var auditDb = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
-            var accountId = Guid.NewGuid();
-            appDb.Accounts.Add(new Account { AccountId = accountId, Email = "admin2@acme.test", CreatedAt = DateTimeOffset.UtcNow });
-            appDb.AccountDevices.Add(new AccountDevice { AccountId = accountId, DeviceId = auditorDeviceId, LinkedAt = DateTimeOffset.UtcNow });
 
             // Two queued messages addressed to the auditor device — one still
             // waiting for the archiver to pick up (the "pending" case), one
@@ -205,6 +220,9 @@ public class AuditArchiveEndpointsTests : IntegrationTestBase
             await appDb.SaveChangesAsync();
             await auditDb.SaveChangesAsync();
         }
+
+        var stepUpToken = await EnrollAndVerifyMfaAsync(Client, accountId, ValidAuthKey);
+        Client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", stepUpToken);
 
         var response = await Client.GetAsync($"/orgs/{orgId}/audit/records/count");
         response.StatusCode.Should().Be(HttpStatusCode.OK);

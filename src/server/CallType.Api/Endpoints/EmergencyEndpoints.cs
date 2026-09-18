@@ -48,13 +48,14 @@ public static class EmergencyEndpoints
     // POST /orgs/{id}/emergency/kits
     // -----------------------------------------------------------------
     private static async Task<IResult> IssueKit(Guid id, IssueKitRequest request, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var accountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (accountId is null) return AccountRequired();
 
         var service = http.RequestServices.GetRequiredService<EmergencyAppService>();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, accountId.Value, user, clock, ct) is { } gate) return gate;
         try
         {
             var kit = await service.IssueKitAsync(id, accountId.Value, request.Label, request.Count, DateTimeOffset.UtcNow, ct);
@@ -105,13 +106,14 @@ public static class EmergencyEndpoints
     // GET /orgs/{id}/emergency/kits
     // -----------------------------------------------------------------
     private static async Task<IResult> ListKits(Guid id, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var accountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (accountId is null) return AccountRequired();
 
         var service = http.RequestServices.GetRequiredService<EmergencyAppService>();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, accountId.Value, user, clock, ct) is { } gate) return gate;
         try
         {
             var kits = await service.ListKitsAsync(id, accountId.Value, ct);
@@ -128,13 +130,14 @@ public static class EmergencyEndpoints
     // DELETE /orgs/{id}/emergency/kits/{kitId}
     // -----------------------------------------------------------------
     private static async Task<IResult> RevokeKit(Guid id, Guid kitId, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var accountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (accountId is null) return AccountRequired();
 
         var service = http.RequestServices.GetRequiredService<EmergencyAppService>();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, accountId.Value, user, clock, ct) is { } gate) return gate;
         try
         {
             await service.RevokeKitAsync(id, accountId.Value, kitId, DateTimeOffset.UtcNow, ct);
@@ -190,13 +193,14 @@ public static class EmergencyEndpoints
     // -----------------------------------------------------------------
     private static async Task<IResult> StartDrill(Guid id, ClaimsPrincipal user,
         BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http,
-        IHubContext<MessengerHub> hub, CancellationToken ct)
+        IHubContext<MessengerHub> hub, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var accountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (accountId is null) return AccountRequired();
 
         var service = http.RequestServices.GetRequiredService<EmergencyAppService>();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, accountId.Value, user, clock, ct) is { } gate) return gate;
         try
         {
             var now = DateTimeOffset.UtcNow;
@@ -245,13 +249,14 @@ public static class EmergencyEndpoints
     // POST /orgs/{id}/emergency/drills/{drillId}/complete
     // -----------------------------------------------------------------
     private static async Task<IResult> CompleteDrill(Guid id, long drillId, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var accountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (accountId is null) return AccountRequired();
 
         var service = http.RequestServices.GetRequiredService<EmergencyAppService>();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, accountId.Value, user, clock, ct) is { } gate) return gate;
         try
         {
             await service.CompleteDrillAsync(id, accountId.Value, drillId, DateTimeOffset.UtcNow, ct);
@@ -264,13 +269,14 @@ public static class EmergencyEndpoints
     // GET /orgs/{id}/emergency/drills
     // -----------------------------------------------------------------
     private static async Task<IResult> ListDrills(Guid id, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var accountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (accountId is null) return AccountRequired();
 
         var service = http.RequestServices.GetRequiredService<EmergencyAppService>();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, accountId.Value, user, clock, ct) is { } gate) return gate;
         try
         {
             var drills = await service.ListDrillsAsync(id, accountId.Value, ct);
@@ -287,13 +293,14 @@ public static class EmergencyEndpoints
     // GET /orgs/{id}/emergency/proof?format=json|txt
     // -----------------------------------------------------------------
     private static async Task<IResult> ExportProof(Guid id, string? format, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var accountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (accountId is null) return AccountRequired();
 
         var service = http.RequestServices.GetRequiredService<EmergencyAppService>();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, accountId.Value, user, clock, ct) is { } gate) return gate;
         try
         {
             var audit = await service.GetProofAuditDataAsync(id, accountId.Value, ct);
@@ -329,6 +336,20 @@ public static class EmergencyEndpoints
         if (deviceId is null) return null;
         return await db.AccountDevices.Where(ad => ad.DeviceId == deviceId)
             .Select(ad => (Guid?)ad.AccountId).FirstOrDefaultAsync(ct);
+    }
+
+    /// <summary>
+    /// N03b — same ordering rule as OrganizationEndpoints.RequireOrgAdminThenStepUpAsync:
+    /// membership/role (via EmergencyAppService's own side-effect-free pre-check)
+    /// before the MFA gate, so a non-member still gets 404/403, never mfa_required.
+    /// </summary>
+    private static async Task<IResult?> RequireOrgAdminThenStepUpAsync(
+        EmergencyAppService service, Guid organizationId, Guid actorAccountId, ClaimsPrincipal user, TimeProvider clock, CancellationToken ct)
+    {
+        try { await service.EnsureOrgAdminAsync(organizationId, actorAccountId, ct); }
+        catch (DomainRuleViolation ex) { return MapViolation(ex); }
+
+        return MfaAuthHelper.RequireStepUp(user, actorAccountId, clock);
     }
 
     private static IResult MapViolation(DomainRuleViolation ex) => ex.Code switch
