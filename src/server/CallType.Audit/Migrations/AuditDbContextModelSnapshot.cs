@@ -494,6 +494,11 @@ namespace CallType.Audit.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("RequireBusinessConversations")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<int>("RetentionDays")
                         .HasColumnType("integer");
 

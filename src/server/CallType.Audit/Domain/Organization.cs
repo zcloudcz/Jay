@@ -30,6 +30,19 @@ public class Organization
     /// </summary>
     public ArchiveLevel ArchiveLevel { get; set; } = ArchiveLevel.Metadata;
 
+    /// <summary>
+    /// Owner decision 2026-09-18 (plan §8a item 5): the default stays that
+    /// only conversations INSIDE a business group are archived — two members
+    /// enrolled in the same organization may still talk 1:1, in an anonymous
+    /// group, or call each other outside of it. When this is true, the
+    /// server additionally refuses those anonymous paths between two actively
+    /// enrolled devices of this organization (P1, OrgCommunicationPolicy) —
+    /// communication with anyone outside the organization is unaffected.
+    /// Mutate only via SetRequireBusinessConversations so a future invariant
+    /// has one place to enforce, matching Rename/ArchiveLevel's pattern.
+    /// </summary>
+    public bool RequireBusinessConversations { get; set; }
+
     private readonly List<OrgMember> _members = [];
 
     /// <summary>Read-only view — members are only added/removed through the methods below.</summary>
@@ -53,6 +66,9 @@ public class Organization
 
     /// <summary>Renames the organization. Added by E01 for PATCH /orgs/{id} — Name has no public setter on purpose elsewhere in the codebase.</summary>
     public void Rename(string name) => Name = name;
+
+    /// <summary>P1: toggles the "audit all communication between our members" policy (PATCH /orgs/{id}).</summary>
+    public void SetRequireBusinessConversations(bool value) => RequireBusinessConversations = value;
 
     public void AddMember(Guid accountId, OrgRole role, DateTimeOffset now)
     {

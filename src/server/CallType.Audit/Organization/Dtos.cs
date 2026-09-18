@@ -10,9 +10,9 @@ using CallType.Audit.Domain;
 
 namespace CallType.Audit.OrgManagement;
 
-public record OrganizationSummary(Guid OrganizationId, string Name, OrgRole Role, ArchiveLevel ArchiveLevel, Guid? AuditorDeviceId);
+public record OrganizationSummary(Guid OrganizationId, string Name, OrgRole Role, ArchiveLevel ArchiveLevel, Guid? AuditorDeviceId, bool RequireBusinessConversations);
 
-public record OrganizationDetails(Guid OrganizationId, string Name, DateTimeOffset CreatedAt, ArchiveLevel ArchiveLevel, Guid? AuditorDeviceId, IReadOnlyList<OrgMemberDto> Members);
+public record OrganizationDetails(Guid OrganizationId, string Name, DateTimeOffset CreatedAt, ArchiveLevel ArchiveLevel, Guid? AuditorDeviceId, bool RequireBusinessConversations, IReadOnlyList<OrgMemberDto> Members);
 
 public record OrgMemberDto(Guid AccountId, OrgRole Role, DateTimeOffset AddedAt);
 

@@ -107,7 +107,11 @@ public abstract class IntegrationTestBase : IAsyncLifetime
                         ["ConnectionStrings:Audit"] = AuditConnectionString,
                         // 32 zero bytes, base64 — MfaEncryptionService just needs 32 raw
                         // bytes; this is a test fixture, not a production key.
-                        ["Mfa:EncryptionKey"] = Convert.ToBase64String(new byte[32])
+                        ["Mfa:EncryptionKey"] = Convert.ToBase64String(new byte[32]),
+                        // P1: OrgCommunicationPolicy's per-device-pair cache would
+                        // otherwise make a test that flips RequireBusinessConversations
+                        // mid-test see a stale verdict for up to 30 s.
+                        ["Business:PolicyCacheSeconds"] = "0"
                     });
                 });
 

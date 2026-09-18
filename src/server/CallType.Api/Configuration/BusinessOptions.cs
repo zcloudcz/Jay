@@ -21,4 +21,13 @@ public class BusinessOptions
     /// any restart, upgrade or overnight outage of the archiver.
     /// </summary>
     public int AuditorMaxBacklogAgeSeconds { get; set; } = 86400;
+
+    /// <summary>
+    /// P1 (OrgCommunicationPolicy): how long a device-pair "allowed/blocked"
+    /// verdict is cached. Default 30 s — long enough to matter on the hot 1:1
+    /// send path, short enough that flipping the org policy takes effect
+    /// quickly. Configurable so integration tests that flip the flag mid-test
+    /// can set it to 0 instead of waiting out a real cache window.
+    /// </summary>
+    public int PolicyCacheSeconds { get; set; } = 30;
 }

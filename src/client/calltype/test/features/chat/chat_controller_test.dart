@@ -41,6 +41,19 @@ class Transport extends SignalRClient {
     ids.add(messageId);
     if (fail) throw StateError(failMessage);
   }
+
+  // P1: a 1:1 send goes through sendMessage, not sendGroupMessage — needed
+  // to simulate the hub rejecting it with business_conversation_required.
+  @override
+  Future<void> sendMessage(
+    String recipientDeviceId,
+    String encryptedBodyBase64, {
+    String? messageId,
+  }) async {
+    envelopes.add({recipientDeviceId: encryptedBodyBase64});
+    ids.add(messageId);
+    if (fail) throw StateError(failMessage);
+  }
 }
 
 void main() {
@@ -245,6 +258,56 @@ void main() {
       transport.dispose();
       await alice.close();
       await auditor.close();
+    },
+  );
+
+  test(
+    // P1: a 1:1 send rejected with business_conversation_required is a
+    // DIFFERENT flag from auditRecipientMissing/auditorUnavailable — it's a
+    // redirect (open the business conversation), not a retryable failure.
+    'business_conversation_required on a 1:1 send sets its own flag only',
+    () async {
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+      final alice = await TestDevice.create('alice');
+      final bob = await TestDevice.create('bob');
+      final transport = Transport()
+        ..fail = true
+        ..failMessage = 'business_conversation_required';
+      final inbox = MessageInboxService(
+        database: alice.db,
+        sessionManager: alice.sessions,
+        incomingMessages: const Stream.empty(),
+      );
+      await alice.db
+          .into(alice.db.conversations)
+          .insert(
+            ConversationsCompanion.insert(id: bob.id, type: 'direct'),
+          );
+      final controller = ChatController(
+        database: alice.db,
+        signalRClient: transport,
+        sessionManager: alice.sessions,
+        inbox: inbox,
+        apiClient: ChatApi([bob]),
+        conversationId: bob.id,
+        myDeviceId: alice.id,
+      );
+
+      await controller.sendMessage('hey');
+
+      expect(controller.consumeBusinessConversationRequired(), isTrue);
+      expect(controller.consumeAuditRecipientMissing(), isFalse);
+      expect(controller.consumeAuditorUnavailable(), isFalse);
+      expect(
+        (await alice.db.select(alice.db.messages).getSingle()).status,
+        'failed',
+      );
+
+      controller.dispose();
+      await inbox.dispose();
+      transport.dispose();
+      await alice.close();
+      await bob.close();
     },
   );
 }

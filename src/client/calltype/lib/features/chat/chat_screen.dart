@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
@@ -228,6 +229,29 @@ class ChatScreen extends StatelessWidget {
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(l10n.hubErrorAuditorUnavailable)),
+        );
+      });
+    }
+    if (controller.consumeBusinessConversationRequired()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        // P1: a redirect, not a retry — offer to open/create the business
+        // conversation with this contact instead of silently rerouting the
+        // message the user already typed.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.hubErrorBusinessConversationRequired),
+            action: SnackBarAction(
+              label: l10n.hubErrorBusinessConversationRequiredAction,
+              onPressed: () async {
+                final groupId = await controller
+                    .createBusinessConversationWithPeer();
+                if (groupId != null && context.mounted) {
+                  context.go('/chats/$groupId');
+                }
+              },
+            ),
+          ),
         );
       });
     }
