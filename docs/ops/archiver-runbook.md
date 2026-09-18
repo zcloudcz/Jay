@@ -30,13 +30,15 @@ Azure ani společný stroj s databází.
 `provision` jen zaregistruje zařízení auditora a vypíše jeho `deviceId`.
 Auditorem organizace ho udělá **admin organizace v aplikaci**
 (Organizace → Zařízení auditora → vložit vypsané id). Provozovatel
-archivátoru tak nikdy nedrží přihlašovací údaje admina a postup funguje i poté,
-co admin akce začnou vyžadovat MFA.
+archivátoru tak nikdy nedrží přihlašovací údaje admina a postup funguje
+nezávisle na MFA (N03b) — admin se přihlašuje přes appku jako obvykle.
 
 Volitelná zkratka pro automatizaci: `--admin-token <jwt>` zavolá
-`PUT /orgs/{id}/auditor` rovnou. Token je JWT **zařízení** admina z
-`POST /auth/token` (`POST /accounts/login` žádný token nevrací). Nesmí skončit
-v historii shellu ani v compose souboru (`read -s ADMIN_JWT`).
+`PUT /orgs/{id}/auditor` rovnou. Od N03b musí být tento token **step-up**
+(vrácený `POST /accounts/{id}/mfa/verify`, ne obyčejný token zařízení z
+`POST /auth/token`) — `PUT /orgs/{id}/auditor` je OrgAdmin+ akce a bez MFA
+odpoví 403 `mfa_required`. Token nesmí skončit v historii shellu ani v
+compose souboru (`read -s ADMIN_JWT`).
 
 ### 2. `BOT_STORE_KEY`
 

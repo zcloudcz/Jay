@@ -257,6 +257,18 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         var jwtSecret = builder.Configuration["Jwt:Secret"]
             ?? throw new InvalidOperationException("Jwt:Secret is not configured.");
 
+        // Without this, the default inbound claim map silently renames
+        // well-known short JWT claim names (e.g. "sub" -> ClaimTypes.NameIdentifier,
+        // "amr" -> a long claims-schema URI) on the ClaimsPrincipal ASP.NET Core
+        // builds from a validated token. Several call sites already worked around
+        // the "sub" case by checking both names (see AccountEndpoints.CallerDeviceId,
+        // MessengerHub.cs:325) — but N03b's MfaAuthHelper.RequireStepUp reads the
+        // short "amr"/"mfa_acc"/"mfa_at" claims this JWT actually carries (see
+        // JwtService.GenerateStepUpToken) and has no such workaround, so every
+        // step-up check silently failed with mfa_required even for a fresh, valid
+        // token. Disabling the mapping keeps claim names exactly as issued.
+        options.MapInboundClaims = false;
+
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,

@@ -27,6 +27,7 @@ using Npgsql;
 using Testcontainers.Azurite;
 using Testcontainers.PostgreSql;
 using CallType.Api.Data;
+using CallType.Api.Services;
 using CallType.Audit.Infrastructure;
 
 namespace CallType.Api.Tests.TestFixtures;
@@ -213,6 +214,41 @@ public abstract class IntegrationTestBase : IAsyncLifetime
             new AuthenticationHeaderValue("Bearer", token);
 
         return (deviceId, token, userHandle);
+    }
+
+    /// <summary>
+    /// N03b test helper: enrols TOTP MFA on an already-linked account through
+    /// the given (already-authenticated) client, verifies it, and returns the
+    /// step-up token — everything OrgAdmin+ endpoints now require. Confirms
+    /// with the PREVIOUS time-step and verifies with the CURRENT one so the
+    /// two calls consume different steps without a 30s sleep (a step-up code
+    /// is single-use per account, see TotpService/MfaEndpoints); this mirrors
+    /// how jay_archiver's live E2E helper avoids the same wait.
+    /// </summary>
+    protected static async Task<string> EnrollAndVerifyMfaAsync(HttpClient client, Guid accountId, string authKey)
+    {
+        var startResponse = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/enroll/start", new { authKey });
+        if (startResponse.StatusCode != HttpStatusCode.OK)
+            throw new InvalidOperationException(
+                $"MFA enroll/start failed with {startResponse.StatusCode}: {await startResponse.Content.ReadAsStringAsync()}");
+        var secretBase32 = (await startResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("secretBase32").GetString()!;
+        var secret = Base32.Decode(secretBase32);
+
+        var confirmStep = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TotpService.Period - 1;
+        var confirmResponse = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/enroll/confirm",
+            new { code = TotpService.ComputeCode(secret, confirmStep) });
+        if (confirmResponse.StatusCode != HttpStatusCode.OK)
+            throw new InvalidOperationException(
+                $"MFA enroll/confirm failed with {confirmResponse.StatusCode}: {await confirmResponse.Content.ReadAsStringAsync()}");
+
+        var verifyStep = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TotpService.Period;
+        var verifyResponse = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/verify",
+            new { code = TotpService.ComputeCode(secret, verifyStep) });
+        if (verifyResponse.StatusCode != HttpStatusCode.OK)
+            throw new InvalidOperationException(
+                $"MFA verify failed with {verifyResponse.StatusCode}: {await verifyResponse.Content.ReadAsStringAsync()}");
+
+        return (await verifyResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString()!;
     }
 
     /// <summary>

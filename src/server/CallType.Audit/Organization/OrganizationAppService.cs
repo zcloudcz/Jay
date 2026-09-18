@@ -346,6 +346,19 @@ public class OrganizationAppService(AuditDbContext db, IDeliveryDirectory delive
         AssertAdmin(org, actorAccountId);
     }
 
+    /// <summary>
+    /// N03b seam: a pure membership/role check with no side effects, called by
+    /// OrganizationEndpoints BEFORE the MFA step-up gate. Every admin-mutating
+    /// method above already does this same check first (via LoadOrgForAdminAsync
+    /// / RequireAdminAsync) before writing anything, so calling it again here is
+    /// redundant work, not a second source of truth — its only job is to make
+    /// sure a non-member gets today's 404/403 instead of mfa_required, which
+    /// would otherwise fire first since the endpoint checks it before ever
+    /// reaching the mutating call.
+    /// </summary>
+    public Task EnsureOrgAdminAsync(Guid organizationId, Guid actorAccountId, CancellationToken ct) =>
+        RequireAdminAsync(organizationId, actorAccountId, ct);
+
     private static void AssertAdmin(Domain.Organization org, Guid actorAccountId)
     {
         var role = org.Members.FirstOrDefault(m => m.AccountId == actorAccountId && m.RemovedAt is null)?.Role;
