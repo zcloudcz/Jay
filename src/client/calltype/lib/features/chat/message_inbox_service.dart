@@ -101,7 +101,7 @@ class MessageInboxService {
           );
         }
         final type = payload['type'] as String? ?? 'text';
-        if (type != 'text' && type != 'file') {
+        if (type != 'text' && type != 'file' && type != 'call-event') {
           throw const FormatException('Unsupported message type');
         }
         if (type == 'file') Attachment.decode(payload['body'] as String);
@@ -146,7 +146,11 @@ class MessageInboxService {
         )..where((c) => c.id.equals(conversationId))).write(
           ConversationsCompanion(
             lastMessageAt: Value(now),
-            unreadCount: Value((conversation?.unreadCount ?? 0) + 1),
+            // A call-event is a log line, not something to "read" — it must
+            // not bump the unread badge (H2).
+            unreadCount: Value(
+              (conversation?.unreadCount ?? 0) + (type == 'call-event' ? 0 : 1),
+            ),
           ),
         );
         inserted = await (_db.select(
