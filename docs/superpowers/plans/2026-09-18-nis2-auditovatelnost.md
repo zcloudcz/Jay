@@ -56,7 +56,7 @@ Vlny: (N04 ∥ N06 ∥ N05) → N08 v1 → (N02 ∥ N03 ∥ N09 po E01) → N01 
 4. **RPO 24 h, RTO 8 h** — denní záloha stačí (N05).
 5. Bezpečnostní kontakt = **Martin Zahálka** (e-mail/telefon doplnit do `security.txt` a `incident-response.md`; záložní osoba není — zapsat jako známé riziko).
 6. **Dokumentace česky (ZoKB/NÚKIB) i anglicky** (N08 ve dvou jazycích; anglická verze může vznikat překladem po dokončení české).
-7. **Staging: otevřeno** — zadavatel chce nejdřív plán infrastruktury a náklady (viz §4.1).
+7. **Staging ano, na App Service tarifu F1 (Free)** — rozhodnuto 2026-09-18. Náklad 0 USD za compute; vlastní databáze na stávajícím PostgreSQL serveru, druhá SWA Free. Omezení F1, se kterými N10 počítá: 60 CPU minut/den a 1 GB RAM (na deploy + smoke stačí, ne na zátěžové testy), bez Always On (studený start — smoke musí čekat na warmup), omezený počet WebSocket spojení (smoke smí otevřít jen pár SignalR spojení), bez SLA. **[ověřit při zakládání]**: zda jde F1 Linux plán vytvořit ve stejné resource group/regionu vedle B1 Linux a zda F1 Linux podporuje .NET 10 runtime stack — jinak samostatná resource group.
 8. **Doložitelnost i pro on-premise od začátku**: N01 a N05 navrhovat bez tvrdé závislosti na Azure — logy přes adaptér (`ILogSink`: Azure Log Analytics / syslog / soubor), zálohy skriptem nad PostgreSQL + S3-kompatibilní nebo souborové úložiště, ne jen Azure Blob.
 
 ### 4.1 Infrastruktura a náklady — podklad k otázce 7
