@@ -48,18 +48,22 @@ Vlny: (N04 ∥ N06 ∥ N05) → N08 v1 → (N02 ∥ N03 ∥ N09 po E01) → N01 
 - **N09:** smazání účtu odstraní účet, vazby, zálohy v Blob a push tokeny; export vrátí vše, co o účtu server drží; smazání zařízení nesnese `FollowerCount`.
 - **N10:** produkce nejde nasadit bez předchozího úspěšného stagingu téhož SHA a ručního schválení.
 
-## 4. Otázky pro zadavatele
+## 4. Rozhodnutí zadavatele (2026-09-18)
 
-Viz konverzace 2026-09-18; odpovědi doplnit sem jako „Rozhodnutí“.
+1. **Externí audit zatím ne** — jen dokumentace (N07 = dokument `crypto-baseline.md`; auditní zpráva odpadá, N08 v2 odpadá). Web i UI dál říkají „bez nezávislého auditu“.
+2. **MFA (TOTP) pro správce organizací hned ve v1 Business režimu** (N03).
+3. **Retence bezpečnostních logů 18 měsíců** (N01).
+4. **RPO 24 h, RTO 8 h** — denní záloha stačí (N05).
+5. Bezpečnostní kontakt = **Martin Zahálka** (e-mail/telefon doplnit do `security.txt` a `incident-response.md`; záložní osoba není — zapsat jako známé riziko).
+6. **Dokumentace česky (ZoKB/NÚKIB) i anglicky** (N08 ve dvou jazycích; anglická verze může vznikat překladem po dokončení české).
+7. **Staging: otevřeno** — zadavatel chce nejdřív plán infrastruktury a náklady (viz §4.1).
+8. **Doložitelnost i pro on-premise od začátku**: N01 a N05 navrhovat bez tvrdé závislosti na Azure — logy přes adaptér (`ILogSink`: Azure Log Analytics / syslog / soubor), zálohy skriptem nad PostgreSQL + S3-kompatibilní nebo souborové úložiště, ne jen Azure Blob.
 
-1. Externí bezpečnostní audit (kryptografie + server): kdy a jaký rozpočet?
-2. MFA pro správce už ve verzi 1 Business režimu (TOTP), nebo počkat na SSO?
-3. Retence bezpečnostních logů poskytovatele: 12 měsíců, 18, jiná?
-4. RPO/RTO, ke kterým se zavážeme (návrh: RPO 24 h, RTO 8 h pro betu).
-5. Kdo je bezpečnostní kontakt Jay pro zákazníky a incidenty (jméno, e-mail, telefon) a existuje záložní osoba?
-6. Cílový trh pro dokumentaci: jen ČR (ZoKB/NÚKIB), nebo i EU obecně (anglická verze)?
-7. Druhé prostředí (staging) — přijatelný náklad ~ další B1 + malá DB (odhad 15–20 USD/měsíc)?
-8. Self-hosted varianta pro zákazníky (Business plán ji předpokládá) — má být doložitelnost N01/N05 řešena i pro on-premise (tj. bez Azure služeb), nebo pro betu stačí Azure?
+### 4.1 Infrastruktura a náklady — podklad k otázce 7
+
+Dnešní beta (jediné prostředí, zároveň „produkce“): App Service Linux B1 ≈ 13 USD/měs, Static Web Apps Free 0, Blob Storage řádově < 1 USD, PostgreSQL na vlastním serveru (náklad mimo Azure), Cloudflare TURN ve free pásmu, Firebase 0. Celkem ≈ 14–16 USD/měs před DPH (viz `docs/azure-beta-plan.md`).
+
+Staging by přidal: druhá App Service B1 ≈ 13 USD (nebo **deployment slot** — na B1 tarifu sloty nejsou, vyžadují S1 ≈ 70 USD → nevyplatí se), druhá databáze na tomtéž serveru 0, druhá SWA Free 0, Blob < 1 USD. **Odhad +14 USD/měs.** Levnější alternativa: staging App Service zapínat jen na dobu nasazení (`az webapp start/stop`; B1 se účtuje za běh plánu, takže úspora je jen při **samostatném** App Service plánu, který se stopne — cca +3–5 USD/měs při pár hodinách týdně). Bez stagingu zůstává riziko, že chybná migrace nebo build rozbije jediné prostředí, které používají testeři.
 
 ## 5. Mimo rozsah
 
