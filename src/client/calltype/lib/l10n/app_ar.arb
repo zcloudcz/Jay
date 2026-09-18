@@ -334,6 +334,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "تعذر إرسال الرسالة: عضو التدقيق التابع للمؤسسة غير موجود في هذه المحادثة.",
+  "hubErrorAuditorUnavailable": "الأرشفة غير متاحة حاليًا — لم يتم إرسال الرسالة. حاول مرة أخرى بعد قليل.",
   "emergencyTitle": "قناة الطوارئ",
   "emergencyKitsTitle": "مجموعات الطوارئ",
   "emergencyIssueKit": "إصدار مجموعة",

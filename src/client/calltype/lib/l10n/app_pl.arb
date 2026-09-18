@@ -334,6 +334,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "Nie udało się wysłać wiadomości: w tej rozmowie brakuje członka audytu organizacji.",
+  "hubErrorAuditorUnavailable": "Archiwizacja jest obecnie niedostępna — wiadomość nie została wysłana. Spróbuj ponownie za chwilę.",
   "emergencyTitle": "Kanał awaryjny",
   "emergencyKitsTitle": "Zestawy awaryjne",
   "emergencyIssueKit": "Wydaj zestaw",

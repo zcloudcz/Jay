@@ -334,6 +334,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "संदेश नहीं भेजा जा सका: इस बातचीत में संगठन का ऑडिट सदस्य मौजूद नहीं है।",
+  "hubErrorAuditorUnavailable": "आर्काइविंग फिलहाल उपलब्ध नहीं है — संदेश नहीं भेजा गया। कृपया थोड़ी देर में फिर से प्रयास करें।",
   "emergencyTitle": "आपातकालीन चैनल",
   "emergencyKitsTitle": "आपातकालीन किट",
   "emergencyIssueKit": "किट जारी करें",

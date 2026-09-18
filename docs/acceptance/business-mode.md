@@ -31,6 +31,29 @@ Sloučeno do `feat/bots-channels` = `master`, pushnuto a nasazeno na betu (Busin
 | Zapnutí Business režimu na betě | **PASS (čtení)** — 2026-09-18: DB `calltype_audit` + role dle `audit-roles.sql`, `ConnectionStrings__Audit` (app role), migrace ručně jako ops (`AuditMigrations` v App Service záměrně nenastaven). Autentizovaný `GET /orgs/mine` → 200 `[]`. Zápis do auditu na betě NOT_RUN. Klient s chybami níže byl na betě jen mezi deployi `25b5844` a `9e0f7ae` |
 | Nasazení oprav klienta | **PASS** — 2026-09-18, `9e0f7ae`, [run 35347457939](https://github.com/zcloudcz/Jay/actions/runs/35347457939) (testy, buildy, deploy, smoke); `/health/ready` 200, web 200. Obrazovka organizace na betě po opravě ručně NOT_RUN |
 
+## Fail-closed na mrtvém auditorovi (W2-F, rozhodnutí vlastníka 2026-09-18)
+
+Firemní komunikace je fail-closed: pokud auditor organizace není „naživu",
+firemní konverzaci nejde založit (`POST /groups/business` → 503
+`auditor_unavailable`) a firemní zprávu hub odmítne (`HubException
+"auditor_unavailable"`) dřív, než cokoliv zapíše — vedle stávající KB2
+kontroly. Výjimka dle vlastníka: nouzový kanál organizace
+(`Group.IsEmergencyChannel == true`) zůstává fail-open, protože existuje
+právě pro chvíli, kdy infrastruktura padá — zprávy tam čekají ve frontě
+auditora (30denní TTL).
+
+„Naživu" = auditor je připojený k hubu právě teď, nebo se odpojil před méně
+než `Business:AuditorDisconnectGraceSeconds` (výchozí 120 s — restart
+archivátoru zprávy nezastaví), **a zároveň** nejstarší nepotvrzená
+`QueuedMessage` adresovaná auditorovi je mladší než
+`Business:AuditorMaxBacklogAgeSeconds` (výchozí 300 s — jinak je archiv
+zaseklý). Výsledek se cachuje 5 s na organizaci (`AuditorLivenessService`),
+ať se dotaz na frontu nespouští při každé zprávě.
+
+Dopad na dostupnost: výpadek archivátoru delší než grace period zastaví
+firemní zasílání zpráv pro danou organizaci, dokud se archivátor
+nepřipojí zpět. Anonymní režim tím není nijak dotčen.
+
 ## Kontrakty — stav
 
 - **KB1** viditelný auditor: server vytváří auditora atomicky, odebrání → 409; klient: trvalý banner, auditor v seznamu členů bez akce odebrání — implementováno, integrační/widget testy (widget PASS, integrační PASS).

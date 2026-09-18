@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
@@ -44,6 +45,13 @@ class GroupController extends ChangeNotifier {
   /// Error from the last failed creation attempt, or null.
   String? get error => _error;
 
+  /// True when the last failure was specifically `POST /groups/business`
+  /// answering 503 `auditor_unavailable` (W2-F) — the organization's auditor
+  /// is dead, so the screen shows a distinct, actionable message instead of
+  /// the generic [error] text.
+  bool _auditorUnavailable = false;
+  bool get auditorUnavailable => _auditorUnavailable;
+
   /// Creates a new group chat with the given name and member device IDs.
   ///
   /// Calls the server API to register the group, then creates a local
@@ -74,6 +82,7 @@ class GroupController extends ChangeNotifier {
 
     _isLoading = true;
     _error = null;
+    _auditorUnavailable = false;
     notifyListeners();
 
     try {
@@ -102,6 +111,15 @@ class GroupController extends ChangeNotifier {
 
       return groupId;
     } catch (e) {
+      // W2-F: distinguish "auditor is dead" (503, actionable, retryable)
+      // from every other failure (generic message) so the user isn't told
+      // to retry a validation error that will never succeed.
+      if (e is DioException &&
+          e.response?.statusCode == 503 &&
+          (e.response?.data is Map &&
+              (e.response!.data as Map)['code'] == 'auditor_unavailable')) {
+        _auditorUnavailable = true;
+      }
       _error = e.toString();
       _isLoading = false;
       notifyListeners();

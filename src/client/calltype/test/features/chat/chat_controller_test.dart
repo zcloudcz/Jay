@@ -25,6 +25,10 @@ class ChatApi extends ApiClient {
 class Transport extends SignalRClient {
   Transport() : super(baseUrl: 'http://unused', deviceId: 'alice');
   bool fail = true;
+  // W2-F: lets a test simulate the hub rejecting the send with a specific
+  // HubException message ('audit_recipient_missing' or 'auditor_unavailable')
+  // instead of the generic connectivity failure `fail` produces.
+  String failMessage = 'lost acceptance response';
   final envelopes = <Map<String, String>>[];
   final ids = <String?>[];
   @override
@@ -35,7 +39,7 @@ class Transport extends SignalRClient {
   }) async {
     envelopes.add(Map.of(encryptedPayloads));
     ids.add(messageId);
-    if (fail) throw StateError('lost acceptance response');
+    if (fail) throw StateError(failMessage);
   }
 }
 
@@ -178,6 +182,63 @@ void main() {
 
       expect(transport.envelopes.single.keys, contains('auditor-device'));
       expect(controller.consumeAuditRecipientMissing(), isFalse);
+
+      controller.dispose();
+      await inbox.dispose();
+      transport.dispose();
+      await alice.close();
+      await auditor.close();
+    },
+  );
+
+  test(
+    // W2-F: the hub rejects a business send with a plain-text HubException
+    // whose message contains 'auditor_unavailable' when the organization's
+    // auditor is dead. This is deliberately a SEPARATE flag from
+    // auditRecipientMissing (KB2) — same transport-level signal, different
+    // user-facing wording, so the two must not collapse into one flag.
+    'business group send sets auditorUnavailable (not auditRecipientMissing) on auditor_unavailable',
+    () async {
+      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+      final alice = await TestDevice.create('alice');
+      final auditor = await TestDevice.create('auditor-device');
+      final transport = Transport()
+        ..fail = true
+        ..failMessage = 'auditor_unavailable';
+      final inbox = MessageInboxService(
+        database: alice.db,
+        sessionManager: alice.sessions,
+        incomingMessages: const Stream.empty(),
+      );
+      await alice.db
+          .into(alice.db.conversations)
+          .insert(
+            ConversationsCompanion.insert(
+              id: 'biz-group',
+              type: 'group',
+              title: const Value('Acme Deal'),
+              organizationId: const Value('org1'),
+              organizationName: const Value('Acme'),
+            ),
+          );
+      final controller = ChatController(
+        database: alice.db,
+        signalRClient: transport,
+        sessionManager: alice.sessions,
+        inbox: inbox,
+        apiClient: ChatApi([auditor]),
+        conversationId: 'biz-group',
+        myDeviceId: alice.id,
+      );
+
+      await controller.sendMessage('deal terms attached');
+
+      expect(controller.consumeAuditorUnavailable(), isTrue);
+      expect(controller.consumeAuditRecipientMissing(), isFalse);
+      expect(
+        (await alice.db.select(alice.db.messages).getSingle()).status,
+        'failed',
+      );
 
       controller.dispose();
       await inbox.dispose();

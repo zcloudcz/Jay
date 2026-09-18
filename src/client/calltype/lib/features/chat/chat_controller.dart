@@ -98,6 +98,22 @@ class ChatController extends ChangeNotifier {
     return value;
   }
 
+  /// Set when the hub rejects a send with `auditor_unavailable` (Jay
+  /// Business mode, W2-F fail-closed rule) — the organization's auditor is
+  /// not alive right now. Deliberately a SEPARATE flag from
+  /// [auditRecipientMissing]: the two causes need distinct wording (one is a
+  /// tamper/bug signal, the other an availability problem the user can just
+  /// retry). Cleared on the next send attempt.
+  bool _auditorUnavailable = false;
+  bool get auditorUnavailable => _auditorUnavailable;
+
+  /// One-shot read, same contract as [consumeAuditRecipientMissing].
+  bool consumeAuditorUnavailable() {
+    final value = _auditorUnavailable;
+    _auditorUnavailable = false;
+    return value;
+  }
+
   Future<void> _markRead() async {
     await (_db.update(_db.conversations)
           ..where((c) => c.id.equals(conversationId)))
@@ -147,6 +163,7 @@ class ChatController extends ChangeNotifier {
     }
     await _status(messageId, 'sending');
     _auditRecipientMissing = false;
+    _auditorUnavailable = false;
     try {
       var stored = await (_db.select(
         _db.backupState,
@@ -239,6 +256,9 @@ class ChatController extends ChangeNotifier {
       // delivery hiccup the user can ignore.
       if (e.toString().contains('audit_recipient_missing')) {
         _auditRecipientMissing = true;
+        notifyListeners();
+      } else if (e.toString().contains('auditor_unavailable')) {
+        _auditorUnavailable = true;
         notifyListeners();
       }
       await _status(messageId, 'failed');

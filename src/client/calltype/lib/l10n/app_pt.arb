@@ -334,6 +334,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "Não foi possível enviar a mensagem: o membro de auditoria da organização está ausente desta conversa.",
+  "hubErrorAuditorUnavailable": "O arquivamento está indisponível no momento — a mensagem não foi enviada. Tente novamente em instantes.",
   "emergencyTitle": "Canal de emergência",
   "emergencyKitsTitle": "Kits de emergência",
   "emergencyIssueKit": "Emitir kit",

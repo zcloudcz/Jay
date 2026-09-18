@@ -67,6 +67,7 @@ public static class GroupEndpoints
             {
                 "auditor_not_configured" => Results.Conflict(new { error = result.ErrorCode }),
                 "not_enrolled" => Results.Forbid(),
+                "auditor_unavailable" => Results.Json(new { error = result.ErrorCode, code = "auditor_unavailable" }, statusCode: 503),
                 _ => Results.BadRequest(new { error = result.ErrorCode })
             };
         return Results.Created($"/groups/{result.GroupId}", new CreateGroupResponse(result.GroupId));

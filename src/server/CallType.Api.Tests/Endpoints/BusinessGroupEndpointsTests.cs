@@ -9,6 +9,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using CallType.Api.Tests.TestFixtures;
@@ -19,6 +20,20 @@ namespace CallType.Api.Tests.Endpoints;
 
 public class BusinessGroupEndpointsTests : IntegrationTestBase
 {
+    /// <summary>
+    /// Connects an already-registered device to the hub via its own JWT — used
+    /// to make the auditor "alive" for AuditorLivenessService (W2-F) in
+    /// POST /groups/business tests. Caller starts and disposes it.
+    /// </summary>
+    private HubConnection ConnectHub(Guid deviceId, string token)
+    {
+        var server = Factory.Server;
+        return new HubConnectionBuilder()
+            .WithUrl($"{server.BaseAddress}hub?access_token={token}",
+                options => options.HttpMessageHandlerFactory = _ => server.CreateHandler())
+            .Build();
+    }
+
     /// <summary>Creates an organization and, optionally, enrolls the given devices in it.</summary>
     private async Task<Guid> CreateOrganizationAsync(Guid? auditorDeviceId, params Guid[] enrolledDevices)
     {
@@ -46,10 +61,14 @@ public class BusinessGroupEndpointsTests : IntegrationTestBase
         // Auditor is a real device (GroupMember.DeviceId is an FK to Devices).
         // Registered first: the helper leaves Client authenticated as the LAST
         // registered device, which must be the creator.
-        var (auditor, _, _) = await RegisterAndAuthenticateAsync();
+        var (auditor, auditorToken, _) = await RegisterAndAuthenticateAsync();
         var (creator, _, _) = await RegisterAndAuthenticateAsync();
         var organizationId = await CreateOrganizationAsync(auditor, creator);
 
+        // W2-F: POST /groups/business now fails closed on a dead auditor, so
+        // the auditor must be connected for this creation to succeed.
+        await using var auditing = ConnectHub(auditor, auditorToken);
+        await auditing.StartAsync();
         var response = await Client.PostAsJsonAsync("/groups/business", new { organizationId, memberDeviceIds = Array.Empty<Guid>() });
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -57,6 +76,7 @@ public class BusinessGroupEndpointsTests : IntegrationTestBase
         var members = await Client.GetFromJsonAsync<JsonElement>($"/groups/{groupId}/members");
         members.EnumerateArray().Should().ContainSingle(m =>
             m.GetProperty("deviceId").GetGuid() == auditor && m.GetProperty("role").GetString() == "auditor");
+        await auditing.StopAsync();
     }
 
     [Fact]
@@ -78,13 +98,20 @@ public class BusinessGroupEndpointsTests : IntegrationTestBase
         // Outsider first so the request is made by the enrolled creator — otherwise
         // the 403 would come from the caller being non-enrolled, not the member.
         var (outsider, _, _) = await RegisterAndAuthenticateAsync();
+        // Auditor must be a real, connected device (W2-F fail-closed check
+        // runs before the enrollment check) so this test isolates the
+        // enrollment 403, not an auditor_unavailable 503.
+        var (auditor, auditorToken, _) = await RegisterAndAuthenticateAsync();
         var (creator, _, _) = await RegisterAndAuthenticateAsync();
-        var organizationId = await CreateOrganizationAsync(Guid.NewGuid(), creator); // outsider not enrolled
+        var organizationId = await CreateOrganizationAsync(auditor, creator); // outsider not enrolled
 
+        await using var auditing = ConnectHub(auditor, auditorToken);
+        await auditing.StartAsync();
         var response = await Client.PostAsJsonAsync("/groups/business",
             new { organizationId, memberDeviceIds = new[] { outsider } });
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        await auditing.StopAsync();
     }
 
     [Fact]
@@ -93,9 +120,11 @@ public class BusinessGroupEndpointsTests : IntegrationTestBase
         // Auditor is a real device (GroupMember.DeviceId is an FK to Devices).
         // Registered first: the helper leaves Client authenticated as the LAST
         // registered device, which must be the creator.
-        var (auditor, _, _) = await RegisterAndAuthenticateAsync();
+        var (auditor, auditorToken, _) = await RegisterAndAuthenticateAsync();
         var (creator, _, _) = await RegisterAndAuthenticateAsync();
         var organizationId = await CreateOrganizationAsync(auditor, creator);
+        await using var auditing = ConnectHub(auditor, auditorToken);
+        await auditing.StartAsync();
         var createResponse = await Client.PostAsJsonAsync("/groups/business", new { organizationId, memberDeviceIds = Array.Empty<Guid>() });
         var groupId = (await createResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("groupId").GetGuid();
 
@@ -104,6 +133,7 @@ public class BusinessGroupEndpointsTests : IntegrationTestBase
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString()
             .Should().Be("auditor_immutable");
+        await auditing.StopAsync();
     }
 
     [Fact]
@@ -111,15 +141,34 @@ public class BusinessGroupEndpointsTests : IntegrationTestBase
     {
         // Outsider first so Client stays authenticated as the creator (see above).
         var (outsider, _, _) = await RegisterAndAuthenticateAsync();
-        var (auditor, _, _) = await RegisterAndAuthenticateAsync();
+        var (auditor, auditorToken, _) = await RegisterAndAuthenticateAsync();
         var (creator, _, _) = await RegisterAndAuthenticateAsync();
         var organizationId = await CreateOrganizationAsync(auditor, creator);
+        await using var auditing = ConnectHub(auditor, auditorToken);
+        await auditing.StartAsync();
         var createResponse = await Client.PostAsJsonAsync("/groups/business", new { organizationId, memberDeviceIds = Array.Empty<Guid>() });
         var groupId = (await createResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("groupId").GetGuid();
 
         var response = await Client.PutAsJsonAsync($"/groups/{groupId}/members", new { deviceId = outsider });
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        await auditing.StopAsync();
+    }
+
+    [Fact]
+    public async Task Business_group_creation_is_rejected_with_503_when_the_auditor_is_dead()
+    {
+        // W2-F (f): a business conversation must not be CREATED while the
+        // organization's auditor is dead — never connected here.
+        var (auditor, _, _) = await RegisterAndAuthenticateAsync();
+        var (creator, _, _) = await RegisterAndAuthenticateAsync();
+        var organizationId = await CreateOrganizationAsync(auditor, creator);
+
+        var response = await Client.PostAsJsonAsync("/groups/business", new { organizationId, memberDeviceIds = Array.Empty<Guid>() });
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString()
+            .Should().Be("auditor_unavailable");
     }
 
     [Fact]

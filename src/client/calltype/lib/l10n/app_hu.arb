@@ -334,6 +334,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "Az üzenetet nem sikerült elküldeni: a szervezet auditáló tagja hiányzik ebből a beszélgetésből.",
+  "hubErrorAuditorUnavailable": "Az archiválás jelenleg nem elérhető – az üzenet nem került elküldésre. Próbáld újra egy kicsit később.",
   "emergencyTitle": "Vészhelyzeti csatorna",
   "emergencyKitsTitle": "Vészhelyzeti készletek",
   "emergencyIssueKit": "Készlet kiadása",

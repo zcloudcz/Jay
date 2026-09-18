@@ -334,6 +334,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "Zprávu se nepodařilo odeslat: v této konverzaci chybí auditní člen organizace.",
+  "hubErrorAuditorUnavailable": "Archivace je momentálně nedostupná – zpráva nebyla odeslána. Zkuste to za chvíli znovu.",
   "emergencyTitle": "Nouzový kanál",
   "emergencyKitsTitle": "Nouzové sady",
   "emergencyIssueKit": "Vydat sadu",
