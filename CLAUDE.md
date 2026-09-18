@@ -250,12 +250,19 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
    in pure Dart (`cryptography` package). The initiator's first messages are
    pre-key messages carrying the X3DH prologue, so the responder establishes
    its session from the first incoming message (see `session_manager.dart`
-   for the wire format). **Known limitations:** no header encryption, no
-   signed pre-key signature verification (server doesn't store it), Sender
-   Keys for groups pending. Document limits honestly anywhere user-facing.
+   for the wire format). The client verifies the Ed25519 signature over
+   identity key + signed pre-key before starting a session
+   (`KeyManager.verifyIdentityBundle`). **Known limitations:** no header
+   encryption, trust on first use (no safety-number check), the signed pre-key
+   is never rotated, Sender Keys for groups pending. Exact primitives and
+   parameters, verified against code: `docs/security/crypto-baseline.md` —
+   revise it with every change under `calltype_core/lib/crypto`. Document
+   limits honestly anywhere user-facing.
 3. **Anonymous identity** — device generates UUID + key pair. User Handle
    (`CT-XXXX-XXXX`) for human-readable discovery. QR code for contact exchange.
-4. **Backup encryption** — independent passphrase-derived key (Argon2id).
+4. **Backup encryption** — independent passphrase-derived key
+   (PBKDF2-HMAC-SHA256, 600k iterations, AES-256-GCM; Argon2id is only used
+   server-side for the account auth key).
    Server never sees backup content. Only for registered users.
 5. **TURN provider is pluggable** — `ITurnCredentialProvider` with two
    implementations: `CloudflareTurnCredentialService` (Cloudflare TURN; no
