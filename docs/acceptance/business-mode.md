@@ -217,3 +217,9 @@ admin audit a vyžaduje MFA step-up.
 - `updateOrganization`/`removeOrganizationMember`/`getAuditArchiveStatus` v
   `calltype_core` nemají dosud žádné volání z UI (obrazovka je nenabízí) —
   nic k obalení `withMfa`, ale až budou přidány, musí jít stejnou cestou.
+
+## Nasazení 2026-09-18 v noci — hovory, MFA, politika organizace
+
+`2bfa0c9`, [run 35392448917](https://github.com/zcloudcz/Jay/actions/runs/35392448917) PASS (testy, API, 5 klientských buildů, `sbom-dart` poprvé zelený, deploy API + web, smoke); CI run 35392436139 PASS. Po deployi `/health/ready` 200, web 200, autentizované `GET /orgs/mine` 200. Obsah: oprava „druhý hovor nejde navázat" + omezení snímání videa, H1+H2 audit hovorů (metadata), N03 MFA pro adminy (server + aplikace), P1 politika `RequireBusinessConversations`. Předem ručně (vlastník): idempotentní skript auditních migrací (`AuditRecords.DetailsJson`, `Organizations.RequireBusinessConversations`).
+
+NOT_RUN na betě: dva hovory po sobě na zařízeních, firemní hovor s upozorněním „logován, není nahráván", zapnutí MFA v aplikaci a admin akce za MFA, přepínač politiky, zápis do auditu. Archivátor na betě stále neběží → po 24 h nezpracované fronty se organizaci zastaví firemní provoz.
