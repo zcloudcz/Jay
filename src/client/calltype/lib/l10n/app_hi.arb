@@ -98,6 +98,7 @@
   "groupSelectMembers": "मेंबर चुनें",
   "groupSelectedCount": "{count, plural, one{{count} चुना गया} other{{count} चुने गए}}",
   "groupNoContacts": "अभी कोई कॉन्टैक्ट नहीं है।\nग्रुप बनाने के लिए पहले कॉन्टैक्ट जोड़ें।",
+  "groupNoEnrolledContacts": "आपके किसी भी कॉन्टैक्ट ने अभी तक इस संगठन में नामांकन नहीं किया है।\nपहले उन्हें आमंत्रित करें।",
   "groupCreateFailed": "ग्रुप नहीं बन सका। कनेक्शन जाँचें और फिर कोशिश करें।",
   "onboardingTagline": "सुरक्षित। गुमनाम। आसान।",
   "onboardingSettingUp": "आपका डिवाइस सेट अप हो रहा है…",

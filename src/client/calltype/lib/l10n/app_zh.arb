@@ -98,6 +98,7 @@
   "groupSelectMembers": "选择成员",
   "groupSelectedCount": "{count, plural, other{已选择 {count} 人}}",
   "groupNoContacts": "暂无联系人。\n请先添加联系人,再创建群组。",
+  "groupNoEnrolledContacts": "您的联系人中还没有人加入此组织。\n请先邀请他们。",
   "groupCreateFailed": "无法创建群组。请检查网络连接后重试。",
   "onboardingTagline": "安全。匿名。简单。",
   "onboardingSettingUp": "正在设置您的设备…",

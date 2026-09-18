@@ -39,6 +39,7 @@ public static class OrganizationEndpoints
         app.MapGet("/orgs/mine", GetMine).RequireAuthorization().RequireRateLimiting("api");
         app.MapPost("/orgs/enroll", Enroll).RequireAuthorization().RequireRateLimiting("api");
         app.MapGet("/orgs/{id:guid}", GetOrganization).RequireAuthorization().RequireRateLimiting("api");
+        app.MapGet("/orgs/{id:guid}/enrollments", GetEnrollments).RequireAuthorization().RequireRateLimiting("api");
         app.MapPatch("/orgs/{id:guid}", UpdateOrganization).RequireAuthorization().RequireRateLimiting("api");
         app.MapPut("/orgs/{id:guid}/members/{accountId:guid}", SetMemberRole).RequireAuthorization().RequireRateLimiting("api");
         app.MapDelete("/orgs/{id:guid}/members/{accountId:guid}", RemoveMember).RequireAuthorization().RequireRateLimiting("api");
@@ -112,6 +113,26 @@ public static class OrganizationEndpoints
                 archiveLevel = org.ArchiveLevel.ToString(), auditorDeviceId = org.AuditorDeviceId,
                 members = org.Members.Select(m => new { accountId = m.AccountId, role = m.Role.ToString(), addedAt = m.AddedAt })
             });
+        }
+        catch (DomainRuleViolation ex) { return MapViolation(ex); }
+    }
+
+    // -----------------------------------------------------------------
+    // GET /orgs/{id}/enrollments
+    // -----------------------------------------------------------------
+    private static async Task<IResult> GetEnrollments(
+        Guid id, ClaimsPrincipal user, BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+    {
+        if (Gate503(businessMode) is { } disabled) return disabled;
+        var service = http.RequestServices.GetRequiredService<OrganizationAppService>();
+        var deviceId = RequireDevice(user);
+        if (deviceId is null) return Results.Unauthorized();
+        var accountId = await LinkedAccountOrNullAsync(deviceId.Value, deliveryDb, ct);
+
+        try
+        {
+            var enrollments = await service.GetEnrollmentsAsync(id, accountId, deviceId.Value, ct);
+            return Results.Ok(enrollments.Select(e => new { deviceId = e.DeviceId, enrolledAt = e.EnrolledAt }));
         }
         catch (DomainRuleViolation ex) { return MapViolation(ex); }
     }

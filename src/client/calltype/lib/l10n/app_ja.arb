@@ -98,6 +98,7 @@
   "groupSelectMembers": "メンバーを選択",
   "groupSelectedCount": "{count, plural, other{{count} 人を選択中}}",
   "groupNoContacts": "連絡先はまだありません。\nグループを作成するには、先に連絡先を追加してください。",
+  "groupNoEnrolledContacts": "連絡先の中に、まだこの組織に登録されている人がいません。\n先に招待してください。",
   "groupCreateFailed": "グループを作成できませんでした。接続を確認して、もう一度お試しください。",
   "onboardingTagline": "安全。匿名。シンプル。",
   "onboardingSettingUp": "端末を設定しています…",

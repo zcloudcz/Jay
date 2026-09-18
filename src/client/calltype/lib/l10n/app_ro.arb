@@ -98,6 +98,7 @@
   "groupSelectMembers": "Selectează membrii",
   "groupSelectedCount": "{count, plural, one{{count} contact selectat} few{{count} contacte selectate} other{{count} de contacte selectate}}",
   "groupNoContacts": "Niciun contact încă.\nAdaugă mai întâi contacte pentru a crea un grup.",
+  "groupNoEnrolledContacts": "Niciunul dintre contactele tale nu este încă înscris în această organizație.\nInvită-i mai întâi.",
   "groupCreateFailed": "Grupul nu a putut fi creat. Verifică conexiunea și încearcă din nou.",
   "onboardingTagline": "Sigur. Anonim. Simplu.",
   "onboardingSettingUp": "Se configurează dispozitivul…",

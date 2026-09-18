@@ -98,6 +98,7 @@
   "groupSelectMembers": "اختيار الأعضاء",
   "groupSelectedCount": "{count, plural, zero{لم يتم تحديد أحد} one{تم تحديد واحد} two{تم تحديد اثنين} few{تم تحديد {count}} many{تم تحديد {count}} other{تم تحديد {count}}}",
   "groupNoContacts": "لا توجد جهات اتصال بعد.\nأضف جهات اتصال أولًا لإنشاء مجموعة.",
+  "groupNoEnrolledContacts": "لم ينضم أي من جهات اتصالك إلى هذه المؤسسة بعد.\nقم بدعوتهم أولًا.",
   "groupCreateFailed": "تعذّر إنشاء المجموعة. تحقق من الاتصال وحاول مرة أخرى.",
   "onboardingTagline": "آمن. مجهول الهوية. بسيط.",
   "onboardingSettingUp": "جارٍ إعداد جهازك…",

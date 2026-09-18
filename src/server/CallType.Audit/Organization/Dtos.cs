@@ -19,3 +19,5 @@ public record OrgMemberDto(Guid AccountId, OrgRole Role, DateTimeOffset AddedAt)
 public record InviteDto(string Code, DateTimeOffset ExpiresAt);
 
 public record AdminAuditEventDto(long Sequence, Guid ActorAccountId, string EventType, string DetailsJson, DateTimeOffset OccurredAt);
+
+public record OrgEnrollmentDto(Guid DeviceId, DateTimeOffset EnrolledAt);

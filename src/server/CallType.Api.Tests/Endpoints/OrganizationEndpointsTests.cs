@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------------
 
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
@@ -189,6 +190,71 @@ public class OrganizationEndpointsTests : IntegrationTestBase
 
         var response = await Client.PostAsJsonAsync($"/orgs/{orgId}/invites", new { maxUses = 5 });
         response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+    }
+
+    // -----------------------------------------------------------------
+    // GET /orgs/{id}/enrollments
+    // -----------------------------------------------------------------
+
+    [Fact]
+    public async Task Enrollments_lists_active_device_ids_for_an_enrolled_caller()
+    {
+        await CreateAccountLinkedDeviceAsync("enroll-owner@example.com");
+        var orgId = await CreateOrganizationAsync("Acme");
+
+        var inviteResponse = await Client.PostAsJsonAsync($"/orgs/{orgId}/invites", new { });
+        var code = (await inviteResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString()!;
+
+        // RegisterAndAuthenticateAsync re-points Client's Bearer token to the
+        // device it just registered, so the enrolling device stays authenticated
+        // for the /orgs/{id}/enrollments call below.
+        var (memberDeviceId, _, _) = await RegisterAndAuthenticateAsync();
+        (await Client.PostAsJsonAsync("/orgs/enroll", new { code })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var response = await Client.GetAsync($"/orgs/{orgId}/enrollments");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var enrollments = (await response.Content.ReadFromJsonAsync<JsonElement>()).EnumerateArray().ToList();
+        enrollments.Should().ContainSingle(e => e.GetProperty("deviceId").GetGuid() == memberDeviceId);
+    }
+
+    [Fact]
+    public async Task Enrollments_hides_existence_from_an_outsider()
+    {
+        await CreateAccountLinkedDeviceAsync("enroll-owner2@example.com");
+        var orgId = await CreateOrganizationAsync("Acme");
+
+        await RegisterAndAuthenticateAsync(); // an unrelated device, never enrolled
+        var response = await Client.GetAsync($"/orgs/{orgId}/enrollments");
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Enrollments_excludes_a_revoked_device()
+    {
+        // Register+authenticate the owner device first so we can keep its
+        // token, since RegisterAndAuthenticateAsync always re-points Client's
+        // Bearer token to the LAST registered device.
+        var (ownerDeviceId, ownerToken, _) = await RegisterAndAuthenticateAsync();
+        var accountResponse = await Client.PostAsJsonAsync("/accounts", new { email = "enroll-owner3@example.com", authKey = ValidAuthKey });
+        var ownerAccountId = Guid.Parse((await accountResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accountId").GetString()!);
+        (await Client.PostAsJsonAsync($"/accounts/{ownerAccountId}/devices/{ownerDeviceId}", new { authKey = ValidAuthKey }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        var orgId = await CreateOrganizationAsync("Acme");
+
+        var inviteResponse = await Client.PostAsJsonAsync($"/orgs/{orgId}/invites", new { });
+        var code = (await inviteResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString()!;
+
+        var (memberDeviceId, _, _) = await RegisterAndAuthenticateAsync();
+        (await Client.PostAsJsonAsync("/orgs/enroll", new { code })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Re-authenticate as the owner (an OrgAdmin+) to revoke, then read the list back as the same owner.
+        Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ownerToken);
+        (await Client.DeleteAsync($"/orgs/{orgId}/enrollments/{memberDeviceId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var response = await Client.GetAsync($"/orgs/{orgId}/enrollments");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var enrollments = (await response.Content.ReadFromJsonAsync<JsonElement>()).EnumerateArray().ToList();
+        enrollments.Should().NotContain(e => e.GetProperty("deviceId").GetGuid() == memberDeviceId);
     }
 
     // -----------------------------------------------------------------

@@ -98,6 +98,7 @@
   "groupSelectMembers": "Виберіть учасників",
   "groupSelectedCount": "{count, plural, one{Вибрано {count}} few{Вибрано {count}} many{Вибрано {count}} other{Вибрано {count}}}",
   "groupNoContacts": "Контактів поки немає.\nСпочатку додайте контакти, щоб створити групу.",
+  "groupNoEnrolledContacts": "Жоден з ваших контактів ще не зареєстрований у цій організації.\nСпочатку запросіть їх.",
   "groupCreateFailed": "Не вдалося створити групу. Перевірте з'єднання та спробуйте ще раз.",
   "onboardingTagline": "Безпечно. Анонімно. Просто.",
   "onboardingSettingUp": "Налаштовуємо ваш пристрій…",

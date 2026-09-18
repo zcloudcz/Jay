@@ -201,6 +201,7 @@
     }
   },
   "groupNoContacts": "No contacts yet.\nAdd contacts first to create a group.",
+  "groupNoEnrolledContacts": "None of your contacts are enrolled in this organization yet.\nInvite them first.",
   "groupCreateFailed": "The group could not be created. Check the connection and try again.",
   "onboardingTagline": "Secure. Anonymous. Simple.",
   "onboardingSettingUp": "Setting up your device…",

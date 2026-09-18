@@ -98,6 +98,7 @@
   "groupSelectMembers": "Üyeleri seçin",
   "groupSelectedCount": "{count, plural, other{{count} kişi seçildi}}",
   "groupNoContacts": "Henüz kişi yok.\nGrup oluşturmak için önce kişi ekleyin.",
+  "groupNoEnrolledContacts": "Kişilerinizden hiçbiri henüz bu kuruluşa kayıtlı değil.\nÖnce onları davet edin.",
   "groupCreateFailed": "Grup oluşturulamadı. Bağlantıyı kontrol edip tekrar deneyin.",
   "onboardingTagline": "Güvenli. Anonim. Basit.",
   "onboardingSettingUp": "Cihazınız ayarlanıyor…",
