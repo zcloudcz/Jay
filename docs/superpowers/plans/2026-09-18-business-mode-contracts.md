@@ -339,7 +339,7 @@ Request body:
 
 ### `GET /orgs/{orgId}/audit/records/count` (admins only)
 
-Requires the caller device to be linked (`AppDbContext.AccountDevices`) to an `Account` with an active `OrgMember` role of `Owner` or `OrgAdmin` in that organization (403 otherwise; 404 if org doesn't exist; 503 if business mode disabled). Response: `AuditRecordCountDto { count, lastSequence, lastHash (hex, null if empty) }` — a cheap "is the archive alive" signal, not a substitute for reading the chain.
+Requires the caller device to be linked (`AppDbContext.AccountDevices`) to an `Account` with an active `OrgMember` role of `Owner` or `OrgAdmin` in that organization (403 otherwise; 404 if org doesn't exist; 503 if business mode disabled). Response: `AuditRecordCountDto { count, lastSequence, lastHash (hex, null if empty), lastArchivedAt (ISO, null if no records), pendingForAuditor (count of the org's auditor device's undelivered QueuedMessage rows), oldestPendingAt (ISO, null if none) }` — a cheap "is the archive alive" signal, not a substitute for reading the chain. `lastArchivedAt`/`pendingForAuditor`/`oldestPendingAt` were added on top of the original `count`/`lastSequence`/`lastHash` (W2-E) so an admin can tell a dead archiver (`pendingForAuditor` growing, `lastArchivedAt` stale) from a healthy but quiet organization; `pendingForAuditor` is 0 and `oldestPendingAt` is null when the org has no `AuditorDeviceId` set yet.
 
 ### `src/bots/jay_archiver` provisioning flow
 

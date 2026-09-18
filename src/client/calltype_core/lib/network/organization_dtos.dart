@@ -109,3 +109,40 @@ abstract final class OrgErrorCodes {
 /// future server-side naming-policy change cannot silently break role checks.
 String normalizeRole(String role) =>
     role.isEmpty ? role : role[0].toLowerCase() + role.substring(1);
+
+/// `GET /orgs/{id}/audit/records/count` response — a liveness signal for
+/// admins. `lastArchivedAt` and `pendingForAuditor`/`oldestPendingAt` were
+/// added on top of the original `count`/`lastSequence`/`lastHash` so an
+/// admin screen can tell "never archived" and "archiver stuck, N messages
+/// waiting since T" apart from a healthy but quiet organization.
+class AuditArchiveStatus {
+  const AuditArchiveStatus({
+    required this.count,
+    required this.lastSequence,
+    required this.lastHash,
+    required this.lastArchivedAt,
+    required this.pendingForAuditor,
+    required this.oldestPendingAt,
+  });
+
+  final int count;
+  final int lastSequence;
+  final String? lastHash;
+  final DateTime? lastArchivedAt;
+  final int pendingForAuditor;
+  final DateTime? oldestPendingAt;
+
+  factory AuditArchiveStatus.fromJson(Map<String, dynamic> json) =>
+      AuditArchiveStatus(
+        count: json['count'] as int,
+        lastSequence: json['lastSequence'] as int,
+        lastHash: json['lastHash'] as String?,
+        lastArchivedAt: json['lastArchivedAt'] == null
+            ? null
+            : DateTime.parse(json['lastArchivedAt'] as String),
+        pendingForAuditor: json['pendingForAuditor'] as int,
+        oldestPendingAt: json['oldestPendingAt'] == null
+            ? null
+            : DateTime.parse(json['oldestPendingAt'] as String),
+      );
+}

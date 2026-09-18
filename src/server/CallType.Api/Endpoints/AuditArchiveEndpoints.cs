@@ -149,7 +149,8 @@ public static partial class AuditArchiveEndpoints
         var callerDevice = Caller(user);
         if (callerDevice == Guid.Empty) return Results.Unauthorized();
 
-        if (!await auditDb.Organizations.AnyAsync(o => o.OrganizationId == orgId, ct)) return Results.NotFound();
+        var org = await auditDb.Organizations.SingleOrDefaultAsync(o => o.OrganizationId == orgId, ct);
+        if (org is null) return Results.NotFound();
 
         // The JWT identifies a device, but org governance (KB6) is per-account —
         // resolve the caller's linked account(s) and check for an active
@@ -165,8 +166,31 @@ public static partial class AuditArchiveEndpoints
         var last = await auditDb.AuditRecords.Where(r => r.OrganizationId == orgId)
             .OrderByDescending(r => r.Sequence).FirstOrDefaultAsync(ct);
         var count = await auditDb.AuditRecords.CountAsync(r => r.OrganizationId == orgId, ct);
+
+        // Liveness signal (added on top of the original count/lastSequence/lastHash):
+        // an admin can't otherwise tell a dead archiver from a quiet one until
+        // queued messages expire (30 days). Both queries stay index-friendly —
+        // "last" above already covers lastArchivedAt (ArchivedAt only ever
+        // increases with Sequence, so the row we already fetched has it), and
+        // the QueuedMessage lookup uses the existing (RecipientId, CreatedAt)
+        // index. AuditDbContext has no index beyond OrganizationId today; adding
+        // one requires an audit-DB migration, which is applied manually in
+        // production (see CLAUDE.md) — flagged in the final report, not added here.
+        int pendingForAuditor = 0;
+        DateTimeOffset? oldestPendingAt = null;
+        if (org.AuditorDeviceId is { } auditorDeviceId)
+        {
+            var pendingQuery = appDb.QueuedMessages
+                .Where(m => m.RecipientId == auditorDeviceId && m.AcknowledgedAt == null);
+            pendingForAuditor = await pendingQuery.CountAsync(ct);
+            oldestPendingAt = pendingForAuditor > 0
+                ? await pendingQuery.OrderBy(m => m.CreatedAt).Select(m => (DateTimeOffset?)m.CreatedAt).FirstAsync(ct)
+                : null;
+        }
+
         return Results.Ok(new AuditRecordCountDto(count, last?.Sequence ?? 0,
-            last is null ? null : Convert.ToHexString(last.Hash)));
+            last is null ? null : Convert.ToHexString(last.Hash),
+            last?.ArchivedAt, pendingForAuditor, oldestPendingAt));
     }
 }
 
@@ -177,4 +201,5 @@ public record AuditRecordDto(Guid OrganizationId, Guid GroupId, Guid MessageId, 
     DateTimeOffset SentAt, DateTimeOffset ArchivedAt, string Kind, long SizeBytes, string ContentHash,
     long Sequence, string Hash);
 
-public record AuditRecordCountDto(int Count, long LastSequence, string? LastHash);
+public record AuditRecordCountDto(int Count, long LastSequence, string? LastHash,
+    DateTimeOffset? LastArchivedAt, int PendingForAuditor, DateTimeOffset? OldestPendingAt);

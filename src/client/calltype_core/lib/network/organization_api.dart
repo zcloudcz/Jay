@@ -136,6 +136,20 @@ extension OrganizationApi on ApiClient {
     return response.data!['count'] as int;
   }
 
+  /// GET /orgs/{id}/audit/records/count — same endpoint as
+  /// [getAuditRecordCount], but returns the full liveness signal
+  /// (`lastArchivedAt` / `pendingForAuditor` / `oldestPendingAt`) so a UI can
+  /// tell "archiver has never run" and "archiver is behind" apart from a
+  /// healthy but quiet organization.
+  Future<AuditArchiveStatus> getAuditArchiveStatus(
+    String organizationId,
+  ) async {
+    final response = await transport.get<Map<String, dynamic>>(
+      '/orgs/$organizationId/audit/records/count',
+    );
+    return AuditArchiveStatus.fromJson(response.data!);
+  }
+
   /// GET /groups/{id} — group detail including business metadata. Anonymous
   /// groups (no `organizationId` in the response) map to
   /// [GroupBusinessInfo.none]. A 404/format-mismatch is swallowed to `none`
