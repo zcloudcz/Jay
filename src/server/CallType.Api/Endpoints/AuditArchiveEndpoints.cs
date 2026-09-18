@@ -50,9 +50,15 @@ public static partial class AuditArchiveEndpoints
     private const int MaxSequenceRetries = 5;
 
     private static async Task<IResult> PostRecord(Guid orgId, ArchiveRecordRequest request,
-        ClaimsPrincipal user, BusinessModeOptions businessMode, AuditDbContext auditDb, CancellationToken ct)
+        ClaimsPrincipal user, BusinessModeOptions businessMode, HttpContext http, CancellationToken ct)
     {
         if (!businessMode.Enabled) return Results.Json(new { error = "business_mode_disabled" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+
+        // AuditDbContext is registered ONLY when business mode is on. Taking it
+        // as a handler parameter makes minimal-API parameter inference fail at
+        // startup ("Failure to infer one or more parameters") and takes the whole
+        // API down for anonymous-only deployments — so resolve it lazily here.
+        var auditDb = http.RequestServices.GetRequiredService<AuditDbContext>();
 
         var caller = Caller(user);
         if (caller == Guid.Empty) return Results.Unauthorized();
@@ -133,9 +139,12 @@ public static partial class AuditArchiveEndpoints
         r.Sequence, Convert.ToHexString(r.Hash));
 
     private static async Task<IResult> GetCount(Guid orgId, ClaimsPrincipal user, BusinessModeOptions businessMode,
-        AuditDbContext auditDb, AppDbContext appDb, CancellationToken ct)
+        HttpContext http, AppDbContext appDb, CancellationToken ct)
     {
         if (!businessMode.Enabled) return Results.Json(new { error = "business_mode_disabled" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+
+        // Resolved lazily for the same startup-safety reason as in PostRecord.
+        var auditDb = http.RequestServices.GetRequiredService<AuditDbContext>();
 
         var callerDevice = Caller(user);
         if (callerDevice == Guid.Empty) return Results.Unauthorized();
