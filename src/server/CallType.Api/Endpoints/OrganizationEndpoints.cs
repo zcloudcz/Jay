@@ -142,7 +142,7 @@ public static class OrganizationEndpoints
     // -----------------------------------------------------------------
     private static async Task<IResult> UpdateOrganization(
         Guid id, UpdateOrganizationRequest request, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var service = http.RequestServices.GetRequiredService<OrganizationAppService>();
@@ -157,6 +157,7 @@ public static class OrganizationEndpoints
 
         var accountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (accountId is null) return AccountRequired();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, accountId.Value, user, clock, ct) is { } gate) return gate;
 
         try
         {
@@ -171,7 +172,7 @@ public static class OrganizationEndpoints
     // -----------------------------------------------------------------
     private static async Task<IResult> SetMemberRole(
         Guid id, Guid accountId, SetMemberRoleRequest request, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var service = http.RequestServices.GetRequiredService<OrganizationAppService>();
@@ -180,6 +181,7 @@ public static class OrganizationEndpoints
 
         var actorAccountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (actorAccountId is null) return AccountRequired();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, actorAccountId.Value, user, clock, ct) is { } gate) return gate;
 
         try
         {
@@ -194,12 +196,13 @@ public static class OrganizationEndpoints
     // -----------------------------------------------------------------
     private static async Task<IResult> RemoveMember(
         Guid id, Guid accountId, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var service = http.RequestServices.GetRequiredService<OrganizationAppService>();
         var actorAccountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (actorAccountId is null) return AccountRequired();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, actorAccountId.Value, user, clock, ct) is { } gate) return gate;
 
         try
         {
@@ -214,12 +217,13 @@ public static class OrganizationEndpoints
     // -----------------------------------------------------------------
     private static async Task<IResult> CreateInvite(
         Guid id, CreateInviteRequest request, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var service = http.RequestServices.GetRequiredService<OrganizationAppService>();
         var accountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (accountId is null) return AccountRequired();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, accountId.Value, user, clock, ct) is { } gate) return gate;
 
         // OrgInvite (frozen E00 domain) is single-use only — Redeem() sets
         // UsedAt on first enrollment. maxUses > 1 is not supported; reject
@@ -263,12 +267,13 @@ public static class OrganizationEndpoints
     // -----------------------------------------------------------------
     private static async Task<IResult> RevokeEnrollment(
         Guid id, Guid deviceId, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var service = http.RequestServices.GetRequiredService<OrganizationAppService>();
         var accountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (accountId is null) return AccountRequired();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, accountId.Value, user, clock, ct) is { } gate) return gate;
 
         try
         {
@@ -283,12 +288,13 @@ public static class OrganizationEndpoints
     // -----------------------------------------------------------------
     private static async Task<IResult> SetAuditor(
         Guid id, SetAuditorRequest request, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var service = http.RequestServices.GetRequiredService<OrganizationAppService>();
         var accountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (accountId is null) return AccountRequired();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, accountId.Value, user, clock, ct) is { } gate) return gate;
 
         try
         {
@@ -303,12 +309,13 @@ public static class OrganizationEndpoints
     // -----------------------------------------------------------------
     private static async Task<IResult> GetAdminAudit(
         Guid id, DateTimeOffset? from, DateTimeOffset? to, string? format, ClaimsPrincipal user,
-        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, CancellationToken ct)
+        BusinessModeOptions businessMode, AppDbContext deliveryDb, HttpContext http, TimeProvider clock, CancellationToken ct)
     {
         if (Gate503(businessMode) is { } disabled) return disabled;
         var service = http.RequestServices.GetRequiredService<OrganizationAppService>();
         var accountId = await RequireAccountAsync(user, deliveryDb, ct);
         if (accountId is null) return AccountRequired();
+        if (await RequireOrgAdminThenStepUpAsync(service, id, accountId.Value, user, clock, ct) is { } gate) return gate;
 
         try
         {
@@ -333,6 +340,23 @@ public static class OrganizationEndpoints
         : Results.Json(new { error = "Business mode is not enabled on this server.", code = "business_mode_disabled" }, statusCode: StatusCodes.Status503ServiceUnavailable);
 
     private static Guid? RequireDevice(ClaimsPrincipal user) => AccountEndpoints.CallerDeviceId(user);
+
+    /// <summary>
+    /// N03b: gates every OrgAdmin+ mutation on MFA. Order matters for
+    /// information leaks — membership/role is checked FIRST (via the same
+    /// side-effect-free pre-check the mutating call itself runs), so a
+    /// non-member still gets today's 404/403 and never mfa_required; only a
+    /// confirmed org-admin without a fresh step-up token sees mfa_required.
+    /// Returns null when the caller may proceed.
+    /// </summary>
+    private static async Task<IResult?> RequireOrgAdminThenStepUpAsync(
+        OrganizationAppService service, Guid organizationId, Guid actorAccountId, ClaimsPrincipal user, TimeProvider clock, CancellationToken ct)
+    {
+        try { await service.EnsureOrgAdminAsync(organizationId, actorAccountId, ct); }
+        catch (DomainRuleViolation ex) { return MapViolation(ex); }
+
+        return MfaAuthHelper.RequireStepUp(user, actorAccountId, clock);
+    }
 
     private static IResult AccountRequired() => Results.Json(
         new { error = "This action requires a registered account linked to the calling device.", code = "account_required" },

@@ -139,7 +139,7 @@ public static partial class AuditArchiveEndpoints
         r.Sequence, Convert.ToHexString(r.Hash));
 
     private static async Task<IResult> GetCount(Guid orgId, ClaimsPrincipal user, BusinessModeOptions businessMode,
-        HttpContext http, AppDbContext appDb, CancellationToken ct)
+        HttpContext http, AppDbContext appDb, TimeProvider clock, CancellationToken ct)
     {
         if (!businessMode.Enabled) return Results.Json(new { error = "business_mode_disabled" }, statusCode: StatusCodes.Status503ServiceUnavailable);
 
@@ -158,10 +158,16 @@ public static partial class AuditArchiveEndpoints
         // anonymous member device) simply has no admin role anywhere.
         var accountIds = await appDb.AccountDevices.Where(ad => ad.DeviceId == callerDevice)
             .Select(ad => ad.AccountId).ToListAsync(ct);
-        var isAdmin = accountIds.Count > 0 && await auditDb.OrgMembers.AnyAsync(m =>
-            m.OrganizationId == orgId && accountIds.Contains(m.AccountId) && m.RemovedAt == null &&
-            (m.Role == OrgRole.Owner || m.Role == OrgRole.OrgAdmin), ct);
-        if (!isAdmin) return Results.Forbid();
+        var adminAccountId = accountIds.Count == 0 ? (Guid?)null : await auditDb.OrgMembers
+            .Where(m => m.OrganizationId == orgId && accountIds.Contains(m.AccountId) && m.RemovedAt == null &&
+                        (m.Role == OrgRole.Owner || m.Role == OrgRole.OrgAdmin))
+            .Select(m => (Guid?)m.AccountId).FirstOrDefaultAsync(ct);
+        if (adminAccountId is null) return Results.Forbid();
+
+        // N03b: this endpoint IS admin-gated (isAdmin check above), so — unlike
+        // PostRecord, which is the archiver bot's own path and stays open — it
+        // requires the same fresh MFA step-up as every other OrgAdmin+ read.
+        if (MfaAuthHelper.RequireStepUp(user, adminAccountId.Value, clock) is { } stepUpRequired) return stepUpRequired;
 
         var last = await auditDb.AuditRecords.Where(r => r.OrganizationId == orgId)
             .OrderByDescending(r => r.Sequence).FirstOrDefaultAsync(ct);

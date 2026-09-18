@@ -86,10 +86,15 @@ public class AuditRoleMutationTests : IntegrationTestBase
         var orgId = await PostJsonExpectOk<Guid>(client, HttpMethod.Post, "/orgs", new { name = "W2-D Org" },
             HttpStatusCode.Created, "organizationId");
 
+        // N03b: every OrgAdmin+ mutation below now needs a fresh MFA step-up
+        // token instead of adminToken — org creation itself is exempt (a fresh
+        // Owner has no MFA enrolled yet), so this happens only now.
+        var adminStepUpToken = await EnrollAndVerifyMfaAsync(client, accountId, AuthKey);
+
         // --- register the auditor bot device and PUT /orgs/{id}/auditor
         //     (UPDATE Organizations.AuditorDeviceId) --------------------------
         var (botDeviceId, botToken) = await RegisterDeviceAsync(client, isBot: true);
-        Authorize(client, adminToken);
+        Authorize(client, adminStepUpToken);
         await SendExpect(client, HttpMethod.Put, $"/orgs/{orgId}/auditor", new { deviceId = botDeviceId }, HttpStatusCode.NoContent);
 
         // Business traffic is fail-closed on a dead auditor (W2-F): the auditor
@@ -130,7 +135,7 @@ public class AuditRoleMutationTests : IntegrationTestBase
         await SendExpect(client, HttpMethod.Post, "/orgs/enroll", new { code = inviteCode }, HttpStatusCode.OK);
 
         // --- DELETE /orgs/{id}/enrollments/{deviceId} (UPDATE OrgEnrollments.RevokedAt) ---
-        Authorize(client, adminToken);
+        Authorize(client, adminStepUpToken);
         await SendExpect(client, HttpMethod.Delete, $"/orgs/{orgId}/enrollments/{memberDeviceId}", null, HttpStatusCode.NoContent);
 
         // --- POST /orgs/{id}/emergency/kits (INSERT EmergencyKits + codes) --
@@ -158,14 +163,14 @@ public class AuditRoleMutationTests : IntegrationTestBase
         // StartDrill/CompleteDrill require an account (RequireAccountAsync) —
         // switch back to the admin; the client is still on emergencyToken
         // (a bare device, no linked account) from the enroll call above.
-        Authorize(client, adminToken);
+        Authorize(client, adminStepUpToken);
         var drillBody = await GetJsonAsync(client, HttpMethod.Post, $"/orgs/{orgId}/emergency/drills", null);
         var drillId = drillBody.GetProperty("drillId").GetInt64();
         await SendExpect(client, HttpMethod.Post, $"/orgs/{orgId}/emergency/drills/{drillId}/confirm", null, HttpStatusCode.NoContent);
         await SendExpect(client, HttpMethod.Post, $"/orgs/{orgId}/emergency/drills/{drillId}/complete", null, HttpStatusCode.NoContent);
 
         // --- DELETE .../emergency/kits/{kitId} (UPDATE EmergencyKits.RevokedAt) ---
-        Authorize(client, adminToken);
+        Authorize(client, adminStepUpToken);
         await SendExpect(client, HttpMethod.Delete, $"/orgs/{orgId}/emergency/kits/{kitId}", null, HttpStatusCode.NoContent);
 
         // --- POST /groups/business (Delivery DB — proves the Audit-DB
@@ -192,7 +197,7 @@ public class AuditRoleMutationTests : IntegrationTestBase
         }, HttpStatusCode.OK);
 
         // --- GET /orgs/{id}/admin-audit (SELECT AdminAuditEvents) ----------
-        Authorize(client, adminToken);
+        Authorize(client, adminStepUpToken);
         var adminAuditResponse = await client.GetAsync($"/orgs/{orgId}/admin-audit");
         adminAuditResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
