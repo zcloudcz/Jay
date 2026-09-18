@@ -354,3 +354,58 @@ jay_archiver run --api <url> --org <orgId> --state <dir>
 Connects as the already-provisioned device, decrypts every incoming **group** message in memory (via `GroupMessageSource` — see `lib/src/group_message_source.dart`), and POSTs one metadata record per message, ACKing only after a `2xx` response (K01 discipline — see plan §KB3). Exits non-zero on a `401`/`403` from the archive API (its own credentials are broken); on network errors or `5xx` it retries with capped exponential backoff and, if it still fails, leaves the message un-acked for the server to redeliver later.
 
 `GroupMessageSource` is the seam for step 2 (MLS, plan §6): `SignalGroupMessageSource` is the only implementation today, built on the existing per-recipient Signal fan-out (`calltype_core`'s `SignalRClient` + `SessionManager`) — an MLS-based implementation can replace it later without changing `Archiver`.
+
+## E07 — Emergency channel (spec 2.3/2.6/2.9, plan §5/§7)
+
+Owned files: `CallType.Audit/Emergency/**` (`EmergencyCodes`, `EmergencyAppService`,
+`Dtos`), `CallType.Audit/Domain/EmergencyEnrollmentCode.cs` (adds
+`EmergencyEnrollmentCode` + `EmergencyDrillConfirmation`), `Endpoints/EmergencyEndpoints.cs`,
+`Services/EmergencyGroupService.cs`. Additive migrations: `EmergencyChannel`
+(`AuditDbContext` — `EmergencyKit.Label`, the two new tables) and
+`EmergencyGroupFlag` (`AppDbContext` — `Group.IsEmergencyChannel`).
+
+**Design deviation from the package brief, called out explicitly:** the brief
+says to create the emergency group via `BusinessGroupService`. That method
+requires a non-empty, already-enrolled member list (it's built for "user
+clicks new business chat") and cannot create a group with only the auditor
+before anyone has enrolled. `EmergencyGroupService.EnsureGroupAsync` creates
+the group directly instead (still auditor-in-the-same-`SaveChangesAsync`, so
+KB1 holds), tagged `Group.IsEmergencyChannel = true` so it can be found again
+without guessing among an org's other business groups.
+
+**Drill delivery mechanism chosen:** a dedicated SignalR hub event
+`EmergencyDrill { organizationId, drillId, startedAt }`, pushed via
+`IHubContext<MessengerHub>` to whichever emergency-group members are online
+(`MessengerHub.TryGetConnectionId`, the same per-device connection map
+`CallSignal`/`TypingIndicator` use) — not a system group message. No
+server-originated group-message path exists in Delivery (`SendReliableGroupMessage`
+requires a caller device and per-recipient encrypted payloads, which the
+server cannot produce since it never holds plaintext), so a client-visible
+event plus a client-side confirm dialog is the mechanism named as the
+fallback in the package brief. Offline members simply miss the prompt; that's
+consistent with a drill measuring current reachability.
+
+| Route | Auth | Body | Success | Notes |
+| --- | --- | --- | --- | --- |
+| `POST /orgs/{id}/emergency/kits` | OrgAdmin+ | `{ label, count }` | 200 `{ kitId, label, issuedAt, recoveryCode, codes: string[], printable }` | `count` 1..50 (422 `invalid_count`). Codes/recovery code returned once, plaintext, never persisted. Lazily creates the org's emergency group (409 `auditor_not_configured` if `PUT /orgs/{id}/auditor` hasn't run yet). |
+| `GET /orgs/{id}/emergency/kits` | OrgAdmin+ | — | 200 `[{ kitId, label, issuedAt, revokedAt, codesTotal, codesRemaining }]` | Counts only, never codes. |
+| `DELETE /orgs/{id}/emergency/kits/{kitId}` | OrgAdmin+ | — | 204 | Idempotent; 404 `kit_not_found`. |
+| `POST /orgs/emergency/enroll` | any authenticated device | `{ code }` | 200 `{ organizationId }` | No account/enrollment prerequisite. Rate limit `auth`. 410 `emergency_code_used` / `kit_revoked` / `emergency_code_invalid`. Joins the org's emergency group as a side effect. |
+| `POST /orgs/{id}/emergency/drills` | OrgAdmin+ | — | 200 `{ drillId }` | Pushes the `EmergencyDrill` hub event (see above). |
+| `POST /orgs/{id}/emergency/drills/{drillId}/confirm` | any enrolled device | — | 204 | First confirmation per device only; ignored once the drill is completed. |
+| `POST /orgs/{id}/emergency/drills/{drillId}/complete` | OrgAdmin+ | — | 204 | Idempotent. Stores `ConfirmedMemberCount` and `ResponseTime` = **max** (not median) confirm latency — see `EmergencyAppService.CompleteDrillAsync`. |
+| `GET /orgs/{id}/emergency/drills` | OrgAdmin+ | — | 200 `[{ drillId, startedAt, completedAt, confirmedMemberCount, responseTimeSeconds }]` | |
+| `GET /orgs/{id}/emergency/proof?format=json\|txt` | OrgAdmin+ | — | 200 `EmergencyProof` (JSON) or `text/plain` | `SelfHashSha256` = SHA-256 over every field except `GeneratedAt` (fixed-order JSON) — reproducible across exports of the same underlying data (`EmergencyProofTests`). Text format applies the same leading `=+-@` escape as `OrganizationEndpoints.EscapeCsv`. |
+
+Error mapping (`EmergencyEndpoints.MapViolation`): `org_not_found`/`kit_not_found`/`drill_not_found`
+→ 404, `forbidden` → 403, `kit_revoked`/`emergency_code_used`/`emergency_code_invalid`
+→ 410, `invalid_count`/`invalid_label` → 422, else 409.
+
+Admin-audit event types added: `emergency_kit_issued`, `emergency_kit_revoked`,
+`emergency_device_enrolled`, `emergency_drill_started`, `emergency_drill_completed`.
+
+**Not implemented in this pass (see E07 final report):** client UI
+(`lib/features/organization/emergency/**`, `emergency_api.dart`), ARB strings,
+and the Testcontainers integration test suite — server domain/application/
+endpoint code and DB-free unit tests are done and green; the rest is flagged
+`NOT_RUN` for a follow-up pass, not silently skipped.

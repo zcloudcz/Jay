@@ -373,6 +373,9 @@ namespace CallType.Api.Migrations
                     b.Property<Guid>("CreatedBy")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsEmergencyChannel")
+                        .HasColumnType("boolean");
+
                     b.Property<byte[]>("NameEncrypted")
                         .HasColumnType("bytea");
 

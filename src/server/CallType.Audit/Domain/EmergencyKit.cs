@@ -15,6 +15,12 @@ public class EmergencyKit
     /// <summary>Hash of the recovery code — the plaintext code is never stored server-side.</summary>
     public string RecoveryCodeHash { get; private set; } = string.Empty;
 
+    // ponytail: E00 shipped this table without a Label — E07 needs one to list
+    // kits meaningfully in the admin UI, so it's added here as a plain additive
+    // column (see Migrations/*_EmergencyChannel.cs) rather than reworking E00's
+    // frozen shape.
+    public string Label { get; private set; } = string.Empty;
+
     public DateTimeOffset IssuedAt { get; private set; }
     public DateTimeOffset? RevokedAt { get; set; }
 
@@ -22,11 +28,12 @@ public class EmergencyKit
     {
     } // EF Core
 
-    public EmergencyKit(Guid kitId, Guid organizationId, string recoveryCodeHash, DateTimeOffset issuedAt)
+    public EmergencyKit(Guid kitId, Guid organizationId, string recoveryCodeHash, string label, DateTimeOffset issuedAt)
     {
         KitId = kitId;
         OrganizationId = organizationId;
         RecoveryCodeHash = recoveryCodeHash;
+        Label = label;
         IssuedAt = issuedAt;
     }
 }

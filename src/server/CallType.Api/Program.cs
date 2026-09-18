@@ -133,6 +133,12 @@ if (businessModeEnabled)
     builder.Services.AddScoped<BusinessGroupService>();
     builder.Services.AddScoped<IEnrollmentRevokedHandler>(sp => sp.GetRequiredService<BusinessGroupService>());
     builder.Services.AddScoped<CallType.Audit.OrgManagement.OrganizationAppService>();
+
+    // Emergency channel (E07): kits/drills/proof live in the Audit DB
+    // (EmergencyAppService); the Delivery-side emergency group is a separate
+    // service (EmergencyGroupService) per the KB3 database split.
+    builder.Services.AddScoped<CallType.Audit.Emergency.EmergencyAppService>();
+    builder.Services.AddScoped<EmergencyGroupService>();
 }
 
 // ReadinessService backs GET /health/ready — scoped because it depends on the
@@ -284,6 +290,7 @@ app.MapChannelEndpoints();
 app.MapTurnCredentialEndpoints();
 app.MapOrganizationEndpoints();
 app.MapAuditArchiveEndpoints();
+app.MapEmergencyEndpoints();
 
 // Map the SignalR hub at /hub. The hub is protected by [Authorize] — clients
 // must pass access_token as a query parameter during the WebSocket upgrade.

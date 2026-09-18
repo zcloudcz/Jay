@@ -34,6 +34,8 @@ public class AuditDbContext(DbContextOptions<AuditDbContext> options) : DbContex
     public DbSet<OrgDailyProof> OrgDailyProofs => Set<OrgDailyProof>();
     public DbSet<EmergencyKit> EmergencyKits => Set<EmergencyKit>();
     public DbSet<EmergencyDrill> EmergencyDrills => Set<EmergencyDrill>();
+    public DbSet<EmergencyEnrollmentCode> EmergencyEnrollmentCodes => Set<EmergencyEnrollmentCode>();
+    public DbSet<EmergencyDrillConfirmation> EmergencyDrillConfirmations => Set<EmergencyDrillConfirmation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -160,6 +162,7 @@ public class AuditDbContext(DbContextOptions<AuditDbContext> options) : DbContex
         modelBuilder.Entity<EmergencyKit>(entity =>
         {
             entity.HasKey(k => k.KitId);
+            entity.Property(k => k.Label).HasMaxLength(200);
             entity.HasIndex(k => k.OrganizationId);
         });
 
@@ -168,6 +171,21 @@ public class AuditDbContext(DbContextOptions<AuditDbContext> options) : DbContex
             entity.HasKey(d => d.Id);
             entity.Property(d => d.Id).ValueGeneratedOnAdd();
             entity.HasIndex(d => d.OrganizationId);
+        });
+
+        modelBuilder.Entity<EmergencyEnrollmentCode>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+            entity.Property(c => c.CodeHash).HasMaxLength(64); // hex SHA-256
+            entity.HasIndex(c => c.CodeHash).IsUnique();
+            entity.HasIndex(c => c.KitId);
+        });
+
+        modelBuilder.Entity<EmergencyDrillConfirmation>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+            entity.Property(c => c.Id).ValueGeneratedOnAdd();
+            entity.HasIndex(c => new { c.DrillId, c.DeviceId }).IsUnique();
         });
     }
 }

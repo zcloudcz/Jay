@@ -35,6 +35,15 @@ public class Group
     /// </summary>
     public Guid? OrganizationId { get; set; }
 
+    /// <summary>
+    /// True for the one distinguished business group per organization used as
+    /// its emergency channel (E07, spec 2.3/2.6) — lets EmergencyEndpoints find
+    /// "the" emergency group without guessing among an org's other business
+    /// groups. Always false for anonymous groups and for ordinary business
+    /// groups created via POST /groups/business.
+    /// </summary>
+    public bool IsEmergencyChannel { get; set; }
+
     // Navigation property
     public List<GroupMember> Members { get; set; } = [];
 }

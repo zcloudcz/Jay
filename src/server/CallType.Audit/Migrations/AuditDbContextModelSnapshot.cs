@@ -268,6 +268,64 @@ namespace CallType.Audit.Migrations
                     b.ToTable("EmergencyDrills");
                 });
 
+            modelBuilder.Entity("CallType.Audit.Domain.EmergencyDrillConfirmation", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTimeOffset>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("DrillId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DrillId", "DeviceId")
+                        .IsUnique();
+
+                    b.ToTable("EmergencyDrillConfirmations");
+                });
+
+            modelBuilder.Entity("CallType.Audit.Domain.EmergencyEnrollmentCode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CodeHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("KitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UsedByDeviceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CodeHash")
+                        .IsUnique();
+
+                    b.HasIndex("KitId");
+
+                    b.ToTable("EmergencyEnrollmentCodes");
+                });
+
             modelBuilder.Entity("CallType.Audit.Domain.EmergencyKit", b =>
                 {
                     b.Property<Guid>("KitId")
@@ -276,6 +334,11 @@ namespace CallType.Audit.Migrations
 
                     b.Property<DateTimeOffset>("IssuedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<Guid>("OrganizationId")
                         .HasColumnType("uuid");

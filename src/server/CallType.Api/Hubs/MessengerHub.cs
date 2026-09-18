@@ -251,6 +251,14 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
     internal static bool IsOnline(Guid deviceId) => OnlineDevices.ContainsKey(deviceId);
 
     /// <summary>
+    /// Lets server-initiated pushes outside a hub method (e.g. EmergencyEndpoints
+    /// starting a drill) reach an online device the same way CallSignal/TypingIndicator
+    /// do, without exposing the OnlineDevices dictionary itself.
+    /// </summary>
+    internal static bool TryGetConnectionId(Guid deviceId, out string connectionId) =>
+        OnlineDevices.TryGetValue(deviceId, out connectionId!);
+
+    /// <summary>
     /// Subscribes THIS connection to every channel the caller follows, owns or
     /// administers. Group membership belongs to a connection, not a device, and
     /// REST endpoints cannot reach the connection — so the client calls this
