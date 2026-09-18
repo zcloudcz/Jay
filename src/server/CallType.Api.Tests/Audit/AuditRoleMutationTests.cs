@@ -26,6 +26,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
 using CallType.Api.Tests.TestFixtures;
@@ -90,6 +91,18 @@ public class AuditRoleMutationTests : IntegrationTestBase
         var (botDeviceId, botToken) = await RegisterDeviceAsync(client, isBot: true);
         Authorize(client, adminToken);
         await SendExpect(client, HttpMethod.Put, $"/orgs/{orgId}/auditor", new { deviceId = botDeviceId }, HttpStatusCode.NoContent);
+
+        // Business traffic is fail-closed on a dead auditor (W2-F): the auditor
+        // must be connected to THIS factory's hub before POST /groups/business
+        // below is accepted. InvokeAsync is a full hub round trip, so by the
+        // time it returns OnConnectedAsync has registered the device as online
+        // (StartAsync alone may return earlier).
+        await using var auditorHub = new HubConnectionBuilder()
+            .WithUrl($"{factory.Server.BaseAddress}hub?access_token={botToken}",
+                options => options.HttpMessageHandlerFactory = _ => factory.Server.CreateHandler())
+            .Build();
+        await auditorHub.StartAsync();
+        await auditorHub.InvokeAsync("RequestPendingMessages");
 
         // --- PATCH /orgs/{id} (UPDATE Organizations.Name/ArchiveLevel) ------
         await SendExpect(client, HttpMethod.Patch, $"/orgs/{orgId}", new { name = "W2-D Org Renamed", archiveLevel = "Metadata" }, HttpStatusCode.NoContent);
