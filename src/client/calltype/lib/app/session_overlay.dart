@@ -12,8 +12,13 @@ enum _LockError { storageUnavailable, rejected, unavailable }
 
 /// Keeps call invitations and the local privacy lock active across routes.
 class SessionOverlay extends StatefulWidget {
-  const SessionOverlay({super.key, required this.child});
+  const SessionOverlay({super.key, required this.child, this.openCall});
   final Widget child;
+
+  /// Opens the call screen for a remote device id. Defaults to pushing
+  /// `/call/<id>` on the app router; a test seam, because the global router
+  /// cannot be built in a widget test.
+  final void Function(String remoteDeviceId)? openCall;
   @override
   State<SessionOverlay> createState() => _SessionOverlayState();
 }
@@ -64,19 +69,35 @@ class _SessionOverlayState extends State<SessionOverlay>
   }
 
   void _callChanged() {
+    // The flag is cleared by the CALL ending, not by the pushed route
+    // completing: the call screen closes with `context.go('/chats')`, and
+    // go_router (17.x) never completes a push() future whose page was removed
+    // by go(). Waiting for that future left the flag set for good after the
+    // first call, so the next call — incoming or outgoing — never opened the
+    // call screen, the callee could not accept and the caller ran into the
+    // 45 s timeout ("the second call cannot be established").
+    if (_calls.state == CallState.ended || _calls.state == CallState.idle) {
+      _callOpen = false;
+    }
     if (!mounted || _locked || _checking || _callOpen) return;
     if (_calls.state != CallState.ringing &&
         _calls.state != CallState.connecting) {
       return;
     }
     _callOpen = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted || _locked) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final remote = _calls.remoteDeviceId;
+      if (!mounted || _locked || remote == null) {
         _callOpen = false;
         return;
       }
-      await router.push('/call/${_calls.remoteDeviceId}');
-      _callOpen = false;
+      // A call screen left open on "Call ended" already shows the manager's
+      // state, so it displays the new call by itself — do not stack a second one.
+      if (widget.openCall == null &&
+          router.routerDelegate.currentConfiguration.uri.path.startsWith('/call/')) {
+        return;
+      }
+      (widget.openCall ?? (id) => unawaited(router.push('/call/$id')))(remote);
     });
   }
 

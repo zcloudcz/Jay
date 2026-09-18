@@ -262,7 +262,19 @@ class WebRTCManager extends ChangeNotifier {
       };
       media = await _mediaFactory({
         'audio': true,
-        'video': video ? {'facingMode': 'user'} : false,
+        // Without a size hint browsers and phones capture at the camera's
+        // native resolution (often 720p/1080p), which stutters on mobile
+        // uplinks and over a TURN relay (beta feedback 2026-09-18: "video is
+        // choppy"). `ideal` is a preference, not a requirement, so a camera
+        // that cannot do it still opens.
+        'video': video
+            ? {
+                'facingMode': 'user',
+                'width': {'ideal': 640},
+                'height': {'ideal': 480},
+                'frameRate': {'ideal': 24},
+              }
+            : false,
       });
       _check(generation);
       for (final track in media.getTracks()) {
