@@ -14,8 +14,8 @@
 services:
   api:
     build:
-      context: src/server/CallType.Api
-      dockerfile: Dockerfile
+      context: src/server
+      dockerfile: CallType.Api/Dockerfile
     ports:
       - "8080:8080"
     environment:

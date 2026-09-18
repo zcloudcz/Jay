@@ -8,12 +8,15 @@ import 'organization_dtos.dart';
 /// (E01) for the endpoint shapes this codes against.
 extension OrganizationApi on ApiClient {
   /// POST /orgs {name} — requires a registered account.
+  ///
+  /// The server answers `{organizationId, name}` only (contracts §E01). The
+  /// role is not echoed because it is fixed: the creator always becomes owner.
   Future<OrganizationInfo> createOrganization(String name) async {
     final response = await transport.post<Map<String, dynamic>>(
       '/orgs',
       data: {'name': name},
     );
-    return OrganizationInfo.fromJson(response.data!);
+    return OrganizationInfo.fromJson({...response.data!, 'role': 'owner'});
   }
 
   /// GET /orgs/mine — organizations the current account belongs to.
@@ -25,35 +28,35 @@ extension OrganizationApi on ApiClient {
         .toList();
   }
 
-  /// GET /orgs/{id}
-  Future<OrganizationInfo> getOrganization(String organizationId) async {
-    final response = await transport.get<Map<String, dynamic>>(
-      '/orgs/$organizationId',
-    );
-    return OrganizationInfo.fromJson(response.data!);
-  }
+  /// One organization as the CURRENT caller sees it, including their role.
+  ///
+  /// Read from GET /orgs/mine on purpose: GET /orgs/{id} describes the
+  /// organization itself (member list, no "your role" field), while the UI
+  /// needs the caller's role to decide what to show.
+  Future<OrganizationInfo> getOrganization(String organizationId) async =>
+      (await getMyOrganizations()).firstWhere(
+        (org) => org.organizationId == organizationId,
+      );
 
-  /// PATCH /orgs/{id} — currently only the name is client-editable.
+  /// PATCH /orgs/{id} (204, no body) — currently only the name is
+  /// client-editable. Re-reads the organization to return the new state.
   Future<OrganizationInfo> updateOrganization(
     String organizationId, {
     String? name,
   }) async {
-    final response = await transport.patch<Map<String, dynamic>>(
-      '/orgs/$organizationId',
-      data: {'name': ?name},
-    );
-    return OrganizationInfo.fromJson(response.data!);
+    await transport.patch<void>('/orgs/$organizationId', data: {'name': ?name});
+    return getOrganization(organizationId);
   }
 
-  /// GET members list for an organization (used by the admin screen and by
-  /// the "who can I add to a business group" picker).
+  /// Members of an organization (admin screen). There is no separate members
+  /// endpoint — they are the `members` array of GET /orgs/{id}.
   Future<List<OrgMemberInfo>> getOrganizationMembers(
     String organizationId,
   ) async {
-    final response = await transport.get<List<dynamic>>(
-      '/orgs/$organizationId/members',
+    final response = await transport.get<Map<String, dynamic>>(
+      '/orgs/$organizationId',
     );
-    return response.data!
+    return (response.data!['members'] as List<dynamic>)
         .cast<Map<String, dynamic>>()
         .map(OrgMemberInfo.fromJson)
         .toList();
@@ -80,6 +83,9 @@ extension OrganizationApi on ApiClient {
   Future<OrgInviteInfo> createInvite(String organizationId) async {
     final response = await transport.post<Map<String, dynamic>>(
       '/orgs/$organizationId/invites',
+      // The server binds a JSON body (all fields optional: expiresInHours).
+      // A request with no body at all is rejected with 400.
+      data: const <String, dynamic>{},
     );
     return OrgInviteInfo.fromJson(response.data!);
   }

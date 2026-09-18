@@ -24,8 +24,11 @@ Integrační větev `business/base` (lokální, nepushnutá). Základ: `feat/bot
 | `calltype_core` analyze + test | 114/114 PASS |
 | `calltype` analyze + gen-l10n + test (vč. ARB parity 19 jazyků) | 188/188 PASS |
 | `jay_archiver` analyze + test | 10/10 PASS |
-| End-to-end (klient ↔ reálný server, archivátor běžící, nouzový enrollment) | NOT_RUN |
-| Nasazení na betu | **PASS** — 2026-09-18, `25b5844`, [run 35337715526](https://github.com/zcloudcz/Jay/actions/runs/35337715526): testy, API, 5 klientských buildů, deploy API + web, smoke. Po deployi `/health/ready` 200, web 200. Business režim **vypnutý** (`ConnectionStrings__Audit` nenastaven) — ověřeno jen, že anonymní Jay běží beze změny; business endpointy na betě NOT_RUN |
+| End-to-end (klient ↔ reálný server, archivátor běžící) | **PASS lokálně** — 2026-09-18, `src/bots/jay_archiver/test/e2e/business_mode_e2e_test.dart` proti docker-compose (`JAY_E2E_API=http://localhost:8080 dart test test/e2e`): 3 zařízení s reálným `calltype_core` kryptem, organizace → pozvánky → firemní skupina; KB1 auditor člen + odebrání 409, KB2 `audit_recipient_missing`, člen dešifruje, archivátor zapíše 1 záznam. **Nikdy nepouštět proti betě** (append-only audit). První běh našel 3 chyby klientského API (viz níže) a nefunkční Docker build API |
+| End-to-end nouzový enrollment (E07) | NOT_RUN |
+| UI průchod na zařízení (banner KB1, auditor bez akce odebrání, obrazovka organizace) | NOT_RUN — ruční |
+| Nasazení na betu | **PASS** — 2026-09-18, `25b5844`, [run 35337715526](https://github.com/zcloudcz/Jay/actions/runs/35337715526): testy, API, 5 klientských buildů, deploy API + web, smoke. Po deployi `/health/ready` 200, web 200. Business režim při deployi vypnutý; anonymní Jay beze změny |
+| Zapnutí Business režimu na betě | **PASS (čtení)** — 2026-09-18: DB `calltype_audit` + role dle `audit-roles.sql`, `ConnectionStrings__Audit` (app role), migrace ručně jako ops (`AuditMigrations` v App Service záměrně nenastaven). Autentizovaný `GET /orgs/mine` → 200 `[]`. Zápis do auditu na betě NOT_RUN. **Nasazený webový klient má chyby níže → obrazovka organizace na betě nefunguje do dalšího deploye** |
 
 ## Kontrakty — stav
 
@@ -50,3 +53,13 @@ Integrační větev `business/base` (lokální, nepushnutá). Základ: `feat/bot
 
 1. Docker/CI: integrační testy neproběhly. Hosted CI vyžaduje Actions minuty (private repo) nebo dočasně public repo — **pozor: repo teď obsahuje `docs/superpowers/specs/2026-09-15-typecall-spec-v0.2.md` s obchodní strategií** (zatím nepushnuto).
 2. Validační milník spec kap. 12 nesplněn — E03b/E04/MLS krok 2 čekají.
+
+## Nálezy z prvního E2E běhu (2026-09-18)
+
+Klient `calltype_core/lib/network/organization_api.dart` byl psán proti domnělému tvaru odpovědí a testován jen proti mockům téhož omylu; server odpovídá kontraktu (`…-business-mode-contracts.md`).
+
+- `POST /orgs` vrací `{organizationId, name}` bez `role` → klient spadl při parsování (organizace přitom vznikla). Oprava: tvůrce = owner.
+- `GET /orgs/{id}/members` neexistuje (členové jsou v `GET /orgs/{id}`); `GET /orgs/{id}` nemá `role`; `PATCH` vrací 204 → seznam členů, enroll i nastavení auditora v UI padaly. Oprava: role z `/orgs/mine`, členové z `/orgs/{id}`.
+- `POST /orgs/{id}/invites` bez těla → 400. Oprava: klient posílá `{}`.
+- `src/server/CallType.Api/Dockerfile` měl build context bez `CallType.Audit` → image nešel sestavit (beta se nasazuje zipem, proto bez povšimnutí). Oprava: context `src/server`.
+- Neopraveno, k rozhodnutí: `CallTypeBot._send` posílá skupinovou zprávu po jednom příjemci na volání → v business skupině vždy `audit_recipient_missing` (bot typu Hermes tam neodpoví).

@@ -32,14 +32,17 @@ void main() {
       if (options.path == '/orgs/enroll') {
         return Response(requestOptions: options, data: {'organizationId': 'org1'});
       }
+      // Real contract: the caller's role only comes from GET /orgs/mine.
       return Response(
         requestOptions: options,
-        data: {
-          'organizationId': 'org1',
-          'name': 'Acme',
-          'role': 'member',
-          'archiveLevel': 'metadata',
-        },
+        data: [
+          {
+            'organizationId': 'org1',
+            'name': 'Acme',
+            'role': 'Member',
+            'archiveLevel': 'Metadata',
+          },
+        ],
       );
     });
     final controller = OrganizationController(apiClient: api);
@@ -105,10 +108,12 @@ void main() {
           ],
         );
       }
-      // /orgs/org1/members and /orgs/org1/audit/records/count
+      // GET /orgs/org1 (members live inside it) and .../audit/records/count
       return Response(
         requestOptions: options,
-        data: options.path.endsWith('/members') ? <dynamic>[] : {'count': 0},
+        data: options.path == '/orgs/org1'
+            ? {'organizationId': 'org1', 'name': 'Acme', 'members': <dynamic>[]}
+            : {'count': 0},
       );
     });
     final controller = OrganizationController(apiClient: api);
