@@ -121,6 +121,40 @@ jobs:
           path: TestResults
           retention-days: 30
 
+  # N06: CycloneDX SBOM for every Dart/Flutter package, generated once (not
+  # once per build-clients matrix leg) and uploaded next to the other release
+  # artifacts. Reuses OSV-Scanner (already pinned above for ci.yml's vuln
+  # gate) rather than trusting a second tool: it can emit CycloneDX directly,
+  # so there is no new npm-based tool (e.g. cdxgen) to vet. As a side effect
+  # this step also blocks the release on a known vulnerability in any pub
+  # lockfile, which is a deliberate extra release gate, not a bug.
+  sbom-dart:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - name: Generate Dart/Flutter SBOM (CycloneDX via OSV-Scanner, N06)
+        uses: google/osv-scanner-action/osv-scanner-action@a345acffa64b0eaede81a3d9aae6141214d9c8fc # v2.6.0
+        with:
+          scan-args: |-
+            --lockfile=./src/client/calltype/pubspec.lock
+            --lockfile=./src/client/calltype_core/pubspec.lock
+            --lockfile=./src/bots/calltype_bot/pubspec.lock
+            --lockfile=./src/bots/hermes_bridge/pubspec.lock
+            --lockfile=./src/bots/jay_archiver/pubspec.lock
+            --config=./osv-scanner.toml
+            --format=cyclonedx-1.5
+            --output=./dart-sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calltype-release-dart-sbom-${{ inputs.commit_sha }}
+          path: dart-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 90
+
   build-api:
     needs: test
     runs-on: ubuntu-latest
@@ -150,12 +184,20 @@ jobs:
             "artifactSha256": "$SHA256"
           }
           EOF
+      # N06: CycloneDX SBOM for the released API, attached next to the
+      # manifest. `dotnet tool install` and `dotnet CycloneDX` both fail the
+      # step (and therefore the job) on error — nothing here is best-effort.
+      - name: Generate API SBOM (CycloneDX, N06)
+        run: |
+          dotnet tool install --global CycloneDX --version 6.2.0
+          dotnet CycloneDX src/server/CallType.Api -o . -f api-sbom.cdx.json -j
       - uses: actions/upload-artifact@v4
         with:
           name: calltype-release-api-${{ inputs.commit_sha }}
           path: |
             calltype-api.zip
             api-manifest.json
+            api-sbom.cdx.json
           if-no-files-found: error
           retention-days: 90
 

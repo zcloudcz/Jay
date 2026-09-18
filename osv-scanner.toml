@@ -1,0 +1,9 @@
+# N06 (docs/superpowers/plans/2026-09-18-nis2-auditovatelnost.md, §3): dated,
+# reasoned exceptions to the Dart/Flutter vulnerability gate in ci.yml.
+# Starts empty — the integrator decides what, if anything, gets waived.
+#
+# To add an exception:
+#   [[IgnoredVulns]]
+#   id = "GHSA-xxxx-xxxx-xxxx"
+#   ignoreUntil = 2026-12-31   # deadline: critical 7 days, high 30 days
+#   reason = "why this is acceptable until the date above"

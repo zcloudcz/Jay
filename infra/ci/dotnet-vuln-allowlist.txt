@@ -1,0 +1,8 @@
+# Dated, reasoned exceptions to the N06 .NET vulnerability gate
+# (docs/superpowers/plans/2026-09-18-nis2-auditovatelnost.md, §3 N06).
+#
+# One entry per allowed advisory:
+#   GHSA-xxxx-xxxx-xxxx  | added YYYY-MM-DD | fix-by YYYY-MM-DD | reason
+#
+# Deadlines: critical severity within 7 days, high within 30 days of the
+# advisory first appearing in CI. Starts empty — the integrator decides.
