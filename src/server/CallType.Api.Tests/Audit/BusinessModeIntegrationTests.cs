@@ -57,7 +57,7 @@ public class BusinessModeIntegrationTests : IntegrationTestBase
 
         // Apply the production role model against this same (test) audit database.
         const string appPassword = "test-only-app-password";
-        await ApplyAuditRolesScriptAsync(appPassword);
+        await ApplyAuditRolesScriptAsync(AuditConnectionString, appPassword);
 
         var appConnectionString = new NpgsqlConnectionStringBuilder(AuditConnectionString)
         {
@@ -85,34 +85,5 @@ public class BusinessModeIntegrationTests : IntegrationTestBase
 
         await deleteAttempt.Should().ThrowAsync<PostgresException>()
             .Where(e => e.SqlState == PostgresErrorCodes.InsufficientPrivilege);
-    }
-
-    /// <summary>
-    /// Applies infra/postgres/audit-roles.sql verbatim (with the placeholder
-    /// passwords substituted) against the test's Audit database, exactly as
-    /// an ops runbook would against production — this is what actually
-    /// proves the checked-in script does what its comments claim.
-    /// </summary>
-    private async Task ApplyAuditRolesScriptAsync(string appPassword)
-    {
-        var scriptPath = Path.Combine(FindRepoRoot(), "infra", "postgres", "audit-roles.sql");
-        var script = await File.ReadAllTextAsync(scriptPath);
-        script = script.Replace("REPLACE_ME_OPS", "test-only-ops-password")
-                        .Replace("REPLACE_ME", appPassword);
-
-        await using var conn = new NpgsqlConnection(AuditConnectionString);
-        await conn.OpenAsync();
-        await using var cmd = new NpgsqlCommand(script, conn);
-        await cmd.ExecuteNonQueryAsync();
-    }
-
-    private static string FindRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "CallType.sln")))
-            dir = dir.Parent;
-
-        return dir?.FullName
-            ?? throw new InvalidOperationException("Could not locate repo root (CallType.sln) from the test output directory.");
     }
 }

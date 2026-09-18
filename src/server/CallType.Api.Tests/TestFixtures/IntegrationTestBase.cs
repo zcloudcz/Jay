@@ -212,6 +212,38 @@ public abstract class IntegrationTestBase : IAsyncLifetime
         return (deviceId, token, userHandle);
     }
 
+    /// <summary>
+    /// Applies infra/postgres/audit-roles.sql verbatim (with the placeholder
+    /// passwords substituted) against the given Audit database connection
+    /// string, exactly as an ops runbook would against production. Shared by
+    /// BusinessModeIntegrationTests (proves the app role can't UPDATE/DELETE
+    /// an AuditRecord) and AuditRoleMutationTests (proves the app role CAN do
+    /// every mutation the application needs) so the two test classes don't
+    /// duplicate the plumbing for reading and running the checked-in script.
+    /// </summary>
+    protected static async Task ApplyAuditRolesScriptAsync(string auditConnectionString, string appPassword)
+    {
+        var scriptPath = Path.Combine(FindRepoRoot(), "infra", "postgres", "audit-roles.sql");
+        var script = await File.ReadAllTextAsync(scriptPath);
+        script = script.Replace("REPLACE_ME_OPS", "test-only-ops-password")
+                        .Replace("REPLACE_ME", appPassword);
+
+        await using var conn = new NpgsqlConnection(auditConnectionString);
+        await conn.OpenAsync();
+        await using var cmd = new NpgsqlCommand(script, conn);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    private static string FindRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "CallType.sln")))
+            dir = dir.Parent;
+
+        return dir?.FullName
+            ?? throw new InvalidOperationException("Could not locate repo root (CallType.sln) from the test output directory.");
+    }
+
     public async Task DisposeAsync()
     {
         Client.Dispose();
