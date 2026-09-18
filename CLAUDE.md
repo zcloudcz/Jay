@@ -230,6 +230,9 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
 | `POST /channels/{id}/report` | Abuse report (follower, 5 per device per day), 204 | ✅ Done |
 | `POST /channels/{id}/attachments`, `GET /channels/{id}/attachments/{name}` | Unencrypted image ≤ `Channels:MaxImageBytes` in Blob container `channel-media` (413 over limit) | ✅ Done |
 | `SignalR /hub` | Message relay, typing, call signaling; channels: `JoinChannels`, `LeaveChannel`, events `ReceiveChannelPost`, `ChannelDeleted` | ✅ Done |
+| `DELETE /devices/{deviceId}` | GDPR (N09): device forgets itself — keys, queue, memberships, channel activity, push token; 409 `device_is_auditor` if it is an organization's auditor | ✅ Done |
+| `DELETE /accounts/{accountId}` | GDPR (N09): account deletion (requires `authKey` proof, irreversible) — links, backups (DB + Blob), owned channels soft-deleted; 409 `account_owns_organization` | ✅ Done |
+| `GET /accounts/{accountId}/export` | GDPR (N09): everything the server holds about the account, JSON — see `docs/security/data-subject-rights.md` | ✅ Done |
 
 ## Conventions
 

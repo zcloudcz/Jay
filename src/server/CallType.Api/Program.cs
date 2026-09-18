@@ -303,6 +303,7 @@ app.MapTurnCredentialEndpoints();
 app.MapOrganizationEndpoints();
 app.MapAuditArchiveEndpoints();
 app.MapEmergencyEndpoints();
+app.MapPrivacyEndpoints(); // N09: GDPR account/device deletion + export
 
 // Map the SignalR hub at /hub. The hub is protected by [Authorize] — clients
 // must pass access_token as a query parameter during the WebSocket upgrade.
