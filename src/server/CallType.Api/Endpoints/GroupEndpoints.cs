@@ -15,6 +15,7 @@ public static class GroupEndpoints
     {
         app.MapPost("/groups", CreateGroup).RequireAuthorization().RequireRateLimiting("api");
         app.MapPost("/groups/business", CreateBusinessGroup).RequireAuthorization().RequireRateLimiting("api");
+        app.MapGet("/groups/{groupId:guid}", GetGroup).RequireAuthorization().RequireRateLimiting("api");
         app.MapGet("/groups/{groupId:guid}/members", ListMembers).RequireAuthorization().RequireRateLimiting("api");
         app.MapPut("/groups/{groupId:guid}/members", AddMember).RequireAuthorization().RequireRateLimiting("api");
         app.MapDelete("/groups/{groupId:guid}/members/{deviceId:guid}", RemoveMember).RequireAuthorization().RequireRateLimiting("api");
@@ -79,6 +80,30 @@ public static class GroupEndpoints
         var role = await db.GroupMembers.Where(m => m.GroupId == groupId && m.DeviceId == caller)
             .Select(m => m.Role).SingleOrDefaultAsync(ct);
         return role == null || (admin && role != "admin") ? Results.Forbid() : null;
+    }
+
+    /// <summary>
+    /// GET /groups/{id} — business metadata for the KB1 banner. The client
+    /// must show "archived by <organization>" and the auditor tile without a
+    /// per-member round trip, so the organization name (which lives in the
+    /// audit DB) is resolved here once. Anonymous groups return nulls.
+    /// </summary>
+    private static async Task<IResult> GetGroup(Guid groupId, ClaimsPrincipal user,
+        AppDbContext db, HttpContext http, BusinessModeOptions businessMode, CancellationToken ct)
+    {
+        var denial = await Authorize(groupId, user, db, false, ct);
+        if (denial != null) return denial;
+        var organizationId = await db.Groups.Where(g => g.GroupId == groupId)
+            .Select(g => g.OrganizationId).SingleAsync(ct);
+        if (organizationId is null || !businessMode.Enabled)
+            return Results.Ok(new GroupInfoDto(groupId, null, null, null));
+        var auditorDeviceId = await db.GroupMembers
+            .Where(m => m.GroupId == groupId && m.Role == "auditor")
+            .Select(m => (Guid?)m.DeviceId).SingleOrDefaultAsync(ct);
+        var auditDb = http.RequestServices.GetRequiredService<AuditDbContext>();
+        var organizationName = await auditDb.Organizations.AsNoTracking()
+            .Where(o => o.OrganizationId == organizationId).Select(o => o.Name).SingleOrDefaultAsync(ct);
+        return Results.Ok(new GroupInfoDto(groupId, organizationId, organizationName, auditorDeviceId));
     }
 
     private static async Task<IResult> ListMembers(Guid groupId, ClaimsPrincipal user,
@@ -147,3 +172,4 @@ public record CreateBusinessGroupRequest(Guid OrganizationId, Guid[]? MemberDevi
 public record CreateGroupResponse(Guid GroupId);
 public record AddGroupMemberRequest(Guid DeviceId);
 public record GroupMemberDto(Guid DeviceId, string Role, DateTimeOffset JoinedAt);
+public record GroupInfoDto(Guid GroupId, Guid? OrganizationId, string? OrganizationName, Guid? AuditorDeviceId);

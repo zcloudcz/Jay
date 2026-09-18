@@ -67,10 +67,15 @@ class MockApiClient extends _i1.Mock implements _i4.ApiClient {
   @override
   _i5.Future<Map<String, dynamic>> createGroup(
     String? name,
-    List<String>? memberDeviceIds,
-  ) =>
+    List<String>? memberDeviceIds, {
+    String? organizationId,
+  }) =>
       (super.noSuchMethod(
-            Invocation.method(#createGroup, [name, memberDeviceIds]),
+            Invocation.method(
+              #createGroup,
+              [name, memberDeviceIds],
+              {#organizationId: organizationId},
+            ),
             returnValue: _i5.Future<Map<String, dynamic>>.value(
               <String, dynamic>{},
             ),

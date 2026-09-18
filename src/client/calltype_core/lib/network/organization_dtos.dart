@@ -30,7 +30,7 @@ class OrganizationInfo {
       OrganizationInfo(
         organizationId: json['organizationId'] as String,
         name: json['name'] as String,
-        role: json['role'] as String,
+        role: normalizeRole(json['role'] as String),
         archiveLevel: json['archiveLevel'] as String? ?? 'metadata',
         auditorDeviceId: json['auditorDeviceId'] as String?,
       );
@@ -44,7 +44,7 @@ class OrgMemberInfo {
   factory OrgMemberInfo.fromJson(Map<String, dynamic> json) =>
       OrgMemberInfo(
         accountId: json['accountId'] as String,
-        role: json['role'] as String,
+        role: normalizeRole(json['role'] as String),
       );
 }
 
@@ -103,3 +103,9 @@ abstract final class OrgErrorCodes {
   static const inviteInvalid = 'invite_invalid';
   static const auditRecipientMissing = 'audit_recipient_missing';
 }
+
+/// The server serializes `OrgRole` with `Enum.ToString()` ("OrgAdmin"), the
+/// client compares camelCase ("orgAdmin"). Normalize once at the boundary so a
+/// future server-side naming-policy change cannot silently break role checks.
+String normalizeRole(String role) =>
+    role.isEmpty ? role : role[0].toLowerCase() + role.substring(1);
