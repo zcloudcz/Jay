@@ -333,6 +333,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "メッセージを送信できませんでした：この会話に組織の監査メンバーがいません。",
+  "hubErrorAuditorUnavailable": "現在アーカイブ機能を利用できません。メッセージは送信されませんでした。しばらくしてからもう一度お試しください。",
   "emergencyTitle": "緊急チャンネル",
   "emergencyKitsTitle": "緊急キット",
   "emergencyIssueKit": "キットを発行",

@@ -514,6 +514,10 @@
     }
   },
   "hubErrorAuditRecipientMissing": "This message could not be sent: the organization's archive member is missing from this conversation.",
+  "hubErrorAuditorUnavailable": "Archiving is currently unavailable — the message was not sent. Try again in a moment.",
+  "@hubErrorAuditorUnavailable": {
+    "description": "Shown when a business-mode send or group creation is rejected because the organization's auditor is not alive (W2-F fail-closed rule)."
+  },
   "emergencyTitle": "Emergency channel",
   "emergencyKitsTitle": "Emergency kits",
   "emergencyIssueKit": "Issue kit",

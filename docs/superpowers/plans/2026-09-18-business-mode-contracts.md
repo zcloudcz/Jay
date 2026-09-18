@@ -309,6 +309,44 @@ intentionally different here.
   apply to them; attachments go through the same `SendReliableGroupMessage`
   path as any other encrypted payload, so they're covered.
 
+## W2-F — fail-closed on a dead auditor (owner decision 2026-09-18)
+
+Rule: a business conversation must not be created, and a business message
+must not be accepted, while the organization's auditor is not alive. The
+organization's EMERGENCY group (`Group.IsEmergencyChannel == true`) is the
+one deliberate exception and stays fail-OPEN — messages just wait in the
+auditor's queue (30-day TTL).
+
+"Alive" (`CallType.Api.Services.AuditorLivenessService.IsAliveAsync`) = BOTH:
+1. the auditor device is connected to the hub right now, or disconnected less
+   than `Business:AuditorDisconnectGraceSeconds` ago (default 120 s) —
+   `MessengerHub`'s in-process connection map plus a new `LastDisconnectedAt`
+   map (same static, single-API-instance pattern as `OnlineDevices`); never
+   seen since process start reads as NOT alive.
+2. the oldest un-acked `QueuedMessage` addressed to the auditor is younger
+   than `Business:AuditorMaxBacklogAgeSeconds` (default 300 s) — one query on
+   the existing `(RecipientId, CreatedAt)` index.
+
+Result is cached per organization for 5 s (`IMemoryCache`) so the hot send
+path doesn't run the backlog query per message.
+
+Enforced in:
+- `MessengerHub.SendReliableGroupMessage` — business group, not emergency,
+  auditor not alive -> `HubException("auditor_unavailable")` before anything
+  is queued, next to the existing KB2 (`audit_recipient_missing`) check.
+- `POST /groups/business` (`BusinessGroupService.CreateAsync`) — auditor not
+  alive -> 503 `{ error: "auditor_unavailable", code: "auditor_unavailable" }`,
+  nothing written.
+
+NOT enforced on: adding a member to an existing business group (no content
+flows by that act), the emergency kit/enroll paths.
+
+Config keys (`CallType.Api.Configuration.BusinessOptions`, section
+`Business`): `Business:AuditorDisconnectGraceSeconds` (env
+`Business__AuditorDisconnectGraceSeconds`, default 120),
+`Business:AuditorMaxBacklogAgeSeconds` (env
+`Business__AuditorMaxBacklogAgeSeconds`, default 300).
+
 ## HashChain rules added in B00 review
 
 - `Canonicalize` encodes `null` as U+0000 (distinct from `""`) and **throws `ArgumentException`** if a value contains U+001F or U+0000. Validate/sanitize free-text input (organization name, access-request reason) at the API boundary and return 422 rather than letting this surface as 500.

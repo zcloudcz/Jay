@@ -21,10 +21,13 @@ using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using CallType.Api.Data;
 using CallType.Api.Models;
 using CallType.Api.Tests.TestFixtures;
+using CallType.Audit.Domain;
+using CallType.Audit.Infrastructure;
 
 namespace CallType.Api.Tests.Hubs;
 
@@ -84,6 +87,23 @@ public class MessengerHubTests : IntegrationTestBase
                 options.HttpMessageHandlerFactory = _ => server.CreateHandler();
             })
             .Build();
+    }
+
+    /// <summary>
+    /// Creates a real Organization row (AuditorLivenessService looks it up by
+    /// id, W2-F) with the given device as its auditor. Business-group hub
+    /// tests use a Group.OrganizationId that must resolve to an actual
+    /// Organization, or the new fail-closed check treats the org as dead.
+    /// </summary>
+    private async Task<Guid> CreateBusinessOrganizationAsync(Guid auditorDeviceId)
+    {
+        using var scope = Factory.Services.CreateScope();
+        var auditDb = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
+        var org = Organization.Create(Guid.NewGuid(), "Acme", Guid.NewGuid(), DateTimeOffset.UtcNow);
+        org.AuditorDeviceId = auditorDeviceId;
+        auditDb.Organizations.Add(org);
+        await auditDb.SaveChangesAsync();
+        return org.OrganizationId;
     }
 
     [Fact]
@@ -592,12 +612,13 @@ public class MessengerHubTests : IntegrationTestBase
         var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
         var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
         // Real registered device: GroupMember.DeviceId is an FK to Devices.
-        var (auditor, _) = await RegisterDeviceAndGetTokenAsync();
+        var (auditor, auditorToken) = await RegisterDeviceAndGetTokenAsync();
         var group = Guid.NewGuid();
+        var organizationId = await CreateBusinessOrganizationAsync(auditor);
         using (var scope = Factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            db.Groups.Add(new Group { GroupId = group, CreatedBy = sender, CreatedAt = DateTimeOffset.UtcNow, OrganizationId = Guid.NewGuid() });
+            db.Groups.Add(new Group { GroupId = group, CreatedBy = sender, CreatedAt = DateTimeOffset.UtcNow, OrganizationId = organizationId });
             db.GroupMembers.AddRange(
                 new GroupMember { GroupId = group, DeviceId = sender, Role = "admin" },
                 new GroupMember { GroupId = group, DeviceId = recipient, Role = "member" },
@@ -605,13 +626,18 @@ public class MessengerHubTests : IntegrationTestBase
             await db.SaveChangesAsync();
         }
         await using var sending = CreateHubConnection(sender, senderToken);
+        // W2-F: the auditor must be connected (alive) so this test exercises
+        // KB2 (audit_recipient_missing), not the new auditor_unavailable gate.
+        await using var auditing = CreateHubConnection(auditor, auditorToken);
         await sending.StartAsync();
+        await auditing.StartAsync();
         var id = Guid.NewGuid();
 
         // Act — a payload that omits the auditor must be rejected outright.
         var send = () => sending.InvokeAsync("SendReliableGroupMessage", group, id,
             new Dictionary<Guid, string> { [recipient] = "AQI=" });
-        await send.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>();
+        (await send.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>()).Which.Message
+            .Should().Contain("audit_recipient_missing");
 
         using var verify = Factory.Services.CreateScope();
         var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -619,6 +645,7 @@ public class MessengerHubTests : IntegrationTestBase
         written.Should().Be(0, "a rejected KB2 fan-out must not partially persist any recipient's message");
 
         await sending.StopAsync();
+        await auditing.StopAsync();
     }
 
     [Fact]
@@ -628,10 +655,11 @@ public class MessengerHubTests : IntegrationTestBase
         var (recipient, recipientToken) = await RegisterDeviceAndGetTokenAsync();
         var (auditor, auditorToken) = await RegisterDeviceAndGetTokenAsync();
         var group = Guid.NewGuid();
+        var organizationId = await CreateBusinessOrganizationAsync(auditor);
         using (var scope = Factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            db.Groups.Add(new Group { GroupId = group, CreatedBy = sender, CreatedAt = DateTimeOffset.UtcNow, OrganizationId = Guid.NewGuid() });
+            db.Groups.Add(new Group { GroupId = group, CreatedBy = sender, CreatedAt = DateTimeOffset.UtcNow, OrganizationId = organizationId });
             db.GroupMembers.AddRange(
                 new GroupMember { GroupId = group, DeviceId = sender, Role = "admin" },
                 new GroupMember { GroupId = group, DeviceId = recipient, Role = "member" },
@@ -665,6 +693,202 @@ public class MessengerHubTests : IntegrationTestBase
         await sending.StopAsync();
         await receiving.StopAsync();
         await auditing.StopAsync();
+    }
+
+    /// <summary>
+    /// Creates a business group (auditor role, real Organization row) and,
+    /// optionally, seeds an un-acked QueuedMessage for the auditor so the
+    /// backlog half of AuditorLivenessService can be exercised. Returns the
+    /// group id — the caller decides whether/when to connect the auditor.
+    /// </summary>
+    private async Task<Guid> CreateBusinessGroupWithAuditorAsync(Guid sender, Guid recipient, Guid auditor,
+        Guid organizationId, DateTimeOffset? staleBacklogCreatedAt = null)
+    {
+        var group = Guid.NewGuid();
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Groups.Add(new Group { GroupId = group, CreatedBy = sender, CreatedAt = DateTimeOffset.UtcNow, OrganizationId = organizationId });
+        db.GroupMembers.AddRange(
+            new GroupMember { GroupId = group, DeviceId = sender, Role = "admin" },
+            new GroupMember { GroupId = group, DeviceId = recipient, Role = "member" },
+            new GroupMember { GroupId = group, DeviceId = auditor, Role = "auditor" });
+        if (staleBacklogCreatedAt is { } createdAt)
+            db.QueuedMessages.Add(new QueuedMessage
+            {
+                MessageId = Guid.NewGuid(), RecipientId = auditor, SenderId = sender,
+                EncryptedBody = [0x01], CreatedAt = createdAt, ExpiresAt = createdAt.AddDays(30)
+            });
+        await db.SaveChangesAsync();
+        return group;
+    }
+
+    [Fact]
+    public async Task Business_send_is_rejected_when_the_auditor_has_never_connected()
+    {
+        // W2-F (a): a business group whose auditor was never seen since
+        // process start must fail closed — no disconnect record exists yet.
+        var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
+        var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
+        var (auditor, _) = await RegisterDeviceAndGetTokenAsync(); // never connects
+        var organizationId = await CreateBusinessOrganizationAsync(auditor);
+        var group = await CreateBusinessGroupWithAuditorAsync(sender, recipient, auditor, organizationId);
+        await using var sending = CreateHubConnection(sender, senderToken);
+        await sending.StartAsync();
+        var id = Guid.NewGuid();
+
+        var send = () => sending.InvokeAsync("SendReliableGroupMessage", group, id,
+            new Dictionary<Guid, string> { [recipient] = "AQI=", [auditor] = "AQI=" });
+        (await send.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>()).Which.Message
+            .Should().Contain("auditor_unavailable");
+
+        using var verify = Factory.Services.CreateScope();
+        var written = await verify.ServiceProvider.GetRequiredService<AppDbContext>()
+            .QueuedMessages.AsNoTracking().Where(m => m.MessageId == id).CountAsync();
+        written.Should().Be(0, "a fail-closed rejection must not partially persist any recipient's message");
+
+        await sending.StopAsync();
+    }
+
+    [Fact]
+    public async Task Business_send_is_accepted_when_the_auditor_is_connected()
+    {
+        // W2-F (b): the straightforward alive case.
+        var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
+        var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
+        var (auditor, auditorToken) = await RegisterDeviceAndGetTokenAsync();
+        var organizationId = await CreateBusinessOrganizationAsync(auditor);
+        var group = await CreateBusinessGroupWithAuditorAsync(sender, recipient, auditor, organizationId);
+        await using var sending = CreateHubConnection(sender, senderToken);
+        await using var auditing = CreateHubConnection(auditor, auditorToken);
+        await sending.StartAsync();
+        await auditing.StartAsync();
+        var id = Guid.NewGuid();
+
+        await sending.InvokeAsync("SendReliableGroupMessage", group, id,
+            new Dictionary<Guid, string> { [recipient] = "AQI=", [auditor] = "AQI=" });
+
+        using var verify = Factory.Services.CreateScope();
+        var written = await verify.ServiceProvider.GetRequiredService<AppDbContext>()
+            .QueuedMessages.AsNoTracking().Where(m => m.MessageId == id).CountAsync();
+        written.Should().Be(2, "recipient and auditor both get a QueuedMessage row");
+
+        await sending.StopAsync();
+        await auditing.StopAsync();
+    }
+
+    [Fact]
+    public async Task Business_send_is_rejected_when_the_auditor_backlog_is_stale()
+    {
+        // W2-F (c): auditor connected, but not "keeping up" — an old un-acked
+        // message addressed to it means the archive is stuck.
+        var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
+        var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
+        var (auditor, auditorToken) = await RegisterDeviceAndGetTokenAsync();
+        var organizationId = await CreateBusinessOrganizationAsync(auditor);
+        var group = await CreateBusinessGroupWithAuditorAsync(sender, recipient, auditor, organizationId,
+            staleBacklogCreatedAt: DateTimeOffset.UtcNow.AddSeconds(-600)); // default threshold is 300 s
+        await using var sending = CreateHubConnection(sender, senderToken);
+        await using var auditing = CreateHubConnection(auditor, auditorToken);
+        await sending.StartAsync();
+        await auditing.StartAsync();
+        var id = Guid.NewGuid();
+
+        var send = () => sending.InvokeAsync("SendReliableGroupMessage", group, id,
+            new Dictionary<Guid, string> { [recipient] = "AQI=", [auditor] = "AQI=" });
+        (await send.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>()).Which.Message
+            .Should().Contain("auditor_unavailable");
+
+        await sending.StopAsync();
+        await auditing.StopAsync();
+    }
+
+    [Fact]
+    public async Task Business_send_respects_the_disconnect_grace_period()
+    {
+        // W2-F (d): within grace -> accepted, after grace -> rejected. Grace
+        // is lowered to 1 s via a derived factory (pattern: OrganizationEndpointsTests
+        // .Endpoints_return_503_when_business_mode_is_disabled) so the test
+        // doesn't wait 120 s.
+        await using var factory = Factory.WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(
+                new Dictionary<string, string?> { ["Business:AuditorDisconnectGraceSeconds"] = "1" })));
+
+        var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
+        var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
+        var (auditor, auditorToken) = await RegisterDeviceAndGetTokenAsync();
+        var organizationId = await CreateBusinessOrganizationAsync(auditor);
+        var group = await CreateBusinessGroupWithAuditorAsync(sender, recipient, auditor, organizationId);
+
+        // A derived factory needs its own HttpMessageHandler/hub connections —
+        // reusing Factory.Server would talk to the wrong config.
+        var derivedServer = factory.Server;
+        HubConnection Connect(Guid deviceId, string token) => new HubConnectionBuilder()
+            .WithUrl($"{derivedServer.BaseAddress}hub?access_token={token}",
+                options => options.HttpMessageHandlerFactory = _ => derivedServer.CreateHandler())
+            .Build();
+
+        await using var sending = Connect(sender, senderToken);
+        await sending.StartAsync();
+        var auditing = Connect(auditor, auditorToken);
+        await auditing.StartAsync();
+        await auditing.StopAsync(); // disconnect right away — starts the grace window
+        await auditing.DisposeAsync();
+
+        // Still within the 1 s grace window: accepted.
+        var idWithinGrace = Guid.NewGuid();
+        await sending.InvokeAsync("SendReliableGroupMessage", group, idWithinGrace,
+            new Dictionary<Guid, string> { [recipient] = "AQI=", [auditor] = "AQI=" });
+
+        // The first send cached an "alive" verdict for AuditorLivenessService's
+        // own 5 s TTL (separate from the 1 s grace period) — wait past BOTH,
+        // or the second send would read the stale cached verdict.
+        await Task.Delay(TimeSpan.FromSeconds(6));
+        var idAfterGrace = Guid.NewGuid();
+        var send = () => sending.InvokeAsync("SendReliableGroupMessage", group, idAfterGrace,
+            new Dictionary<Guid, string> { [recipient] = "AQI=", [auditor] = "AQI=" });
+        (await send.Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>()).Which.Message
+            .Should().Contain("auditor_unavailable");
+
+        await sending.StopAsync();
+    }
+
+    [Fact]
+    public async Task Emergency_group_send_succeeds_even_with_a_dead_auditor()
+    {
+        // W2-F (e): the owner's deliberate exception — the emergency group
+        // stays fail-OPEN so it works exactly when infrastructure is failing.
+        var (sender, senderToken) = await RegisterDeviceAndGetTokenAsync();
+        var (recipient, _) = await RegisterDeviceAndGetTokenAsync();
+        var (auditor, _) = await RegisterDeviceAndGetTokenAsync(); // never connects
+        var organizationId = await CreateBusinessOrganizationAsync(auditor);
+        var group = Guid.NewGuid();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Groups.Add(new Group
+            {
+                GroupId = group, CreatedBy = sender, CreatedAt = DateTimeOffset.UtcNow,
+                OrganizationId = organizationId, IsEmergencyChannel = true
+            });
+            db.GroupMembers.AddRange(
+                new GroupMember { GroupId = group, DeviceId = sender, Role = "admin" },
+                new GroupMember { GroupId = group, DeviceId = recipient, Role = "member" },
+                new GroupMember { GroupId = group, DeviceId = auditor, Role = "auditor" });
+            await db.SaveChangesAsync();
+        }
+        await using var sending = CreateHubConnection(sender, senderToken);
+        await sending.StartAsync();
+        var id = Guid.NewGuid();
+
+        await sending.InvokeAsync("SendReliableGroupMessage", group, id,
+            new Dictionary<Guid, string> { [recipient] = "AQI=", [auditor] = "AQI=" });
+
+        using var verify = Factory.Services.CreateScope();
+        var written = await verify.ServiceProvider.GetRequiredService<AppDbContext>()
+            .QueuedMessages.AsNoTracking().Where(m => m.MessageId == id).CountAsync();
+        written.Should().Be(2, "the emergency exception queues normally even with a dead auditor");
+
+        await sending.StopAsync();
     }
 
     [Fact]

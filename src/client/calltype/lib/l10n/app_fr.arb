@@ -333,6 +333,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "Ce message n'a pas pu être envoyé : le membre d'audit de l'organisation est absent de cette conversation.",
+  "hubErrorAuditorUnavailable": "L'archivage est actuellement indisponible – le message n'a pas été envoyé. Réessayez dans un instant.",
   "emergencyTitle": "Canal d'urgence",
   "emergencyKitsTitle": "Kits d'urgence",
   "emergencyIssueKit": "Émettre un kit",

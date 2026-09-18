@@ -333,6 +333,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "消息发送失败：此对话中缺少组织的审计成员。",
+  "hubErrorAuditorUnavailable": "存档功能暂时不可用——消息未发送。请稍后重试。",
   "emergencyTitle": "应急频道",
   "emergencyKitsTitle": "应急套件",
   "emergencyIssueKit": "发放套件",

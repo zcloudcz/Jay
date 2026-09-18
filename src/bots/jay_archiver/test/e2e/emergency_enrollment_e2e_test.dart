@@ -64,6 +64,15 @@ void main() {
       );
       await owner.api.setAuditorDevice(orgId, auditor.id);
 
+      // W2-F fail-closed: `auditor` is registered above but its SignalR
+      // connection is never started for the rest of this test — its "alive"
+      // check (MessengerHub presence + backlog) would read as dead
+      // throughout. The emergency kit issue, enroll, drill and proof calls
+      // below all succeed anyway, because EmergencyGroupService/the emergency
+      // hub event path are deliberately NOT gated by W2-F (the emergency
+      // group exists for exactly the moment the auditor/infrastructure is
+      // unavailable — see docs/superpowers/plans/2026-09-18-business-mode-contracts.md
+      // §W2-F). This test's continued success IS the fail-open assertion.
       final kit = await owner.api.issueEmergencyKit(orgId, label: 'HQ incident team', count: 2);
       expect(kit.codes, hasLength(2));
       expect(kit.codes.toSet(), hasLength(2), reason: 'codes must be distinct');

@@ -333,6 +333,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "Mesaj gönderilemedi: bu konuşmada organizasyonun denetim üyesi eksik.",
+  "hubErrorAuditorUnavailable": "Arşivleme şu anda kullanılamıyor — mesaj gönderilmedi. Birazdan tekrar deneyin.",
   "emergencyTitle": "Acil durum kanalı",
   "emergencyKitsTitle": "Acil durum kitleri",
   "emergencyIssueKit": "Kit oluştur",

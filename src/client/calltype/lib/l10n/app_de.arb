@@ -333,6 +333,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "Die Nachricht konnte nicht gesendet werden: Das Prüfmitglied der Organisation fehlt in dieser Unterhaltung.",
+  "hubErrorAuditorUnavailable": "Die Archivierung ist derzeit nicht verfügbar – die Nachricht wurde nicht gesendet. Versuchen Sie es in Kürze erneut.",
   "emergencyTitle": "Notfallkanal",
   "emergencyKitsTitle": "Notfall-Kits",
   "emergencyIssueKit": "Kit ausstellen",

@@ -333,6 +333,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "Bericht kon niet worden verzonden: het auditlid van de organisatie ontbreekt in dit gesprek.",
+  "hubErrorAuditorUnavailable": "Archivering is momenteel niet beschikbaar — het bericht is niet verzonden. Probeer het over een moment opnieuw.",
   "emergencyTitle": "Noodkanaal",
   "emergencyKitsTitle": "Noodkits",
   "emergencyIssueKit": "Kit uitgeven",

@@ -155,6 +155,14 @@ class ChatScreen extends StatelessWidget {
         );
       });
     }
+    if (controller.consumeAuditorUnavailable()) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.hubErrorAuditorUnavailable)),
+        );
+      });
+    }
     return Scaffold(
       appBar: AppBar(
         title: NameWithBotBadge(name: name, isBot: isBot),

@@ -26,7 +26,8 @@ public record BusinessGroupResult(bool Success, Guid GroupId, string? ErrorCode)
     public static BusinessGroupResult Fail(string errorCode) => new(false, Guid.Empty, errorCode);
 }
 
-public class BusinessGroupService(AppDbContext db, AuditDbContext auditDb) : IEnrollmentRevokedHandler
+public class BusinessGroupService(AppDbContext db, AuditDbContext auditDb, AuditorLivenessService auditorLiveness)
+    : IEnrollmentRevokedHandler
 {
     /// <summary>
     /// Creates a business group (or business 1:1, which is just this with one
@@ -44,6 +45,13 @@ public class BusinessGroupService(AppDbContext db, AuditDbContext auditDb) : IEn
             .SingleOrDefaultAsync(ct);
         if (auditorDeviceId is null)
             return BusinessGroupResult.Fail("auditor_not_configured");
+
+        // W2-F: a business conversation must not be CREATED while the org's
+        // auditor is dead (owner decision 2026-09-18). No emergency exception
+        // here — the emergency group is created by EmergencyGroupService, not
+        // this path.
+        if (!await auditorLiveness.IsAliveAsync(organizationId, ct))
+            return BusinessGroupResult.Fail("auditor_unavailable");
 
         var members = memberDeviceIds.Append(creatorDeviceId).Distinct().ToArray();
         // Cap at 99 + auditor = 100, same ceiling as the anonymous endpoint.

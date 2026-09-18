@@ -333,6 +333,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "Mesajul nu a putut fi trimis: membrul de audit al organizației lipsește din această conversație.",
+  "hubErrorAuditorUnavailable": "Arhivarea nu este disponibilă momentan — mesajul nu a fost trimis. Încearcă din nou peste puțin timp.",
   "emergencyTitle": "Canal de urgență",
   "emergencyKitsTitle": "Kituri de urgență",
   "emergencyIssueKit": "Emite kit",

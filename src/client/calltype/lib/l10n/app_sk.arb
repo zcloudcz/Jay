@@ -333,6 +333,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "Správu sa nepodarilo odoslať: v tejto konverzácii chýba audítorský člen organizácie.",
+  "hubErrorAuditorUnavailable": "Archivácia je momentálne nedostupná – správa nebola odoslaná. Skúste to o chvíľu znova.",
   "emergencyTitle": "Núdzový kanál",
   "emergencyKitsTitle": "Núdzové sady",
   "emergencyIssueKit": "Vydať sadu",

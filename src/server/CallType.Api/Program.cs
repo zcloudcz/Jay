@@ -147,6 +147,22 @@ builder.Services.AddScoped<BusinessGroupService>();
 builder.Services.AddScoped<IEnrollmentRevokedHandler>(sp => sp.GetRequiredService<BusinessGroupService>());
 builder.Services.AddScoped<CallType.Audit.OrgManagement.OrganizationAppService>();
 
+// W2-F: fail-closed on a dead auditor. IMemoryCache backs the 5 s
+// per-organization liveness cache so the hot send path doesn't run the
+// backlog query per message.
+//
+// Binds via the DI-resolved IConfiguration (AddOptions<T>().Configure<IConfiguration>)
+// rather than builder.Configuration.GetSection(...) directly — same reason as
+// BusinessModeOptions above: WebApplicationFactory applies test configuration
+// overrides AFTER this file's top-level statements run, so a build-time read
+// of builder.Configuration would capture a stale section that never sees a
+// test's ["Business:..."] override.
+builder.Services.AddMemoryCache();
+builder.Services.AddOptions<BusinessOptions>()
+    .Configure<IConfiguration>((options, config) =>
+        config.GetSection(BusinessOptions.SectionName).Bind(options));
+builder.Services.AddScoped<AuditorLivenessService>();
+
 // Emergency channel (E07): kits/drills/proof live in the Audit DB
 // (EmergencyAppService); the Delivery-side emergency group is a separate
 // service (EmergencyGroupService) per the KB3 database split.

@@ -333,6 +333,7 @@
     }
   },
   "hubErrorAuditRecipientMissing": "Не вдалося надіслати повідомлення: у цій розмові відсутній учасник аудиту організації.",
+  "hubErrorAuditorUnavailable": "Архівування наразі недоступне — повідомлення не надіслано. Спробуйте ще раз за мить.",
   "emergencyTitle": "Аварійний канал",
   "emergencyKitsTitle": "Аварійні набори",
   "emergencyIssueKit": "Видати набір",

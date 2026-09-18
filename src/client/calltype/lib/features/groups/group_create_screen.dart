@@ -232,10 +232,15 @@ class _GroupCreateScreenState extends State<GroupCreateScreen> {
       context.go('/chats/$groupId');
     } else if (_controller.error != null && mounted) {
       // The controller's error is raw exception text meant for developers;
-      // the user gets a localized, actionable line instead.
+      // the user gets a localized, actionable line instead. W2-F: a dead
+      // auditor gets its own message — retrying later can actually help,
+      // unlike the generic failure case.
+      final message = _controller.auditorUnavailable
+          ? context.l10n.hubErrorAuditorUnavailable
+          : context.l10n.groupCreateFailed;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(context.l10n.groupCreateFailed)));
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
   }
 }

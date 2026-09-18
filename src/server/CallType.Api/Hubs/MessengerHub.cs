@@ -34,12 +34,20 @@ using Microsoft.EntityFrameworkCore;
 namespace CallType.Api.Hubs;
 
 [Authorize]
-public class MessengerHub(MessageQueueService queueService, PushNotificationService pushService, AppDbContext db) : Hub
+public class MessengerHub(MessageQueueService queueService, PushNotificationService pushService, AppDbContext db,
+    AuditorLivenessService auditorLiveness) : Hub
 {
     // Maps DeviceId -> ConnectionId for all currently connected devices.
     // Static because SignalR creates a new Hub instance per invocation,
     // but we need the connection map to survive across all instances.
     private static readonly ConcurrentDictionary<Guid, string> OnlineDevices = new();
+
+    // Last time each device disconnected — used by AuditorLivenessService's
+    // grace period (W2-F) so a routine archiver restart doesn't immediately
+    // fail-close business messaging while it reconnects. Never cleared on
+    // reconnect: an "alive" check consults OnlineDevices first, so a stale
+    // timestamp here is harmless once the device is back online.
+    private static readonly ConcurrentDictionary<Guid, DateTimeOffset> LastDisconnectedAt = new();
 
     public override async Task OnConnectedAsync()
     {
@@ -77,6 +85,7 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
             // Only remove if the stored connection ID matches ours — prevents
             // a stale disconnect from removing a newer reconnection's entry.
             OnlineDevices.TryRemove(new KeyValuePair<Guid, string>(deviceId, Context.ConnectionId));
+            LastDisconnectedAt[deviceId] = DateTimeOffset.UtcNow;
         }
 
         return base.OnDisconnectedAsync(exception);
@@ -110,17 +119,26 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         // enforcing KB2 costs no extra round trip over the membership check
         // that already existed here.
         var membership = await db.GroupMembers.Where(m => m.GroupId == groupId)
-            .Select(m => new { m.DeviceId, m.Role, m.Group.OrganizationId }).ToListAsync(Context.ConnectionAborted);
+            .Select(m => new { m.DeviceId, m.Role, m.Group.OrganizationId, m.Group.IsEmergencyChannel })
+            .ToListAsync(Context.ConnectionAborted);
         var members = membership.Select(m => m.DeviceId).ToList();
         if (!members.Contains(sender) || encryptedPayloads.Keys.Any(id => !members.Contains(id)))
             throw new HubException("Sender and recipients must be group members");
+        var isBusinessGroup = membership.Count > 0 && membership[0].OrganizationId is not null;
+        // W2-F — owner decision 2026-09-18: business communication is
+        // fail-closed on a dead auditor. The emergency group is the one
+        // deliberate exception (it exists for the moment infrastructure is
+        // failing) — messages there just wait in the auditor's queue.
+        if (isBusinessGroup && !membership[0].IsEmergencyChannel
+            && !await auditorLiveness.IsAliveAsync(membership[0].OrganizationId!.Value, Context.ConnectionAborted))
+            throw new HubException("auditor_unavailable");
         // KB2 — server-side enforcement: a business group's fan-out must
         // always include a payload for the organization's auditor device, or
         // the message would never reach the archive. The auditor row is
         // added atomically with the group (BusinessGroupService), so its
         // absence here means either not a business group (OrganizationId ==
         // null, skip) or a bug/tamper attempt.
-        if (membership.Count > 0 && membership[0].OrganizationId is not null)
+        if (isBusinessGroup)
         {
             var auditorDeviceId = membership.SingleOrDefault(m => m.Role == "auditor")?.DeviceId;
             if (auditorDeviceId is null || !encryptedPayloads.ContainsKey(auditorDeviceId.Value))
@@ -257,6 +275,14 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
     /// </summary>
     internal static bool TryGetConnectionId(Guid deviceId, out string connectionId) =>
         OnlineDevices.TryGetValue(deviceId, out connectionId!);
+
+    /// <summary>
+    /// Lets AuditorLivenessService (W2-F) decide "alive" without exposing the
+    /// connection maps themselves. Null means never seen since process start
+    /// (single-instance API by design — no disconnect record survives a restart).
+    /// </summary>
+    internal static DateTimeOffset? GetLastDisconnectedAt(Guid deviceId) =>
+        LastDisconnectedAt.TryGetValue(deviceId, out var at) ? at : null;
 
     /// <summary>
     /// Subscribes THIS connection to every channel the caller follows, owns or
