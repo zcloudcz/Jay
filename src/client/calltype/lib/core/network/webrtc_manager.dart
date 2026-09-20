@@ -318,7 +318,16 @@ class WebRTCManager extends ChangeNotifier {
         }
       };
       media = await _mediaFactory({
-        'audio': true,
+        // Explicit constraints, not `true` — some platforms (notably web)
+        // don't turn on echo cancellation by default, which is the acoustic
+        // echo/feedback loop reported in beta (speaker -> mic -> back to
+        // remote peer). All three are supported by every getUserMedia
+        // backend flutter_webrtc targets.
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+        },
         // Without a size hint browsers and phones capture at the camera's
         // native resolution (often 720p/1080p), which stutters on mobile
         // uplinks and over a TURN relay (beta feedback 2026-09-18: "video is
