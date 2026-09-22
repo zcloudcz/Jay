@@ -58,6 +58,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasIndex(d => d.UserHandle).IsUnique();
 
             entity.Property(d => d.PushPlatform).HasMaxLength(10);
+            entity.Property(d => d.DisplayName).HasMaxLength(60);
         });
 
         // -----------------------------------------------------------------

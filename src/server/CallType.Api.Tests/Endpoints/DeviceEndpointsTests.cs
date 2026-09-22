@@ -417,6 +417,86 @@ public class DeviceEndpointsTests : IntegrationTestBase
     }
 
     // -----------------------------------------------------------------------
+    // PUT /devices/{id}/profile
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Update_profile_sets_display_name()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+
+        var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/profile", new { displayName = "Alice" });
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.Devices.FirstAsync(d => d.DeviceId == deviceId)).DisplayName.Should().Be("Alice");
+    }
+
+    [Fact]
+    public async Task Update_profile_with_null_clears_display_name()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        await Client.PutAsJsonAsync($"/devices/{deviceId}/profile", new { displayName = "Alice" });
+
+        var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/profile", new { displayName = (string?)null });
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.Devices.FirstAsync(d => d.DeviceId == deviceId)).DisplayName.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Update_profile_trims_whitespace_and_blank_becomes_null()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+
+        var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/profile", new { displayName = "   " });
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.Devices.FirstAsync(d => d.DeviceId == deviceId)).DisplayName.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Update_profile_over_max_length_returns_bad_request()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+
+        var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/profile", new { displayName = new string('x', 61) });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Update_profile_for_another_device_is_forbidden()
+    {
+        // Only the device itself may set its own display name — unlike
+        // push-token, this is metadata shown to other people.
+        var (ownerId, _, _) = await RegisterAndAuthenticateAsync();
+        await RegisterAndAuthenticateAsync(); // Client is now authenticated as this outsider device.
+
+        var response = await Client.PutAsJsonAsync($"/devices/{ownerId}/profile", new { displayName = "Mallory" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Display_name_is_returned_by_key_bundle_and_handle_lookup()
+    {
+        var (deviceId, _, handle) = await RegisterAndAuthenticateAsync();
+        await Client.PutAsJsonAsync($"/devices/{deviceId}/profile", new { displayName = "Alice" });
+
+        var keyBundle = await Client.GetFromJsonAsync<JsonElement>($"/devices/{deviceId}/key-bundle");
+        keyBundle.GetProperty("displayName").GetString().Should().Be("Alice");
+
+        var lookup = await Client.GetFromJsonAsync<JsonElement>($"/devices/by-handle/{handle}");
+        lookup.GetProperty("displayName").GetString().Should().Be("Alice");
+    }
+
+    // -----------------------------------------------------------------------
     // Handle uniqueness
     // -----------------------------------------------------------------------
 
@@ -462,8 +542,8 @@ public class DeviceEndpointsTests : IntegrationTestBase
         lookup.StatusCode.Should().Be(HttpStatusCode.OK);
         var found = await lookup.Content.ReadFromJsonAsync<JsonElement>();
         found.GetProperty("deviceId").GetGuid().Should().Be(id);
-        // Exactly deviceId + userHandle + isBot — lookup must not leak anything else.
-        found.EnumerateObject().Should().HaveCount(3);
+        // Exactly deviceId + userHandle + isBot + displayName — lookup must not leak anything else.
+        found.EnumerateObject().Should().HaveCount(4);
         var bundleResponse = await Client.GetAsync($"/devices/{id}/key-bundle");
         var bundle = await bundleResponse.Content.ReadFromJsonAsync<JsonElement>();
         bundle.GetProperty("signingKey").GetString().Should().Be(signingKey);

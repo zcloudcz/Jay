@@ -10,6 +10,7 @@
 // The server never sees plaintext messages; it only brokers public keys.
 // ---------------------------------------------------------------------------
 
+using System.Security.Claims;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -37,8 +38,15 @@ public static class DeviceEndpoints
         // able to set its push token. Uses PUT because the token is idempotent
         // (setting the same token twice is a no-op).
         app.MapPut("/devices/{id:guid}/push-token", UpdatePushToken).RequireAuthorization().RequireRateLimiting("api");
+        // Display name is opt-in metadata the device owner sets for itself — only
+        // the authenticated caller matching {id} may change it (see Caller check
+        // in UpdateProfile), unlike push-token above which trusts the route id alone.
+        app.MapPut("/devices/{id:guid}/profile", UpdateProfile).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
+
+    private static Guid Caller(ClaimsPrincipal user) => Guid.TryParse(
+        user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub"), out var id) ? id : Guid.Empty;
 
     // -----------------------------------------------------------------------
     // POST /devices — Register a new device
@@ -239,7 +247,8 @@ public static class DeviceEndpoints
             oneTimePreKeyDto,
             device.SigningKey is null ? null : Convert.ToBase64String(device.SigningKey),
             device.Signature is null ? null : Convert.ToBase64String(device.Signature),
-            device.IsBot));
+            device.IsBot,
+            device.DisplayName));
     }
 
     private static async Task<IResult> FindDeviceByHandle(string handle, AppDbContext db, CancellationToken ct)
@@ -248,8 +257,39 @@ public static class DeviceEndpoints
         var device = await db.Devices.Where(d => d.UserHandle == normalized)
             // IsBot is included so the client can show the BOT badge BEFORE the
             // user adds the contact (lookup is the first thing the add flow calls).
-            .Select(d => new { d.DeviceId, d.UserHandle, d.IsBot }).SingleOrDefaultAsync(ct);
+            .Select(d => new { d.DeviceId, d.UserHandle, d.IsBot, d.DisplayName }).SingleOrDefaultAsync(ct);
         return device is null ? Results.NotFound() : Results.Ok(device);
+    }
+
+    // -----------------------------------------------------------------------
+    // PUT /devices/{id}/profile — Set the device's own display name
+    // -----------------------------------------------------------------------
+    private static async Task<IResult> UpdateProfile(
+        Guid id,
+        UpdateProfileRequest request,
+        ClaimsPrincipal user,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        // Unlike push-token, a display name is shown to other people — only the
+        // device itself may set it, never another authenticated caller.
+        if (Caller(user) != id)
+            return Results.Forbid();
+
+        // Empty string clears the name (falls back to showing the handle), so
+        // trim first and treat "" the same as null rather than storing blank.
+        var trimmed = request.DisplayName?.Trim();
+        if (trimmed is { Length: > 60 })
+            return Results.BadRequest(new { error = "DisplayName must be at most 60 characters." });
+
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == id, ct);
+        if (device is null)
+            return Results.NotFound(new { error = "Device not found." });
+
+        device.DisplayName = string.IsNullOrEmpty(trimmed) ? null : trimmed;
+        await db.SaveChangesAsync(ct);
+
+        return Results.NoContent();
     }
 
     // -----------------------------------------------------------------------
@@ -360,8 +400,11 @@ public record KeyBundleResponse(
     OneTimePreKeyDto? OneTimePreKey,
     string? SigningKey = null,
     string? Signature = null,
-    bool IsBot = false);
+    bool IsBot = false,
+    string? DisplayName = null);
 
 public record OneTimePreKeyDto(int KeyId, string PublicKey);
 
 public record UpdatePushTokenRequest(string Token, string Platform);
+
+public record UpdateProfileRequest(string? DisplayName);

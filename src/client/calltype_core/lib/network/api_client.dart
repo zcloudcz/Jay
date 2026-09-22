@@ -250,6 +250,25 @@ class ApiClient {
     );
   }
 
+  // -- Profile -----------------------------------------------------------------
+
+  /// Sets (or clears, with null) the device's own display name.
+  ///
+  /// Optional, anonymous-friendly: contacts see the handle until the device
+  /// owner sets a name here. Same trust level as the handle — plaintext
+  /// discovery metadata the server stores, never message content.
+  ///
+  /// PUT /devices/{deviceId}/profile
+  Future<void> updateDisplayName({
+    required String deviceId,
+    required String? displayName,
+  }) async {
+    await _dio.put(
+      '/devices/$deviceId/profile',
+      data: {'displayName': displayName},
+    );
+  }
+
   // -- Channels ---------------------------------------------------------------
   // Public one-way broadcast channels. Unlike everything above, channel
   // content is plaintext on the server (NOT end-to-end encrypted). All JSON

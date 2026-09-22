@@ -20,6 +20,14 @@ public class Device
     public string UserHandle { get; set; } = string.Empty;
 
     /// <summary>
+    /// Optional display name the device owner chose to show contacts who add
+    /// them (e.g. via QR/handle). Same trust level as UserHandle: plaintext,
+    /// server-visible discovery metadata, never message content. Null means
+    /// "show the handle" — an anonymous device is never forced to pick one.
+    /// </summary>
+    public string? DisplayName { get; set; }
+
+    /// <summary>
     /// X3DH long-term identity public key. Clients verify this never changes
     /// for a given device to detect MITM attacks.
     /// </summary>

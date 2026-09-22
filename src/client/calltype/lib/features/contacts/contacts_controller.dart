@@ -75,6 +75,9 @@ class ContactsController extends ChangeNotifier {
       handle = invite.pathSegments.first;
     }
     var isBot = false;
+    // The remote device's own chosen display name, if any — used only as a
+    // one-time suggestion when the contact is first saved (see addContact).
+    String? displayName;
     final api = _api;
     if (deviceId == null) {
       if (api == null) {
@@ -86,6 +89,7 @@ class ContactsController extends ChangeNotifier {
       deviceId = result['deviceId'] as String;
       handle = result['userHandle'] as String;
       isBot = result['isBot'] == true;
+      displayName = result['displayName'] as String?;
     } else if (api != null) {
       // A complete invite needs no lookup to be added, but it does not say
       // whether the device is a bot. Ask the handle lookup (NOT the key
@@ -93,7 +97,10 @@ class ContactsController extends ChangeNotifier {
       // pre-keys). Best effort: invites must keep working offline.
       try {
         final result = await api.findDeviceByHandle(handle);
-        isBot = result['deviceId'] == deviceId && result['isBot'] == true;
+        if (result['deviceId'] == deviceId) {
+          isBot = result['isBot'] == true;
+          displayName = result['displayName'] as String?;
+        }
       } catch (_) {}
     }
     if (!RegExp(
@@ -101,7 +108,12 @@ class ContactsController extends ChangeNotifier {
     ).hasMatch(deviceId)) {
       throw const FormatException('Invalid contact invite.');
     }
-    return ContactPreview(deviceId: deviceId, handle: handle, isBot: isBot);
+    return ContactPreview(
+      deviceId: deviceId,
+      handle: handle,
+      isBot: isBot,
+      displayName: displayName,
+    );
   }
 
   /// Persists a contact previously returned by [resolveContact].
@@ -123,6 +135,10 @@ class ContactsController extends ChangeNotifier {
       identityKey: Uint8List(0),
       addedAt: DateTime.now(),
       isBot: Value(preview.isBot),
+      // One-time suggestion from the remote device's own profile. After this
+      // it is purely local — renaming a contact never touches their server
+      // profile, and a later profile change on their end won't overwrite it.
+      displayName: Value(preview.displayName),
     );
 
     await _db.into(_db.contacts).insert(companion);
@@ -136,6 +152,7 @@ class ContactPreview {
     required this.deviceId,
     required this.handle,
     required this.isBot,
+    this.displayName,
   });
 
   final String deviceId;
@@ -143,4 +160,7 @@ class ContactPreview {
 
   /// Self-declared by the device; see `Contacts.isBot` in the schema.
   final bool isBot;
+
+  /// The remote device's own chosen display name at resolve time, if any.
+  final String? displayName;
 }
