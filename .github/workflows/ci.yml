@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
   pull_request:
     branches: [main, master, develop]
-    paths: ['src/**', 'infra/**', '.github/workflows/ci.yml', '.github/workflows/deploy.yml']
+    paths: ['src/**', 'infra/**', '.github/workflows/**', '.github/scripts/**']
   push:
     branches: [main, master, develop]
-    paths: ['src/**', 'infra/**', '.github/workflows/ci.yml', '.github/workflows/deploy.yml']
+    paths: ['src/**', 'infra/**', '.github/workflows/**', '.github/scripts/**']
 
 permissions:
   contents: read
@@ -111,6 +111,42 @@ jobs:
             --lockfile=./src/bots/jay_archiver/pubspec.lock
             --config=./osv-scanner.toml
 
+  # Platform configuration and release tooling (stream P, P9). Fast, no
+  # Flutter: proves the one app identifier, the version script, the Firebase
+  # config script and every workflow file before anything expensive runs.
+  platform-config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: One application identifier on every platform
+        run: bash .github/scripts/check-app-ids.sh
+      - name: The identifier check catches broken copies
+        run: bash .github/scripts/test-check-app-ids.sh
+      - name: version.sh tests
+        run: bash .github/scripts/test-version.sh
+      - name: firebase-config.sh tests
+        run: bash .github/scripts/test-firebase-config.sh
+      - name: shellcheck release scripts
+        # shellcheck is preinstalled on ubuntu runners.
+        run: shellcheck .github/scripts/*.sh
+      # actionlint from its GitHub release, pinned by version AND sha256 so a
+      # replaced release asset cannot run here. It picks up the preinstalled
+      # shellcheck for run: blocks.
+      - name: actionlint (pinned binary)
+        env:
+          ACTIONLINT_VERSION: '1.7.9'
+          ACTIONLINT_SHA256: 233b280d05e100837f4af1433c7b40a5dcb306e3aa68fb4f17f8a7f45a7df7b4
+        run: |
+          set -euo pipefail
+          TGZ="$RUNNER_TEMP/actionlint.tar.gz"
+          curl -fsSL -o "$TGZ" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "$ACTIONLINT_SHA256  $TGZ" | sha256sum -c -
+          tar -xzf "$TGZ" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint" -color .github/workflows/*.yml
+
   # Bicep lint gate: any change under infra/ must at least compile. This does
   # NOT run `az deployment ... what-if` or touch Azure — that stays a manual,
   # read-only step owned by I01. `az bicep build` alone needs no Azure login.
@@ -141,7 +177,7 @@ jobs:
   # `build` job against an explicit, tested commit SHA (see R01 acceptance
   # criteria in docs/superpowers/plans/2026-09-16-beta-vyvoj.md).
   dev-build:
-    needs: [backend, flutter]
+    needs: [backend, flutter, platform-config]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -194,6 +230,11 @@ jobs:
       - run: dart run build_runner build --delete-conflicting-outputs
       - name: Build sanity artifact (placeholder API URL, never distributed)
         run: ${{ matrix.command }} --dart-define=API_BASE_URL=https://ci-sanity-build.invalid
+      # Play takes app bundles, not APKs; prove the AAB path (R8, resource
+      # shrinking, keep rules) builds too. Debug-signed: no key here.
+      - name: Build Android app bundle (debug-signed sanity)
+        if: matrix.platform == 'android'
+        run: flutter build appbundle --release --dart-define=API_BASE_URL=https://ci-sanity-build.invalid
       - name: Archive macOS bundle preserving executable permissions
         if: matrix.platform == 'macos'
         run: tar -czf build/calltype-macos.tar.gz -C build/macos/Build/Products/Release .
@@ -206,3 +247,61 @@ jobs:
           path: src/client/calltype/${{ matrix.artifact }}
           if-no-files-found: error
           retention-days: 3
+
+  # Guards the Gradle signing logic (P4) without any real secret: a throw-away
+  # keystore with a random password is generated in $RUNNER_TEMP, the release
+  # build must refuse to run without it when signing is required, and must be
+  # signed with exactly that certificate when it is given.
+  android-signing-smoke:
+    needs: [flutter, platform-config]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: src/client/calltype
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.41.x'
+          cache: true
+      - name: calltype_core codegen
+        working-directory: src/client/calltype_core
+        run: |
+          dart pub get
+          dart run build_runner build --delete-conflicting-outputs
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+      - name: Required signing without a key must fail
+        run: |
+          set -uo pipefail
+          if JAY_REQUIRE_RELEASE_SIGNING=true flutter build appbundle --release \
+               --dart-define=API_BASE_URL=https://ci-sanity-build.invalid > "$RUNNER_TEMP/nokey.log" 2>&1; then
+            echo "::error::release build succeeded without an upload key although JAY_REQUIRE_RELEASE_SIGNING=true"
+            exit 1
+          fi
+          grep -q 'Release signing required' "$RUNNER_TEMP/nokey.log" ||
+            { tail -n 40 "$RUNNER_TEMP/nokey.log"; echo "::error::build failed for another reason"; exit 1; }
+          echo "Refused as expected."
+      - name: Build with a throw-away keystore and verify the certificate
+        run: |
+          set -euo pipefail
+          KEY_DIR="$RUNNER_TEMP/smoke-signing"
+          mkdir -p "$KEY_DIR"
+          trap 'rm -rf "$KEY_DIR"' EXIT
+          PW=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)
+          echo "::add-mask::$PW"
+          keytool -genkeypair -keystore "$KEY_DIR/smoke.jks" -storepass "$PW" -keypass "$PW" \
+            -alias smoke -keyalg RSA -keysize 2048 -validity 1 -dname "CN=CI Smoke" >/dev/null
+          export JAY_ANDROID_KEYSTORE_PATH="$KEY_DIR/smoke.jks" JAY_ANDROID_KEYSTORE_PASSWORD="$PW" \
+            JAY_ANDROID_KEY_ALIAS=smoke JAY_ANDROID_KEY_PASSWORD="$PW" JAY_REQUIRE_RELEASE_SIGNING=true
+          flutter build appbundle --release --dart-define=API_BASE_URL=https://ci-sanity-build.invalid
+          keytool -printcert -jarfile build/app/outputs/bundle/release/app-release.aab | tee "$RUNNER_TEMP/cert.txt"
+          grep -q 'Owner: CN=CI Smoke' "$RUNNER_TEMP/cert.txt" ||
+            { echo "::error::app bundle is not signed with the throw-away upload key"; exit 1; }

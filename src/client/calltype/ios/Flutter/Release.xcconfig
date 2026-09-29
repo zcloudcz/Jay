@@ -1,1 +1,7 @@
 #include "Generated.xcconfig"
+
+// Optional and git-ignored: a local ios/Flutter/Signing.xcconfig with
+// `DEVELOPMENT_TEAM = <team id>` lets Xcode sign on a developer's Mac. The team
+// is never committed so --no-codesign builds keep working for everyone; CI
+// passes it on the xcodebuild command line (.github/workflows/_release-ios.yml).
+#include? "Signing.xcconfig"

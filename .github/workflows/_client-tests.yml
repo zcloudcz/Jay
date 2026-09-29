@@ -1,0 +1,55 @@
+# ---------------------------------------------------------------------------
+# Client tests — reusable (workflow_call), pinned to one commit SHA
+# ---------------------------------------------------------------------------
+# The same Flutter gate used to live inline in deploy.yml's `test` job. It is
+# a reusable workflow now because two release paths need it: deploy.yml (API +
+# web) and release-native.yml (signed store builds). Both must test the exact
+# bytes they ship, so the caller passes the SHA it is about to build.
+#
+# No secrets, no environment: this job only reads the repository. Callers do
+# not need `secrets: inherit` for it.
+# ---------------------------------------------------------------------------
+
+name: Client tests (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      commit_sha:
+        description: 'Full commit SHA to test'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: src/client/calltype
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          # Tests never push; do not leave a token in .git/config.
+          persist-credentials: false
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.41.x'
+          cache: true
+      # Pure-Dart core first: its drift *.g.dart is git-ignored and the app
+      # cannot be analyzed or built without it.
+      - name: calltype_core codegen + analyze + test
+        working-directory: src/client/calltype_core
+        run: |
+          dart pub get
+          dart run build_runner build --delete-conflicting-outputs
+          dart analyze
+          dart test
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+      - run: flutter analyze
+      - run: flutter test

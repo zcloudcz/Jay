@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Export options for the TestFlight workflow (.github/workflows/ios-testflight.yml).
+  Export options for the iOS release workflow (.github/workflows/_release-ios.yml).
   - signingStyle automatic + an App Store Connect API key passed to xcodebuild
     means Apple's cloud-managed distribution certificate and profile are used:
     no .p12 or .mobileprovision ever has to be stored in GitHub secrets.
-  - destination upload sends the signed .ipa straight to App Store Connect, so
-    there is no separate altool/Transporter step.
+  - __DESTINATION__ is "upload" (straight to App Store Connect, no separate
+    altool/Transporter step) or "export" (IPA kept as a workflow artifact,
+    for a first dry run without uploading).
   - __TEAM_ID__ is substituted by the workflow from the APPLE_TEAM_ID variable.
 -->
 <plist version="1.0">
@@ -14,7 +15,7 @@
 	<key>method</key>
 	<string>app-store-connect</string>
 	<key>destination</key>
-	<string>upload</string>
+	<string>__DESTINATION__</string>
 	<key>signingStyle</key>
 	<string>automatic</string>
 	<key>teamID</key>
