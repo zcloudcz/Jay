@@ -50,7 +50,7 @@ public static class PrivacyEndpoints
     // DELETE /devices/{deviceId}
     // -----------------------------------------------------------------------
     private static async Task<IResult> DeleteDevice(
-        Guid deviceId, ClaimsPrincipal user, AppDbContext db,
+        Guid deviceId, ClaimsPrincipal user, AppDbContext db, E2eAttachmentService attachments,
         BusinessModeOptions businessMode, HttpContext http, CancellationToken ct)
     {
         // Only the device itself can delete itself — there is no "account admin
@@ -103,7 +103,18 @@ public static class PrivacyEndpoints
             """DELETE FROM "QueuedMessages" WHERE "RecipientId" = @deviceId OR "SenderId" = @deviceId""",
             [new NpgsqlParameter("@deviceId", deviceId)], ct);
 
-        // Deleting the Device row cascades (DB-level ON DELETE CASCADE, see
+        // E2E attachment blobs the device uploaded (stream M2). Like
+        // QueuedMessage the rows have no FK to Device, so they are only MARKED
+        // here (Deleting) inside the transaction; E2eAttachmentCleanupService
+        // removes the blobs afterwards. Deleting blobs in the transaction would
+        // let a storage hiccup roll back the whole GDPR deletion, while the
+        // Deleting state survives a crash and is retried. M2-4 owns the
+        // cleanup and the tests of this step.
+        await attachments.MarkDeviceAttachmentsForDeletionAsync(deviceId, ct);
+
+        // Deleting the Device row removes every column with it — PushToken,
+        // VoipPushToken, VoipPushEnvironment and PushKey included — and
+        // cascades (DB-level ON DELETE CASCADE, see
         // AppDbContext): OneTimePreKeys, AccountDevices, GroupMembers,
         // ChannelFollowers, ChannelReactions, ChannelPollVotes, ChannelAdmins.
         // Groups the device CREATED (Group.CreatedBy) and channels OWNED
@@ -241,6 +252,9 @@ public static class PrivacyEndpoints
                 lastSeenAt = d.LastSeenAt,
                 isBot = d.IsBot,
                 hasPushToken = d.PushToken != null,
+                // Presence only, like hasPushToken: the token itself is a
+                // provider credential for waking the device, not the subject's data.
+                hasVoipPushToken = d.VoipPushToken != null,
                 linkedAt = ad.LinkedAt
             })
             .ToListAsync(ct);
