@@ -295,6 +295,43 @@ public class ProductionConfigurationValidatorTests
         act.Should().NotThrow();
     }
 
+    [Fact]
+    public void Missing_apns_config_does_not_block_startup_even_with_the_default_bundle_id()
+    {
+        // APNs is optional like FCM; appsettings.json ships a default BundleId,
+        // which alone must not count as "APNs configured".
+        var values = new Dictionary<string, string?>(ValidProductionConfig) { ["Push:Apns:BundleId"] = "cz.zcloud.jay" };
+        var act = () => ProductionConfigurationValidator.Validate(BuildConfig(values), Env(Environments.Production));
+        act.Should().NotThrow();
+    }
+
+    [Fact]
+    public void Partial_apns_config_is_rejected_naming_every_missing_key_but_no_value()
+    {
+        const string teamId = "TEAM123456";
+        var values = new Dictionary<string, string?>(ValidProductionConfig) { ["Push:Apns:TeamId"] = teamId };
+
+        var act = () => ProductionConfigurationValidator.Validate(BuildConfig(values), Env(Environments.Production));
+
+        var ex = act.Should().Throw<InvalidOperationException>().Which;
+        ex.Message.Should().Contain("Push:Apns:KeyId").And.Contain("Push:Apns:PrivateKeyP8").And.Contain("Push:Apns:BundleId");
+        ex.Message.Should().NotContain("Push:Apns:TeamId").And.NotContain(teamId);
+    }
+
+    [Fact]
+    public void Complete_apns_config_is_accepted()
+    {
+        var values = new Dictionary<string, string?>(ValidProductionConfig)
+        {
+            ["Push:Apns:TeamId"] = "TEAM123456",
+            ["Push:Apns:KeyId"] = "KEY1234567",
+            ["Push:Apns:PrivateKeyP8"] = "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+            ["Push:Apns:BundleId"] = "cz.zcloud.jay"
+        };
+        var act = () => ProductionConfigurationValidator.Validate(BuildConfig(values), Env(Environments.Production));
+        act.Should().NotThrow();
+    }
+
     /// <summary>Minimal IHostEnvironment stub — avoids pulling in a full WebApplicationFactory for a pure unit test.</summary>
     private sealed class HostingEnvironmentStub(string environmentName) : IHostEnvironment
     {

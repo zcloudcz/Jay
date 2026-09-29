@@ -45,7 +45,25 @@ public static partial class AuditArchiveEndpoints
     [GeneratedRegex("^[0-9a-fA-F]{64}$")]
     private static partial Regex ContentHashPattern();
 
-    private static readonly string[] AllowedKinds = ["text", "attachment", "call", "call-metadata"];
+    // Gap closure X0 added edit/delete/reaction (M §4.2 X0-M-2), group-event
+    // (G's group-update) and other (K2: content types the archiver does not
+    // understand — recorded instead of acked silently, which would leave a
+    // hole in the chain, or never acked, which would stall the organization
+    // on auditor_unavailable after 24 h). AuditRecord.Kind is varchar(20), so
+    // no Audit DB migration is needed; the longest kind is 13 chars.
+    private static readonly string[] AllowedKinds =
+        ["text", "attachment", "call", "call-metadata", "edit", "delete", "reaction", "group-event", "other"];
+
+    // Kinds whose details point at an earlier message: {"ref","bodyHash"}.
+    private static readonly string[] RefDetailsKinds = ["edit", "delete", "reaction"];
+    private static readonly string[] RefDetailsKeys = ["ref", "bodyHash"];
+    private const int RefDetailsMaxLength = 256;
+
+    // "other": {"type": "<wire type>"} only — the type name is the one thing
+    // an auditor learns about content the archiver could not interpret. K2
+    // caps the whole details string at 64 chars, the type itself at 32.
+    private const int OtherDetailsMaxLength = 64;
+    private const int OtherTypeMaxLength = 32;
 
     // H1: the exact shape the archiver's group_message_source.dart validates
     // before hashing — kept identical on both sides so "well-formed" means
@@ -76,30 +94,41 @@ public static partial class AuditArchiveEndpoints
         var caller = Caller(user);
         if (caller == Guid.Empty) return Results.Unauthorized();
 
+        // Built from AllowedKinds so the message can never drift from the
+        // whitelist again (it listed only three kinds after call-metadata).
         if (!AllowedKinds.Contains(request.Kind))
-            return Results.UnprocessableEntity(new { error = "kind must be one of: text, attachment, call." });
+            return Results.UnprocessableEntity(new { error = $"kind must be one of: {string.Join(", ", AllowedKinds)}." });
         if (request.SizeBytes < 0)
             return Results.UnprocessableEntity(new { error = "sizeBytes must not be negative." });
         if (!ContentHashPattern().IsMatch(request.ContentHash))
             return Results.UnprocessableEntity(new { error = "contentHash must be 64 hex characters (SHA-256)." });
 
         // H1: details is the one place clear-text leaves the metadata archive
-        // level, so it is locked to exactly the one kind that needs it — never
-        // a side door for storing message content under a different kind.
-        if (request.Kind != "call-metadata")
+        // level, so it is locked to the kinds that need it, each with an exact
+        // shape — never a side door for storing message content. The new
+        // edit/delete/reaction/other shapes carry only ids, hashes and a type
+        // name: no text, no emoji.
+        string? detailsError = request.Kind switch
         {
-            if (request.Details is not null)
-                return Results.UnprocessableEntity(new { error = "details_not_allowed" });
-        }
-        else
+            "call-metadata" => request.Details is not null && IsWellFormedCallDetails(request.Details)
+                ? null : "invalid_call_details",
+            "edit" or "delete" or "reaction" => request.Details is not null && IsWellFormedRefDetails(request.Kind, request.Details)
+                ? null : "invalid_ref_details",
+            "other" => request.Details is not null && IsWellFormedOtherDetails(request.Details)
+                ? null : "invalid_other_details",
+            // text, attachment, call, group-event: no details at all.
+            _ => request.Details is null ? null : "details_not_allowed",
+        };
+        if (detailsError is not null)
+            return Results.UnprocessableEntity(new { error = detailsError });
+
+        if (request.Details is not null)
         {
-            if (request.Details is null || !IsWellFormedCallDetails(request.Details))
-                return Results.UnprocessableEntity(new { error = "invalid_call_details" });
             // Binds the clear-text details into the existing hash chain without
             // changing how hashes are computed: ContentHash must be exactly
             // SHA-256 of the bytes actually stored, so a tampered/mismatched
             // details string is caught here instead of silently diverging from
-            // what the chain claims to cover.
+            // what the chain claims to cover. Same rule for every kind with details.
             var detailsHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.Details)));
             if (!string.Equals(detailsHash, request.ContentHash, StringComparison.OrdinalIgnoreCase))
                 return Results.UnprocessableEntity(new { error = "details_hash_mismatch" });
@@ -214,6 +243,62 @@ public static partial class AuditArchiveEndpoints
             !DateTimeOffset.TryParse(endedAtRaw.GetString(), out var endedAt))
             return false;
         return endedAt >= startedAt;
+    }
+
+    // edit | delete | reaction (M §4.2 X0-M-2): exactly {"ref","bodyHash"}.
+    // ref = the target message id in canonical UUID form; bodyHash = 64 hex
+    // (SHA-256 of the UTF-8 new text / emoji) for edit and reaction, JSON null
+    // for delete (a deletion has no new content). The archiver computes the
+    // hash, so the auditor can later match an edit to a claimed text without
+    // the archive ever holding that text.
+    private static bool IsWellFormedRefDetails(string kind, string details)
+    {
+        if (details.Length > RefDetailsMaxLength) return false;
+        if (!TryParseObject(details, out var root)) return false;
+
+        var keys = root.EnumerateObject().Select(p => p.Name).ToList();
+        if (keys.Count != RefDetailsKeys.Length || !RefDetailsKeys.All(keys.Contains)) return false;
+
+        var reference = root.GetProperty("ref");
+        if (reference.ValueKind != JsonValueKind.String ||
+            !Guid.TryParseExact(reference.GetString(), "D", out _))
+            return false;
+
+        var bodyHash = root.GetProperty("bodyHash");
+        return kind == "delete"
+            ? bodyHash.ValueKind == JsonValueKind.Null
+            : bodyHash.ValueKind == JsonValueKind.String && ContentHashPattern().IsMatch(bodyHash.GetString()!);
+    }
+
+    // other (K2): exactly {"type": "<1..32 chars, no control characters>"}.
+    // Control characters are refused because an admin reads this value
+    // directly; the archiver truncates/sanitizes the wire type before sending.
+    private static bool IsWellFormedOtherDetails(string details)
+    {
+        if (details.Length > OtherDetailsMaxLength) return false;
+        if (!TryParseObject(details, out var root)) return false;
+
+        var props = root.EnumerateObject().ToList();
+        if (props.Count != 1 || props[0].Name != "type" || props[0].Value.ValueKind != JsonValueKind.String) return false;
+
+        var type = props[0].Value.GetString()!;
+        return type.Length is > 0 and <= OtherTypeMaxLength && !type.Any(char.IsControl);
+    }
+
+    private static bool TryParseObject(string json, out JsonElement root)
+    {
+        root = default;
+        try
+        {
+            // Clone: the element must outlive the JsonDocument that parsed it.
+            using var doc = JsonDocument.Parse(json);
+            root = doc.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        return root.ValueKind == JsonValueKind.Object;
     }
 
     private static async Task<IResult> GetCount(Guid orgId, ClaimsPrincipal user, BusinessModeOptions businessMode,

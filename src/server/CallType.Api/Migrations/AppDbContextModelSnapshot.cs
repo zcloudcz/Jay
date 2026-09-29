@@ -385,6 +385,9 @@ namespace CallType.Api.Migrations
                     b.Property<DateTimeOffset>("LastSeenAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<byte[]>("PushKey")
+                        .HasColumnType("bytea");
+
                     b.Property<string>("PushPlatform")
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
@@ -392,12 +395,23 @@ namespace CallType.Api.Migrations
                     b.Property<string>("PushToken")
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("PushTokenUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<byte[]>("Signature")
                         .HasColumnType("bytea");
 
                     b.Property<byte[]>("SignedPreKey")
                         .IsRequired()
                         .HasColumnType("bytea");
+
+                    b.Property<int>("SignedPreKeyId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.Property<DateTimeOffset?>("SignedPreKeyUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<byte[]>("SigningKey")
                         .HasColumnType("bytea");
@@ -407,12 +421,65 @@ namespace CallType.Api.Migrations
                         .HasMaxLength(12)
                         .HasColumnType("character varying(12)");
 
+                    b.Property<string>("VoipPushEnvironment")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("VoipPushToken")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.HasKey("DeviceId");
 
                     b.HasIndex("UserHandle")
                         .IsUnique();
 
-                    b.ToTable("Devices");
+                    b.ToTable("Devices", t =>
+                        {
+                            t.HasCheckConstraint("CK_Devices_PushKey_Length", "\"PushKey\" IS NULL OR octet_length(\"PushKey\") = 32");
+                        });
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.E2eAttachment", b =>
+                {
+                    b.Property<Guid>("BlobId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ChunkCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ChunkSizeBytes")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("CommittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<Guid>("UploaderDeviceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("BlobId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("Status", "ExpiresAt");
+
+                    b.HasIndex("UploaderDeviceId", "CreatedAt");
+
+                    b.ToTable("E2eAttachments", (string)null);
                 });
 
             modelBuilder.Entity("CallType.Api.Models.Group", b =>

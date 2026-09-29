@@ -18,6 +18,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using CallType.Api.Data;
+using CallType.Api.Models;
 using CallType.Api.Tests.TestFixtures;
 using CallType.Audit.Domain;
 using CallType.Audit.Infrastructure;
@@ -94,6 +95,44 @@ public class PrivacyEndpointsTests : IntegrationTestBase
         // is still valid until it expires, only the row is gone).
         var second = await device.Http.DeleteAsync($"/devices/{device.DeviceId}");
         second.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Delete_device_removes_push_slots_and_marks_its_attachments_for_deletion()
+    {
+        var device = await NewDeviceAsync();
+        var other = await NewDeviceAsync();
+        var now = DateTimeOffset.UtcNow;
+        Guid mine = Guid.NewGuid(), gone = Guid.NewGuid(), foreign = Guid.NewGuid();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var row = db.Devices.Single(d => d.DeviceId == device.DeviceId);
+            row.VoipPushToken = "voip";
+            row.PushKey = new byte[32];
+            E2eAttachment Attachment(Guid id, Guid uploader, E2eAttachmentStatus status) => new()
+            {
+                BlobId = id, UploaderDeviceId = uploader, SizeBytes = 1, ChunkSizeBytes = 1, ChunkCount = 1,
+                Status = status, CreatedAt = now, ExpiresAt = now.AddDays(30)
+            };
+            db.E2eAttachments.AddRange(
+                Attachment(mine, device.DeviceId, E2eAttachmentStatus.Committed),
+                Attachment(gone, device.DeviceId, E2eAttachmentStatus.Deleted),
+                Attachment(foreign, other.DeviceId, E2eAttachmentStatus.Committed));
+            await db.SaveChangesAsync();
+        }
+
+        (await device.Http.DeleteAsync($"/devices/{device.DeviceId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var verify = Factory.Services.CreateScope();
+        var verifyDb = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        // VoipPushToken / PushKey live on the Device row, which is gone.
+        (await verifyDb.Devices.AnyAsync(d => d.DeviceId == device.DeviceId)).Should().BeFalse();
+        var statuses = await verifyDb.E2eAttachments.AsNoTracking().ToDictionaryAsync(a => a.BlobId, a => a.Status);
+        // The rows survive (no FK) so the cleanup service can still delete the blobs.
+        statuses[mine].Should().Be(E2eAttachmentStatus.Deleting);
+        statuses[gone].Should().Be(E2eAttachmentStatus.Deleted, "a tombstone stays a tombstone");
+        statuses[foreign].Should().Be(E2eAttachmentStatus.Committed, "another device's attachments are untouched");
     }
 
     [Fact]
@@ -320,6 +359,8 @@ public class PrivacyEndpointsTests : IntegrationTestBase
             accountId = await db.AccountDevices.Where(ad => ad.DeviceId == device.DeviceId).Select(ad => ad.AccountId).SingleAsync();
             db.Devices.Single(d => d.DeviceId == device.DeviceId).PushToken = "super-secret-fcm-token";
             db.Devices.Single(d => d.DeviceId == device.DeviceId).PushPlatform = "fcm";
+            db.Devices.Single(d => d.DeviceId == device.DeviceId).VoipPushToken = "super-secret-voip-token";
+            db.Devices.Single(d => d.DeviceId == device.DeviceId).PushKey = new byte[32];
             await db.SaveChangesAsync();
         }
 
@@ -331,10 +372,13 @@ public class PrivacyEndpointsTests : IntegrationTestBase
         json.GetProperty("account").GetProperty("email").GetString().Should().Be("export-test@example.com");
         json.GetProperty("devices").EnumerateArray().Should().ContainSingle(d =>
             d.GetProperty("deviceId").GetGuid() == device.DeviceId &&
-            d.GetProperty("hasPushToken").GetBoolean());
+            d.GetProperty("hasPushToken").GetBoolean() &&
+            d.GetProperty("hasVoipPushToken").GetBoolean());
 
-        // Never leaked: the raw auth key hash and the actual push token value.
+        // Never leaked: the raw auth key hash and the actual push token values.
         raw.Should().NotContain("authKeyHash");
         raw.Should().NotContain("super-secret-fcm-token");
+        raw.Should().NotContain("super-secret-voip-token");
+        raw.Should().NotContain("pushKey");
     }
 }

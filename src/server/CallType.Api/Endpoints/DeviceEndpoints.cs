@@ -10,6 +10,7 @@
 // The server never sees plaintext messages; it only brokers public keys.
 // ---------------------------------------------------------------------------
 
+using System.Security.Claims;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -33,10 +34,11 @@ public static class DeviceEndpoints
         // to look up other devices' keys to prevent key-bundle enumeration.
         app.MapGet("/devices/{id:guid}/key-bundle", GetKeyBundle).RequireAuthorization().RequireRateLimiting("api");
         app.MapGet("/devices/by-handle/{handle}", FindDeviceByHandle).RequireAuthorization().RequireRateLimiting("api");
-        // Push token registration requires auth — only the device owner should be
-        // able to set its push token. Uses PUT because the token is idempotent
-        // (setting the same token twice is a no-op).
+        // Push token registration requires auth AND that {id} is the caller's
+        // own device (JWT sub) — see RequireSelf. Uses PUT because the token is
+        // idempotent (setting the same token twice is a no-op).
         app.MapPut("/devices/{id:guid}/push-token", UpdatePushToken).RequireAuthorization().RequireRateLimiting("api");
+        app.MapDelete("/devices/{id:guid}/push-token", DeletePushToken).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 
@@ -255,37 +257,139 @@ public static class DeviceEndpoints
     // -----------------------------------------------------------------------
     // PUT /devices/{id}/push-token — Register or update push notification token
     // -----------------------------------------------------------------------
+    // "apns-voip" is a PushKit token: it goes to its own slot (VoipPushToken)
+    // and never into PushPlatform, whose value set stays fcm|apns.
+    private static readonly string[] PushPlatforms = ["fcm", "apns", "apns-voip"];
+    private static readonly string[] ApnsEnvironments = ["production", "sandbox"];
+    private const int MaxPushTokenLength = 512;
+    private const int PushKeyLength = 32;
+
+    /// <summary>
+    /// 403 device_mismatch unless {id} is the calling device (JWT sub). Before
+    /// X0 any authenticated device could overwrite ANY device's push token and
+    /// redirect its wake-ups (IDOR, security plan R1). Same identity source as
+    /// every other device-scoped endpoint (AccountEndpoints.CallerDeviceId);
+    /// the full "path id vs. JWT" audit of all endpoints stays with stream S (S1).
+    /// </summary>
+    private static IResult? RequireSelf(ClaimsPrincipal user, Guid id) =>
+        AccountEndpoints.CallerDeviceId(user) == id
+            ? null
+            : Results.Json(new { error = "Path device id does not match the authenticated device.", code = "device_mismatch" },
+                statusCode: StatusCodes.Status403Forbidden);
+
+    private static IResult PushTokenError(string code, string error) =>
+        Results.BadRequest(new { error, code });
+
     private static async Task<IResult> UpdatePushToken(
         Guid id,
         UpdatePushTokenRequest request,
+        ClaimsPrincipal user,
         AppDbContext db,
+        TimeProvider clock,
         CancellationToken ct)
     {
+        if (RequireSelf(user, id) is { } forbidden) return forbidden;
+
         // Validate platform — only known push platforms are accepted.
         // This prevents storing tokens for unsupported platforms that would
         // silently fail at push time with no useful diagnostic.
-        if (request.Platform is not ("fcm" or "apns"))
-        {
-            return Results.BadRequest(new { error = "Platform must be 'fcm' or 'apns'." });
-        }
+        if (!PushPlatforms.Contains(request.Platform))
+            return PushTokenError("invalid_platform", "Platform must be 'fcm', 'apns' or 'apns-voip'.");
 
-        if (string.IsNullOrWhiteSpace(request.Token))
+        // Upper bound: FCM tokens are ~160-250 chars, APNs 64 hex; 512 leaves
+        // room without letting a client park arbitrary data in the column.
+        if (string.IsNullOrWhiteSpace(request.Token) || request.Token.Length > MaxPushTokenLength)
+            return PushTokenError("invalid_token", $"Token must be 1-{MaxPushTokenLength} characters.");
+
+        // VoipPushToken is varchar(200) — reject instead of letting the DB throw a 500.
+        if (request.Platform == "apns-voip" && request.Token.Length > 200)
+            return PushTokenError("invalid_token", "A PushKit token must be at most 200 characters.");
+
+        // The environment only means something for APNs (gateway choice); it is
+        // a hint that stream N corrects from APNs responses.
+        if (request.Environment is not null && !ApnsEnvironments.Contains(request.Environment))
+            return PushTokenError("invalid_environment", "Environment must be 'production' or 'sandbox'.");
+
+        byte[]? pushKey = null;
+        if (request.PushKey is not null)
         {
-            return Results.BadRequest(new { error = "Token must not be empty." });
+            try { pushKey = Convert.FromBase64String(request.PushKey); }
+            catch (FormatException) { return PushTokenError("invalid_push_key", "PushKey must be base64 of exactly 32 bytes."); }
+            if (pushKey.Length != PushKeyLength)
+                return PushTokenError("invalid_push_key", "PushKey must be base64 of exactly 32 bytes.");
         }
 
         var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == id, ct);
         if (device is null)
             return Results.NotFound(new { error = "Device not found." });
 
-        // Overwrite previous token — a device has at most one active push token.
-        // When the client refreshes its FCM token, it calls this endpoint with the
-        // new token, replacing the stale one.
-        device.PushToken = request.Token;
-        device.PushPlatform = request.Platform;
+        if (request.Platform == "apns-voip")
+        {
+            // Separate slot: an iPhone also has an alert token in PushToken for
+            // messages, which a PushKit registration must not overwrite.
+            device.VoipPushToken = request.Token;
+            device.VoipPushEnvironment = request.Environment;
+        }
+        else
+        {
+            // Overwrite previous token — a device has at most one active alert
+            // push token. When the client refreshes its FCM token, it calls this
+            // endpoint with the new token, replacing the stale one.
+            device.PushToken = request.Token;
+            device.PushPlatform = request.Platform;
+        }
+
+        // Stored regardless of platform: one key per device encrypts the hint
+        // for every channel it is woken through. Omitted = keep the old key.
+        if (pushKey is not null)
+            device.PushKey = pushKey;
+        device.PushTokenUpdatedAt = clock.GetUtcNow();
 
         await db.SaveChangesAsync(ct);
 
+        return Results.NoContent();
+    }
+
+    // -----------------------------------------------------------------------
+    // DELETE /devices/{id}/push-token?platform=fcm|apns|apns-voip
+    // -----------------------------------------------------------------------
+    // Logout / notifications switched off: the client drops one slot. Always
+    // 204 for an existing own device, even when the slot is already empty
+    // (idempotent). fcm|apns also drops PushKey — the alert channel is the one
+    // that carries message hints; apns-voip leaves it for the alert channel.
+    private static async Task<IResult> DeletePushToken(
+        Guid id,
+        string? platform,
+        ClaimsPrincipal user,
+        AppDbContext db,
+        TimeProvider clock,
+        CancellationToken ct)
+    {
+        if (RequireSelf(user, id) is { } forbidden) return forbidden;
+
+        if (platform is null || !PushPlatforms.Contains(platform))
+            return PushTokenError("invalid_platform", "Query parameter platform must be 'fcm', 'apns' or 'apns-voip'.");
+
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == id, ct);
+        if (device is null)
+            return Results.NotFound(new { error = "Device not found." });
+
+        if (platform == "apns-voip")
+        {
+            device.VoipPushToken = null;
+            device.VoipPushEnvironment = null;
+        }
+        else if (device.PushPlatform is null || device.PushPlatform == platform)
+        {
+            // Only clear the alert slot if it holds THIS platform's token: a
+            // stale "apns" delete must not wipe a freshly registered FCM token.
+            device.PushToken = null;
+            device.PushPlatform = null;
+            device.PushKey = null;
+        }
+        device.PushTokenUpdatedAt = clock.GetUtcNow();
+
+        await db.SaveChangesAsync(ct);
         return Results.NoContent();
     }
 
@@ -364,4 +468,8 @@ public record KeyBundleResponse(
 
 public record OneTimePreKeyDto(int KeyId, string PublicKey);
 
-public record UpdatePushTokenRequest(string Token, string Platform);
+/// <param name="Token">Provider token (FCM registration token, APNs device token, PushKit token).</param>
+/// <param name="Platform">"fcm" | "apns" | "apns-voip".</param>
+/// <param name="Environment">Optional APNs gateway hint: "production" | "sandbox".</param>
+/// <param name="PushKey">Optional base64 of exactly 32 bytes — key for the encrypted push hint.</param>
+public record UpdatePushTokenRequest(string Token, string Platform, string? Environment = null, string? PushKey = null);

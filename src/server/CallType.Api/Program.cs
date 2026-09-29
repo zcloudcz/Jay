@@ -62,6 +62,21 @@ builder.Services.AddScoped<MessageQueueService>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<FcmTokenProvider>();
 builder.Services.AddSingleton<PushNotificationService>();
+// Gap closure X0: callers depend on the two narrow seams, never on the class,
+// so stream N can replace the implementation (and tests can swap in a double)
+// without touching the hub or ChannelService. Both resolve to the SAME
+// singleton: FCM token cache and channel throttle must stay shared.
+builder.Services.AddSingleton<IPushNotificationService>(sp => sp.GetRequiredService<PushNotificationService>());
+builder.Services.AddSingleton<ICallPushSender>(sp => sp.GetRequiredService<PushNotificationService>());
+
+// Pending call offers (stream C, KC3) — X0 stubs registered up front so wave 1
+// fills them in without touching Program.cs. Bound through the DI-resolved
+// IConfiguration for the same test-override reason as BusinessOptions below.
+builder.Services.AddOptions<PendingCallOptions>()
+    .Configure<IConfiguration>((options, config) =>
+        config.GetSection(PendingCallOptions.SectionName).Bind(options));
+builder.Services.AddSingleton<PendingCallStore>();
+builder.Services.AddHostedService<PendingCallSweeper>();
 
 // TURN credential provider — chosen by Turn:Provider:
 //   "shared-secret" (default): HMAC credentials for self-hosted coturn/DeskShare.Turn
@@ -101,6 +116,15 @@ builder.Services.Configure<CallType.Api.Configuration.BackupLimitsOptions>(
     builder.Configuration.GetSection(CallType.Api.Configuration.BackupLimitsOptions.SectionName));
 builder.Services.AddScoped<BackupStorageService>();
 builder.Services.AddHostedService<BackupCleanupService>();
+
+// End-to-end encrypted media blobs (stream M2; X0 stubs). Options bound
+// through the DI-resolved IConfiguration so tests can lower the quotas (same
+// reason as BusinessOptions below). Scoped service: it uses AppDbContext.
+builder.Services.AddOptions<AttachmentsOptions>()
+    .Configure<IConfiguration>((options, config) =>
+        config.GetSection(AttachmentsOptions.SectionName).Bind(options));
+builder.Services.AddScoped<E2eAttachmentService>();
+builder.Services.AddHostedService<E2eAttachmentCleanupService>();
 
 // Public channels — limits and retention, see ChannelsOptions for defaults.
 // ChannelPostCleanupService hard-deletes posts (and their images) older than
@@ -222,21 +246,40 @@ builder.Services.AddCors(options =>
 // default. See RateLimiting__AuthPermitLimit in docker-compose.yml.
 var apiPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:ApiPermitLimit") ?? 100;
 var authPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:AuthPermitLimit") ?? 10;
+// Attachments (stream M2): scrolling through a chat downloads many images at
+// once, which the general 100/min "api" bucket would exhaust.
+var attachmentsPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:AttachmentsPermitLimit") ?? 600;
+// Same partition key for "api" and "attachments": the device from the JWT,
+// or the client IP for anonymous callers.
+static string DeviceOrIpKey(HttpContext context)
+{
+    var device = context.User.Identity?.IsAuthenticated == true
+        ? context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.User.FindFirstValue("sub")
+        : null;
+    return device is null
+        ? $"ip:{context.Connection.RemoteIpAddress?.ToString() ?? "unknown"}"
+        : $"device:{device}";
+}
 builder.Services.AddRateLimiter(options =>
 {
     options.AddPolicy("api", context =>
-    {
-        var device = context.User.Identity?.IsAuthenticated == true
-            ? context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.User.FindFirstValue("sub")
-            : null;
-        var key = device is null
-            ? $"ip:{context.Connection.RemoteIpAddress?.ToString() ?? "unknown"}"
-            : $"device:{device}";
-        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
+        RateLimitPartition.GetFixedWindowLimiter(DeviceOrIpKey(context), _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = apiPermitLimit, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
-        });
-    });
+        }));
+    options.AddPolicy("attachments", context =>
+        RateLimitPartition.GetFixedWindowLimiter(DeviceOrIpKey(context), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = attachmentsPermitLimit, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+        }));
+    // ONE global partition, not per device: each chunk upload buffers up to
+    // 4 MiB (Azure SDK needs a seekable body for retries), so this bounds the
+    // whole process to 8 × 4 MiB of chunk buffers on the B1 plan.
+    options.AddPolicy("attachment-chunks", _ =>
+        RateLimitPartition.GetConcurrencyLimiter("chunks", _ => new ConcurrencyLimiterOptions
+        {
+            PermitLimit = 8, QueueLimit = 32
+        }));
     options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
         context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions
@@ -344,8 +387,10 @@ app.MapAccountEndpoints();
 app.MapMfaEndpoints();
 app.MapGroupEndpoints();
 app.MapBackupEndpoints();
+app.MapAttachmentEndpoints(); // stream M2 (X0 stub)
 app.MapChannelEndpoints();
 app.MapTurnCredentialEndpoints();
+app.MapCallEndpoints(); // stream C (X0 stub)
 app.MapOrganizationEndpoints();
 app.MapAuditArchiveEndpoints();
 app.MapEmergencyEndpoints();

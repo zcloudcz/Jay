@@ -389,17 +389,176 @@ public class DeviceEndpointsTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task Update_push_token_for_nonexistent_device_returns_not_found()
+    public async Task Update_push_token_for_another_device_id_returns_403_device_mismatch()
     {
+        // X0 IDOR fix: before, any authenticated device could redirect another
+        // device's push wake-ups (and previously got 404 only for unknown ids).
+        var (victimId, _, _) = await RegisterAndAuthenticateAsync();
+        await RegisterAndAuthenticateAsync(); // Client now speaks as the attacker
+
+        foreach (var target in new[] { victimId, Guid.NewGuid() })
+        {
+            var response = await Client.PutAsJsonAsync($"/devices/{target}/push-token", new
+            {
+                token = "attacker-token",
+                platform = "fcm"
+            });
+
+            response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString()
+                .Should().Be("device_mismatch");
+        }
+
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.Devices.SingleAsync(d => d.DeviceId == victimId)).PushToken.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Delete_push_token_for_another_device_returns_403_and_keeps_its_token()
+    {
+        var (victimId, _, _) = await RegisterAndAuthenticateAsync();
+        (await Client.PutAsJsonAsync($"/devices/{victimId}/push-token", new { token = "victim-token", platform = "fcm" }))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
         await RegisterAndAuthenticateAsync();
 
-        var response = await Client.PutAsJsonAsync($"/devices/{Guid.NewGuid()}/push-token", new
+        var response = await Client.DeleteAsync($"/devices/{victimId}/push-token?platform=fcm");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString()
+            .Should().Be("device_mismatch");
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.Devices.SingleAsync(d => d.DeviceId == victimId)).PushToken.Should().Be("victim-token");
+    }
+
+    [Fact]
+    public async Task Apns_voip_token_goes_to_its_own_slot_and_keeps_the_alert_token()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        (await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token", new { token = "apns-alert-token", platform = "apns" }))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token", new
         {
-            token = "some-token",
-            platform = "fcm"
+            token = "abcdef0123456789",
+            platform = "apns-voip",
+            environment = "sandbox"
         });
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var device = await db.Devices.SingleAsync(d => d.DeviceId == deviceId);
+        device.VoipPushToken.Should().Be("abcdef0123456789");
+        device.VoipPushEnvironment.Should().Be("sandbox");
+        device.PushToken.Should().Be("apns-alert-token", "a PushKit registration must not overwrite the alert token");
+        device.PushPlatform.Should().Be("apns", "apns-voip is never stored in PushPlatform");
+        device.PushTokenUpdatedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Push_key_is_stored_with_any_platform_and_kept_when_omitted()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        var key = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+
+        (await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token",
+            new { token = "fcm-token", platform = "fcm", pushKey = Convert.ToBase64String(key) }))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token",
+            new { token = "fcm-token-2", platform = "fcm" }))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var device = await db.Devices.SingleAsync(d => d.DeviceId == deviceId);
+        device.PushKey.Should().Equal(key);
+        device.PushToken.Should().Be("fcm-token-2");
+    }
+
+    [Theory]
+    [InlineData("fcm", "t", null, "AAAA", "invalid_push_key")]           // 3 bytes
+    [InlineData("fcm", "t", null, "not base64!", "invalid_push_key")]
+    [InlineData("apns", "t", "staging", null, "invalid_environment")]
+    [InlineData("webpush", "t", null, null, "invalid_platform")]
+    [InlineData("fcm", "", null, null, "invalid_token")]
+    public async Task Invalid_push_token_request_returns_400_with_code(
+        string platform, string token, string? environment, string? pushKey, string expectedCode)
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+
+        var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token",
+            new { token, platform, environment, pushKey });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString()
+            .Should().Be(expectedCode);
+    }
+
+    [Fact]
+    public async Task Token_longer_than_512_characters_is_rejected()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+
+        var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token",
+            new { token = new string('a', 513), platform = "fcm" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString()
+            .Should().Be("invalid_token");
+    }
+
+    [Fact]
+    public async Task Delete_push_token_clears_only_the_named_slot_and_is_idempotent()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+        (await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token",
+            new { token = "fcm-token", platform = "fcm", pushKey = Convert.ToBase64String(new byte[32]) }))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token",
+            new { token = "voip-token", platform = "apns-voip", environment = "production" }))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await Client.DeleteAsync($"/devices/{deviceId}/push-token?platform=apns-voip"))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var device = await scope.ServiceProvider.GetRequiredService<AppDbContext>()
+                .Devices.SingleAsync(d => d.DeviceId == deviceId);
+            device.VoipPushToken.Should().BeNull();
+            device.VoipPushEnvironment.Should().BeNull();
+            device.PushToken.Should().Be("fcm-token");
+            device.PushKey.Should().NotBeNull("dropping the VoIP slot keeps the key the alert channel uses");
+        }
+
+        // fcm clears the alert slot AND the hint key; a second delete is still 204.
+        (await Client.DeleteAsync($"/devices/{deviceId}/push-token?platform=fcm"))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await Client.DeleteAsync($"/devices/{deviceId}/push-token?platform=fcm"))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var device = await scope.ServiceProvider.GetRequiredService<AppDbContext>()
+                .Devices.SingleAsync(d => d.DeviceId == deviceId);
+            device.PushToken.Should().BeNull();
+            device.PushPlatform.Should().BeNull();
+            device.PushKey.Should().BeNull();
+        }
+    }
+
+    [Fact]
+    public async Task Delete_push_token_without_a_valid_platform_returns_400()
+    {
+        var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
+
+        foreach (var url in new[] { $"/devices/{deviceId}/push-token", $"/devices/{deviceId}/push-token?platform=sms" })
+        {
+            var response = await Client.DeleteAsync(url);
+            response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString()
+                .Should().Be("invalid_platform");
+        }
     }
 
     [Fact]
@@ -537,16 +696,17 @@ public class DeviceEndpointsTests : IntegrationTestBase
     [Fact]
     public async Task IsBot_cannot_be_changed_after_registration()
     {
-        await RegisterAndAuthenticateAsync();
-        var (humanId, _) = await RegisterDeviceAsync(isBot: false);
+        // Client speaks as a human device (RegisterAndAuthenticateAsync never sets isBot).
+        var (humanId, _, _) = await RegisterAndAuthenticateAsync();
         var (botId, _) = await RegisterDeviceAsync(isBot: true);
 
         // The only device-update endpoint is push-token; smuggling isBot into
-        // its body must be ignored in both directions.
+        // its body must be ignored. Since the X0 IDOR fix a device can only
+        // update its OWN token, so the bot's row is out of reach entirely (403).
         (await Client.PutAsJsonAsync($"/devices/{humanId}/push-token",
             new { token = "t1", platform = "fcm", isBot = true })).StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await Client.PutAsJsonAsync($"/devices/{botId}/push-token",
-            new { token = "t2", platform = "fcm", isBot = false })).StatusCode.Should().Be(HttpStatusCode.NoContent);
+            new { token = "t2", platform = "fcm", isBot = false })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
         // Registering again always creates a NEW device — it cannot rewrite an
         // existing one, so the originals keep their flag.
