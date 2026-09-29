@@ -1,6 +1,9 @@
 name: calltype
 description: "End-to-end encrypted multiplatform messenger."
 publish_to: 'none'
+# major.minor.patch is the release version, bumped by hand before a release.
+# +N is ignored by CI; build numbers come from .github/scripts/version.sh
+# (commit count), so every platform and the web share one number per SHA.
 version: 1.0.0+1
 
 environment:

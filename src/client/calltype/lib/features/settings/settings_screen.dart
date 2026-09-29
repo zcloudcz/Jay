@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/network/webrtc_manager.dart';
 import '../../l10n/l10n.dart';
+import '../../shared/widgets/app_version_label.dart';
 
 /// Main settings screen with navigation to sub-settings.
 ///
@@ -102,18 +103,11 @@ class SettingsScreen extends StatelessWidget {
           const Divider(indent: 16, endIndent: 16),
 
           // -- About section --------------------------------------------------
-          // Version is hardcoded here to match pubspec.yaml. In production,
-          // use package_info_plus to read the version dynamically.
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-            child: Center(
-              child: Text(
-                l10n.settingsVersion('1.0.0'),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
+          // Real build name + number from the bundle (P2), same as the
+          // release manifest.
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+            child: Center(child: AppVersionLabel()),
           ),
         ],
       ),
