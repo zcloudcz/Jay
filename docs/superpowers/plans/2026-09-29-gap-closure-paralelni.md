@@ -116,11 +116,11 @@ Vše ostatní (M, M2, G, S, D) jde souběžně a na kritické cestě není.
 
 | # | Rozhodnutí | Doporučení | Plán |
 | --- | --- | --- | --- |
-| R-O1 / R-P1 | Identifikátor aplikace | `cz.zcloud.jay` všude. Po prvním nahrání do obchodu už nejde změnit. | ops, platform |
-| R-C1 | `flutter_callkit_incoming` a **iOS 15 jako minimum** | ano | calls |
-| R-C2 | Každý hovor na iOS přes CallKit | ano. Důsledek: vyloučit čínský App Store. | calls |
+| R-O1 / R-P1 | Identifikátor aplikace | **POTVRZENO 2026-09-29: `cz.zcloud.jay`** | ops, platform |
+| R-C1 | `flutter_callkit_incoming` a **iOS 15 jako minimum** | **POTVRZENO 2026-09-29** | calls |
+| R-C2 | Každý hovor na iOS přes CallKit | **POTVRZENO 2026-09-29** (důsledek: vyloučit čínský App Store) | calls |
 | K2 | Archivní kind `other` pro neznámé typy | ano | contracts |
-| R-O2 | GitHub billing | opravit. Podepisování v public okně je rizikové. | ops, platform R-P2 |
+| R-O2 | GitHub billing | **ROZHODNUTO 2026-09-29: neopravovat, CI a deploy dál v public okně** (platí R-P2) | ops, platform R-P2 |
 
 ### Blokují start konkrétního proudu
 
