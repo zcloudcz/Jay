@@ -26,10 +26,26 @@ public class Device
     public byte[] IdentityKey { get; set; } = [];
 
     /// <summary>
-    /// X3DH signed pre-key — rotated periodically by the client.
-    /// The server stores the latest version so new contacts can initiate sessions.
+    /// X3DH signed pre-key. The server stores only the latest version so new
+    /// contacts can initiate sessions. The client rotates it via
+    /// PUT /devices/{id}/signed-prekey (stream S2), see <see cref="SignedPreKeyId"/>.
+    /// Until S2 ships, clients never rotate it (fixed keyId 1).
     /// </summary>
     public byte[] SignedPreKey { get; set; } = [];
+
+    /// <summary>
+    /// Client-assigned id of <see cref="SignedPreKey"/> (X3DH references the
+    /// SPK by id). Defaults to 1 because every client before S2 registered its
+    /// only SPK with the hard-coded keyId 1 — the migration backfills exactly
+    /// that value for existing rows.
+    /// </summary>
+    public int SignedPreKeyId { get; set; } = 1;
+
+    /// <summary>
+    /// When the SPK was last replaced via PUT signed-prekey. Null = never
+    /// rotated since registration (every device before S2).
+    /// </summary>
+    public DateTimeOffset? SignedPreKeyUpdatedAt { get; set; }
 
     public byte[]? SigningKey { get; set; }
     public byte[]? Signature { get; set; }
@@ -45,6 +61,35 @@ public class Device
     /// Max 10 chars — kept short because the set of platforms is small and fixed.
     /// </summary>
     public string? PushPlatform { get; set; }
+
+    /// <summary>
+    /// APNs PushKit token, separate from the alert token in PushToken — an
+    /// iPhone has both (FCM/APNs alert token for messages, PushKit for calls).
+    /// Written by PUT push-token with platform "apns-voip"; "apns-voip" is
+    /// never stored in <see cref="PushPlatform"/>. Max 200 chars (hex, 64 today).
+    /// </summary>
+    public string? VoipPushToken { get; set; }
+
+    /// <summary>
+    /// "production" or "sandbox" — only a client hint for which APNs gateway
+    /// the PushKit token belongs to; the push sender (stream N) corrects it
+    /// from APNs responses. Null when unknown.
+    /// </summary>
+    public string? VoipPushEnvironment { get; set; }
+
+    /// <summary>
+    /// Exactly 32 bytes: key the push sender uses to encrypt the metadata hint
+    /// in a push payload. Not a secret towards this server — its purpose is to
+    /// keep sender/conversation ids away from Google and Apple, who relay the push.
+    /// </summary>
+    public byte[]? PushKey { get; set; }
+
+    /// <summary>
+    /// Set on every PUT push-token. Diagnostics, and lets the sender decide
+    /// whether an APNs 410 (which carries a timestamp) is older than the
+    /// token currently stored before deleting it.
+    /// </summary>
+    public DateTimeOffset? PushTokenUpdatedAt { get; set; }
 
     /// <summary>
     /// SHA-256 hash of the device secret issued at registration time.
