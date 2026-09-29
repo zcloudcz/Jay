@@ -13,6 +13,9 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:calltype_core/attachments/media_ref.dart';
 
 import 'package:calltype_core/network/organization_api.dart';
 import 'package:dio/dio.dart';
@@ -147,6 +150,57 @@ void main() {
         callCount = await owner.api.getAuditRecordCount(orgId);
       }
       expect(callCount, 2, reason: 'the archive should now also hold the call-metadata record');
+
+      // X0 (contracts §3, K2): what a NEWER client sends. The same devices
+      // and sessions are reused on purpose — the two E2E files already use
+      // the whole budget of "auth" calls per minute. Order matters: the
+      // archiver processes in arrival order, so once the count reaches 4 the
+      // receipt sent first has been handled without a record.
+      final everyone = [member.id, auditor.id];
+      await owner.sendGroupPayload(
+        groupId,
+        everyone,
+        type: 'receipt',
+        extra: {
+          'ctl': true,
+          'kind': 'read',
+          'ref': [messageId],
+        },
+      );
+      // A media reference to a blob that does not exist: the archiver must
+      // record the reference's metadata and never try to download it (R4-A).
+      await owner.sendGroupPayload(
+        groupId,
+        everyone,
+        type: 'media',
+        body: MediaRef(
+          kind: MediaKind.image,
+          blobId: uuid(),
+          key: Uint8List(32),
+          sha256: 'a' * 64,
+          size: 183422,
+          mime: 'image/jpeg',
+        ).encode(),
+      );
+      await owner.sendGroupPayload(
+        groupId,
+        everyone,
+        type: 'x0-e2e-future-type',
+        body: 'content this archiver version does not understand',
+      );
+
+      var newCount = 0;
+      for (var i = 0; i < 40 && newCount < 4; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+        newCount = await owner.api.getAuditRecordCount(orgId);
+      }
+      expect(newCount, 4, reason: 'media (attachment) and the unknown type (other) are archived');
+      await Future<void>.delayed(const Duration(seconds: 2));
+      expect(
+        await owner.api.getAuditRecordCount(orgId),
+        4,
+        reason: 'the receipt is acknowledged WITHOUT an archive record',
+      );
     },
   );
 }
