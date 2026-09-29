@@ -118,13 +118,9 @@ void main() {
     expect(find.textContaining('"q"'), findsNothing);
     expect(find.text('plain hello'), findsOneWidget);
 
-    MessageBubble bubble(String text) =>
-        tester.widget<MessageBubble>(
-          find.ancestor(
-            of: find.text(text),
-            matching: find.byType(MessageBubble),
-          ),
-        );
+    MessageBubble bubble(String text) => tester.widget<MessageBubble>(
+      find.ancestor(of: find.text(text), matching: find.byType(MessageBubble)),
+    );
     expect(bubble('from my laptop').isMine, isTrue);
     expect(bubble('plain hello').isMine, isFalse);
 

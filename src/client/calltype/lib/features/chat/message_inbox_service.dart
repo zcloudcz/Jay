@@ -210,10 +210,13 @@ class MessageInboxService {
     try {
       return await _db.transaction(() => _dispatcher.dispatch(ctx));
     } on FormatException catch (error) {
-      // Only the id reaches the error stream — never the plaintext.
+      // Id and reason only: FormatException.source (which may hold the
+      // decrypted payload) is deliberately not forwarded.
       _errors.add(
-        FormatException('Dropped malformed message ${ctx.messageId}: '
-            '${error.message}'),
+        FormatException(
+          'Dropped malformed message ${ctx.messageId}: '
+          '${error.message}',
+        ),
       );
       return const Ignored();
     }
@@ -226,7 +229,8 @@ class MessageInboxService {
   ) async {
     final logged =
         await (_db.select(_db.inboundLog)..where(
-              (l) => l.senderId.equals(senderId) & l.messageId.equals(messageId),
+              (l) =>
+                  l.senderId.equals(senderId) & l.messageId.equals(messageId),
             ))
             .getSingleOrNull();
     if (logged != null) return true;

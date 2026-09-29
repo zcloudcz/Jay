@@ -92,9 +92,9 @@ void main() {
   Future<void> start() async => inbox.start();
 
   Future<bool> logged(String id) async =>
-      await (bob.db.select(bob.db.inboundLog)
-            ..where((l) => l.messageId.equals(id)))
-          .getSingleOrNull() !=
+      await (bob.db.select(
+        bob.db.inboundLog,
+      )..where((l) => l.messageId.equals(id))).getSingleOrNull() !=
       null;
 
   group('control messages (ctl) never create rows or badges', () {
@@ -127,7 +127,12 @@ void main() {
 
     test('a known control type is control even without ctl', () async {
       await start();
-      final data = await delivery('receipt', fields: {'ref': ['m']});
+      final data = await delivery(
+        'receipt',
+        fields: {
+          'ref': ['m'],
+        },
+      );
       await deliver(data);
       expect(acks, [data['messageId']]);
       expect(await bob.db.select(bob.db.messages).get(), isEmpty);
@@ -152,7 +157,9 @@ void main() {
       );
       await deliver(data);
       expect(acks, [data['messageId']]);
-      final conversation = await bob.db.select(bob.db.conversations).getSingle();
+      final conversation = await bob.db
+          .select(bob.db.conversations)
+          .getSingle();
       expect(conversation.unreadCount, 2);
       expect(conversation.lastMessageAt, isNull);
       expect(await bob.db.select(bob.db.messages).get(), isEmpty);
@@ -160,8 +167,7 @@ void main() {
   });
 
   group('content', () {
-    test('media is stored verbatim, counts as unread and is emitted',
-        () async {
+    test('media is stored verbatim, counts as unread and is emitted', () async {
       await start();
       const body = '{"v":1,"kind":"image","blobId":"b"}';
       final data = await delivery('media', body: body);
@@ -178,40 +184,44 @@ void main() {
       expect(acks, [data['messageId']]);
     });
 
-    test('an unknown type without ctl is stored for a later version (K1)',
-        () async {
-      await start();
-      final data = await delivery('poll', body: '{"q":"?"}');
-      await deliver(data);
-      final row = await bob.db.select(bob.db.messages).getSingle();
-      expect(row.type, 'poll');
-      expect(row.body, '{"q":"?"}');
-      expect(
-        (await bob.db.select(bob.db.conversations).getSingle()).unreadCount,
-        1,
-      );
-      expect(persisted, hasLength(1));
-      expect(acks, [data['messageId']]);
-    });
+    test(
+      'an unknown type without ctl is stored for a later version (K1)',
+      () async {
+        await start();
+        final data = await delivery('poll', body: '{"q":"?"}');
+        await deliver(data);
+        final row = await bob.db.select(bob.db.messages).getSingle();
+        expect(row.type, 'poll');
+        expect(row.body, '{"q":"?"}');
+        expect(
+          (await bob.db.select(bob.db.conversations).getSingle()).unreadCount,
+          1,
+        );
+        expect(persisted, hasLength(1));
+        expect(acks, [data['messageId']]);
+      },
+    );
 
-    test('text with replyTo/forwarded/expiresInSec is still plain text',
-        () async {
-      await start();
-      final data = await delivery(
-        'text',
-        body: 'quoted',
-        fields: {
-          'replyTo': {'id': 'm0', 'senderId': 'bob', 'preview': 'hi'},
-          'forwarded': true,
-          'expiresInSec': null,
-        },
-      );
-      await deliver(data);
-      final row = await bob.db.select(bob.db.messages).getSingle();
-      expect(row.body, 'quoted');
-      expect(row.type, 'text');
-      expect(acks, [data['messageId']]);
-    });
+    test(
+      'text with replyTo/forwarded/expiresInSec is still plain text',
+      () async {
+        await start();
+        final data = await delivery(
+          'text',
+          body: 'quoted',
+          fields: {
+            'replyTo': {'id': 'm0', 'senderId': 'bob', 'preview': 'hi'},
+            'forwarded': true,
+            'expiresInSec': null,
+          },
+        );
+        await deliver(data);
+        final row = await bob.db.select(bob.db.messages).getSingle();
+        expect(row.body, 'quoted');
+        expect(row.type, 'text');
+        expect(acks, [data['messageId']]);
+      },
+    );
 
     test('a received "system" line is dropped, never stored', () async {
       await start();
@@ -261,37 +271,42 @@ void main() {
   });
 
   group('registry', () {
-    test('a registered handler runs and Applied reaches controlEvents',
-        () async {
-      final seen = <InboundContext>[];
-      inbox.registerHandler(
-        'reaction',
-        _Handler((ctx) async {
-          seen.add(ctx);
-          return Applied(
-            ControlEvent(
-              type: ctx.type,
-              conversationId: ctx.conversationId,
-              senderId: ctx.senderId,
-              refs: [ctx.payload['ref'] as String],
-            ),
-          );
-        }),
-      );
-      await start();
-      final data = await delivery(
-        'reaction',
-        fields: {'ctl': true, 'ref': 'm1', 'emoji': '👍'},
-      );
-      await deliver(data);
-      expect(seen.single.myDeviceId, bob.id);
-      expect(seen.single.conversationId, alice.id);
-      expect(seen.single.serverCreatedAt, DateTime.utc(2026, 9, 29, 10, 0, 1));
-      expect(seen.single.fromOwnDevice, isFalse);
-      expect(events.single.refs, ['m1']);
-      expect(persisted, isEmpty);
-      expect(acks, [data['messageId']]);
-    });
+    test(
+      'a registered handler runs and Applied reaches controlEvents',
+      () async {
+        final seen = <InboundContext>[];
+        inbox.registerHandler(
+          'reaction',
+          _Handler((ctx) async {
+            seen.add(ctx);
+            return Applied(
+              ControlEvent(
+                type: ctx.type,
+                conversationId: ctx.conversationId,
+                senderId: ctx.senderId,
+                refs: [ctx.payload['ref'] as String],
+              ),
+            );
+          }),
+        );
+        await start();
+        final data = await delivery(
+          'reaction',
+          fields: {'ctl': true, 'ref': 'm1', 'emoji': '👍'},
+        );
+        await deliver(data);
+        expect(seen.single.myDeviceId, bob.id);
+        expect(seen.single.conversationId, alice.id);
+        expect(
+          seen.single.serverCreatedAt,
+          DateTime.utc(2026, 9, 29, 10, 0, 1),
+        );
+        expect(seen.single.fromOwnDevice, isFalse);
+        expect(events.single.refs, ['m1']);
+        expect(persisted, isEmpty);
+        expect(acks, [data['messageId']]);
+      },
+    );
 
     test('FormatException from a handler: its writes roll back, the message '
         'is logged and acknowledged', () async {
@@ -312,57 +327,61 @@ void main() {
       expect(acks, [data['messageId']]);
     });
 
-    test('any other exception: nothing commits, no ack, redelivery works',
-        () async {
-      var fail = true;
-      inbox.registerHandler(
-        'edit',
-        _Handler((ctx) async {
-          if (fail) throw StateError('database busy');
-          return const Ignored();
-        }),
-      );
-      await start();
-      final data = await delivery('edit', fields: {'ctl': true});
-      await deliver(data);
-      expect(acks, isEmpty);
-      expect(await logged(data['messageId'] as String), isFalse);
-      fail = false;
-      await deliver(data); // the ratchet was rolled back: decrypts again
-      expect(acks, [data['messageId']]);
-    });
+    test(
+      'any other exception: nothing commits, no ack, redelivery works',
+      () async {
+        var fail = true;
+        inbox.registerHandler(
+          'edit',
+          _Handler((ctx) async {
+            if (fail) throw StateError('database busy');
+            return const Ignored();
+          }),
+        );
+        await start();
+        final data = await delivery('edit', fields: {'ctl': true});
+        await deliver(data);
+        expect(acks, isEmpty);
+        expect(await logged(data['messageId'] as String), isFalse);
+        fail = false;
+        await deliver(data); // the ratchet was rolled back: decrypts again
+        expect(acks, [data['messageId']]);
+      },
+    );
 
-    test('re-entrant dispatch stores synced content as my own message',
-        () async {
-      inbox.registerHandler(
-        'sync',
-        _Handler((ctx) async {
-          final inner = jsonDecode(ctx.body) as Map<String, dynamic>;
-          return inbox.dispatch(
-            ctx.copyWith(
-              payload: inner,
-              fromOwnDevice: true,
-              conversationId: 'carol',
-            ),
-          );
-        }),
-      );
-      await start();
-      final data = await delivery(
-        'sync',
-        fields: {'ctl': true},
-        body: jsonEncode({'v': 1, 'type': 'text', 'body': 'sent elsewhere'}),
-      );
-      await deliver(data);
-      final row = await bob.db.select(bob.db.messages).getSingle();
-      expect(row.body, 'sent elsewhere');
-      expect(row.conversationId, 'carol');
-      expect(row.status, 'sent');
-      expect(
-        (await bob.db.select(bob.db.conversations).getSingle()).unreadCount,
-        0,
-      );
-    });
+    test(
+      're-entrant dispatch stores synced content as my own message',
+      () async {
+        inbox.registerHandler(
+          'sync',
+          _Handler((ctx) async {
+            final inner = jsonDecode(ctx.body) as Map<String, dynamic>;
+            return inbox.dispatch(
+              ctx.copyWith(
+                payload: inner,
+                fromOwnDevice: true,
+                conversationId: 'carol',
+              ),
+            );
+          }),
+        );
+        await start();
+        final data = await delivery(
+          'sync',
+          fields: {'ctl': true},
+          body: jsonEncode({'v': 1, 'type': 'text', 'body': 'sent elsewhere'}),
+        );
+        await deliver(data);
+        final row = await bob.db.select(bob.db.messages).getSingle();
+        expect(row.body, 'sent elsewhere');
+        expect(row.conversationId, 'carol');
+        expect(row.status, 'sent');
+        expect(
+          (await bob.db.select(bob.db.conversations).getSingle()).unreadCount,
+          0,
+        );
+      },
+    );
 
     test('payload observers see every valid payload', () async {
       final types = <String>[];
