@@ -170,7 +170,7 @@ dotnet ef database update --project src/server/CallType.Api
 
 | Entity | Purpose | Key |
 |--------|---------|-----|
-| `Device` | Anonymous device identity + public keys | `DeviceId` (Guid) |
+| `Device` | Anonymous device identity + public keys + push slots (`PushToken`, `VoipPushToken`, `PushKey`) + `SignedPreKeyId` | `DeviceId` (Guid) |
 | `OneTimePreKey` | Single-use X3DH pre-keys | `Id` (auto), unique(DeviceId, KeyId) |
 | `Account` | Optional registered account | `AccountId` (Guid), unique Email |
 | `AccountDevice` | Links accounts to devices (multi-device) | Composite(AccountId, DeviceId) |
@@ -185,6 +185,7 @@ dotnet ef database update --project src/server/CallType.Api
 | `ChannelReaction` | One whitelisted emoji per device per post; API returns totals only | Composite(PostId, DeviceId) |
 | `ChannelPollVote` | One vote per device per poll; API returns totals only | Composite(PostId, DeviceId) |
 | `ChannelReport` | Abuse report for the operator; reporter never exposed | `Id` (auto) |
+| `E2eAttachment` | Metadata of an end-to-end encrypted media blob (ciphertext in private Blob container `e2e-attachments`, 30-day TTL); status Uploading/Committed/Deleting/Deleted; no FK to Device | `BlobId` (Guid, CSPRNG), index(UploaderDeviceId, CreatedAt), (Status, ExpiresAt), (CreatedAt) |
 
 All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 — with the single deliberate exception of channels, which are public and not E2E.
@@ -229,7 +230,9 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
 | `PUT` / `DELETE /channels/{id}/posts/{postId}/reaction`, `PUT …/vote` | One reaction / vote per device (follower); 422 bad emoji / option index | ✅ Done |
 | `POST /channels/{id}/report` | Abuse report (follower, 5 per device per day), 204 | ✅ Done |
 | `POST /channels/{id}/attachments`, `GET /channels/{id}/attachments/{name}` | Unencrypted image ≤ `Channels:MaxImageBytes` in Blob container `channel-media` (413 over limit) | ✅ Done |
-| `SignalR /hub` | Message relay, typing, call signaling; channels: `JoinChannels`, `LeaveChannel`, events `ReceiveChannelPost`, `ChannelDeleted` | ✅ Done |
+| `SignalR /hub` | Message relay, typing, call signaling; channels: `JoinChannels`, `LeaveChannel`, events `ReceiveChannelPost`, `ChannelDeleted`; `SendQuietMessage` / `SendQuietGroupMessage` = same delivery rules without push (control messages) | ✅ Done |
+| `PUT /devices/{id}/push-token` | Own device only (403 `device_mismatch`); `platform` `fcm`/`apns`/`apns-voip`, optional `environment`, `pushKey` | ✅ Done |
+| `DELETE /devices/{id}/push-token?platform=` | Clears one push slot, idempotent 204 | ✅ Done |
 | `DELETE /devices/{deviceId}` | GDPR (N09): device forgets itself — keys, queue, memberships, channel activity, push token; 409 `device_is_auditor` if it is an organization's auditor | ✅ Done |
 | `DELETE /accounts/{accountId}` | GDPR (N09): account deletion (requires `authKey` proof, irreversible) — links, backups (DB + Blob), owned channels soft-deleted; 409 `account_owns_organization` | ✅ Done |
 | `GET /accounts/{accountId}/export` | GDPR (N09): everything the server holds about the account, JSON — see `docs/security/data-subject-rights.md` | ✅ Done |
