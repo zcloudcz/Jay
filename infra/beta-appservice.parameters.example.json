@@ -7,6 +7,11 @@
     "webAppName": { "value": "calltype-beta-zahy" },
     "staticWebAppName": { "value": "calltype-beta-web" },
     "storageAccountName": { "value": "calltypebetazahy" },
-    "dotnetVersion": { "value": "10.0" }
+    "dotnetVersion": { "value": "10.0" },
+    "blobSoftDeleteDays": { "value": 7 },
+    "e2eAttachmentsLifecycleDays": { "value": 35 },
+    "dbBackupRetentionDays": { "value": 35 },
+    "lockStorageAccount": { "value": true },
+    "applyNonSecretAppSettings": { "value": true }
   }
 }

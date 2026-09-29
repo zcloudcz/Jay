@@ -20,6 +20,11 @@
 | G4 funkce | FAIL (neuzavřeno) | `matrix.md` — Q01-02 první nález opraven, retest čeká; hovory přes relay a push neověřeny |
 | G5 vydání | částečně | artefakty + manifesty + SHA PASS; tento report je průběžný |
 
+G2 průběh 2026-09-29 (proud O, vlna 1): záloha obou DB + obnova do prázdné instance s přesnou
+kontrolou počtů **PASS lokálně**, `VerifyFull` odmítá podvržený certifikát **PASS lokálně**, Blob
+soft delete/zámek/lifecycle v IaC; na serveru a v Azure vše NOT_RUN (kroky V-O3…V-O6 v
+`docs/ops/beta-operations.md`). G2 zůstává FAIL do prvního měřeného běhu na serveru.
+
 ## Neověřené funkce (uživatel musí vědět)
 
 - Hovory přes TURN relay mezi dvěma sítěmi, chování hovoru na pozadí.

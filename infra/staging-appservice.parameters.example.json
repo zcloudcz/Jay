@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": { "value": "westeurope" },
+    "appServicePlanName": { "value": "asp-calltype-staging" },
+    "webAppName": { "value": "calltype-staging-zahy" },
+    "staticWebAppName": { "value": "calltype-staging-web" },
+    "storageAccountName": { "value": "calltypestagingzahy" },
+    "dotnetVersion": { "value": "10.0" },
+    "stagingBlobRetentionDays": { "value": 7 },
+    "applyNonSecretAppSettings": { "value": true }
+  }
+}

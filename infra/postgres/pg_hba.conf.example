@@ -36,3 +36,21 @@ hostssl  all             postgres          <ADMIN_BASTION_SOURCE>/32            
 
 # Everything else is implicitly rejected by PostgreSQL when no rule matches - do not add a
 # trailing permissive line.
+
+# --- Added 2026-09-29 (O3 backup, O5 VerifyFull, O6 staging) ---------------------------------
+# The rules above predate the real beta names. On beta the main database AND its app role are
+# both called calltype_prod (docs/ops/postgres-restore.md), the Business-mode database is
+# calltype_audit (roles from audit-roles.sql). Scope every line to ONE database + ONE role: with
+# staging on the same server (O6) this is what keeps a staging credential out of production,
+# because roles are cluster-wide and PUBLIC has CONNECT on every database by default.
+hostssl  calltype_prod           calltype_prod               <APP_SERVICE_OUTBOUND_CIDR_LIST>/32  scram-sha-256
+hostssl  calltype_audit          calltype_audit_app          <APP_SERVICE_OUTBOUND_CIDR_LIST>/32  scram-sha-256
+# Audit schema changes: operator host only (never the App Service range, see HANDOFF-2026-09-18).
+hostssl  calltype_audit          calltype_audit_ops          <OPERATOR_ADMIN_SOURCE>/32           scram-sha-256
+# backup.sh runs ON the database server: loopback only, read-only role (backup-role.sql).
+hostssl  calltype_prod,calltype_audit  calltype_backup       127.0.0.1/32                         scram-sha-256
+# Staging (F1 App Service has its OWN outbound IPs: `az webapp show -n calltype-staging-zahy
+# --query outboundIpAddresses`). Staging roles only ever reach staging databases.
+hostssl  calltype_staging        calltype_staging            <STAGING_OUTBOUND_CIDR_LIST>/32      scram-sha-256
+hostssl  calltype_audit_staging  calltype_audit_staging_app  <STAGING_OUTBOUND_CIDR_LIST>/32      scram-sha-256
+hostssl  calltype_audit_staging  calltype_audit_staging_ops  <OPERATOR_ADMIN_SOURCE>/32           scram-sha-256

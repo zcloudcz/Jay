@@ -1,8 +1,9 @@
 # jay_archiver — one service per organization. To add a second organization:
 # copy the "archiver-org1" block below, give it a new service name, a new
-# named volume, and its own JAY_ORG_ID*/BOT_STORE_KEY* env vars (Compose
-# doesn't support per-replica env from one var, so each org needs its own
-# named variables in .env, e.g. JAY_ORG_ID_2, BOT_STORE_KEY_2).
+# container_name, a new named volume (with its own explicit `name:`), and its
+# own JAY_ORG_ID*/BOT_STORE_KEY* env vars (Compose doesn't support per-replica
+# env from one var, so each org needs its own named variables in .env, e.g.
+# JAY_ORG_ID_2, BOT_STORE_KEY_2).
 #
 # Build: docker compose -f infra/archiver/docker-compose.yml --env-file infra/archiver/.env build
 # Provision (one-shot, before first "up"):
@@ -10,6 +11,14 @@
 #     run --rm archiver-org1 provision --state /data/archiver --admin-token "$ADMIN_JWT"
 #   (pass --admin-token on the command line, never in .env — see the runbook)
 # Run: docker compose -f infra/archiver/docker-compose.yml --env-file infra/archiver/.env up -d
+# Runbook: docs/ops/archiver-runbook.md (hosting decision R-O3: the DB server).
+
+# Fixed project name: without it Compose derives the project (and with it the
+# VOLUME name) from the directory it is started from. Started once from
+# infra/archiver and once with -p/another checkout, it would silently create a
+# second, EMPTY state volume — i.e. a brand-new auditor device that no
+# existing business group knows (see "Ztráta identity" in the runbook).
+name: jay-archiver
 
 services:
   archiver-org1:
@@ -17,14 +26,54 @@ services:
       context: ../../src
       dockerfile: bots/jay_archiver/Dockerfile
     image: jay-archiver:latest
+    # Predictable name for monitoring (infra/archiver/check-backlog.sh reads
+    # its health status with `docker inspect`).
+    container_name: jay-archiver-org1
     command: ["run", "--state", "/data/archiver"]
+    # Survives crashes and host reboots (dockerd is enabled at boot); only an
+    # explicit `docker compose stop` keeps it down. Losing messages is not the
+    # risk here — the server keeps the auditor's copies queued and the archiver
+    # ACKs only after the archive write (K01) — the risk is the backlog
+    # reaching Business:AuditorMaxBacklogAgeSeconds (24 h), after which the
+    # organization's business messaging stops.
     restart: unless-stopped
+    # A real init as PID 1 (tini): forwards SIGTERM to the archiver, which
+    # shuts down cleanly on it (bin/jay_archiver.dart), and reaps any child
+    # process — PID 1 has no default signal dispositions, so we do not rely on
+    # the binary being PID 1. Whatever was in flight when it stops is simply
+    # re-delivered by the server (ACK only after the archive write).
+    # Measured locally: `down` takes ~1 s; a SIGKILLed archiver process is
+    # restarted by the policy with the same device id (docs/ops/archiver-runbook.md).
+    init: true
+    stop_grace_period: 30s
     environment:
       JAY_API_URL: ${JAY_API_URL}
       JAY_ORG_ID: ${JAY_ORG_ID}
       BOT_STORE_KEY: ${BOT_STORE_KEY}
     volumes:
       - archiver-org1-state:/data
+    # "Healthy" = the process holds an ESTABLISHED TCP connection to the API
+    # host's port (the SignalR WebSocket it receives messages on). The image is
+    # debian-slim without curl and the archiver has no HTTP endpoint of its
+    # own, so this reads /proc/net/tcp{,6} with sh + grep only. It detects a
+    # process that is up but disconnected (API unreachable, reconnect loop);
+    # it cannot see a connected process that stopped archiving — that is what
+    # the server-side backlog check (check-backlog.sh) is for. Docker does not
+    # restart an unhealthy container by itself; the status is for monitoring.
+    # Behind an outbound HTTP proxy the connection goes to the proxy's port:
+    # set ARCHIVER_HEALTH_PORT to it.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          u="$${JAY_API_URL#*://}"; h="$${u%%/*}";
+          case "$$h" in *:*) p="$${h##*:}";; *) case "$$JAY_API_URL" in https:*) p=443;; *) p=80;; esac;; esac;
+          p="$${ARCHIVER_HEALTH_PORT:-$$p}"; x=$$(printf '%04X' "$$p");
+          if grep -Eqs "^ *[0-9]+: [0-9A-F]+:[0-9A-F]{4} [0-9A-F]+:$$x 01 " /proc/net/tcp /proc/net/tcp6; then exit 0; else exit 1; fi
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
     # It only dials out (HTTPS + WebSocket) — nothing needs to reach it.
     # No "ports:" entry.
     read_only: true
@@ -32,6 +81,10 @@ services:
       # dart:stable-built AOT binaries and sqlite3's native lib don't need to
       # write outside /data, but give /tmp anyway in case a dependency does.
       - /tmp
+    # Runs as the unprivileged `bot` user and needs no Linux capability at all.
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     logging:
       driver: json-file
       options:
@@ -40,3 +93,7 @@ services:
 
 volumes:
   archiver-org1-state:
+    # Explicit, project-independent name — this volume IS the auditor's
+    # identity (device keys + session DB). `docker compose down -v` would
+    # delete it: never use -v here. Back it up (runbook "Záloha").
+    name: jay-archiver-org1-state

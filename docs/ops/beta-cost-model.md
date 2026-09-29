@@ -102,3 +102,54 @@ ceníku) — označeno jako `unverified`, nepoužívat jako potvrzenou dnešní 
 6. Aktuální SWA Free kvóty a podmínky — **operátor** (ověřit oficiální ceník před rolloutem).
 
 Dokud nejsou blokace 1–6 vyřešeny, tento dokument **nepotvrzuje** rozpočtový strop 20 USD/měsíc.
+
+## Nové funkce vlny 1 (O7, 2026-09-29)
+
+Ceny v tomto oddílu jsou **veřejné ceníkové hodnoty známé k přípravě, NEověřené dnešním dotazem**
+(Azure Retail Prices API bylo z prostředí agenta nedostupné — proxy 403). Každou označenou
+`[OVĚŘIT]` potvrdí vlastník před závazkem. Objemy jsou modelové, ne měřené.
+
+| Funkce | Co se platí | Model / odhad | Cena | Pojistka v kódu / IaC |
+| --- | --- | --- | --- | --- |
+| **E2E přílohy** (`e2e-attachments`, M2) | Blob GB-měsíc, operace, egress | viz výpočet níže | Hot LRS ≈ 0,02 USD/GB-měsíc, egress do internetu nad bezplatnou kvótu ≈ 0,08–0,09 USD/GB `[OVĚŘIT]` | TTL 30 dní v aplikaci + lifecycle 35 dní; `Attachments__MaxBytesPerDevicePerDay` 1 GiB, `__MaxTotalBytesPerDay` 50 GiB |
+| **Push FCM** (N) | nic | — | 0 (FCM HTTP v1 je zdarma) | — |
+| **Push APNs** (N, C) | nic za zprávy; Apple Developer Program | — | 99 USD/rok (V4) | — |
+| **Google Play** (P) | registrace vývojáře | jednorázově | 25 USD (V5) | — |
+| **Podpis Windows** (P) | Azure Trusted Signing, nebo Microsoft Store | měsíčně / jednorázově | Trusted Signing Basic ≈ 10 USD/měsíc `[OVĚŘIT]` (+ dostupnost pro subjekt v ČR, V6) | — |
+| **Podpis macOS** (P) | v rámci Apple Developer Program | — | 0 navíc (V7) | — |
+| **Hovory 1:1 — TURN** (C) | Cloudflare TURN egress | ≈ 0,9 GB/h relayovaného hovoru (`turn-validation.md`); relay jen při selhání P2P (typicky menšina hovorů) | bezplatná měsíční kvóta, pak ≈ 0,05 USD/GB `[OVĚŘIT]` | TTL credentials; `Calls__MaxCallPushesPerCallerPerMinute` 6 |
+| **Skupinové hovory** (C2, R-O4) | SFU (vlastní server) nebo cloud za minuty | až po spiku C2-3 | **nerozhodnuto** — první možná nenulová měsíční položka nad B1 | — |
+| **Staging** (N10, O6) | F1 + SWA Free + malý storage | smoke jen | 0 USD compute, storage centy (lifecycle 7 dní) | `staging.md` |
+| **Off-site zálohy DB** (O3) | Blob `db-backups` | ≈ 27 MB/den při dnešním testovacím objemu; 35 dní ≈ 1 GB | centy měsíčně `[OVĚŘIT]` | lifecycle 35 dní |
+| **Soft delete Blob** (O3) | smazaná data drží 7 dní navíc | + ≈ 7/30 objemu smazaných příloh | zanedbatelné proti přílohám | `blobSoftDeleteDays` |
+
+### Výpočet pro E2E přílohy
+
+```
+uložený objem (ustálený)  = denní_upload × 30 dní            (aplikace maže po 30 dnech)
+denní_upload               = aktivní_uživatelé × MB_na_uživatele_a_den
+egress/měsíc               = denní_upload × 30 × průměrný_počet_stažení (≈ počet příjemců)
+```
+
+Modelový uživatel/den: 10 fotek à 0,3 MB + 5 hlasovek à 0,1 MB + 1 video à 5 MB ≈ **8,5 MB**.
+Skupinová zpráva nahrává blob jednou, stahuje ho každý příjemce.
+
+| Scénář | Denní upload | Uloženo (30 d) | Egress/měsíc (2 stažení) | Storage/měsíc | Egress/měsíc |
+| --- | --- | --- | --- | --- | --- |
+| 20 aktivních (beta) | 170 MB | ≈ 5 GB | ≈ 10 GB | ≈ 0,10 USD | v bezplatné kvótě `[OVĚŘIT]` |
+| 200 aktivních | 1,7 GB | ≈ 50 GB | ≈ 100 GB | ≈ 1 USD | ≈ 0–9 USD |
+| **Zneužití na stropu** (`MaxTotalBytesPerDay` 50 GiB každý den) | 50 GiB | ≈ 1,5 TiB | dle stahování | ≈ 30 USD | může dominovat |
+
+Závěr: při běžném provozu bety jsou přílohy centy až jednotky USD; riziko je zneužití. Strop
+50 GiB/den chrání rozpočet jen částečně (≈ 30 USD/měsíc na storage v nejhorším případě) —
+**doporučení:** alert na denní objem (O8/N01) a pro betu snížit `Attachments__MaxTotalBytesPerDay`
+na 5 GiB (DEFAULT ponechán z kódu, rozhodne vlastník — hodnota je v App Settings, mění se bez deploye).
+
+### B1 a velké uploady (1,75 GB RAM)
+
+Kontrakt M2 (`2026-09-29-gap-media.md` §4.2): upload po blocích 4 MiB, globální limiter
+`attachment-chunks` 8 souběžných + fronta 32 → buffery bloků max. ≈ 32 MiB; Kestrel limit 10 MB se
+nemění. **Požadavek na M2 (M2-3):** blok streamovat do Blob (`StageBlock` ze streamu požadavku) a
+download přes `Range` streamovat, nikdy celý soubor (až 100 MiB) do paměti. Ověřit v integračním
+testu M2 (paměť procesu při 8 souběžných blocích) — na straně O jen kontrola po nasazení
+(App Service metrika Memory working set < 1,2 GB při testu uploadu 100 MiB).

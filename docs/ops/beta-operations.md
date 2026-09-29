@@ -6,7 +6,10 @@
 | --- | --- | --- | --- |
 | API dostupnost | `GET /health` (200 = živý proces) a `GET /health/ready` (200 = DB+Blob dostupné, K05) | 5 minut | 3 po sobě jdoucí selhání |
 | Veřejný web | HTTP GET na SWA hostname, očekávat 200 | 5 minut | 3 po sobě jdoucí selhání |
-| Poslední úspěšná záloha | Kontrola timestampu poslední `pg_dump` (I02) | denně | žádná úspěšná záloha > 26 h (RPO 24 h + rezerva) |
+| Poslední úspěšná záloha | stáří souboru `/var/backups/calltype/last-success` (zapisuje `backup.sh` jen když prošly obě DB i off-site kopie) | denně | > 26 h (RPO 24 h + rezerva) |
+| Test obnovy | `restore-verify.sh` do prázdné instance (`postgres-restore.md` §5) | čtvrtletně | cokoli jiného než `RESULT: PASS` |
+| Archivátor | `infra/archiver/check-backlog.sh` (stáří fronty auditora + health kontejneru) | 15 minut | WARN ≥ 1 h, CRIT ≥ 12 h (ve 24 h se zastaví firemní komunikace) |
+| SAS pro off-site zálohy | expirace SAS v `/etc/calltype/backup-sas.url` (`se=`) | měsíčně | < 30 dní do expirace |
 | Expirace DB/TURN certifikátu | `openssl s_client`/obdobný nástroj, dny do expirace | týdně | < 30 dní do expirace |
 | DB disk | Volné místo na externím serveru | denně (operátor serveru) | < 20 % volno |
 | TURN traffic | Cloudflare dashboard (Calls → TURN → usage) | týdně | > 80 % zahrnutého objemu / rozpočtu (viz `beta-cost-model.md`) |
@@ -17,6 +20,52 @@ blip, ale reaguje do ~15 minut). **Odpovědný operátor a dostupnost alertovac�
 kontrola posílá výsledek) nejsou v tomto balíčku potvrzeny — BLOCKER, vlastník: operátor/B00.**
 `/health` vždy 200 při běžícím procesu **neznamená** funkční DB/zálohy/TURN — použít `/health/ready`
 a samostatné kontroly zálohy/certifikátu/TURN, ne jen `/health`.
+
+## Čekající ruční kroky na betě (záznam provedení)
+
+### 2026-09-29 — `infra/postgres/beta-apply-2026-09-29.sql` (O1 + O2) — **NOT_RUN, čeká na vlastníka**
+
+**Co:** v jedné transakci W2-D granty (UPDATE na 7 měnitelných tabulek Audit DB pro
+`calltype_audit_app`) a dvě migrace Audit DB `20260918170446_AuditRecordDetails` a
+`20260918190514_OrgRequireBusinessConversations`, na konci `REVOKE INSERT ON "__EFMigrationsHistory"
+FROM calltype_audit_app`. **Kdy:** před **jakýmkoli** dalším deployem API (bez toho vrací každá
+změna organizace 500 a každý zápis do archivu / `GET /orgs/*` selže na chybějícím sloupci).
+
+**Postup (vlastník, heslo `calltype_audit_ops` má jen on):**
+1. Checkpoint: `backup.sh` ručně (je-li už nastavený, `postgres-restore.md` §4), jinak aspoň
+   `pg_dump -Fc -d calltype_audit -U calltype_audit_ops > calltype_audit_pre_2026-09-29.dump` na
+   operátorském stroji.
+2. ```bash
+   psql "host=187.127.83.154 port=5544 dbname=calltype_audit user=calltype_audit_ops sslmode=require" \
+        -v ON_ERROR_STOP=1 -f infra/postgres/beta-apply-2026-09-29.sql
+   ```
+   (po O5 `sslmode=verify-full sslrootcert=calltype-db-ca.pem`; heslo z `~/.pgpass`, ne v příkazu).
+3. Výstup (evidence, bez dat): 4 řádky `MigrationId`, 2 řádky sloupců (`DetailsJson` text NULL,
+   `RequireBusinessConversations` boolean NOT NULL), 7 řádků `UPDATE` grantů — zapsat níže.
+4. Přejímka: přejmenování organizace na betě vrátí 200; `GET /orgs/mine` 200.
+
+**Ověřeno lokálně 2026-09-29** (PostgreSQL 17, stav bety nasimulovaný: `audit-roles.sql` z doby
+před W2-D, migrace do `EmergencyChannel`, bez UPDATE grantů, skript spuštěný jako
+`calltype_audit_ops`): `exit 0`; druhé spuštění `exit 0` (idempotentní); `calltype_audit_app` má
+UPDATE na `Organizations`, **nemá** UPDATE na `AuditRecords` ani INSERT na `__EFMigrationsHistory`;
+schéma po skriptu je **identické** (`pg_dump --schema-only` diff prázdný) se schématem z
+`dotnet ef migrations script --idempotent` (EF 10.0.4, stejné `ProductVersion`). Ruční SQL tedy
+odpovídá vygenerovanému skriptu.
+
+| Datum/čas (UTC) | Provedl | Výsledek / evidence |
+| --- | --- | --- |
+| — | — | NOT_RUN |
+
+### Další kroky vlastníka z vlny 1 (proud O)
+
+| ID | Krok | Dokument | Stav |
+| --- | --- | --- | --- |
+| V-O3a | `backup-role.sql`, age klíč, SAS `db-backups`, cron `backup.sh`, první běh | `postgres-restore.md` §4 | NOT_RUN |
+| V-O3b | první `restore-verify.sh` do prázdné instance, zapsat časy (RTO) | `postgres-restore.md` §5–6 | NOT_RUN |
+| V-O3c | nasadit `beta-appservice.bicep` (what-if!), test `undelete` blobu | `beta-infrastructure.md` §6, `postgres-restore.md` §7 | NOT_RUN |
+| V-O4 | archivátor na DB serveru, `monitor-role.sql`, cron `check-backlog.sh`, přejímka 1 min | `archiver-runbook.md` | NOT_RUN |
+| V-O5 | CA + certifikát serveru, CA na App Service, `VerifyFull` pro `Default` i `Audit` | `beta-infrastructure.md` §4 | NOT_RUN |
+| V-O6 | staging RG + bicep, DB stagingu, app settings stagingu, environment `calltype-staging` | `staging.md` | NOT_RUN |
 
 ## Logování — limity a redakce
 
