@@ -255,4 +255,199 @@ void main() {
       expect(event.detailsJson, body);
     });
   });
+  // Contracts §3 table (X0): what the auditor does with every wire type.
+  group('newer message types (contracts §3, K2)', () {
+    const ref = '5c0b8a4e-1f7d-4c52-9b1e-0f3a2d6c7e81';
+    String sha(String s) => crypto.sha256.convert(utf8.encode(s)).toString();
+
+    Future<Map<String, dynamic>> send(
+      String type, {
+      String body = '',
+      Map<String, Object?> extra = const {},
+    }) async => alice.messageTo(
+      'archiver',
+      {...await archiverKeys.getSignedIdentityBundle()},
+      body,
+      groupId: 'g1',
+      type: type,
+      extra: extra,
+    );
+
+    /// Delivers and returns (emitted events, acks).
+    Future<(List<IncomingGroupMessage>, int)> run(
+      Map<String, dynamic> data,
+    ) async {
+      final events = <IncomingGroupMessage>[];
+      final sub = source.messages.listen(events.add);
+      hub.deliver(data);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await sub.cancel();
+      return (events, hub.calls('AcknowledgeMessage').length);
+    }
+
+    String mediaBody() => jsonEncode({
+      'v': 1,
+      'kind': 'image',
+      'blobId': ref,
+      'key': base64Encode(List.filled(32, 1)),
+      'sha256': 'b' * 64,
+      'size': 183422,
+      'mime': 'image/jpeg',
+    });
+
+    test(
+      'media → attachment with the REFERENCED size, blob not fetched',
+      () async {
+        final body = mediaBody();
+        final (events, acks) = await run(await send('media', body: body));
+        expect(events.single.kind, 'attachment');
+        expect(events.single.sizeBytes, 183422);
+        expect(events.single.contentHashHex, sha(body));
+        expect(events.single.detailsJson, isNull);
+        expect(acks, 0, reason: 'the Archiver acks after the write');
+      },
+    );
+
+    test(
+      'malformed media is not emitted and not acked (content rule)',
+      () async {
+        final (events, acks) = await run(
+          await send('media', body: '{"v":1,"kind":"image"}'),
+        );
+        expect(events, isEmpty);
+        expect(acks, 0);
+        expect(logs.single, isNot(contains('image')));
+      },
+    );
+
+    test('unknown content type → other with {"type"} details', () async {
+      const body = 'whatever a newer client sends';
+      final (events, _) = await run(await send('poll', body: body));
+      final event = events.single;
+      expect(event.kind, 'other');
+      expect(event.detailsJson, '{"type":"poll"}');
+      expect(event.contentHashHex, sha('{"type":"poll"}'));
+      expect(event.sizeBytes, utf8.encode(body).length);
+    });
+
+    test('an over-long unknown type is cut to 32 UTF-16 units', () async {
+      final longType = '${'x' * 31}😀tail';
+      final (events, _) = await run(await send(longType));
+      expect(events.single.detailsJson, jsonEncode({'type': 'x' * 31}));
+    });
+
+    test(
+      'other details: control chars stripped, escaping kept ≤ 64 chars',
+      () async {
+        final (events, _) = await run(await send('a\u0001b\n"${'"' * 40}'));
+        final details = events.single.detailsJson!;
+        expect(details.length, lessThanOrEqualTo(64));
+        final type = (jsonDecode(details) as Map)['type'] as String;
+        expect(type, startsWith('ab"'));
+        expect(type.length, lessThanOrEqualTo(32));
+        expect(events.single.contentHashHex, sha(details));
+      },
+    );
+
+    test('edit ref is serialised in canonical lowercase form', () async {
+      final (events, _) = await run(
+        await send(
+          'edit',
+          body: 'x',
+          extra: {'ctl': true, 'ref': ref.toUpperCase()},
+        ),
+      );
+      expect(events.single.detailsJson, startsWith('{"ref":"$ref",'));
+    });
+
+    for (final type in [
+      'receipt',
+      'profile',
+      'device-list',
+      'sync',
+      'future-control',
+    ]) {
+      test('$type (control) → acked WITHOUT a record', () async {
+        final (events, acks) = await run(
+          await send(
+            type,
+            extra: {
+              'ctl': true,
+              'kind': 'read',
+              'ref': [ref],
+            },
+          ),
+        );
+        expect(events, isEmpty);
+        expect(acks, 1);
+      });
+    }
+
+    test('receipt without ctl is still control', () async {
+      final (events, acks) = await run(
+        await send(
+          'receipt',
+          extra: {
+            'kind': 'read',
+            'ref': [ref],
+          },
+        ),
+      );
+      expect(events, isEmpty);
+      expect(acks, 1);
+    });
+
+    test('group-update → group-event, no details', () async {
+      const body = '{"op":"add","groupId":"g1","members":["x"]}';
+      final (events, _) = await run(
+        await send('group-update', body: body, extra: {'ctl': true}),
+      );
+      expect(events.single.kind, 'group-event');
+      expect(events.single.detailsJson, isNull);
+      expect(events.single.contentHashHex, sha(body));
+    });
+
+    test('edit → details {ref, bodyHash of the new text}', () async {
+      final (events, _) = await run(
+        await send(
+          'edit',
+          body: 'fixed text',
+          extra: {'ctl': true, 'ref': ref},
+        ),
+      );
+      final details = '{"ref":"$ref","bodyHash":"${sha('fixed text')}"}';
+      expect(events.single.kind, 'edit');
+      expect(events.single.detailsJson, details);
+      expect(events.single.contentHashHex, sha(details));
+      expect(events.single.sizeBytes, 'fixed text'.length);
+    });
+
+    test('reaction → details with the emoji hash', () async {
+      final (events, _) = await run(
+        await send('reaction', extra: {'ctl': true, 'ref': ref, 'emoji': '👍'}),
+      );
+      expect(
+        events.single.detailsJson,
+        '{"ref":"$ref","bodyHash":"${sha('👍')}"}',
+      );
+      expect(events.single.sizeBytes, utf8.encode('👍').length);
+    });
+
+    test('delete → details with a null bodyHash, size 0', () async {
+      final (events, _) = await run(
+        await send('delete', extra: {'ctl': true, 'ref': ref}),
+      );
+      expect(events.single.kind, 'delete');
+      expect(events.single.detailsJson, '{"ref":"$ref","bodyHash":null}');
+      expect(events.single.sizeBytes, 0);
+    });
+
+    test('malformed edit (ref not a UUID) → acked without a record', () async {
+      final (events, acks) = await run(
+        await send('edit', body: 'x', extra: {'ctl': true, 'ref': 'nope'}),
+      );
+      expect(events, isEmpty);
+      expect(acks, 1);
+    });
+  });
 }
