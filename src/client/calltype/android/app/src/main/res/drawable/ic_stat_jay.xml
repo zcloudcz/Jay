@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar notification icon: a white silhouette of the Jay mark
+     (www/assets/jay-mark.svg, same 100x100 coordinates). Android draws small
+     icons from the alpha channel only, so the colored mark would render as a
+     solid blob; here the face is cut out (evenOdd) and the eye and beak stay
+     filled. Placeholder quality — a designer may replace it with a properly
+     hinted 24dp glyph under the same name. Referenced by the FCM default
+     notification icon meta-data and by stream N's local notifications. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <!-- Body with the face cut out. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,12h45c20,0 32,12 32,29 0,13 -7,23 -19,28L36,92l7,-29C24,59 12,41 12,12Z M29,28h27c10,0 17,6 17,15S65,58 56,58H43L29,28Z" />
+    <!-- Eye. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M56,39a4,4 0,1 0,8 0a4,4 0,1 0,-8 0Z" />
+    <!-- Beak. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M73,37l25,9 -25,9Z" />
+</vector>

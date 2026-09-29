@@ -37,7 +37,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>calltype</string>
+	<string>Jay</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -88,16 +88,28 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-<key>NSCameraUsageDescription</key><string>Scan contact QR codes and make video calls.</string><key>NSMicrophoneUsageDescription</key><string>Use the microphone during voice and video calls.</string><key>NSFaceIDUsageDescription</key><string>Unlock your private conversations.</string>
-<key>NSPhotoLibraryUsageDescription</key><string>Choose a photo or file to send as an encrypted attachment.</string>
-<!-- Lets the app receive silent/background FCM pushes (K04). This alone does
-     NOT enable the Push Notifications capability — that also needs an
-     aps-environment entitlement wired into the Xcode project's code signing,
-     which requires an Apple developer team and is BLOCKED until R01/Q01 has
-     one (see docs/acceptance/release-builds.md). -->
+<!-- Permission texts: every feature that uses the permission is named, so
+     App Review and users see why (camera: QR contacts, device linking, video
+     calls, photos; microphone: calls and voice messages). -->
+<key>NSCameraUsageDescription</key><string>Scan contact QR codes, link your devices, make video calls and take photos or videos to send.</string>
+<key>NSMicrophoneUsageDescription</key><string>Use the microphone during calls and to record voice messages.</string>
+<key>NSFaceIDUsageDescription</key><string>Use Face ID to unlock Jay and your private conversations.</string>
+<key>NSPhotoLibraryUsageDescription</key><string>Choose photos, videos or files to send as encrypted attachments, or a profile photo.</string>
+<key>NSPhotoLibraryAddUsageDescription</key><string>Save photos and videos you received to your library.</string>
+<!-- remote-notification: silent/background FCM pushes (K04).
+     voip: PushKit incoming-call pushes (CallKit, stream C).
+     audio: keeps a call's audio running when the app goes to the background.
+     The background modes alone do NOT enable push: that needs the
+     aps-environment entitlement (Runner.entitlements, wired through
+     CODE_SIGN_ENTITLEMENTS) and a provisioning profile with the Push
+     Notifications capability (docs/acceptance/release-builds.md).
+     ITSAppUsesNonExemptEncryption is deliberately absent until the owner
+     decides export compliance (R-P4). -->
 <key>UIBackgroundModes</key>
 <array>
 	<string>remote-notification</string>
+	<string>voip</string>
+	<string>audio</string>
 </array>
 <!-- calltype://channel/<handle> opens a channel profile (go_router redirect
      in lib/app/router.dart). -->
