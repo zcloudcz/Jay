@@ -5,16 +5,20 @@ import 'package:provider/provider.dart';
 import 'app/app.dart';
 import 'core/auth/app_lock.dart';
 import 'core/auth/auth_service.dart';
+import 'core/config/firebase_config.dart';
 import 'core/crypto/key_manager.dart';
 import 'core/crypto/session_manager.dart';
 import 'core/network/api_client.dart';
 import 'core/network/push_service.dart';
 import 'core/network/signalr_client.dart';
 import 'core/network/webrtc_manager.dart';
+import 'core/notifications/call_notifications.dart';
 import 'core/storage/database.dart';
 import 'core/storage/secure_storage.dart';
 import 'features/calls/call_event_sender.dart';
 import 'features/channels/channels_controller.dart';
+import 'features/chat/active_conversation.dart';
+import 'features/chat/chat_extensions.dart';
 import 'features/chat/message_inbox_service.dart';
 import 'features/chat_list/chat_list_controller.dart';
 import 'features/contacts/contacts_controller.dart';
@@ -35,6 +39,10 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final secureStorage = SecureStorage();
+  // iOS: rewrite keychain items to "after first unlock" BEFORE the first
+  // read, so a call push that launches the app on a locked iPhone can still
+  // read the device id and secret. No-op elsewhere; never throws.
+  await secureStorage.migrateKeychainAccessibility();
 
   // Retrieve the device ID set during onboarding. Empty string is a safe
   // fallback — SignalR will connect but the server won't route messages
@@ -140,16 +148,27 @@ void main() async {
   // If Firebase is not configured (no google-services.json / GoogleService-Info.plist),
   // PushService.initialize() catches the error and the app works without push.
   if (deviceId.isNotEmpty) {
-    PushService(
+    final push = PushService(
       apiClient,
       deviceId,
       // A channel push means the hub was down (the server only pushes to
       // offline followers): pull the missed posts. If the hub is up again
       // meanwhile, sync() finds nothing new and is cheap.
-      onChannelPost: () =>
-          unawaited(channels.sync().catchError((Object _) {})),
-    ).initialize();
+      onChannelPost: () => unawaited(channels.sync().catchError((Object _) {})),
+    );
+    // Builds with FIREBASE_* dart-defines (release, stream P3b) initialize
+    // the default app with those options first; PushService's own
+    // Firebase.initializeApp() then reuses it. Builds without defines (dev,
+    // CI, today's deploys) skip this and behave exactly as before.
+    unawaited(
+      FirebaseConfig.initializeIfConfigured().then((_) => push.initialize()),
+    );
   }
+
+  // Wave-0 seams (docs/superpowers/plans/2026-09-29-gap-contracts.md §5):
+  // created here so the streams of wave 1 only swap the value.
+  // Set by the chat screen (M); read by notifications (N) and receipts (M04).
+  final activeConversation = ActiveConversation();
 
   runApp(
     MultiProvider(
@@ -164,6 +183,14 @@ void main() async {
         Provider.value(value: keyManager),
         Provider.value(value: sessionManager),
         Provider.value(value: inbox),
+        // No-op until stream N implements web/desktop/missed-call
+        // notifications; stream C calls it unconditionally.
+        Provider<CallNotifications>.value(value: const NoopCallNotifications()),
+        // No extra message types until stream M2 plugs in media (M2-10).
+        Provider<ChatExtensions>.value(value: ChatExtensions.none),
+        ChangeNotifierProvider<ActiveConversation>.value(
+          value: activeConversation,
+        ),
 
         // -- Network providers (ChangeNotifier-based) -----------------------
         // SignalR and WebRTC are ChangeNotifiers so UI can react to
