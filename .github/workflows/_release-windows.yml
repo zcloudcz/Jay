@@ -1,0 +1,37 @@
+# Stub for P7 (stream P). It exists so release-native.yml is a valid
+# dispatcher from the first commit; P7 replaces the job with the real
+# windows build. Fails loudly instead of pretending to have built anything.
+
+name: Release windows (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      commit_sha:
+        required: true
+        type: string
+      build_name:
+        required: true
+        type: string
+      build_number:
+        required: true
+        type: string
+      msix_version:
+        required: true
+        type: string
+      channel:
+        description: 'direct | store'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          echo "::error::windows release is not implemented yet (P7)."
+          exit 1

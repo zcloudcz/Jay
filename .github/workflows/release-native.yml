@@ -1,0 +1,192 @@
+# ---------------------------------------------------------------------------
+# Release native — manual, SHA-pinned store / download builds (stream P, P9)
+# ---------------------------------------------------------------------------
+# One entry point for every native release. deploy.yml keeps shipping the API
+# and the web client; the native builds left it because signing and store
+# uploads need their own GitHub environments (one per signing identity, each
+# holding only its own secrets, each gated by the owner's approval) and
+# because macOS minutes should not be spent on every web deploy.
+#
+# Run (only in the owner-approved public window, CLAUDE.md "Deploy"):
+#   gh workflow run release-native.yml -f commit_sha=<full sha> -f android=build
+#
+# Security model (applies to every _release-*.yml called from here):
+#   - Triggers: workflow_dispatch here, workflow_call in the callees. Never
+#     pull_request / pull_request_target, so forks never see a signing secret.
+#   - permissions: contents: read; id-token: write only on jobs that use OIDC.
+#   - Each platform job runs in its own environment with required reviewers.
+#   - Third-party actions are pinned to a full commit SHA.
+#   - Keys are decoded only into $RUNNER_TEMP and removed by a trap; nothing
+#     secret is ever uploaded as an artifact. No `set -x` in secret steps.
+#   - Without signing secrets a platform degrades to an UNSIGNED build
+#     (manifest "signed": false, artifact suffix -unsigned) instead of
+#     failing, so the public window and forks can still prove the build.
+#     A store upload (android=internal, ios=testflight) without secrets fails.
+#
+# Environments and what they hold (names only; values in GitHub settings,
+# full list with owner steps in docs/superpowers/plans/2026-09-29-gap-platform.md §9):
+#   repo level      secrets FIREBASE_CLIENT_CONFIG_JSON_B64,
+#                           FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_B64,
+#                           FIREBASE_APPLE_GOOGLE_SERVICE_INFO_PLIST_B64 (optional)
+#                   variable CALLTYPE_API_BASE_URL
+#   android-release secrets ANDROID_UPLOAD_KEYSTORE_B64, ANDROID_UPLOAD_KEYSTORE_PASSWORD,
+#                           ANDROID_UPLOAD_KEY_ALIAS, ANDROID_UPLOAD_KEY_PASSWORD,
+#                           PLAY_SERVICE_ACCOUNT_JSON
+#                   variable ANDROID_UPLOAD_CERT_SHA256
+#   apple-testflight secrets ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_BASE64
+#                   variable APPLE_TEAM_ID
+#   windows-signing (P7, wave 2)   downloads (P10, wave 2)
+# ---------------------------------------------------------------------------
+
+name: Release native
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Full 40-char commit SHA on master to build (never a branch name)'
+        required: true
+        type: string
+      android:
+        description: 'Android: skip | build (signed AAB artifact only) | internal (also upload to Play internal testing)'
+        required: true
+        type: choice
+        options: [skip, build, internal]
+        default: skip
+      ios:
+        description: 'iOS: skip | build (IPA artifact only) | testflight (also upload to App Store Connect)'
+        required: true
+        type: choice
+        options: [skip, build, testflight]
+        default: skip
+      macos:
+        description: 'macOS Developer ID dmg (P6, not implemented yet)'
+        type: boolean
+        default: false
+      windows:
+        description: 'Windows MSIX: skip | direct | store (P7, not implemented yet)'
+        required: true
+        type: choice
+        options: [skip, direct, store]
+        default: skip
+      linux:
+        description: 'Linux AppImage (P8, not implemented yet)'
+        type: boolean
+        default: false
+      publish_downloads:
+        description: 'Publish desktop builds + latest.json to the downloads container (P10, not implemented yet)'
+        type: boolean
+        default: false
+      build_number_offset:
+        description: 'Added to the commit-count build number; only for a forced re-upload of the same SHA'
+        type: number
+        default: 0
+
+permissions:
+  contents: read
+
+# Two runs uploading the same build number would make Play / App Store
+# Connect reject the second one mid-upload; queue instead of cancelling.
+concurrency:
+  group: release-native
+  cancel-in-progress: false
+
+jobs:
+  # One version for every platform of this SHA (P2). Runs the script from the
+  # workflow's own ref, but reads pubspec.yaml at commit_sha via `git show`.
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build_name: ${{ steps.v.outputs.build_name }}
+      build_number: ${{ steps.v.outputs.build_number }}
+      msix_version: ${{ steps.v.outputs.msix_version }}
+      commit_sha: ${{ steps.v.outputs.commit_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: the build number is the commit count of commit_sha
+          # and it must be an ancestor of origin/master (version.sh checks).
+          fetch-depth: 0
+          persist-credentials: false
+      - id: v
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          OFFSET: ${{ inputs.build_number_offset }}
+        run: bash .github/scripts/version.sh "$COMMIT_SHA" "$OFFSET"
+
+  client-tests:
+    needs: version
+    uses: ./.github/workflows/_client-tests.yml
+    with:
+      commit_sha: ${{ needs.version.outputs.commit_sha }}
+
+  android:
+    needs: [version, client-tests]
+    if: inputs.android != 'skip'
+    uses: ./.github/workflows/_release-android.yml
+    with:
+      commit_sha: ${{ needs.version.outputs.commit_sha }}
+      build_name: ${{ needs.version.outputs.build_name }}
+      build_number: ${{ needs.version.outputs.build_number }}
+      play_track: ${{ inputs.android == 'internal' && 'internal' || 'none' }}
+    # Environment secrets of android-release resolve inside the callee's job;
+    # inherit only forwards the repo-level Firebase secrets.
+    secrets: inherit
+
+  ios:
+    needs: [version, client-tests]
+    if: inputs.ios != 'skip'
+    uses: ./.github/workflows/_release-ios.yml
+    with:
+      commit_sha: ${{ needs.version.outputs.commit_sha }}
+      build_name: ${{ needs.version.outputs.build_name }}
+      build_number: ${{ needs.version.outputs.build_number }}
+      upload: ${{ inputs.ios == 'testflight' }}
+    secrets: inherit
+
+  macos:
+    needs: [version, client-tests]
+    if: inputs.macos
+    uses: ./.github/workflows/_release-macos.yml
+    with:
+      commit_sha: ${{ needs.version.outputs.commit_sha }}
+      build_name: ${{ needs.version.outputs.build_name }}
+      build_number: ${{ needs.version.outputs.build_number }}
+    secrets: inherit
+
+  windows:
+    needs: [version, client-tests]
+    if: inputs.windows != 'skip'
+    uses: ./.github/workflows/_release-windows.yml
+    with:
+      commit_sha: ${{ needs.version.outputs.commit_sha }}
+      build_name: ${{ needs.version.outputs.build_name }}
+      build_number: ${{ needs.version.outputs.build_number }}
+      msix_version: ${{ needs.version.outputs.msix_version }}
+      channel: ${{ inputs.windows }}
+    secrets: inherit
+
+  linux:
+    needs: [version, client-tests]
+    if: inputs.linux
+    uses: ./.github/workflows/_release-linux.yml
+    with:
+      commit_sha: ${{ needs.version.outputs.commit_sha }}
+      build_name: ${{ needs.version.outputs.build_name }}
+      build_number: ${{ needs.version.outputs.build_number }}
+    secrets: inherit
+
+  # P10 (wave 2) replaces this with the upload of the desktop artifacts and
+  # latest.json. It runs after whichever desktop jobs were requested and
+  # refuses to run when any of them failed, so the feed never points at a
+  # build that does not exist.
+  publish-downloads:
+    needs: [version, macos, windows, linux]
+    if: ${{ !cancelled() && inputs.publish_downloads && !contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          echo "::error::publish_downloads is not implemented yet (P10, wave 2)."
+          exit 1
