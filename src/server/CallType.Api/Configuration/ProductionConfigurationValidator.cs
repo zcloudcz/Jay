@@ -122,6 +122,19 @@ public static class ProductionConfigurationValidator
         // Push:FcmServiceAccountJson is intentionally NOT validated — Firebase
         // is optional, and PushNotificationService already no-ops when it's empty.
 
+        // APNs is optional too (empty = iOS push off, same as FCM), but a HALF
+        // configured APNs is always an operator mistake that would only show
+        // up as silently missing iOS calls — so all-or-nothing. BundleId alone
+        // does not count as "configured": appsettings.json ships a default
+        // bundle id, and that must not force every deployment to set the key.
+        string[] apnsCredentialKeys = ["Push:Apns:TeamId", "Push:Apns:KeyId", "Push:Apns:PrivateKeyP8"];
+        if (apnsCredentialKeys.Any(key => !string.IsNullOrEmpty(configuration[key])))
+        {
+            foreach (var key in apnsCredentialKeys.Append("Push:Apns:BundleId"))
+                if (string.IsNullOrEmpty(configuration[key]))
+                    violations.Add(key);
+        }
+
         if (violations.Count > 0)
             throw new InvalidOperationException(
                 $"Production startup rejected — invalid or missing configuration for: {string.Join(", ", violations)}.");
