@@ -843,3 +843,24 @@ Konvence: binární nebo víceřádkové hodnoty jako **base64** (`_B64`), aby j
 | 10 | Environmenty `android-release`, `apple-testflight`, `windows-signing`, `downloads`: *Required reviewers* = vlastník, *Deployment branches* = jen `master` | — | — | nastavení |
 
 Existující a beze změny: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_SWA_DEPLOYMENT_TOKEN` (env `calltype-beta`), proměnné `AZURE_RESOURCE_GROUP`, `AZURE_WEBAPP_NAME`, `CALLTYPE_API_BASE_URL`, `CALLTYPE_SWA_URL` (`docs/acceptance/release-builds.md`).
+
+### 9.1 Stav po vlně 1 (P2, P3b, P4, P5, P9 — 2026-09-29)
+
+Názvy secrets a proměnných se proti tabulce **nezměnily**. Upřesnění z implementace:
+
+- **Nový environment `android-release`** (řádek 2/2b/6b) musí vlastník založit. `apple-testflight` existuje; oběma nastavit *Required reviewers* = vlastník a *Deployment branches* = `master` (řádek 10).
+- `ANDROID_UPLOAD_CERT_SHA256`: hex, dvojtečky a malá písmena workflow toleruje (normalizuje).
+- `FIREBASE_CLIENT_CONFIG_JSON_B64` čte i `deploy.yml` (web build), ne jen `release-native.yml`. Base64 smí obsahovat zalomení řádků. Do dart-defines projdou jen klíče `FIREBASE_*`.
+- **Bez podpisových secrets se build nezastaví:** Android postaví debug-podepsaný AAB, iOS nepodepsanou aplikaci (artefakt `…-unsigned`, manifest `"signed": false`). Upload do Play / TestFlight bez secrets selže. Takže první běh v public okně jde i před nastavením environmentů.
+- `ios-testflight.yml` je smazaný. Nový příkaz: `gh workflow run release-native.yml -f commit_sha=<sha> -f ios=testflight` (`docs/acceptance/ios-testflight.md`).
+- `deploy.yml` smí nasadit web i z commitu mimo `master` (jen varování, build number nemusí být monotónní). `release-native.yml` vyžaduje předka `origin/master`.
+
+Ověřeno při implementaci (dřívější [OVĚŘIT]):
+- `r0adkll/upload-google-play` tag `v1.1.5` = `e738b9dd8f2476ea806d921b64aacd24f34515a5` (`git ls-remote`, lightweight tag).
+- `actionlint` 1.7.9, `actionlint_1.7.9_linux_amd64.tar.gz` sha256 `233b280d05e100837f4af1433c7b40a5dcb306e3aa68fb4f17f8a7f45a7df7b4` (checksums z GitHub release).
+- Flutter 3.41 Gradle plugin sám zapíná pro release `isMinifyEnabled`/`isShrinkResources` a přidává `android/app/proguard-rules.pro`, pokud existuje. Explicitní nastavení v `build.gradle.kts` je pojistka proti změně výchozího chování.
+- Flutter 3.41 `targetSdkVersion` = 36, `minSdkVersion` = 24.
+- `flutter build ios --config-only` spouští `pod install` (`processPodsIfNeeded`) a zapisuje `SPLIT_DEBUG_INFO`; samostatný `pod install` ve workflow není potřeba.
+- `flutter_callkit_incoming` 3.1.6 a `flutter_webrtc` 1.5.2 mají vlastní consumer ProGuard pravidla; v `proguard-rules.pro` jsou zopakovaná záměrně.
+
+Stále [OVĚŘIT]: aktuální verze `com.google.gms.google-services` (použita 4.4.2, Google Maven z tohoto prostředí nedostupný), první AAB ručně a `draft` do první revize, cloud signing Developer ID (P6).
