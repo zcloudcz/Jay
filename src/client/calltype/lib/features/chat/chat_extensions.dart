@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 
 import '../../core/storage/database.dart';
+import 'outgoing_messages.dart';
 
 // Extension points of the chat UI for message types the chat core does not
 // render itself (contract M §4.5; docs/superpowers/plans/2026-09-29-gap-contracts.md
@@ -32,16 +33,10 @@ class ComposerAction {
   final String Function(BuildContext) label;
 
   /// [replyTo] is the message being replied to, if any.
-  ///
-  /// TODO(X0 merge): the contract types it as `ReplyRef?` from
-  /// `outgoing_messages.dart` (K4), which is created by another X0 part and
-  /// does not exist on this branch yet. The coordinator replaces `Object?`
-  /// with `ReplyRef?` (and adds `import 'outgoing_messages.dart';`) when both
-  /// branches are merged. Nothing calls this before then.
   final Future<void> Function(
     BuildContext context,
     String conversationId,
-    Object? replyTo,
+    ReplyRef? replyTo,
   )
   onInvoke;
 }

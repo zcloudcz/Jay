@@ -2,8 +2,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:calltype_core/devices/device_directory.dart';
+
 import 'app/app.dart';
 import 'core/auth/app_lock.dart';
+import 'core/attachments/attachment_service.dart';
 import 'core/auth/auth_service.dart';
 import 'core/config/firebase_config.dart';
 import 'core/crypto/key_manager.dart';
@@ -20,8 +23,10 @@ import 'features/channels/channels_controller.dart';
 import 'features/chat/active_conversation.dart';
 import 'features/chat/chat_extensions.dart';
 import 'features/chat/message_inbox_service.dart';
+import 'features/chat/outgoing_messages.dart';
 import 'features/chat_list/chat_list_controller.dart';
 import 'features/contacts/contacts_controller.dart';
+import 'shared/identity/peer_directory.dart';
 
 /// Application entry point with full dependency injection wiring.
 ///
@@ -92,12 +97,22 @@ void main() async {
   // no chat screen is open. Must start before SignalR connects — the server
   // flushes queued (offline) messages immediately on connect and deletes
   // them after delivery, so a late subscriber would lose them permanently.
+  // One directory for the whole app (contract D §4.1): wave 1 maps every
+  // contact to a single device; stream D swaps in the account-aware one in
+  // wave 2 without touching the inbox or the chat controllers.
+  final deviceDirectory = SingleDeviceDirectory(
+    database: db,
+    myDeviceId: () => signalRClient.deviceId,
+  );
+
   final inbox = MessageInboxService(
     database: db,
     sessionManager: sessionManager,
     incomingMessages: signalRClient.onMessage,
     apiClient: apiClient,
     acknowledge: signalRClient.acknowledgeMessage,
+    directory: deviceDirectory,
+    myDeviceId: () => signalRClient.deviceId,
   );
   inbox.start();
 
@@ -188,6 +203,22 @@ void main() async {
         Provider<CallNotifications>.value(value: const NoopCallNotifications()),
         // No extra message types until stream M2 plugs in media (M2-10).
         Provider<ChatExtensions>.value(value: ChatExtensions.none),
+        Provider<DeviceDirectory>.value(value: deviceDirectory),
+        Provider<DirectPayloadPlanner>.value(value: deviceDirectory),
+        // Placeholders until their streams land (gap-contracts §5): G3
+        // replaces the peer directory, M2-5 the attachment service, M02 the
+        // outgoing-message service.
+        // ListenableProvider: PeerDirectory is a Listenable interface, not a
+        // ChangeNotifier subclass (G3 may implement it either way).
+        ListenableProvider<PeerDirectory>(
+          create: (_) => FallbackPeerDirectory(),
+        ),
+        Provider<AttachmentService>.value(
+          value: const UnavailableAttachmentService(),
+        ),
+        Provider<OutgoingMessages>.value(
+          value: const UnimplementedOutgoingMessages(),
+        ),
         ChangeNotifierProvider<ActiveConversation>.value(
           value: activeConversation,
         ),

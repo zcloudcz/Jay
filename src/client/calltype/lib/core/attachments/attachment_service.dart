@@ -1,9 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:calltype_core/attachments/media_ref.dart';
-// X0-A adds cross_file (^0.3.5) to pubspec.yaml as a direct dependency in
-// the same wave; until that merge it only resolves transitively.
-// ignore: depend_on_referenced_packages
 import 'package:cross_file/cross_file.dart';
 import 'package:dio/dio.dart' show CancelToken;
 

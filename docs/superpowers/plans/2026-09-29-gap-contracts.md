@@ -287,3 +287,56 @@ X0 přidá jen `msgUnsupportedType` (zástupný text K1).
 4. `test/l10n/` je zelený (ARB parita).
 5. Živé E2E Business režimu (`jay_archiver/test/e2e`) proti docker compose je 2/2 a přibyl test, že zprávy typů `media` a `other` vytvoří archivní záznam.
 6. **W0.5:** build X0 je nasazený na betě (API, web, archivátor, boti). Až potom se smí na betu dostat build vlny 1, který posílá nové typy (K14). Nasazení schvaluje vlastník.
+
+## 8. Stav X0 a upřesnění z implementace (2026-09-29, závazné pro vlnu 1)
+
+X0-S, X0-K a X0-A jsou zmergované ve větvi `claude/funny-volta-w7yl11`. Kde se implementace liší od oddílů 0–6, platí tento oddíl.
+
+### Server (X0-S)
+- **Migrace** `20260929184035_GapClosureWave1`. DB CHECK `CK_Devices_PushKey_Length`: `PushKey` je null, nebo má přesně 32 B.
+- **`record CallPush(Guid CallId, Guid CallerId, bool Video, string DeclineToken, DateTimeOffset ExpiresAt)`**
+  - `CallCancelReason` leží v `ICallPushSender.cs`.
+  - Výsledek je `CallPushResult` (od C). `CallPushOutcome` od N nevznikl.
+  - Obě rozhraní implementuje jeden singleton `PushNotificationService`.
+- **Validátor APNs:** kontrolu zapíná jen `TeamId`, `KeyId` nebo `PrivateKeyP8`. Samotné `BundleId` ne, protože ho N nastaví jako výchozí hodnotu. Pak musí být vyplněné všechny čtyři klíče.
+- **`push-token`**
+  - Token má max. 512 znaků. `apns-voip` token nad 200 znaků vrací 400 `invalid_token`.
+  - Když se `pushKey` neuvede, zůstane uložený původní klíč.
+  - `DELETE` s `fcm|apns` smaže jen odpovídající slot (když sedí `PushPlatform`, nebo je null).
+- **Archiv**
+  - Nový chybový kód 422 `invalid_other_details`.
+  - U `edit|delete|reaction` musí být `ref` UUID v kanonickém tvaru „D“ malými písmeny.
+  - `details` se serializují deterministicky: klíče v pořadí z kontraktu, bez mezer.
+- **Endpointy:** stub endpointy 501 nevznikly, ke kompilaci je nic nepotřebuje. `MapCallEndpoints` a `MapAttachmentEndpoints` zatím jen vracejí `app`.
+- **Přílohy:** `E2eAttachmentService` má skutečné tělo jen u `MarkDeviceAttachmentsForDeletionAsync`. Zbytek (upload, commit, download, delete) doplní M2-3.
+- **Opcí `PendingCallOptions`** se váží přes `AddOptions().Configure<IConfiguration>`.
+
+### Jádro a přijímače (X0-K)
+- **`HubTransport.invoke`** vrací `Future<Object?>` kvůli návratové hodnotě `ClaimPendingCall`.
+- **Datové třídy drift:** `CallLogEntry`, `InboundLogEntry`. Konstanta `mutedForever` je v `database.dart`.
+- **Přijímač**
+  - `isBlocked` má typ `FutureOr<bool> Function(String)`. Výchozí implementace čte tabulku `BlockedDevices`: zprávu dešifruje, potvrdí a zahodí.
+  - `FormatException` v handleru vrátí jen změny toho handleru (savepoint). Zpráva se zapíše do `InboundLog` a potvrdí.
+  - **Přijatá zpráva typu `system` se zahodí**: potvrdí se, ale neuloží. `system` vzniká jen lokálně, jinak by šlo podvrhnout skupinové nebo identitní události.
+- **Stuby**
+  - `OutgoingMessages` existuje jen jako `UnimplementedOutgoingMessages`. Odesílací cestu z `ChatController` vytáhne M02.
+  - Tělo API identity v `SessionManager` hází `UnimplementedError`. Samotné `IdentityChangedException` (podtřída `StateError`) se už vyhazuje.
+  - `KeyManager.ownPartyIdentity` a testovací vektory dodá S.
+- **Archivátor:** chybně formovaný `media` se neemituje ani nepotvrdí (M2 R4). Jeden člen tím může vyvolat `auditor_unavailable`. Stejné riziko už existuje u `call-event` a je zapsané jako riziko pro M09/M2.
+- **Nenahráno:** test migrace v3 → v4 na webu (WASM) nedoběhl, v prostředí chybí Chrome. SQL je na obou platformách stejné.
+
+### Aplikace a platformy (X0-A)
+- **`record: ^6.2.1`** a **`video_player: ">=2.11.1 <2.12.0"`** místo verzí z §6.2. Novější verze vyžadují Flutter 3.44 / Dart 3.12, CI běží na 3.41. M2 píše proti API `record` 6.x.
+- **`sqlite3_flutter_libs`** už není přímá závislost. Tranzitivně zůstává jako prázdný balíček, nativní knihovnu dodávají hooks balíčku `sqlite3` 3.x. Komentář v `lib/core/storage/database.dart` je zastaralý a opraví ho S10.
+- **macOS minimum je 11.0** (dřív 10.15), kvůli `gal`. `macos/Podfile` je commitnutý.
+- **macOS `aps-environment` se nepřidal.** Bez provisioning profilu by ad-hoc CI build selhal. Přesouvá se do P6 k podpisu Developer ID.
+- **Klíčenka iOS:** `first_unlock_this_device` platí pro **všechny** položky. Migrace běží v `main()` a je odolná proti pádu uprostřed. Na zamčeném telefonu `read` vyhodí výjimku místo null, aby se znovu nespustil onboarding. Klíče nepřejdou zálohou iCloud na nový iPhone (`_this_device`).
+- **Firebase:** `FirebaseConfig.initializeIfConfigured()` inicializuje Firebase jen při nastavených `FIREBASE_*` dart-define. Dnešní buildy se chovají beze změny.
+- **Nativní stuby:** `CallWindowChannel.kt` (stub) a jeho registrace v `MainActivity`.
+- **Manifest:** `app_badge_plus` a `flutter_callkit_incoming` si přes manifest merger přinesou další oprávnění (odznaky launcherů, `DISABLE_KEYGUARD`, `TURN_SCREEN_ON`, `ACCESS_NOTIFICATION_POLICY`). Zkontrolovat v P4 spolu s R8 keep pravidly.
+- **`Localizable.strings`:** do obou pbxproj přidá N9 spolu s P.
+
+### Koordinátor
+- Stuby z X0-K jsou zapojené v `main.dart` a `router.dart`.
+- `PeerDirectory` jde přes `ListenableProvider`.
+- `ComposerAction.onInvoke` má typ `ReplyRef?`.

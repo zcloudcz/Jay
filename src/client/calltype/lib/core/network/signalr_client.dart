@@ -71,7 +71,8 @@ class _NetcoreHubTransport implements HubTransport {
   Future<void> stop() => _hub.stop();
 
   @override
-  Future<void> invoke(String method, [List<Object> args = const []]) =>
+  // Object? (not void): ClaimPendingCall returns a value (HubTransport, X0-K).
+  Future<Object?> invoke(String method, [List<Object> args = const []]) =>
       // Copy: signalr_netcore may mutate the list (stream params), and the
       // core's default is an unmodifiable const list.
       _hub.invoke(method, args: List.of(args));

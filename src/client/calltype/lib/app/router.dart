@@ -1,3 +1,4 @@
+import 'package:calltype_core/devices/device_directory.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
@@ -131,6 +132,8 @@ final router = GoRouter(
                 apiClient: ctx.read<ApiClient>(),
                 conversationId: id,
                 myDeviceId: ctx.read<SignalRClient>().deviceId,
+                directory: ctx.read<DeviceDirectory>(),
+                planner: ctx.read<DirectPayloadPlanner>(),
               ),
               child: ChatScreen(contactId: id),
             );
