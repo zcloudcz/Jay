@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:calltype_core/attachments/media_ref.dart';
+import 'package:calltype_core/messaging/control_messages.dart';
 import 'package:calltype_core/network/signalr_client.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:crypto/crypto.dart' as crypto;
@@ -26,18 +28,20 @@ class IncomingGroupMessage {
   final String senderId;
   final DateTime sentAt;
 
-  /// "text" | "attachment" | "call-metadata".
+  /// "text" | "attachment" | "call-metadata" | "group-event" | "edit" |
+  /// "delete" | "reaction" | "other" (contracts §3, K2).
   final String kind;
   final int sizeBytes;
 
-  /// Lowercase hex SHA-256 of the plaintext (text/attachment) or of
-  /// [detailsJson] (call-metadata) — see ArchiveRecordRequest.ContentHash.
+  /// Lowercase hex SHA-256 of the plaintext (text / attachment /
+  /// group-event) or of [detailsJson] (call-metadata, edit, delete,
+  /// reaction, other) — see ArchiveRecordRequest.ContentHash.
   final String contentHashHex;
 
-  /// H1: only set for kind "call-metadata" — the exact call-event body
-  /// string this was hashed from, sent verbatim as `details` so the
-  /// archive keeps it readable (owner decision: a call is metadata, not
-  /// content, so it is kept in clear rather than reduced to a hash).
+  /// Sent verbatim as `details`; the server re-hashes it, which binds it to
+  /// the hash chain. H1 call-metadata: the call-event body (a call is
+  /// metadata, kept readable). edit/delete/reaction: `{"ref","bodyHash"}`
+  /// (M §4.2). other: `{"type"}` (K2). Null for every other kind.
   final String? detailsJson;
 }
 
@@ -146,57 +150,105 @@ class SignalGroupMessageSource implements GroupMessageSource {
       }
 
       final body = payload['body'] as String;
-      final type = payload['type'] as String? ?? 'text';
-      // "text"/"file" are the app's own wire types (message_inbox_service.dart);
-      // "call-event" (H1) is a client-generated report of a finished/missed
-      // call. Anything else is an unsupported message this archiver version
-      // cannot hash meaningfully.
-      if (type != 'text' && type != 'file' && type != 'call-event') {
-        throw FormatException('Unsupported message type "$type"');
-      }
-
+      final type = payloadType(payload);
       final sentAt =
           DateTime.tryParse(payload['createdAt'] as String? ?? '') ??
           DateTime.now().toUtc();
-
-      if (type == 'call-event') {
-        // Strict validation — same discipline as an undecryptable message:
-        // a malformed call-event is not emitted (and so never acked), it is
-        // just logged by id and left for the server to redeliver.
-        _validateCallEventBody(body);
-        return IncomingGroupMessage(
-          messageId: messageId,
-          groupId: groupId,
-          senderId: senderId,
-          sentAt: sentAt,
-          kind: 'call-metadata',
-          sizeBytes: utf8.encode(body).length,
-          contentHashHex: crypto.sha256.convert(utf8.encode(body)).toString(),
-          // Verbatim — the server re-hashes this and must match contentHashHex.
-          detailsJson: body,
-        );
-      }
-
-      final int sizeBytes;
-      if (type == 'file') {
-        // Attachments travel inline as {name, data: base64} inside body
-        // (Attachment.encode in the client) — there is no separate blob to
-        // fetch, so "the decrypted attachment metadata envelope" IS body,
-        // and sizeBytes is the real file size, not the JSON envelope's.
-        final envelope = jsonDecode(body) as Map<String, dynamic>;
-        sizeBytes = (base64Decode(envelope['data'] as String)).length;
-      } else {
-        sizeBytes = utf8.encode(body).length;
-      }
-
-      return IncomingGroupMessage(
+      IncomingGroupMessage record(
+        String kind, {
+        required int sizeBytes,
+        required String hashedText,
+        String? detailsJson,
+      }) => IncomingGroupMessage(
         messageId: messageId,
         groupId: groupId,
         senderId: senderId,
         sentAt: sentAt,
-        kind: type == 'file' ? 'attachment' : 'text',
+        kind: kind,
         sizeBytes: sizeBytes,
-        contentHashHex: crypto.sha256.convert(utf8.encode(body)).toString(),
+        contentHashHex: _sha256(hashedText),
+        detailsJson: detailsJson,
+      );
+
+      switch (type) {
+        case MessageTypes.text:
+          return record(
+            'text',
+            sizeBytes: utf8.encode(body).length,
+            hashedText: body,
+          );
+        case MessageTypes.file:
+          // Attachments travel inline as {name, data: base64} inside body
+          // (Attachment.encode in the client) — there is no separate blob to
+          // fetch, so "the decrypted attachment metadata envelope" IS body,
+          // and sizeBytes is the real file size, not the JSON envelope's.
+          final envelope = jsonDecode(body) as Map<String, dynamic>;
+          return record(
+            'attachment',
+            sizeBytes: base64Decode(envelope['data'] as String).length,
+            hashedText: body,
+          );
+        case MessageTypes.media:
+          // M2 §4.6 / R4-A: metadata of the REFERENCE only. The blob is never
+          // downloaded — the archiver must not hold content. A malformed
+          // reference follows the content discipline below (not emitted,
+          // not acked), like a malformed call-event.
+          final ref = MediaRef.decode(body);
+          return record('attachment', sizeBytes: ref.size, hashedText: body);
+        case MessageTypes.callEvent:
+          // Strict validation — same discipline as an undecryptable message:
+          // a malformed call-event is not emitted (and so never acked), it is
+          // just logged by id and left for the server to redeliver.
+          _validateCallEventBody(body);
+          // Verbatim — the server re-hashes this and must match the hash.
+          return record(
+            'call-metadata',
+            sizeBytes: utf8.encode(body).length,
+            hashedText: body,
+            detailsJson: body,
+          );
+        case MessageTypes.groupUpdate:
+          // G §4.2: membership/name changes are archived as metadata only.
+          return record(
+            'group-event',
+            sizeBytes: utf8.encode(body).length,
+            hashedText: body,
+          );
+        case MessageTypes.edit || MessageTypes.delete || MessageTypes.reaction:
+          final details = _refDetails(type, payload);
+          if (details == null) {
+            // M §4.1: a malformed CONTROL message will not get better by
+            // being redelivered — ack and drop. Left un-acked it would age
+            // and flip the whole organization to auditor_unavailable.
+            if (_reportedFailures.add(messageId)) {
+              _log('Dropping malformed $type $messageId from $senderId');
+            }
+            await _ackWithoutRecord(senderId, messageId);
+            return null;
+          }
+          return record(
+            type,
+            sizeBytes: details.sizeBytes,
+            hashedText: details.json,
+            detailsJson: details.json,
+          );
+      }
+      if (isControlPayload(payload)) {
+        // receipt (R-3), profile, device-list/sync/provision (never sent to
+        // business groups) and any future control type: not conversation
+        // content, nothing to archive — ack WITHOUT a record.
+        await _ackWithoutRecord(senderId, messageId);
+        return null;
+      }
+      // K2: content this archiver version does not understand still gets a
+      // metadata record — acking it without one would leave a hole in the
+      // KB3 chain, not acking it would block the organization after 24 h.
+      final details = _otherDetails(type);
+      return record(
+        'other',
+        sizeBytes: utf8.encode(body).length,
+        hashedText: details,
+        detailsJson: details,
       );
     } catch (error) {
       // Never acked: a message that can't be authenticated/parsed must not
@@ -212,6 +264,83 @@ class SignalGroupMessageSource implements GroupMessageSource {
   @override
   Future<void> ack({required String senderId, required String messageId}) =>
       _signalR.acknowledgeMessage(senderId, messageId);
+
+  /// For messages that are deliberately NOT archived (control messages):
+  /// the record-then-ack rule of the Archiver does not apply because there
+  /// is no record. Best effort — if the ack is lost, the redelivery decrypts
+  /// fails (key spent) and is logged, like any duplicate.
+  Future<void> _ackWithoutRecord(String senderId, String messageId) async {
+    try {
+      await _signalR.acknowledgeMessage(senderId, messageId);
+    } catch (_) {}
+  }
+}
+
+String _sha256(String text) =>
+    crypto.sha256.convert(utf8.encode(text)).toString();
+
+final _uuid = RegExp(
+  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+  r'[0-9a-fA-F]{12}$',
+);
+
+/// `details` of edit/delete/reaction (M §4.2): exactly `{"ref","bodyHash"}`
+/// in this key order — the server hashes the exact string it receives.
+/// `bodyHash` = SHA-256 of the new text (edit) / the emoji (reaction),
+/// null for delete. Null result = malformed message.
+({String json, int sizeBytes})? _refDetails(
+  String type,
+  Map<String, dynamic> payload,
+) {
+  final rawRef = payload['ref'];
+  if (rawRef is! String || !_uuid.hasMatch(rawRef)) return null;
+  // The server compares against the canonical Guid "D" form (lowercase);
+  // the hash is over the exact string, so normalise before serialising.
+  final ref = rawRef.toLowerCase();
+  final String? hashed;
+  switch (type) {
+    case MessageTypes.edit:
+      hashed = payload['body'] as String;
+    case MessageTypes.reaction:
+      final emoji = payload['emoji'];
+      if (emoji is! String || utf8.encode(emoji).length > 64) return null;
+      hashed = emoji;
+    default:
+      hashed = null;
+  }
+  return (
+    json: jsonEncode({
+      'ref': ref,
+      'bodyHash': hashed == null ? null : _sha256(hashed),
+    }),
+    sizeBytes: hashed == null ? 0 : utf8.encode(hashed).length,
+  );
+}
+
+/// `details` of kind `other` (K2, server rule `invalid_other_details`):
+/// exactly `{"type":"…"}` — the wire type without control characters, at
+/// most 32 UTF-16 units (what the server's string length counts), and the
+/// whole serialized details at most 64 characters (JSON escaping of `"` or
+/// `\` can make it longer than type + 11). Never fails: an unknown type is
+/// chosen by the SENDER, and a record the server rejects would stay
+/// un-acked and push the organization into auditor_unavailable.
+String _otherDetails(String type) {
+  final clean = type.replaceAll(RegExp(r'[\x00-\x1f\x7f-\x9f]'), '');
+  final runes = <String>[];
+  var units = 0;
+  for (final rune in clean.runes) {
+    final char = String.fromCharCode(rune);
+    // Never split a surrogate pair.
+    if (units + char.length > 32) break;
+    runes.add(char);
+    units += char.length;
+  }
+  while (true) {
+    final type = runes.isEmpty ? 'unknown' : runes.join();
+    final details = jsonEncode({'type': type});
+    if (details.length <= 64) return details;
+    runes.removeLast();
+  }
 }
 
 // H1: the exact key set/enum rules the server (AuditArchiveEndpoints) also

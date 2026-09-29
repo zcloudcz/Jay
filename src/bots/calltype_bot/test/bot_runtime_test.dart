@@ -234,6 +234,49 @@ void main() {
     expect(hub.calls('AcknowledgeMessage').map((a) => a[1]), isNot(contains('garbage')));
   });
 
+  // Contracts §3 (X0): every type a newer app may send is acknowledged and
+  // never reaches the handler, so an old bot never blocks the sender's queue.
+  test('newer and unknown message types: acked, handler never called', () async {
+    final bot = await startBot();
+    var handled = 0;
+    await bot.onMessage((msg) async => handled++);
+
+    final deliveries = [
+      for (final (type, extra) in [
+        ('receipt', {'ctl': true, 'kind': 'read', 'ref': ['m']}),
+        ('reaction', {'ctl': true, 'ref': 'm', 'emoji': '👍'}),
+        ('edit', {'ctl': true, 'ref': 'm'}),
+        ('delete', {'ctl': true, 'ref': 'm'}),
+        ('profile', {'ctl': true}),
+        ('group-update', {'ctl': true}),
+        ('device-list', {'ctl': true}),
+        ('some-future-control', {'ctl': true}),
+        ('media', <String, Object?>{}),
+        ('some-future-content', <String, Object?>{}),
+      ])
+        await alice.messageTo(
+          bot.deviceId,
+          api.botBundle,
+          type == 'media' ? '{"v":1,"kind":"image"}' : '',
+          type: type,
+          extra: extra,
+        ),
+    ];
+    for (final delivery in deliveries) {
+      hub.deliver(delivery);
+    }
+    await until(
+      () => hub.calls('AcknowledgeMessage').length == deliveries.length,
+    );
+
+    expect(handled, 0);
+    expect(hub.calls('TypingIndicator'), isEmpty);
+    expect(hub.calls('SendReliableMessage'), isEmpty);
+    // The session is intact: a normal text afterwards still reaches it.
+    hub.deliver(await alice.messageTo(bot.deviceId, api.botBundle, 'hi'));
+    await until(() => handled == 1);
+  });
+
   test('deviceIdForHandle resolves known handles, null otherwise', () async {
     final bot = await startBot();
     api.handles['CT-AAAA-0001'] = alice.id;

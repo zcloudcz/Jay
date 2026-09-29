@@ -75,6 +75,7 @@
   "chatCallFailed": "Arama başlatılamadı. Bağlantıyı ve izinleri kontrol edin.",
   "chatOffline": "Çevrimdışı. Gönderilemeyen mesajlar yeniden gönderilebilir.",
   "chatEmpty": "Henüz mesaj yok. Merhaba deyin!",
+  "msgUnsupportedType": "Bu mesaj Jay'in daha yeni bir sürümünü gerektiriyor. Görmek için uygulamayı güncelleyin.",
   "chatBotNoticeDismiss": "Anladım",
   "chatAttachmentTooLarge": "Beta sürümünde ekler en fazla {maxKib} KiB olabilir.",
   "chatAttachmentFailed": "Ek gönderilemedi.",

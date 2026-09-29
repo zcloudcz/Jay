@@ -69,6 +69,7 @@ class FakeUser {
     required String groupId,
     String type = 'text',
     String? messageId,
+    Map<String, Object?> extra = const {},
   }) async {
     if (!await sessions.hasSession(recipientId)) {
       await sessions.initiateSession(recipientId, recipientBundle);
@@ -84,6 +85,8 @@ class FakeUser {
         'groupId': groupId,
         'groupName': 'Team',
         'createdAt': DateTime.now().toUtc().toIso8601String(),
+        // Additional envelope fields (ctl, ref, emoji …) of newer types.
+        ...extra,
       }),
     );
     return {
@@ -121,6 +124,7 @@ class FakeHub implements HubTransport {
   Future<void> start() async => _connected = true;
   @override
   Future<void> stop() async => _connected = false;
+
   /// Every hub method the client invoked, in order (same helper shape as
   /// calltype_bot's FakeHub).
   final _invocations = <List<Object>>[];

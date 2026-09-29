@@ -101,9 +101,10 @@ class Archiver {
             'kind': message.kind,
             'sizeBytes': message.sizeBytes,
             'contentHash': message.contentHashHex,
-            // H1: only call-metadata carries details (the clear-text body
-            // this was hashed from); every other kind sends null, and the
-            // server rejects a non-null details for any other kind.
+            // Only call-metadata (H1), edit/delete/reaction (M §4.2) and
+            // other (K2) carry details — the exact string the hash was
+            // computed from. text/attachment/group-event send none, and the
+            // server rejects details for them.
             if (message.detailsJson != null) 'details': message.detailsJson,
           },
         );

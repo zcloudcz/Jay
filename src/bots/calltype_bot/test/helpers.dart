@@ -63,6 +63,8 @@ class FakeUser {
     String text, {
     String? groupId,
     String? messageId,
+    String type = 'text',
+    Map<String, Object?> extra = const {},
   }) async {
     if (!await sessions.hasSession(botId)) {
       await sessions.initiateSession(botId, botBundle);
@@ -74,10 +76,12 @@ class FakeUser {
         'v': 1,
         'id': mid,
         'body': text,
-        'type': 'text',
+        'type': type,
         'groupId': groupId,
         'groupName': groupId == null ? null : 'Team',
         'createdAt': DateTime.now().toUtc().toIso8601String(),
+        // Additional envelope fields (ctl, ref …) of newer types.
+        ...extra,
       }),
     );
     return {

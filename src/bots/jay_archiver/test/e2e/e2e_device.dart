@@ -158,6 +158,38 @@ class E2eDevice {
     return messageId;
   }
 
+  /// X0: any wire type (contracts §3) — media, control messages, types a
+  /// newer client may invent — fanned out exactly like [sendToGroup].
+  Future<String> sendGroupPayload(
+    String groupId,
+    List<String> recipients, {
+    required String type,
+    String body = '',
+    Map<String, Object?> extra = const {},
+  }) async {
+    final messageId = uuid();
+    final payload = jsonEncode({
+      'v': 1,
+      'id': messageId,
+      'body': body,
+      'type': type,
+      'groupId': groupId,
+      'groupName': null,
+      'createdAt': DateTime.now().toUtc().toIso8601String(),
+      ...extra,
+    });
+    final encrypted = await GroupCipher(
+      sessionManager: sessions,
+      ensureSession: _ensureSession,
+    ).encryptForGroup(groupId, recipients, payload);
+    await signalR.sendGroupMessage(
+      groupId,
+      encrypted.map((id, bytes) => MapEntry(id, base64Encode(bytes))),
+      messageId: messageId,
+    );
+    return messageId;
+  }
+
   Future<void> close() async {
     signalR.close();
     await _db.close();

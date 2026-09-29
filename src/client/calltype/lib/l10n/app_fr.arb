@@ -75,6 +75,7 @@
   "chatCallFailed": "Impossible de lancer l'appel. Vérifiez la connexion et les autorisations.",
   "chatOffline": "Hors ligne. Vous pouvez renvoyer les messages non envoyés.",
   "chatEmpty": "Aucun message pour l'instant. Dites bonjour !",
+  "msgUnsupportedType": "Ce message nécessite une version plus récente de Jay. Mettez l'application à jour pour le voir.",
   "chatBotNoticeDismiss": "Compris",
   "chatAttachmentTooLarge": "En bêta, les pièces jointes sont limitées à {maxKib} KiB.",
   "chatAttachmentFailed": "Impossible d'envoyer la pièce jointe.",

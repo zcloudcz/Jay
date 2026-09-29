@@ -75,6 +75,7 @@
   "chatCallFailed": "Hovor sa nepodarilo začať. Skontrolujte pripojenie a povolenia.",
   "chatOffline": "Ste offline. Neodoslané správy možno poslať znova.",
   "chatEmpty": "Zatiaľ žiadne správy. Pozdravte!",
+  "msgUnsupportedType": "Táto správa vyžaduje novšiu verziu Jay. Aktualizujte aplikáciu, aby ste ju videli.",
   "chatBotNoticeDismiss": "Rozumiem",
   "chatAttachmentTooLarge": "V beta verzii možno posielať prílohy do {maxKib} KiB.",
   "chatAttachmentFailed": "Prílohu sa nepodarilo odoslať.",

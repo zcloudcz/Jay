@@ -75,6 +75,7 @@
   "chatCallFailed": "Impossibile avviare la chiamata. Controlla la connessione e le autorizzazioni.",
   "chatOffline": "Offline. Puoi riprovare a inviare i messaggi non inviati.",
   "chatEmpty": "Ancora nessun messaggio. Saluta!",
+  "msgUnsupportedType": "Questo messaggio richiede una versione più recente di Jay. Aggiorna l'app per vederlo.",
   "chatBotNoticeDismiss": "Ho capito",
   "chatAttachmentTooLarge": "Nella beta gli allegati possono pesare al massimo {maxKib} KiB.",
   "chatAttachmentFailed": "Impossibile inviare l'allegato.",

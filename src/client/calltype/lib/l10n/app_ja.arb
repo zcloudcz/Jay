@@ -75,6 +75,7 @@
   "chatCallFailed": "通話を開始できません。接続と権限を確認してください。",
   "chatOffline": "オフラインです。送信に失敗したメッセージは再試行できます。",
   "chatEmpty": "メッセージはまだありません。あいさつしてみましょう!",
+  "msgUnsupportedType": "このメッセージを表示するには新しいバージョンの Jay が必要です。アプリを更新してください。",
   "chatBotNoticeDismiss": "OK",
   "chatAttachmentTooLarge": "ベータ版では添付ファイルは最大 {maxKib} KiB までです。",
   "chatAttachmentFailed": "添付ファイルを送信できません。",

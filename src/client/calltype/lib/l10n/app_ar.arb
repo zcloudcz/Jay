@@ -75,6 +75,7 @@
   "chatCallFailed": "تعذّر بدء المكالمة. تحقق من الاتصال والأذونات.",
   "chatOffline": "غير متصل. يمكن إعادة محاولة إرسال الرسائل التي فشل إرسالها.",
   "chatEmpty": "لا توجد رسائل بعد. ألقِ التحية!",
+  "msgUnsupportedType": "تتطلب هذه الرسالة إصدارًا أحدث من Jay. حدّث التطبيق لعرضها.",
   "chatBotNoticeDismiss": "فهمت",
   "chatAttachmentTooLarge": "تدعم النسخة التجريبية مرفقات بحجم يصل إلى {maxKib} KiB.",
   "chatAttachmentFailed": "تعذّر إرسال المرفق.",

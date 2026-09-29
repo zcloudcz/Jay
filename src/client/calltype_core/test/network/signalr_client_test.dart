@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 void main() {
   _groupFanOutTests();
   _callSignalTests();
+  _x0MethodTests();
 
   test('offline send fails instead of claiming successful delivery', () async {
     final client = SignalRClient(
@@ -153,6 +154,61 @@ void _callSignalTests() {
   });
 }
 
+// X0 additions (contracts §5): hub names and argument order must match
+// MessengerHub (X0-S, C) exactly.
+void _x0MethodTests() {
+  test('quiet direct message: SendQuietMessage(recipient, id, body)', () async {
+    final (client, transport) = await _connected();
+    await client.sendQuietMessage('bob', 'cipher', messageId: 'm1');
+    expect(transport.invocations, [
+      ['SendQuietMessage', 'bob', 'm1', 'cipher'],
+    ]);
+  });
+
+  test('quiet group message is ONE call even when large', () async {
+    final (client, transport) = await _connected();
+    final big = 'x' * (500 * 1024);
+    await client.sendQuietGroupMessage('g', {
+      'bob': big,
+      'auditor': big,
+    }, messageId: 'm1');
+    expect(transport.invocations.single[0], 'SendQuietGroupMessage');
+    expect(transport.invocations.single[1], 'g');
+    expect(transport.invocations.single[2], 'm1');
+    expect((transport.invocations.single[3] as Map).keys, ['bob', 'auditor']);
+  });
+
+  test('direct fan-out: one SendReliableMessage per device, same id', () async {
+    final (client, transport) = await _connected();
+    await client.sendDirectFanout({'bob-1': 'a', 'bob-2': 'b'}, messageId: 'm');
+    expect(transport.invocations, [
+      ['SendReliableMessage', 'bob-1', 'm', 'a'],
+      ['SendReliableMessage', 'bob-2', 'm', 'b'],
+    ]);
+    expect(
+      () => client.sendDirectFanout({}, messageId: 'm'),
+      throwsArgumentError,
+    );
+  });
+
+  test('claimPendingCall sends one argument and returns the object', () async {
+    final (client, transport) = await _connected();
+    transport.results['ClaimPendingCall'] = {
+      'status': 'ringing',
+      'callerId': 'alice',
+      'video': true,
+    };
+    final result = await client.claimPendingCall('call-1');
+    expect(transport.invocations, [
+      ['ClaimPendingCall', 'call-1'],
+    ]);
+    expect(result, {'status': 'ringing', 'callerId': 'alice', 'video': true});
+
+    transport.results['ClaimPendingCall'] = null;
+    expect(client.claimPendingCall('call-2'), throwsFormatException);
+  });
+}
+
 /// Connected client + its fake transport, for wire-contract tests.
 Future<(SignalRClient, _FakeTransport)> _connected() async {
   late _FakeTransport transport;
@@ -203,7 +259,12 @@ class _FakeTransport implements HubTransport {
   @override
   Future<void> stop() async => isConnected = false;
 
+  /// Canned hub return values by method name.
+  final results = <String, Object?>{};
+
   @override
-  Future<void> invoke(String method, [List<Object> args = const []]) async =>
-      invocations.add([method, ...args]);
+  Future<Object?> invoke(String method, [List<Object> args = const []]) async {
+    invocations.add([method, ...args]);
+    return results[method];
+  }
 }
