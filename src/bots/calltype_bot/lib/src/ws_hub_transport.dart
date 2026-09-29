@@ -34,7 +34,7 @@ class WebSocketHubTransport implements HubTransport {
   final List<int> _retryDelaysMs;
 
   final _handlers = <String, void Function(List<Object?>?)>{};
-  final _pending = <String, Completer<void>>{};
+  final _pending = <String, Completer<Object?>>{};
   void Function()? _onClose;
   void Function()? _onReconnecting;
   void Function()? _onReconnected;
@@ -74,13 +74,13 @@ class WebSocketHubTransport implements HubTransport {
   }
 
   @override
-  Future<void> invoke(String method, [List<Object> args = const []]) {
+  Future<Object?> invoke(String method, [List<Object> args = const []]) {
     final socket = _socket;
     if (!_connected || socket == null) {
       return Future.error(StateError('Hub is not connected.'));
     }
     final id = '${_nextInvocationId++}';
-    final completer = _pending[id] = Completer<void>();
+    final completer = _pending[id] = Completer<Object?>();
     socket.add(
       '${jsonEncode({'type': 1, 'invocationId': id, 'target': method, 'arguments': args})}$_separator',
     );
@@ -155,7 +155,8 @@ class WebSocketHubTransport implements HubTransport {
         final completer = _pending.remove(message['invocationId']);
         final error = message['error'];
         if (error == null) {
-          completer?.complete();
+          // Completion message: `result` is the hub method's return value.
+          completer?.complete(message['result']);
         } else {
           completer?.completeError(StateError('Hub error: $error'));
         }

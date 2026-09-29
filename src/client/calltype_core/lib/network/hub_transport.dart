@@ -22,7 +22,13 @@ abstract class HubTransport {
   Future<void> start();
   Future<void> stop();
 
-  Future<void> invoke(String method, [List<Object> args = const []]);
+  /// Invokes a hub method and completes with its return value (null for a
+  /// `Task` method). `Future<Object?>` since X0: `ClaimPendingCall` (C) is
+  /// the first hub method that returns something. A transport declared with
+  /// the older `Future<void> invoke` still satisfies this signature (void
+  /// and Object? are both top types) and passes the value through at
+  /// runtime as long as it returns the library's future unchanged.
+  Future<Object?> invoke(String method, [List<Object> args = const []]);
 }
 
 /// Builds a [HubTransport] for [url]. Called on every (re)connect attempt.

@@ -254,6 +254,74 @@ class SignalRClient {
   /// Headroom under the hub's 1 MiB frame limit for JSON framing and ids.
   static const _maxFanOutChars = 900 * 1024;
 
+  /// Like [sendMessage] with a [messageId], but the hub never sends a push
+  /// for it (M §4.2, X0-M-1). For control messages (receipt, reaction, …):
+  /// they must not wake a phone. Same queue, policy and idempotence on the
+  /// server as `SendReliableMessage`.
+  Future<void> sendQuietMessage(
+    String recipientDeviceId,
+    String encryptedBodyBase64, {
+    required String messageId,
+  }) async {
+    await _requireConnection().invoke('SendQuietMessage', <Object>[
+      recipientDeviceId,
+      messageId,
+      encryptedBodyBase64,
+    ]);
+  }
+
+  /// Quiet counterpart of [sendGroupMessage]. Deliberately WITHOUT the
+  /// per-recipient fallback: control messages are small (< 4 KiB per
+  /// recipient), and a split call could never pass KB2 in a business group.
+  Future<void> sendQuietGroupMessage(
+    String groupId,
+    Map<String, String> encryptedPayloads, {
+    required String messageId,
+  }) async {
+    await _requireConnection().invoke('SendQuietGroupMessage', <Object>[
+      groupId,
+      messageId,
+      encryptedPayloads,
+    ]);
+  }
+
+  /// One direct message to several devices of one person (D §4.1 point 4):
+  /// [envelopes] maps deviceId → base64 ciphertext, all under the same
+  /// [messageId]. Wave 1: one `SendReliableMessage` per device, in order,
+  /// stopping at the first failure (the caller's retry resends all; the
+  /// server's (recipient, sender, messageId) idempotence absorbs repeats).
+  /// Wave 2 (D8) switches to one atomic `SendReliableMultiDeviceMessage`.
+  Future<void> sendDirectFanout(
+    Map<String, String> envelopes, {
+    required String messageId,
+  }) async {
+    if (envelopes.isEmpty) throw ArgumentError('No recipients');
+    final connection = _requireConnection();
+    for (final entry in envelopes.entries) {
+      await connection.invoke('SendReliableMessage', <Object>[
+        entry.key,
+        messageId,
+        entry.value,
+      ]);
+    }
+  }
+
+  /// Callee side of a pending call (C KC5): asks the hub what became of
+  /// [callId] after a push woke us. Result `{status: ringing|cancelled|
+  /// declined|answered|expired|unknown, callerId, video}`; on `ringing` the
+  /// hub also re-sends the offer and ICE candidates on `CallSignal`.
+  Future<Map<String, dynamic>> claimPendingCall(String callId) async {
+    final result = await _requireConnection().invoke(
+      'ClaimPendingCall',
+      <Object>[callId],
+    );
+    final data = _parseArgument(result);
+    if (data == null) {
+      throw const FormatException('ClaimPendingCall returned no object');
+    }
+    return data;
+  }
+
   Future<void> acknowledgeMessage(String senderId, String messageId) async {
     await _requireConnection().invoke(
       'AcknowledgeMessage',

@@ -41,6 +41,8 @@ class _FakeSignalRServer {
                 'type': 3,
                 'invocationId': frame['invocationId'],
                 if (frame['target'] == 'Fail') 'error': 'nope',
+                if (frame['target'] == 'ClaimPendingCall')
+                  'result': {'status': 'ringing'},
               })}$_rs',
             );
           }
@@ -83,6 +85,14 @@ void main() {
     expect(server.frames.last['arguments'], ['s', 'm']);
 
     expect(transport.invoke('Fail'), throwsStateError);
+  });
+
+  test('invoke completes with the hub method result', () async {
+    await transport.start();
+    expect(await transport.invoke('AcknowledgeMessage', ['s', 'm']), isNull);
+    expect(await transport.invoke('ClaimPendingCall', ['c']), {
+      'status': 'ringing',
+    });
   });
 
   test('server invocations reach the registered handler', () async {

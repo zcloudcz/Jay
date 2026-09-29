@@ -2,7 +2,11 @@ import 'package:dio/dio.dart';
 
 import '../auth/auth_service.dart';
 import 'channel_dtos.dart';
+import 'prekey_dtos.dart';
 import 'mfa_api.dart' show MfaRequiredException;
+
+// Callers of the pre-key and push-token methods need these types too.
+export 'prekey_dtos.dart';
 
 /// REST client for the CallType backend API.
 ///
@@ -248,6 +252,95 @@ class ApiClient {
       '/devices/$deviceId/push-token',
       data: {'token': token, 'platform': platform},
     );
+  }
+
+  /// Registers a push token with the fields added in X0 (N §4.2):
+  /// [platform] is `fcm | apns | apns-voip` (see [PushPlatforms]);
+  /// [environment] (`production | sandbox`) only matters for APNs;
+  /// [pushKey] is the base64 32-byte key the server encrypts the push hint
+  /// with. 204; 400 `{code: invalid_platform | invalid_token |
+  /// invalid_push_key | invalid_environment}`; 403 `device_mismatch` when
+  /// [deviceId] is not the caller. [updatePushToken] stays for old callers.
+  ///
+  /// PUT /devices/{deviceId}/push-token
+  Future<void> registerPushToken({
+    required String deviceId,
+    required String token,
+    required String platform,
+    String? environment,
+    String? pushKey,
+  }) async {
+    await _dio.put<void>(
+      '/devices/$deviceId/push-token',
+      data: {
+        'token': token,
+        'platform': platform,
+        'environment': ?environment,
+        'pushKey': ?pushKey,
+      },
+    );
+  }
+
+  /// Clears one push slot (idempotent 204); `fcm | apns` also drop the
+  /// push key.
+  ///
+  /// DELETE /devices/{deviceId}/push-token?platform=
+  Future<void> deletePushToken({
+    required String deviceId,
+    required String platform,
+  }) async {
+    await _dio.delete<void>(
+      '/devices/$deviceId/push-token',
+      queryParameters: {'platform': platform},
+    );
+  }
+
+  // -- Pre-key maintenance (S §4.2) -------------------------------------------
+
+  /// GET /devices/{deviceId}/prekeys → how many one-time pre-keys the
+  /// server still holds (and which), plus the current signed pre-key id.
+  Future<PreKeyStatus> getPreKeyStatus(String deviceId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/devices/$deviceId/prekeys',
+    );
+    return PreKeyStatus.fromJson(response.data!);
+  }
+
+  /// POST /devices/{deviceId}/prekeys with at most 100 keys, each
+  /// `{keyId, publicKey}` (base64 32 B). 400 `invalid_prekeys`, 409
+  /// `prekey_conflict` (same id, other key) or `prekey_limit` (over 200).
+  Future<PreKeyUploadResult> uploadOneTimePreKeys(
+    String deviceId,
+    List<Map<String, dynamic>> keys,
+  ) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/devices/$deviceId/prekeys',
+      data: {'oneTimePreKeys': keys},
+    );
+    return PreKeyUploadResult.fromJson(response.data!);
+  }
+
+  /// PUT /devices/{deviceId}/signed-prekey → 204. [signature] is the
+  /// Ed25519 signature over `KeyManager.signedIdentityPayload`. 409
+  /// `stale_signed_prekey` / `unsigned_device`, 400 `invalid_signed_prekey`.
+  Future<void> updateSignedPreKey(
+    String deviceId, {
+    required int keyId,
+    required String publicKey,
+    required String signature,
+  }) async {
+    await _dio.put<void>(
+      '/devices/$deviceId/signed-prekey',
+      data: {'keyId': keyId, 'publicKey': publicKey, 'signature': signature},
+    );
+  }
+
+  /// GDPR (N09): the device forgets itself on the server — keys, queue,
+  /// memberships, push tokens. Irreversible. 409 `device_is_auditor`.
+  ///
+  /// DELETE /devices/{deviceId}
+  Future<void> deleteDevice(String deviceId) async {
+    await _dio.delete<void>('/devices/$deviceId');
   }
 
   // -- Channels ---------------------------------------------------------------

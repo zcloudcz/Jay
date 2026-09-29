@@ -1,11 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import 'package:drift/drift.dart';
 
 import '../storage/database.dart';
+import 'identity_change.dart';
 import 'key_manager.dart';
+import 'safety_number.dart';
 import 'signal_protocol.dart';
+
+// Callers catching IdentityChangedException / building UI on
+// PendingIdentityChange import this file only.
+export 'identity_change.dart';
 
 /// Manages E2E encrypted sessions for pairwise (1:1) messaging using the
 /// Signal Protocol: X3DH key agreement + the full Double Ratchet.
@@ -95,7 +102,11 @@ class SessionManager {
     String peerDeviceId,
     Map<String, dynamic> keyBundle,
   ) async {
-    await _verifyPeerIdentity(peerDeviceId, keyBundle);
+    await _verifyPeerIdentity(
+      peerDeviceId,
+      keyBundle,
+      IdentityChangeDirection.outgoing,
+    );
     final ownBundle = await _keyManager.getSignedIdentityBundle();
     final identity = await _keyManager.getOrCreateIdentityKeyPair();
     final peerIdentityKey = keyBundle['identityKey'] as String;
@@ -183,7 +194,11 @@ class SessionManager {
     };
 
     await _db.transaction(() async {
-      await _pinPeerIdentity(peerDeviceId, keyBundle);
+      await _pinPeerIdentity(
+        peerDeviceId,
+        keyBundle,
+        IdentityChangeDirection.outgoing,
+      );
       await _saveSession(peerDeviceId, state);
     });
   }
@@ -291,7 +306,11 @@ class SessionManager {
               sid) {
         throw StateError('Session identity does not match handshake.');
       }
-      await _verifyPeerIdentity(peerDeviceId, bundle);
+      await _verifyPeerIdentity(
+        peerDeviceId,
+        bundle,
+        IdentityChangeDirection.incoming,
+      );
       state = await _establishFromPreKeyMessage(envelope);
     }
 
@@ -360,6 +379,7 @@ class SessionManager {
         await _pinPeerIdentity(
           peerDeviceId,
           envelope['identityBundle'] as Map<String, dynamic>,
+          IdentityChangeDirection.incoming,
         );
       }
       await _saveSession(peerDeviceId, state!);
@@ -381,15 +401,31 @@ class SessionManager {
   Future<void> _verifyPeerIdentity(
     String peer,
     Map<String, dynamic> bundle,
+    IdentityChangeDirection direction,
   ) async {
     await KeyManager.verifyIdentityBundle(bundle);
     final known = await (_db.select(
       _db.backupState,
     )..where((r) => r.key.equals('peer_identity:$peer'))).getSingleOrNull();
     final fingerprint = '${bundle['identityKey']}|${bundle['signingKey']}';
+    final pinned = known?.value.split('|');
+    // IdentityChangedException extends StateError, so every caller that
+    // handled the old bare StateError still does. Persisting the change and
+    // emitting it on [identityChanges] is stream S's part (S6): it has to
+    // happen OUTSIDE the inbox transaction, which this throw rolls back.
+    PendingIdentityChange change(String previousIk, String previousSk) =>
+        PendingIdentityChange(
+          peerDeviceId: peer,
+          previousIdentityKey: previousIk,
+          previousSigningKey: previousSk,
+          newIdentityKey: '${bundle['identityKey']}',
+          newSigningKey: '${bundle['signingKey'] ?? ''}',
+          detectedAt: DateTime.now().toUtc(),
+          direction: direction,
+        );
     if (known != null && known.value != fingerprint) {
-      throw StateError(
-        'Contact identity changed. Verify the contact before starting a new session.',
+      throw IdentityChangedException(
+        change(pinned!.first, pinned.length > 1 ? pinned[1] : ''),
       );
     }
     final contact = await (_db.select(
@@ -398,15 +434,21 @@ class SessionManager {
     if (contact != null &&
         contact.identityKey.isNotEmpty &&
         base64Encode(contact.identityKey) != bundle['identityKey']) {
-      throw StateError('Contact identity does not match the stored key.');
+      throw IdentityChangedException(
+        change(
+          base64Encode(contact.identityKey),
+          pinned != null && pinned.length > 1 ? pinned[1] : '',
+        ),
+      );
     }
   }
 
   Future<void> _pinPeerIdentity(
     String peer,
     Map<String, dynamic> bundle,
+    IdentityChangeDirection direction,
   ) async {
-    await _verifyPeerIdentity(peer, bundle);
+    await _verifyPeerIdentity(peer, bundle, direction);
     await (_db.update(
       _db.contacts,
     )..where((row) => row.deviceId.equals(peer))).write(
@@ -658,6 +700,55 @@ class SessionManager {
     final session = await _loadSession(peerDeviceId);
     return session != null;
   }
+
+  // ===========================================================================
+  // Identity API (S6, contracts K9) — X0 STUBS with frozen signatures.
+  // Stream S implements them; stream G builds its UI against them. Until
+  // then only the exception exists: _verifyPeerIdentity throws
+  // IdentityChangedException, nothing is persisted and nothing is emitted.
+  // ===========================================================================
+
+  final _identityChanges = StreamController<PendingIdentityChange>.broadcast();
+
+  /// Broadcast; emits each newly detected identity change once it has been
+  /// persisted (outside the caller's transaction). X0: never emits.
+  Stream<PendingIdentityChange> get identityChanges => _identityChanges.stream;
+
+  Future<PendingIdentityChange?> pendingIdentityChange(String peerDeviceId) =>
+      throw UnimplementedError('Implemented by stream S (S6)');
+
+  Future<List<PendingIdentityChange>> pendingIdentityChanges() =>
+      throw UnimplementedError('Implemented by stream S (S6)');
+
+  /// Re-pins the NEW keys, updates contacts.identityKey, sets
+  /// verified=false, verifiedAt=null, identityKeyChangedAt=now, deletes the
+  /// ACTIVE session row (address == peer; archives "peer:sid" stay so
+  /// in-flight messages still decrypt) and removes the pending record. The
+  /// caller then requests redelivery.
+  Future<void> acceptIdentityChange(String peerDeviceId) =>
+      throw UnimplementedError('Implemented by stream S (S6)');
+
+  /// Hides the banner, keeps the old pin.
+  Future<void> dismissIdentityChange(String peerDeviceId) =>
+      throw UnimplementedError('Implemented by stream S (S6)');
+
+  /// Pinned identity of the peer (from `peer_identity:<peer>`).
+  Future<PartyIdentity?> peerIdentity(String peerDeviceId) =>
+      throw UnimplementedError('Implemented by stream S (S6)');
+
+  /// verified=true, verifiedAt=now.
+  Future<void> markVerified(String peerDeviceId) =>
+      throw UnimplementedError('Implemented by stream S (S6)');
+
+  Future<void> clearVerified(String peerDeviceId) =>
+      throw UnimplementedError('Implemented by stream S (S6)');
+
+  /// From an invite QR `fp` parameter: the next bundle for this peer must
+  /// match [fingerprintBase64Url], else IdentityMismatchException.
+  Future<void> expectIdentity(
+    String peerDeviceId,
+    String fingerprintBase64Url,
+  ) => throw UnimplementedError('Implemented by stream S (S6)');
 
   // Session state is stored in the SignalSessions table as a JSON blob in the
   // sessionData column (typed as Uint8List/blob in Drift). The address column
