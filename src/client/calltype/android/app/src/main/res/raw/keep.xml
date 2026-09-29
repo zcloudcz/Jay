@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Resources that code looks up BY NAME at runtime (getIdentifier), which the
+     resource shrinker (isShrinkResources, P4) cannot see and would remove:
+     - ic_stat_jay: the notification small icon that flutter_local_notifications
+       resolves from a Dart string (stream N);
+     - raw/*: call tones that flutter_callkit_incoming resolves by file name
+       (stream C).
+     Without them notifications lose their icon or silently fail to show. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_jay,@raw/*" />

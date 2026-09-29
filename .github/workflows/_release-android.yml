@@ -1,6 +1,26 @@
-# Stub for P4 (stream P). It exists so release-native.yml is a valid
-# dispatcher from the first commit; P4 replaces the job with the real
-# android build. Fails loudly instead of pretending to have built anything.
+# ---------------------------------------------------------------------------
+# Release Android — reusable, called by release-native.yml (stream P, P4)
+# ---------------------------------------------------------------------------
+# Builds the Play App Bundle signed with the UPLOAD key (Play App Signing
+# re-signs it for devices), verifies the certificate, and optionally uploads
+# to the Play internal testing track.
+#
+# Security (see release-native.yml header): workflow_call only, environment
+# android-release (owner approval), keystore decoded to $RUNNER_TEMP and
+# removed by a trap in the same step, no `set -x`, third-party action pinned.
+#
+# Without ANDROID_UPLOAD_KEYSTORE_B64 (public window without the environment
+# configured, forks) the job degrades to a DEBUG-signed AAB: manifest
+# "signed": false, artifact suffix -unsigned, and a Play upload is refused.
+#
+# Environment android-release:
+#   secrets   ANDROID_UPLOAD_KEYSTORE_B64, ANDROID_UPLOAD_KEYSTORE_PASSWORD,
+#             ANDROID_UPLOAD_KEY_ALIAS, ANDROID_UPLOAD_KEY_PASSWORD,
+#             PLAY_SERVICE_ACCOUNT_JSON (plain JSON, only for play_track=internal)
+#   variable  ANDROID_UPLOAD_CERT_SHA256 (hex, colons optional)
+# Repo: secrets FIREBASE_CLIENT_CONFIG_JSON_B64, FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_B64,
+#       variable CALLTYPE_API_BASE_URL.
+# ---------------------------------------------------------------------------
 
 name: Release android (reusable)
 
@@ -21,6 +41,14 @@ on:
         required: false
         type: string
         default: none
+      play_status:
+        # Until the app has passed its first Play review the Publishing API
+        # only accepts draft releases [OVĚŘIT on the first upload]; flip to
+        # completed once the listing is live.
+        description: 'draft | completed'
+        required: false
+        type: string
+        default: draft
 
 permissions:
   contents: read
@@ -28,8 +56,170 @@ permissions:
 jobs:
   android:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 45
+    environment: android-release
+    defaults:
+      run:
+        working-directory: src/client/calltype
     steps:
-      - run: |
-          echo "::error::android release is not implemented yet (P4)."
-          exit 1
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+
+      - name: Check inputs and decide signed vs. unsigned
+        id: mode
+        env:
+          HAS_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 != '' }}
+          HAS_PLAY_SA: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+          CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+          PLAY_TRACK: ${{ inputs.play_track }}
+          PLAY_STATUS: ${{ inputs.play_status }}
+          API_URL: ${{ vars.CALLTYPE_API_BASE_URL }}
+        run: |
+          set -euo pipefail
+          bash "$GITHUB_WORKSPACE/.github/scripts/check-api-url.sh" "$API_URL"
+          case "$PLAY_TRACK" in none|internal) ;; *) echo "::error::play_track must be none|internal"; exit 1 ;; esac
+          case "$PLAY_STATUS" in draft|completed) ;; *) echo "::error::play_status must be draft|completed"; exit 1 ;; esac
+          if [ "$HAS_KEYSTORE" = true ]; then
+            # Without the expected fingerprint the verification step below
+            # could not tell the upload key from any other key.
+            [ -n "$CERT_SHA256" ] || { echo "::error::Variable ANDROID_UPLOAD_CERT_SHA256 is not set in environment android-release."; exit 1; }
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            if [ "$PLAY_TRACK" != none ]; then
+              echo "::error::play_track=$PLAY_TRACK needs the upload key (ANDROID_UPLOAD_KEYSTORE_B64 in environment android-release)."
+              exit 1
+            fi
+            echo "::warning::No upload key configured: building a DEBUG-signed AAB (not for Play, not for distribution)."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$PLAY_TRACK" != none ] && [ "$HAS_PLAY_SA" != true ]; then
+            echo "::error::play_track=$PLAY_TRACK needs PLAY_SERVICE_ACCOUNT_JSON in environment android-release."
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.41.x'
+          cache: true
+      # The drift *.g.dart of calltype_core is git-ignored; generate it first.
+      - name: calltype_core codegen
+        working-directory: src/client/calltype_core
+        run: |
+          dart pub get
+          dart run build_runner build --delete-conflicting-outputs
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Firebase config (P3b)
+        env:
+          FIREBASE_CLIENT_CONFIG_JSON_B64: ${{ secrets.FIREBASE_CLIENT_CONFIG_JSON_B64 }}
+          FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_B64: ${{ secrets.FIREBASE_ANDROID_GOOGLE_SERVICES_JSON_B64 }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/firebase-config.sh" android
+
+      - name: Build app bundle
+        env:
+          SIGNED: ${{ steps.mode.outputs.signed }}
+          KEYSTORE_B64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_B64 }}
+          JAY_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          JAY_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          JAY_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          API_URL: ${{ vars.CALLTYPE_API_BASE_URL }}
+          BUILD_NAME: ${{ inputs.build_name }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$SIGNED" = true ]; then
+            KEY_DIR="$RUNNER_TEMP/android-signing"
+            mkdir -p "$KEY_DIR"
+            # Same step as the build: the keystore exists only while Gradle
+            # needs it and never inside the workspace or an artifact.
+            trap 'rm -rf "$KEY_DIR"' EXIT
+            printf '%s' "$KEYSTORE_B64" | tr -d ' \r\n\t' | base64 --decode > "$KEY_DIR/upload.jks"
+            chmod 600 "$KEY_DIR/upload.jks"
+            export JAY_ANDROID_KEYSTORE_PATH="$KEY_DIR/upload.jks"
+            # Gradle throws instead of falling back to the debug key.
+            export JAY_REQUIRE_RELEASE_SIGNING=true
+          else
+            unset JAY_ANDROID_KEYSTORE_PASSWORD JAY_ANDROID_KEY_ALIAS JAY_ANDROID_KEY_PASSWORD
+          fi
+          # R-P7: no --obfuscate (the protocol is open, it would only make
+          # crash reports unreadable); --split-debug-info keeps the binary
+          # small and stores the symbols as an artifact for symbolication.
+          flutter build appbundle --release \
+            --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" \
+            --split-debug-info=build/symbols/android \
+            --dart-define=API_BASE_URL="$API_URL" \
+            --dart-define=JAY_DISTRIBUTION=play \
+            --dart-define=JAY_COMMIT_SHA="$COMMIT_SHA" \
+            --dart-define-from-file=build-defines/firebase.json
+
+      - name: Verify the signing certificate
+        id: cert
+        env:
+          SIGNED: ${{ steps.mode.outputs.signed }}
+          EXPECTED: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          AAB=build/app/outputs/bundle/release/app-release.aab
+          ACTUAL=$(keytool -printcert -jarfile "$AAB" | sed -nE 's/^[[:space:]]*SHA256: ([0-9A-Fa-f:]+)[[:space:]]*$/\1/p' | head -n 1 | tr -d ':' | tr '[:lower:]' '[:upper:]')
+          [ -n "$ACTUAL" ] || { echo "::error::$AAB carries no signing certificate"; exit 1; }
+          echo "sha256=$ACTUAL" >> "$GITHUB_OUTPUT"
+          if [ "$SIGNED" = true ]; then
+            WANT=$(printf '%s' "$EXPECTED" | tr -d ': ' | tr '[:lower:]' '[:upper:]')
+            # The one guarantee that a debug or foreign key never reaches Play.
+            if [ "$ACTUAL" != "$WANT" ]; then
+              echo "::error::AAB is signed with $ACTUAL, expected the upload certificate $WANT"
+              exit 1
+            fi
+            echo "Signed with the upload certificate $ACTUAL"
+          else
+            echo "::warning::AAB is DEBUG-signed ($ACTUAL). Do not distribute."
+          fi
+
+      - name: Write build manifest
+        env:
+          SIGNED: ${{ steps.mode.outputs.signed }}
+          CERT: ${{ steps.cert.outputs.sha256 }}
+          API_URL: ${{ vars.CALLTYPE_API_BASE_URL }}
+          BUILD_NAME: ${{ inputs.build_name }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          bash "$GITHUB_WORKSPACE/.github/scripts/build-manifest.sh" build-manifest.json \
+            build/app/outputs/bundle/release/app-release.aab \
+            commitSha="$COMMIT_SHA" platform=android distribution=play \
+            buildName="$BUILD_NAME" buildNumber:="$BUILD_NUMBER" \
+            apiBaseUrl="$API_URL" signed:="$SIGNED" signingCertSha256="$CERT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calltype-release-android-${{ inputs.commit_sha }}${{ steps.mode.outputs.signed != 'true' && '-unsigned' || '' }}
+          path: |
+            src/client/calltype/build/app/outputs/bundle/release/app-release.aab
+            src/client/calltype/build/app/outputs/mapping/release/mapping.txt
+            src/client/calltype/build/symbols/android
+            src/client/calltype/build-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+
+      # `uses:` steps ignore defaults.run.working-directory, so paths are from
+      # the repo root. The first release of a new app must be uploaded by hand
+      # in Play Console (docs/acceptance/android-play.md); this step is for
+      # every build after that.
+      - name: Upload to Google Play (internal testing)
+        if: inputs.play_track != 'none' && steps.mode.outputs.signed == 'true'
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: cz.zcloud.jay
+          releaseFiles: src/client/calltype/build/app/outputs/bundle/release/app-release.aab
+          track: ${{ inputs.play_track }}
+          status: ${{ inputs.play_status }}
+          mappingFile: src/client/calltype/build/app/outputs/mapping/release/mapping.txt
