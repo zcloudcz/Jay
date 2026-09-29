@@ -500,6 +500,46 @@ out of scope) as `IncomingGroupMessage(kind: "call-metadata", detailsJson:
 never acked) — same discipline as an undecryptable message, logged by id
 only. `Archiver` sends `details` = that string verbatim.
 
+## Gap closure X0 — new archive kinds (2026-09-29)
+
+Source: `docs/superpowers/plans/2026-09-29-gap-contracts.md` §2.2 (K2) and
+`2026-09-29-gap-messaging.md` §4.2 (X0-M-2). Server side is
+`Endpoints/AuditArchiveEndpoints.cs`; the archiver side (`jay_archiver`) is
+X0-K / M09. **No Audit DB migration:** `AuditRecord.Kind` is `varchar(20)`
+(longest new kind `group-event` = 11 chars) and `DetailsJson` already exists.
+
+`kind` whitelist is now: `text | attachment | call | call-metadata | edit |
+delete | reaction | group-event | other`. The 422 text for an unknown kind is
+built from that list (`kind must be one of: …`).
+
+| `kind` | archived for (wire `type`) | `details` | error when malformed |
+| --- | --- | --- | --- |
+| `edit` | `edit` | **required**, exactly `{"ref":"<uuid>","bodyHash":"<64 hex>"}` | `422 invalid_ref_details` |
+| `reaction` | `reaction` | **required**, exactly `{"ref":"<uuid>","bodyHash":"<64 hex>"}` (`""` emoji = removal, still hashed) | `422 invalid_ref_details` |
+| `delete` | `delete` | **required**, exactly `{"ref":"<uuid>","bodyHash":null}` | `422 invalid_ref_details` |
+| `group-event` | `group-update` | **must be absent** | `422 details_not_allowed` |
+| `other` | any content type the archiver does not understand (K2) | **required**, exactly `{"type":"<1–32 chars, no control chars>"}`, whole string ≤ 64 chars | `422 invalid_other_details` |
+
+Rules shared by every kind that carries `details`:
+- `ref` is the target message id in canonical UUID form (`8-4-4-4-12`, any case);
+  `bodyHash` is SHA-256 of the UTF-8 bytes of the new text (edit) or emoji
+  (reaction), hex (any case). No text and no emoji ever reach the archive.
+- `details` for `edit|delete|reaction` is at most 256 characters; exactly the
+  listed keys, no extra ones.
+- `contentHash` MUST equal `SHA-256(UTF8(details))` → otherwise
+  `422 details_hash_mismatch` (same binding as `call-metadata`;
+  `ComputeHash`'s canonical form is unchanged).
+- `text | attachment | call | group-event` with any `details` → `422 details_not_allowed`.
+- Idempotence on `(organizationId, messageId)` and the hash chain are unchanged:
+  the new kinds chain exactly like the old ones.
+
+Archiver obligations (K2): control messages (`ctl: true`) without their own
+kind above (`receipt`, `profile`, `device-list`, unknown `ctl` types) are
+acked WITHOUT a record. An unknown type WITHOUT `ctl` is archived as `other`
+with the wire `type` truncated to 32 characters and control characters
+removed — never silently acked (hole in the chain) and never left unacked
+(organization would fail closed on `auditor_unavailable` after 24 h).
+
 ## E07 — Emergency channel (spec 2.3/2.6/2.9, plan §5/§7)
 
 Owned files: `CallType.Audit/Emergency/**` (`EmergencyCodes`, `EmergencyAppService`,
