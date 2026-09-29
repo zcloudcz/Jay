@@ -6,11 +6,16 @@ plugins {
 }
 
 android {
-    namespace = "com.example.calltype"
+    // Same identifier as iOS/macOS (cz.zcloud.jay). The applicationId is
+    // immutable after the first Play upload; the Kotlin package follows it.
+    namespace = "cz.zcloud.jay"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // flutter_local_notifications (>= 10) uses java.time APIs that are
+        // missing below API 26; desugaring backports them for minSdk 24.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -20,8 +25,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.calltype"
+        // Must match the iOS/macOS bundle id; immutable after the first Play
+        // upload (Firebase app registration and assetlinks.json key on it).
+        applicationId = "cz.zcloud.jay"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -41,4 +47,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Version from the flutter_local_notifications 22.x README.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

@@ -30,7 +30,12 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
-<key>NSCameraUsageDescription</key><string>Scan contact QR codes and make video calls.</string><key>NSMicrophoneUsageDescription</key><string>Use the microphone during voice and video calls.</string><key>NSFaceIDUsageDescription</key><string>Unlock your private conversations.</string>
+<key>NSCameraUsageDescription</key><string>Scan contact QR codes, link your devices, make video calls and take photos or videos to send.</string>
+<key>NSMicrophoneUsageDescription</key><string>Use the microphone during calls and to record voice messages.</string>
+<key>NSFaceIDUsageDescription</key><string>Use Touch ID to unlock Jay and your private conversations.</string>
+<!-- Both photo keys are required by gal on macOS (saving received media). -->
+<key>NSPhotoLibraryUsageDescription</key><string>Choose photos, videos or files to send as encrypted attachments, or a profile photo.</string>
+<key>NSPhotoLibraryAddUsageDescription</key><string>Save photos and videos you received to your library.</string>
 </dict>
 </plist>
 

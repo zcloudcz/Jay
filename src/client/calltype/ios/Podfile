@@ -1,7 +1,8 @@
-# Global iOS platform. 14.0 is the minimum required by the file_picker_darwin
-# plugin (CocoaPods refuses to resolve below it); Xcode's IPHONEOS_DEPLOYMENT_TARGET
-# in Runner.xcodeproj is kept in sync.
-platform :ios, '14.0'
+# Global iOS platform. 15.0 is the minimum of flutter_callkit_incoming 3.1.x
+# (native incoming calls, stream C); file_picker_darwin alone needs 14.0.
+# Xcode's IPHONEOS_DEPLOYMENT_TARGET in Runner.xcodeproj (3 configurations)
+# is kept in sync.
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'

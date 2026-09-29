@@ -5,10 +5,12 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = calltype
+// Users see "Jay" (Jay.app); "calltype" stays internal only.
+PRODUCT_NAME = Jay
 
-// The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.calltype.calltype
+// The application's bundle identifier. One identifier on every platform
+// (Android applicationId, iOS bundle id): Firebase and Apple register on it.
+PRODUCT_BUNDLE_IDENTIFIER = cz.zcloud.jay
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.calltype. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 ZCloud. All rights reserved.

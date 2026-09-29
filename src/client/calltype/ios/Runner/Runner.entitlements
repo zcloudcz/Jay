@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Wired into the Runner target via CODE_SIGN_ENTITLEMENTS (Debug, Release,
+     Profile). aps-environment: remote and PushKit VoIP pushes (streams N, C);
+     "development" here, the App Store / TestFlight export re-signs it as
+     "production" from the distribution profile. associated-domains: Universal
+     Links for https://jay.zcloud.cz/c|ch|g/ (stream G; needs the AASA file on
+     that host). Both capabilities must be enabled on the App ID cz.zcloud.jay
+     and present in the provisioning profile, or signing fails. -->
+<plist version="1.0">
+<dict>
+	<key>aps-environment</key>
+	<string>development</string>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:jay.zcloud.cz</string>
+	</array>
+</dict>
+</plist>

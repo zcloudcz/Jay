@@ -9,12 +9,38 @@
      FCM messages are still delivered to the app but no system notification
      is shown. See K04 in docs/superpowers/plans/2026-09-16-beta-kontrakty.md. -->
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<!-- Incoming calls (stream C, flutter_callkit_incoming) and notifications
+     (stream N). Most of these are merged in from the plugins' manifests
+     anyway; they are listed here so a review of this file shows everything
+     the app can do. -->
+<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+<uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+<uses-permission android:name="android.permission.WAKE_LOCK" />
+<uses-permission android:name="android.permission.VIBRATE" />
+<!-- API 31+: routing call audio to a Bluetooth headset. -->
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+<!-- Saving received photos/videos to the gallery (gal) on Android <= 10 only;
+     newer versions need no permission for MediaStore inserts. -->
+<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+    android:maxSdkVersion="29" />
 <uses-feature android:name="android.hardware.camera" android:required="false" />
+<!-- No Android backup of app data (allowBackup/fullBackupContent for API
+     <= 30, dataExtractionRules for 31+): the SQLite database is plaintext
+     (not SQLCipher yet) and holds messages and Double Ratchet state, so
+     auto-backup would copy it to Google Drive. Keystore-wrapped secrets
+     would not survive a restore anyway, leaving a restored install broken. -->
 <application
         android:label="Jay"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:localeConfig="@xml/locales_config">
+        android:localeConfig="@xml/locales_config"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -45,7 +71,31 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="calltype" android:host="channel"/>
             </intent-filter>
+            <!-- App Links (stream G): contact (/c/), channel (/ch/) and group
+                 invite (/g/) URLs open the app. autoVerify needs
+                 https://jay.zcloud.cz/.well-known/assetlinks.json with this
+                 package name and the signing certificate fingerprint. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="jay.zcloud.cz" android:pathPrefix="/c/"/>
+                <data android:scheme="https" android:host="jay.zcloud.cz" android:pathPrefix="/ch/"/>
+                <data android:scheme="https" android:host="jay.zcloud.cz" android:pathPrefix="/g/"/>
+            </intent-filter>
         </activity>
+        <!-- Notification actions ("Reply", "Mark as read") of
+             flutter_local_notifications, stream N. -->
+        <receiver android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />
+        <!-- Defaults for FCM notification messages shown by the system while
+             the app is in the background (stream N creates the channel). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="jay_messages" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_jay" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
