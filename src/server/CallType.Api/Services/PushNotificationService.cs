@@ -121,7 +121,14 @@ internal sealed class ChannelPushThrottle
     }
 }
 
-public class PushNotificationService
+/// <summary>
+/// Implements both push seams frozen in X0: <see cref="IPushNotificationService"/>
+/// (messages + channels, today's FCM behaviour) and <see cref="ICallPushSender"/>
+/// (a stub answering NotConfigured until stream N ships call pushes). One
+/// singleton behind both interfaces so the FCM token cache and the channel
+/// throttle stay shared.
+/// </summary>
+public class PushNotificationService : IPushNotificationService, ICallPushSender
 {
     private readonly ChannelPushThrottle _channelThrottle = new();
     private readonly IHttpClientFactory _httpFactory;
@@ -180,6 +187,34 @@ public class PushNotificationService
                 break;
         }
     }
+
+    /// <summary>
+    /// X0: same behaviour as before the interface existed — a hint-less wake-up
+    /// awaited in the sender's hub call. Stream N (N1) replaces this with a
+    /// dispatcher that returns immediately and carries the encrypted hint.
+    /// </summary>
+    public Task SendMessagePushAsync(Guid recipientDeviceId, Guid senderDeviceId, Guid messageId, Guid? groupId)
+        => SendPushAsync(recipientDeviceId);
+
+    /// <summary>
+    /// X0 stub: no-op. Stream N (N3) implements the re-push for messages that
+    /// went to a live-looking but dead SignalR connection and were never acked.
+    /// </summary>
+    public void ScheduleUnackedPushCheck(Guid recipientDeviceId, Guid senderDeviceId, Guid messageId, Guid? groupId)
+    {
+    }
+
+    /// <summary>
+    /// X0 stub for <see cref="ICallPushSender"/>: NotConfigured, so the hub
+    /// keeps today's behaviour (caller gets "unavailable"). Stream N (N3)
+    /// implements APNs VoIP / FCM high-priority call pushes.
+    /// </summary>
+    public Task<CallPushResult> SendCallPushAsync(Guid calleeDeviceId, CallPush push, CancellationToken ct)
+        => Task.FromResult(CallPushResult.NotConfigured);
+
+    /// <summary>X0 stub for <see cref="ICallPushSender"/>: nothing to cancel while no call push is ever sent.</summary>
+    public Task SendCallCancelPushAsync(Guid calleeDeviceId, Guid callId, CallCancelReason reason, CancellationToken ct)
+        => Task.CompletedTask;
 
     /// <summary>
     /// Wakes the offline followers of a channel after a new post — one

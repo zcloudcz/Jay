@@ -45,7 +45,7 @@ public record PollDefinition(string Question, List<string> Options, DateTimeOffs
 public class ChannelService(
     AppDbContext db,
     IHubContext<MessengerHub> hub,
-    PushNotificationService push,
+    IPushNotificationService push,
     IOptions<ChannelsOptions> options,
     ILogger<ChannelService> logger)
 {

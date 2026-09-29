@@ -35,7 +35,7 @@ using Microsoft.EntityFrameworkCore;
 namespace CallType.Api.Hubs;
 
 [Authorize]
-public class MessengerHub(MessageQueueService queueService, PushNotificationService pushService, AppDbContext db,
+public class MessengerHub(MessageQueueService queueService, IPushNotificationService pushService, AppDbContext db,
     AuditorLivenessService auditorLiveness, OrgCommunicationPolicy communicationPolicy, IMemoryCache cache) : Hub
 {
     // Maps DeviceId -> ConnectionId for all currently connected devices.
@@ -91,7 +91,21 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
     public Task SendMessage(Guid recipientDeviceId, string encryptedBodyBase64)
         => SendReliableMessage(recipientDeviceId, Guid.NewGuid(), encryptedBodyBase64);
 
-    public async Task SendReliableMessage(Guid recipientDeviceId, Guid messageId, string encryptedBodyBase64)
+    public Task SendReliableMessage(Guid recipientDeviceId, Guid messageId, string encryptedBodyBase64)
+        => SendDirectCoreAsync(recipientDeviceId, messageId, encryptedBodyBase64, push: true);
+
+    /// <summary>
+    /// X0-M-1: identical to <see cref="SendReliableMessage"/> — same P1 policy,
+    /// same HubException codes, same (recipient, sender, messageId)
+    /// idempotence, same store-and-forward — except that an offline recipient
+    /// gets NO push. Used for control messages (receipts, reactions, edits,
+    /// profile updates): they must reach the device eventually but must never
+    /// wake a phone or light up a lock screen on their own.
+    /// </summary>
+    public Task SendQuietMessage(Guid recipientDeviceId, Guid messageId, string encryptedBodyBase64)
+        => SendDirectCoreAsync(recipientDeviceId, messageId, encryptedBodyBase64, push: false);
+
+    private async Task SendDirectCoreAsync(Guid recipientDeviceId, Guid messageId, string encryptedBodyBase64, bool push)
     {
         var sender = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
         // P1: an organization can require that two of its enrolled devices
@@ -102,13 +116,27 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         var body = DecodePayload(encryptedBodyBase64);
         var message = await queueService.EnqueueReliableAsync(recipientDeviceId, sender, messageId,
             body, cancellationToken: Context.ConnectionAborted);
-        await DeliverAsync(message);
+        await DeliverAsync(message, push);
     }
 
     public Task SendGroupMessage(Guid groupId, Dictionary<Guid, string> encryptedPayloads)
         => SendReliableGroupMessage(groupId, Guid.NewGuid(), encryptedPayloads);
 
-    public async Task SendReliableGroupMessage(Guid groupId, Guid messageId, Dictionary<Guid, string> encryptedPayloads)
+    public Task SendReliableGroupMessage(Guid groupId, Guid messageId, Dictionary<Guid, string> encryptedPayloads)
+        => SendGroupCoreAsync(groupId, messageId, encryptedPayloads, push: true);
+
+    /// <summary>
+    /// X0-M-1: group counterpart of <see cref="SendQuietMessage"/> — every gate
+    /// of <see cref="SendReliableGroupMessage"/> (membership, W2-F
+    /// auditor_unavailable, KB2 audit_recipient_missing, P1) applies unchanged,
+    /// because a quiet control message in a business group (edit, delete,
+    /// reaction) must still reach the auditor's archive. Only the push is
+    /// suppressed.
+    /// </summary>
+    public Task SendQuietGroupMessage(Guid groupId, Guid messageId, Dictionary<Guid, string> encryptedPayloads)
+        => SendGroupCoreAsync(groupId, messageId, encryptedPayloads, push: false);
+
+    private async Task SendGroupCoreAsync(Guid groupId, Guid messageId, Dictionary<Guid, string> encryptedPayloads, bool push)
     {
         if (encryptedPayloads.Count > 256)
             throw new HubException("Group message exceeds maximum member count");
@@ -165,17 +193,23 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
             await transaction.CommitAsync(Context.ConnectionAborted);
         }
         foreach (var message in messages)
-            await DeliverAsync(message);
+            await DeliverAsync(message, push);
     }
 
     public Task AcknowledgeMessage(Guid senderId, Guid messageId)
         => queueService.AcknowledgeAsync(GetCallerDeviceId() ?? throw new HubException("Invalid device identity"),
             senderId, messageId, Context.ConnectionAborted);
 
-    private async Task DeliverAsync(QueuedMessage message)
+    /// <param name="push">
+    /// False for the quiet (control message) path: the message is still
+    /// queued and delivered live or on the next connect, but no push is sent —
+    /// neither to an offline device nor as the unacked re-push for an online one.
+    /// </param>
+    private async Task DeliverAsync(QueuedMessage message, bool push = true)
     {
         if (message.AcknowledgedAt != null) return;
         if (OnlineDevices.TryGetValue(message.RecipientId, out var connectionId))
+        {
             await Clients.Client(connectionId).SendAsync("ReceiveMessage", new
             {
                 messageId = message.MessageId,
@@ -184,8 +218,18 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
                 createdAt = message.CreatedAt,
                 groupId = message.GroupId
             }, Context.ConnectionAborted);
-        else
-            await pushService.SendPushAsync(message.RecipientId);
+            // A connection can look alive while the device is asleep (dead
+            // socket not yet noticed). Stream N re-pushes if no ack arrives in
+            // time; the X0 implementation is a no-op, and it never blocks.
+            if (push)
+                pushService.ScheduleUnackedPushCheck(message.RecipientId, message.SenderId, message.MessageId, message.GroupId);
+        }
+        else if (push)
+        {
+            // X0 still awaits the push here (today's behaviour); stream N's
+            // dispatcher (N1) makes SendMessagePushAsync return immediately.
+            await pushService.SendMessagePushAsync(message.RecipientId, message.SenderId, message.MessageId, message.GroupId);
+        }
     }
 
     private static byte[] DecodePayload(string payload)
