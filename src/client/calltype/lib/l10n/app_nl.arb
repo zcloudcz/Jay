@@ -75,6 +75,7 @@
   "chatCallFailed": "Kan de oproep niet starten. Controleer de verbinding en de machtigingen.",
   "chatOffline": "Offline. Mislukte berichten kun je opnieuw verzenden.",
   "chatEmpty": "Nog geen berichten. Zeg hallo!",
+  "msgUnsupportedType": "Dit bericht vereist een nieuwere versie van Jay. Werk de app bij om het te zien.",
   "chatBotNoticeDismiss": "Begrepen",
   "chatAttachmentTooLarge": "In de bèta zijn bijlagen tot {maxKib} KiB mogelijk.",
   "chatAttachmentFailed": "Kan de bijlage niet verzenden.",

@@ -75,6 +75,7 @@
   "chatCallFailed": "Hovor se nepodařilo zahájit. Zkontrolujte připojení a oprávnění.",
   "chatOffline": "Jste offline. Neodeslané zprávy lze poslat znovu.",
   "chatEmpty": "Zatím žádné zprávy. Pozdravte!",
+  "msgUnsupportedType": "Tato zpráva vyžaduje novější verzi Jay. Aktualizujte aplikaci, abyste ji viděli.",
   "chatBotNoticeDismiss": "Rozumím",
   "chatAttachmentTooLarge": "V betaverzi lze posílat přílohy do {maxKib} KiB.",
   "chatAttachmentFailed": "Přílohu se nepodařilo odeslat.",

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/network/organization_api.dart';
 import '../../core/crypto/group_cipher.dart';
 import '../../core/crypto/session_manager.dart';
@@ -22,10 +23,20 @@ class ChatController extends ChangeNotifier {
     required ApiClient apiClient,
     required this.conversationId,
     required this.myDeviceId,
+    DeviceDirectory? directory,
+    DirectPayloadPlanner? planner,
   }) : _db = database,
        _signalR = signalRClient,
        _sessions = sessionManager,
        _api = apiClient {
+    // Optional so existing callers (router, tests) keep compiling; main.dart
+    // provides the shared instance once it is wired (D §4.1 point 2).
+    final single = SingleDeviceDirectory(
+      database: database,
+      myDeviceId: () => myDeviceId,
+    );
+    _directory = directory ?? single;
+    _planner = planner ?? single;
     _subscription =
         (_db.select(_db.messages)
               ..where((m) => m.conversationId.equals(conversationId))
@@ -33,6 +44,7 @@ class ChatController extends ChangeNotifier {
             .watch()
             .listen((rows) {
               _messages = rows;
+              _resolveOwnSenders(rows);
               if (!_disposed) notifyListeners();
             });
     _incoming = inbox.persistedMessages.listen((message) {
@@ -84,6 +96,30 @@ class ChatController extends ChangeNotifier {
         .where((id) => id != myDeviceId && id != info.auditorDeviceId)
         .toList();
     return others.length == 1 ? others.single : null;
+  }
+
+  late final DeviceDirectory _directory;
+  late final DirectPayloadPlanner _planner;
+
+  /// Sender ids already asked about; the answer is cached because the
+  /// directory is async and `build` is not (D §4.1 point 3).
+  final _checkedSenders = <String>{};
+  final _ownSenders = <String>{};
+
+  /// True for a message sent by this device OR by another of my devices.
+  bool isMine(Message message) =>
+      message.senderId == myDeviceId || _ownSenders.contains(message.senderId);
+
+  Future<void> _resolveOwnSenders(List<Message> rows) async {
+    var changed = false;
+    for (final sender in rows.map((m) => m.senderId).toSet()) {
+      if (sender == myDeviceId || !_checkedSenders.add(sender)) continue;
+      if (await _directory.isOwnDevice(sender)) {
+        _ownSenders.add(sender);
+        changed = true;
+      }
+    }
+    if (changed && !_disposed) notifyListeners();
   }
 
   final AppDatabase _db;
@@ -261,12 +297,20 @@ class ChatController extends ChangeNotifier {
               encrypted.map((id, bytes) => MapEntry(id, base64Encode(bytes))),
             );
           } else {
-            await _ensureSession(conversationId);
-            envelopes[conversationId] = base64Encode(
-              utf8.encode(
-                await _sessions.encryptMessage(conversationId, payload),
-              ),
-            );
+            // One plaintext per device of the peer (wave 1: exactly the
+            // conversation's device); every envelope shares messageId.
+            final planned = await _planner.plan(conversationId, payload);
+            for (final entry in planned.entries) {
+              await _ensureSession(entry.key);
+              envelopes[entry.key] = base64Encode(
+                utf8.encode(
+                  await _sessions.encryptMessage(entry.key, entry.value),
+                ),
+              );
+            }
+            if (envelopes.isEmpty) {
+              throw StateError('No recipients in this conversation');
+            }
           }
           await _db
               .into(_db.backupState)
@@ -297,11 +341,7 @@ class ChatController extends ChangeNotifier {
           messageId: messageId,
         );
       } else {
-        await _signalR.sendMessage(
-          envelopes.keys.single,
-          envelopes.values.single,
-          messageId: messageId,
-        );
+        await _signalR.sendDirectFanout(envelopes, messageId: messageId);
       }
       await _db.transaction(() async {
         await _status(messageId, 'sent');

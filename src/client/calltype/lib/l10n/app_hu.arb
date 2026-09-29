@@ -75,6 +75,7 @@
   "chatCallFailed": "Nem sikerült elindítani a hívást. Ellenőrizd a kapcsolatot és az engedélyeket.",
   "chatOffline": "Offline. A sikertelen üzenetek újraküldhetők.",
   "chatEmpty": "Még nincsenek üzenetek. Köszönj be!",
+  "msgUnsupportedType": "Ehhez az üzenethez a Jay újabb verziója kell. Frissítsd az alkalmazást a megtekintéshez.",
   "chatBotNoticeDismiss": "Értem",
   "chatAttachmentTooLarge": "A béta legfeljebb {maxKib} KiB méretű mellékleteket támogat.",
   "chatAttachmentFailed": "Nem sikerült elküldeni a mellékletet.",

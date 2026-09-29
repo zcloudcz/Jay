@@ -10,6 +10,7 @@ import '../../core/network/signalr_client.dart';
 import '../contacts/contacts_controller.dart';
 import '../chat_list/chat_list_controller.dart';
 import 'chat_controller.dart';
+import 'inbound/content_handler.dart' show renderableContentTypes;
 import 'message_bubble.dart';
 import 'message_input.dart';
 import 'attachment.dart';
@@ -331,7 +332,9 @@ class ChatScreen extends StatelessWidget {
                     itemCount: controller.messages.length,
                     itemBuilder: (context, index) {
                       final message = controller.messages[index];
-                      final mine = message.senderId == controller.myDeviceId;
+                      // Through the DeviceDirectory (D §4.1): with more
+                      // than one own device, "mine" is not just this id.
+                      final mine = controller.isMine(message);
                       if (message.type == 'call-event') {
                         return _CallEventLine(body: message.body ?? '');
                       }
@@ -376,7 +379,13 @@ class ChatScreen extends StatelessWidget {
                             )
                           else
                             MessageBubble(
-                              text: message.body ?? '',
+                              // A type this version cannot render (K1) is
+                              // kept and shown as a placeholder — never as
+                              // its raw JSON body.
+                              text:
+                                  renderableContentTypes.contains(message.type)
+                                  ? message.body ?? ''
+                                  : l10n.msgUnsupportedType,
                               time: DateFormat.Hm(l10n.localeName).format(
                                 message.createdAt.toLocal(),
                               ),

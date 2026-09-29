@@ -75,6 +75,7 @@
   "chatCallFailed": "Apelul nu a putut fi inițiat. Verifică conexiunea și permisiunile.",
   "chatOffline": "Offline. Mesajele netrimise pot fi retrimise.",
   "chatEmpty": "Niciun mesaj încă. Spune salut!",
+  "msgUnsupportedType": "Acest mesaj necesită o versiune mai nouă de Jay. Actualizează aplicația ca să-l vezi.",
   "chatBotNoticeDismiss": "Am înțeles",
   "chatAttachmentTooLarge": "În versiunea beta, atașamentele pot avea cel mult {maxKib} KiB.",
   "chatAttachmentFailed": "Atașamentul nu a putut fi trimis.",

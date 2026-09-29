@@ -116,6 +116,10 @@
   "chatCallFailed": "Unable to start the call. Check connection and permissions.",
   "chatOffline": "Offline. Failed messages can be retried.",
   "chatEmpty": "No messages yet. Say hello!",
+  "msgUnsupportedType": "This message needs a newer version of Jay. Update the app to see it.",
+  "@msgUnsupportedType": {
+    "description": "Placeholder bubble for a message type this app version cannot show yet (contracts K1). The message is kept and shown after an update."
+  },
   "chatBotNoticeDismiss": "Got it",
   "chatAttachmentTooLarge": "Beta attachments support up to {maxKib} KiB.",
   "@chatAttachmentTooLarge": {

@@ -75,6 +75,7 @@
   "chatCallFailed": "无法发起通话。请检查网络连接和权限。",
   "chatOffline": "离线。发送失败的消息可以重试。",
   "chatEmpty": "暂无消息。打个招呼吧!",
+  "msgUnsupportedType": "此消息需要更新版本的 Jay。请更新应用后查看。",
   "chatBotNoticeDismiss": "知道了",
   "chatAttachmentTooLarge": "测试版附件最大支持 {maxKib} KiB。",
   "chatAttachmentFailed": "无法发送附件。",

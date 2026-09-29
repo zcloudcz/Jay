@@ -296,13 +296,10 @@ class SignalRClient {
     required String messageId,
   }) async {
     if (envelopes.isEmpty) throw ArgumentError('No recipients');
-    final connection = _requireConnection();
+    // Through [sendMessage] (not a raw invoke) so a subclass/test double
+    // that intercepts direct sends keeps seeing every one of them.
     for (final entry in envelopes.entries) {
-      await connection.invoke('SendReliableMessage', <Object>[
-        entry.key,
-        messageId,
-        entry.value,
-      ]);
+      await sendMessage(entry.key, entry.value, messageId: messageId);
     }
   }
 
