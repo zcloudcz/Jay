@@ -1,6 +1,28 @@
-# Stub for P5 (stream P). It exists so release-native.yml is a valid
-# dispatcher from the first commit; P5 replaces the job with the real
-# ios build. Fails loudly instead of pretending to have built anything.
+# ---------------------------------------------------------------------------
+# Release iOS — reusable, called by release-native.yml (stream P, P5)
+# ---------------------------------------------------------------------------
+# Replaces ios-testflight.yml. The ARCHIVE is signed now, not only the export:
+# the old `flutter build ipa --no-codesign` archive carried no entitlements,
+# and it is not guaranteed that the export step adds aps-environment and
+# associated-domains back — without them push and universal links fail
+# silently on the device. Automatic signing with the App Store Connect API key
+# ("cloud signing") works for archive and export alike, so no .p12 or
+# .mobileprovision is stored anywhere.
+#
+# DEVELOPMENT_TEAM is passed on the xcodebuild command line from the
+# APPLE_TEAM_ID variable and never committed, so the same project still
+# builds with --no-codesign (ci.yml dev-build ios-unsigned, forks).
+#
+# Without the App Store Connect secrets the job degrades to an UNSIGNED
+# .app tarball (artifact suffix -unsigned); upload=true then fails.
+#
+# Environment apple-testflight:
+#   secrets   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_BASE64 (base64 of the .p8)
+#   variable  APPLE_TEAM_ID
+# Repo: secrets FIREBASE_CLIENT_CONFIG_JSON_B64,
+#       FIREBASE_APPLE_GOOGLE_SERVICE_INFO_PLIST_B64 (optional, R-P12),
+#       variable CALLTYPE_API_BASE_URL.
+# ---------------------------------------------------------------------------
 
 name: Release ios (reusable)
 
@@ -17,6 +39,7 @@ on:
         required: true
         type: string
       upload:
+        description: 'true = upload to App Store Connect (TestFlight); false = keep the IPA as an artifact'
         required: false
         type: boolean
         default: false
@@ -26,9 +49,196 @@ permissions:
 
 jobs:
   ios:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    runs-on: macos-latest
+    timeout-minutes: 60
+    environment: apple-testflight
+    defaults:
+      run:
+        working-directory: src/client/calltype
     steps:
-      - run: |
-          echo "::error::ios release is not implemented yet (P5)."
-          exit 1
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+
+      # Fail (or pick the unsigned path) before spending ~20 macOS minutes.
+      - name: Check inputs and decide signed vs. unsigned
+        id: mode
+        env:
+          HAS_ASC: ${{ secrets.ASC_KEY_ID != '' && secrets.ASC_ISSUER_ID != '' && secrets.ASC_KEY_P8_BASE64 != '' }}
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          UPLOAD: ${{ inputs.upload }}
+          API_URL: ${{ vars.CALLTYPE_API_BASE_URL }}
+        run: |
+          set -euo pipefail
+          bash "$GITHUB_WORKSPACE/.github/scripts/check-api-url.sh" "$API_URL"
+          if [ "$HAS_ASC" = true ] && [ -n "$TEAM_ID" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          elif [ "$UPLOAD" = true ]; then
+            echo "::error::TestFlight upload needs ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_BASE64 and the APPLE_TEAM_ID variable in environment apple-testflight."
+            exit 1
+          else
+            echo "::warning::No Apple signing configured: building an UNSIGNED iOS app (compile proof only, not installable)."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.41.x'
+          cache: true
+      # The drift *.g.dart of calltype_core is git-ignored; generate it first.
+      - name: calltype_core codegen
+        working-directory: src/client/calltype_core
+        run: |
+          dart pub get
+          dart run build_runner build --delete-conflicting-outputs
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Firebase config (P3b)
+        env:
+          FIREBASE_CLIENT_CONFIG_JSON_B64: ${{ secrets.FIREBASE_CLIENT_CONFIG_JSON_B64 }}
+          FIREBASE_APPLE_GOOGLE_SERVICE_INFO_PLIST_B64: ${{ secrets.FIREBASE_APPLE_GOOGLE_SERVICE_INFO_PLIST_B64 }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/firebase-config.sh" ios
+
+      # --config-only writes Generated.xcconfig (dart-defines, build name and
+      # number, SPLIT_DEBUG_INFO) and runs `pod install` (verified in the
+      # Flutter 3.41 tool source), so xcodebuild below builds exactly this.
+      - name: Generate Xcode configuration
+        env:
+          API_URL: ${{ vars.CALLTYPE_API_BASE_URL }}
+          BUILD_NAME: ${{ inputs.build_name }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          SIGNED: ${{ steps.mode.outputs.signed }}
+        run: |
+          set -euo pipefail
+          EXTRA=()
+          if [ "$SIGNED" != true ]; then EXTRA+=(--no-codesign); fi
+          # R-P7: no --obfuscate, symbols split off and kept as an artifact.
+          # ${EXTRA[@]+...}: an empty array under `set -u` breaks bash 3.2.
+          flutter build ios --release --config-only ${EXTRA[@]+"${EXTRA[@]}"} \
+            --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" \
+            --split-debug-info="$PWD/build/symbols/ios" \
+            --dart-define=API_BASE_URL="$API_URL" \
+            --dart-define=JAY_DISTRIBUTION=testflight \
+            --dart-define=JAY_COMMIT_SHA="$COMMIT_SHA" \
+            --dart-define-from-file=build-defines/firebase.json
+
+      - name: Build unsigned app (no signing configured)
+        if: steps.mode.outputs.signed != 'true'
+        env:
+          API_URL: ${{ vars.CALLTYPE_API_BASE_URL }}
+          BUILD_NAME: ${{ inputs.build_name }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          flutter build ios --release --no-codesign \
+            --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" \
+            --split-debug-info="$PWD/build/symbols/ios" \
+            --dart-define=API_BASE_URL="$API_URL" \
+            --dart-define=JAY_DISTRIBUTION=testflight \
+            --dart-define=JAY_COMMIT_SHA="$COMMIT_SHA" \
+            --dart-define-from-file=build-defines/firebase.json
+          mkdir -p build/release
+          tar -czf build/release/Jay-ios-unsigned.tar.gz -C build/ios/iphoneos .
+
+      - name: Archive, verify entitlements, export
+        if: steps.mode.outputs.signed == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          UPLOAD: ${{ inputs.upload }}
+        run: |
+          set -euo pipefail
+          KEY_DIR="$RUNNER_TEMP/asc"
+          mkdir -p "$KEY_DIR"
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          # Runner temp only, removed on exit: the key never lands in the
+          # workspace or in an uploaded artifact.
+          trap 'rm -rf "$KEY_DIR"' EXIT
+          printf '%s' "$ASC_KEY_P8_BASE64" | tr -d ' \r\n\t' | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          AUTH=(-allowProvisioningUpdates
+                -authenticationKeyPath "$KEY_PATH"
+                -authenticationKeyID "$ASC_KEY_ID"
+                -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+
+          ARCHIVE=build/ios/archive/Runner.xcarchive
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE" archive "${AUTH[@]}" \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic
+
+          # Push and universal links need these in the SIGNED binary; a
+          # missing one only shows as silence on the device, so stop here.
+          APP=$(find "$ARCHIVE/Products/Applications" -maxdepth 1 -name '*.app' | head -n 1)
+          codesign -d --entitlements :- "$APP" > "$RUNNER_TEMP/ent.plist" 2>/dev/null
+          plutil -extract aps-environment raw "$RUNNER_TEMP/ent.plist" >/dev/null ||
+            { echo "::error::archive has no aps-environment entitlement (Push Notifications capability on App ID cz.zcloud.jay?)"; exit 1; }
+          plutil -extract com.apple.developer.associated-domains xml1 -o - "$RUNNER_TEMP/ent.plist" >/dev/null ||
+            { echo "::error::archive has no associated-domains entitlement (Associated Domains capability on App ID cz.zcloud.jay?)"; exit 1; }
+
+          if [ "$UPLOAD" = true ]; then DEST="upload"; else DEST="export"; fi
+          sed -e "s/__TEAM_ID__/$TEAM_ID/" -e "s/__DESTINATION__/$DEST/" \
+            ios/ci/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive -archivePath "$ARCHIVE" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath build/ios/ipa "${AUTH[@]}"
+
+          mkdir -p build/release
+          # dSYMs for symbolicating native crashes; Dart symbols are in build/symbols/ios.
+          (cd "$ARCHIVE" && zip -qr "$OLDPWD/build/release/Jay-ios-dSYMs.zip" dSYMs)
+          if [ "$DEST" = export ]; then
+            cp build/ios/ipa/*.ipa build/release/Jay.ipa
+          else
+            # Uploaded: record the hash of the signed app that went to Apple.
+            (cd "$ARCHIVE/Products/Applications" && zip -qry "$OLDPWD/build/release/Jay-ios-app.zip" "$(basename "$APP")")
+          fi
+
+      - name: Write build manifest
+        env:
+          SIGNED: ${{ steps.mode.outputs.signed }}
+          UPLOAD: ${{ inputs.upload }}
+          API_URL: ${{ vars.CALLTYPE_API_BASE_URL }}
+          BUILD_NAME: ${{ inputs.build_name }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$SIGNED" != true ]; then A=build/release/Jay-ios-unsigned.tar.gz
+          elif [ "$UPLOAD" = true ]; then A=build/release/Jay-ios-app.zip
+          else A=build/release/Jay.ipa; fi
+          bash "$GITHUB_WORKSPACE/.github/scripts/build-manifest.sh" build-manifest.json "$A" \
+            commitSha="$COMMIT_SHA" platform=ios distribution=testflight \
+            buildName="$BUILD_NAME" buildNumber:="$BUILD_NUMBER" \
+            apiBaseUrl="$API_URL" signed:="$SIGNED" uploaded:="$UPLOAD"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calltype-release-ios-${{ inputs.commit_sha }}${{ steps.mode.outputs.signed != 'true' && '-unsigned' || '' }}
+          path: |
+            src/client/calltype/build/release
+            src/client/calltype/build/symbols/ios
+            src/client/calltype/build-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Summary
+        if: success()
+        env:
+          SIGNED: ${{ steps.mode.outputs.signed }}
+          UPLOAD: ${{ inputs.upload }}
+          BUILD_NAME: ${{ inputs.build_name }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          {
+            echo "iOS $BUILD_NAME ($BUILD_NUMBER) of $COMMIT_SHA — signed=$SIGNED uploaded=$UPLOAD."
+            if [ "$UPLOAD" = true ]; then
+              echo "Processing in App Store Connect takes ~5-15 min. Then answer Export Compliance (docs/acceptance/ios-testflight.md, R-P4) and add the build to a TestFlight group."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
