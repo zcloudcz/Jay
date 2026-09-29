@@ -22,6 +22,8 @@
 # Output: key=value lines on stdout; also appended to $GITHUB_OUTPUT when set.
 # Env overrides (used by test-version.sh): JAY_RELEASE_REF (default
 # origin/master), JAY_PUBSPEC_PATH (default src/client/calltype/pubspec.yaml).
+# JAY_ALLOW_NON_MASTER=true turns the master check into a warning (deploy.yml
+# only, never for store uploads).
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -48,8 +50,17 @@ MAX_PART=65535
 
 git cat-file -e "$SHA^{commit}" 2>/dev/null || fail "commit $SHA does not exist in this clone"
 git rev-parse --verify --quiet "$RELEASE_REF^{commit}" >/dev/null || fail "release ref $RELEASE_REF not found (fetch-depth: 0 fetches it)"
-git merge-base --is-ancestor "$SHA" "$RELEASE_REF" ||
-  fail "commit $SHA is not on $RELEASE_REF. Release only from master so build numbers stay monotonic."
+if ! git merge-base --is-ancestor "$SHA" "$RELEASE_REF"; then
+  # deploy.yml (API + web to beta) may ship a branch commit: the web has no
+  # store that rejects a lower build number, and blocking it would stop
+  # integration-branch deploys. Store releases (release-native.yml) never set
+  # this, so their numbers stay monotonic.
+  if [ "${JAY_ALLOW_NON_MASTER:-false}" = true ]; then
+    echo "::warning::commit $SHA is not on $RELEASE_REF; its build number may be lower than an earlier release."
+  else
+    fail "commit $SHA is not on $RELEASE_REF. Release only from master so build numbers stay monotonic."
+  fi
+fi
 
 PUBSPEC_TEXT=$(git show "$SHA:$PUBSPEC" 2>/dev/null) || fail "$PUBSPEC not found at $SHA"
 VERSION_LINE=$(printf '%s\n' "$PUBSPEC_TEXT" | grep -E '^version:' | head -n 1 || true)

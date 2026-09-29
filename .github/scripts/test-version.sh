@@ -66,6 +66,10 @@ GITHUB_OUTPUT="$TMP/gh_out" run "$C3" >/dev/null &&
 o=$(run "$SIDE") && bad "side-branch commit accepted: $o" ||
   { printf '%s' "$o" | grep -q 'is not on master' && ok "side-branch commit rejected" || bad "side branch msg: $o"; }
 
+o=$(JAY_ALLOW_NON_MASTER=true run "$SIDE") && [ "$(get "$o" build_number)" = 4 ] &&
+  printf '%s' "$o" | grep -q '::warning::' && ok "side branch allowed with a warning for deploy.yml" ||
+  bad "JAY_ALLOW_NON_MASTER: $o"
+
 o=$(run master) && bad "branch name accepted" || ok "branch name instead of SHA rejected"
 o=$(run "${C3:0:12}") && bad "short SHA accepted" || ok "short SHA rejected"
 o=$(run "$C3" -1) && bad "negative offset accepted" || ok "negative offset rejected"

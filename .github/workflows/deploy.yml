@@ -30,8 +30,18 @@
 #     AZURE_SWA_DEPLOYMENT_TOKEN
 #                              — Static Web Apps deploy action still only supports
 #                                a deployment token, not OIDC; scope it to this SWA
+#     FIREBASE_CLIENT_CONFIG_JSON_B64
+#                              — optional; base64 of the flat FIREBASE_* JSON
+#                                (gap-platform.md §9). Without it the web build
+#                                has no push (PushStatus.notConfigured).
 #   Old ACR_LOGIN_SERVER/ACR_USERNAME/ACR_PASSWORD/AZURE_CREDENTIALS secrets are
 #   no longer used by this workflow and should be removed from the repo.
+#
+# Native clients (Android, iOS, macOS, Windows, Linux) are no longer built
+# here: signing and store uploads need their own environments and macOS
+# minutes should not be spent on every web deploy. They are released with
+# release-native.yml, which uses the same version.sh so the web and the store
+# builds of one SHA carry the same build number.
 # ---------------------------------------------------------------------------
 
 name: Deploy
@@ -83,6 +93,8 @@ jobs:
   # Re-run the same gates as ci.yml, pinned to the exact SHA being released.
   # This guarantees the tests that gate this deploy ran against the bytes
   # that will actually be built and shipped below, not whatever HEAD is now.
+  # Backend here; the Flutter gate is the reusable _client-tests.yml, shared
+  # with release-native.yml (a reusable workflow cannot run inside a job).
   test:
     needs: validate-inputs
     runs-on: ubuntu-latest
@@ -101,25 +113,39 @@ jobs:
           restore-keys: nuget-${{ runner.os }}-
       - name: Backend tests
         run: dotnet test src/server/CallType.Api.Tests --configuration Release --logger trx --results-directory TestResults
-      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
-        with:
-          flutter-version: '3.41.x'
-          cache: true
-      - name: Flutter analyze + test
-        working-directory: src/client/calltype
-        run: |
-          # Pure-Dart core first: the app needs its generated drift code.
-          (cd ../calltype_core && dart pub get && dart run build_runner build --delete-conflicting-outputs && dart analyze && dart test)
-          flutter pub get
-          dart run build_runner build --delete-conflicting-outputs
-          flutter analyze
-          flutter test
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: deploy-backend-test-results-${{ inputs.commit_sha }}
           path: TestResults
           retention-days: 30
+
+  client-tests:
+    needs: validate-inputs
+    uses: ./.github/workflows/_client-tests.yml
+    with:
+      commit_sha: ${{ inputs.commit_sha }}
+
+  # One build name/number per SHA, shared with release-native.yml (P2). The
+  # web may be deployed from a branch commit (integration deploys), so the
+  # master-ancestor rule is only a warning here; store releases keep it strict.
+  version:
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build_name: ${{ steps.v.outputs.build_name }}
+      build_number: ${{ steps.v.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: v
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          JAY_ALLOW_NON_MASTER: 'true'
+        run: bash .github/scripts/version.sh "$COMMIT_SHA"
 
   # N06: CycloneDX SBOM for every Dart/Flutter package, generated once (not
   # once per build-clients matrix leg) and uploaded next to the other release
@@ -129,7 +155,7 @@ jobs:
   # this step also blocks the release on a known vulnerability in any pub
   # lockfile, which is a deliberate extra release gate, not a bug.
   sbom-dart:
-    needs: test
+    needs: [test, client-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -156,7 +182,7 @@ jobs:
           retention-days: 90
 
   build-api:
-    needs: test
+    needs: [test, client-tests]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -205,37 +231,13 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  # Distribution builds. Unlike ci.yml's dev-build, these refuse to build
+  # Web distribution build. Unlike ci.yml's dev-build, it refuses to build
   # without a real, non-local production API URL — an artifact with a
   # localhost/HTTP fallback baked in must never leave this workflow.
-  build-clients:
-    needs: test
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: web
-            os: ubuntu-latest
-            command: flutter build web --release
-            artifact: build/web
-          - platform: android
-            os: ubuntu-latest
-            command: flutter build apk --release
-            artifact: build/app/outputs/flutter-apk/app-release.apk
-          - platform: windows
-            os: windows-latest
-            command: flutter build windows --release
-            artifact: build/windows/x64/runner/Release
-          - platform: macos
-            os: macos-latest
-            command: flutter build macos --release
-            artifact: build/calltype-macos.tar.gz
-          - platform: ios-unsigned
-            os: macos-latest
-            command: flutter build ios --release --no-codesign
-            artifact: build/calltype-ios-unsigned.tar.gz
+  build-web:
+    needs: [test, client-tests, version]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: src/client/calltype
@@ -243,28 +245,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
       - name: Refuse an unusable production API URL
-        shell: bash
-        run: |
-          set -euo pipefail
-          URL="${{ vars.CALLTYPE_API_BASE_URL }}"
-          if [ -z "$URL" ]; then
-            echo "::error::CALLTYPE_API_BASE_URL repository variable is empty. Set it to the deployed API's HTTPS URL before releasing."
-            exit 1
-          fi
-          case "$URL" in
-            http://*) echo "::error::CALLTYPE_API_BASE_URL must be HTTPS, got: $URL"; exit 1 ;;
-          esac
-          case "$URL" in
-            *localhost*|*127.0.0.1*|*0.0.0.0*|*::1*)
-              echo "::error::CALLTYPE_API_BASE_URL points at a loopback address, not a public endpoint: $URL"
-              exit 1 ;;
-          esac
-      - uses: actions/setup-java@v4
-        if: matrix.platform == 'android'
-        with:
-          distribution: temurin
-          java-version: '17'
+        env:
+          API_URL: ${{ vars.CALLTYPE_API_BASE_URL }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/check-api-url.sh" "$API_URL"
       - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
         with:
           flutter-version: '3.41.x'
@@ -279,52 +264,42 @@ jobs:
           dart run build_runner build --delete-conflicting-outputs
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
+      # Writes build-defines/firebase.json and, with a complete web config,
+      # web/firebase-config.js for the push service worker (P3b).
+      - name: Firebase config (P3b)
+        env:
+          FIREBASE_CLIENT_CONFIG_JSON_B64: ${{ secrets.FIREBASE_CLIENT_CONFIG_JSON_B64 }}
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/firebase-config.sh" web
+      # --build-name/--build-number also land in build/web/version.json, which
+      # package_info_plus reads for the version shown in Settings (P2).
       - name: Build release artifact
-        run: ${{ matrix.command }} --dart-define=API_BASE_URL=${{ vars.CALLTYPE_API_BASE_URL }}
-      - name: Archive macOS bundle preserving executable permissions
-        if: matrix.platform == 'macos'
-        run: tar -czf build/calltype-macos.tar.gz -C build/macos/Build/Products/Release .
-      - name: Archive unsigned iOS bundle (no Apple signing identity configured — clearly unsigned)
-        if: matrix.platform == 'ios-unsigned'
-        run: tar -czf build/calltype-ios-unsigned.tar.gz -C build/ios/iphoneos .
-      - name: Zip whole Windows runtime directory
-        if: matrix.platform == 'windows'
-        shell: bash
+        env:
+          API_URL: ${{ vars.CALLTYPE_API_BASE_URL }}
+          BUILD_NAME: ${{ needs.version.outputs.build_name }}
+          BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
         run: |
-          cd build/windows/x64/runner/Release
-          7z a -tzip ../../../../../calltype-windows.zip .
-      - name: Write build manifest (commit, tool versions, API URL, artifact hash)
-        shell: bash
+          flutter build web --release \
+            --build-name="$BUILD_NAME" --build-number="$BUILD_NUMBER" \
+            --dart-define=API_BASE_URL="$API_URL" \
+            --dart-define=JAY_DISTRIBUTION=web \
+            --dart-define=JAY_COMMIT_SHA="$COMMIT_SHA" \
+            --dart-define-from-file=build-defines/firebase.json
+      - name: Write build manifest (commit, version, tool versions, API URL, artifact hash)
+        env:
+          API_URL: ${{ vars.CALLTYPE_API_BASE_URL }}
+          BUILD_NAME: ${{ needs.version.outputs.build_name }}
+          BUILD_NUMBER: ${{ needs.version.outputs.build_number }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
         run: |
-          set -euo pipefail
-          # `--machine` prints pretty JSON ("frameworkVersion": "x.y.z"), so parse
-          # with sed rather than assuming compact output.
-          FLUTTER_VER=$(flutter --version --machine | sed -nE 's/.*"frameworkVersion": *"([^"]+)".*/\1/p')
-          if [ "${{ matrix.platform }}" = "windows" ]; then
-            ARTIFACT_PATH="calltype-windows.zip"
-          else
-            ARTIFACT_PATH="${{ matrix.artifact }}"
-          fi
-          if [ -d "$ARTIFACT_PATH" ]; then
-            SHA256=$(find "$ARTIFACT_PATH" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
-          else
-            SHA256=$(sha256sum "$ARTIFACT_PATH" | cut -d' ' -f1)
-          fi
-          cat > build-manifest.json <<EOF
-          {
-            "commitSha": "${{ inputs.commit_sha }}",
-            "platform": "${{ matrix.platform }}",
-            "flutterVersion": "$FLUTTER_VER",
-            "apiBaseUrl": "${{ vars.CALLTYPE_API_BASE_URL }}",
-            "artifactSha256": "$SHA256",
-            "unsigned": ${{ matrix.platform == 'ios-unsigned' && 'true' || 'false' }}
-          }
-          EOF
+          bash "$GITHUB_WORKSPACE/.github/scripts/build-manifest.sh" build-manifest.json build/web \
+            commitSha="$COMMIT_SHA" platform=web distribution=web \
+            buildName="$BUILD_NAME" buildNumber:="$BUILD_NUMBER" apiBaseUrl="$API_URL"
       - uses: actions/upload-artifact@v4
         with:
-          name: calltype-release-${{ matrix.platform }}-${{ inputs.commit_sha }}
+          name: calltype-release-web-${{ inputs.commit_sha }}
           path: |
-            src/client/calltype/${{ matrix.platform == 'windows' && 'calltype-windows.zip' || matrix.artifact }}
+            src/client/calltype/build/web
             src/client/calltype/build-manifest.json
           if-no-files-found: error
           retention-days: 90
@@ -365,7 +340,7 @@ jobs:
             --type zip
 
   deploy-web:
-    needs: build-clients
+    needs: build-web
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: calltype-beta
