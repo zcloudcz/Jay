@@ -8,7 +8,7 @@
 PRODUCT_NAME = calltype
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.calltype.calltype
+PRODUCT_BUNDLE_IDENTIFIER = cz.zcloud.jay
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 com.calltype. All rights reserved.
