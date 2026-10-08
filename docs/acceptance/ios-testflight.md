@@ -1,6 +1,6 @@
 # iOS TestFlight — postup (R01 / G3)
 
-Stav: workflow a projekt připraveny (bundle ID `cz.zcloud.jay`, min. iOS 14, ikona Jay bez alfa kanálu, purpose strings pro kameru, mikrofon, Face ID a knihovnu fotek). **První upload: NOT_RUN** — čeká na kroky vlastníka Apple účtu níže.
+Stav: workflow a projekt připraveny (bundle ID `cz.zcloud.jay`, min. iOS 14, ikona Jay bez alfa kanálu, purpose strings pro kameru, mikrofon, Face ID a knihovnu fotek). **Jednorázové kroky vlastníka HOTOVO 2026-10-08** (přes Chrome): App ID `cz.zcloud.jay` s capability Push Notifications, ASC aplikace **„Jay Messenger“** (název „Jay“ je v App Store obsazený; iOS + macOS, SKU `jay`, ASC id 6820712543), Team Key „Jay CI“ (App Manager, Key ID `6KCGY8AF8B`), Team ID `DZR3FD9ZNT`; v GitHub env `apple-testflight` nastaveny `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8_BASE64` a `APPLE_TEAM_ID`. `.p8` leží v `Downloads` vlastníka — přesunout do správce hesel. **První upload: NOT_RUN** — čeká na public okno.
 
 ## Jednorázově (vlastník Apple Developer účtu)
 
