@@ -11,4 +11,4 @@ PRODUCT_NAME = calltype
 PRODUCT_BUNDLE_IDENTIFIER = cz.zcloud.jay
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.calltype. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 zcloud.cz. All rights reserved.
