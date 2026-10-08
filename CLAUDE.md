@@ -323,3 +323,7 @@ Audit-database migrations are NOT applied by the deploy or at startup on beta
 (`ConnectionStrings__AuditMigrations` is deliberately unset so the ops password
 never sits next to the app password). A change to `CallType.Audit/Migrations`
 means a manual step before the deploy — see `docs/HANDOFF-2026-09-18.md`.
+
+## Second brain
+@C:/GIT/brain/projects/jay-zmessanger/overview.md
+Rozhodnutí a pasti: `C:\GIT\brain\projects\jay-zmessanger\{decisions,gotchas}.md` (čti na vyžádání, ne vždy).
