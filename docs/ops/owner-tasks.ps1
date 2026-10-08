@@ -51,13 +51,21 @@ function Step-AuditMigrations {
     Need dotnet
     $sql = Join-Path $Tmp 'audit-migrations.sql'
     Write-Host "`n== Generating idempotent migration script → $sql"
-    dotnet ef migrations script --idempotent --project $AuditProj --startup-project $ApiProj -o $sql | Out-Null
+    # The API startup project hosts two DbContexts, so the context must be named.
+    dotnet ef migrations script --idempotent --project $AuditProj --startup-project $ApiProj --context AuditDbContext -o $sql
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $sql)) { throw 'dotnet ef failed — see output above.' }
     $pw = Plain (Read-Host "Password for $PgOps@$PgDb" -AsSecureString)
 
     Write-Host "`n== Applied migrations on beta:"
-    Invoke-Psql $pw @('-c', 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY 1;')
+    $applied = (Invoke-Psql $pw @('-At', '-c', 'SELECT "MigrationId" FROM "__EFMigrationsHistory" ORDER BY 1;')) -split "`n" | Where-Object { $_ }
+    $applied | ForEach-Object { "  $_" }
     Write-Host "`n== Migrations in repo:"
-    Get-ChildItem "$AuditProj/Migrations" -Filter '*.cs' | Where-Object Name -notmatch 'Designer|Snapshot' | ForEach-Object { "  $($_.BaseName)" }
+    $inRepo = Get-ChildItem "$AuditProj/Migrations" -Filter '*.cs' | Where-Object Name -notmatch 'Designer|Snapshot' | ForEach-Object BaseName
+    $inRepo | ForEach-Object { "  $_" }
+
+    $missing = $inRepo | Where-Object { $_ -notin $applied }
+    if (-not $missing) { Write-Host "`nBeta is up to date — nothing to apply."; return }
+    Write-Host "`nMissing on beta:"; $missing | ForEach-Object { "  $_" }
 
     if (Confirm "`nApply the script (idempotent, safe to re-run) and re-lock __EFMigrationsHistory?") {
         Invoke-Psql $pw @('-v', 'ON_ERROR_STOP=1', '-f', '/in.sql') -MountFile $sql
