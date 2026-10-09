@@ -139,28 +139,91 @@ List<String> splitMessage(String text, {int limit = maxReplyChars}) {
   return chunks;
 }
 
+/// What to do with a peer-bot message, see [PeerRateLimiter.check].
+enum PeerVerdict { allow, notify, drop }
+
+/// Sliding-window brake on bot-to-bot turns, per conversation.
+///
+/// WHY: two agents that may talk to each other can answer each other forever
+/// and burn tokens. A human message ([reset]) is the only thing that re-arms
+/// the conversation early. The clock is injected so tests need no timers.
+// ponytail: in-memory only, counters reset on restart. Persist them if a
+// restart loop ever becomes a way around the limit.
+class PeerRateLimiter {
+  PeerRateLimiter({
+    required this.limit,
+    required this.window,
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now;
+
+  final int limit;
+  final Duration window;
+  final DateTime Function() _now;
+  final _turns = <String, List<DateTime>>{};
+  final _notified = <String>{};
+
+  /// [allow] counts one turn; [notify] is the FIRST refusal of an exhausted
+  /// window (caller sends the notice); [drop] is every later refusal.
+  PeerVerdict check(String conversationId) {
+    final now = _now();
+    final turns = _turns.putIfAbsent(conversationId, () => []);
+    turns.removeWhere((t) => now.difference(t) >= window);
+    if (turns.length < limit) {
+      turns.add(now);
+      _notified.remove(conversationId); // window slid: notice can fire again
+      return PeerVerdict.allow;
+    }
+    return _notified.add(conversationId) ? PeerVerdict.notify : PeerVerdict.drop;
+  }
+
+  /// A human spoke: forget the count and the "notice sent" flag.
+  void reset(String conversationId) {
+    _turns.remove(conversationId);
+    _notified.remove(conversationId);
+  }
+}
+
 /// Wires [bot] to [backend], guarded by the handle allowlist.
 ///
 /// WHY fail-closed: Hermes has a terminal and tools. Anyone who learns the
 /// bot's handle can message it, so "no allowlist" must mean "nobody", never
 /// "everybody". Disallowed senders are dropped by the runtime BEFORE
 /// decryption — no backend call, no reply, no typing indicator.
+///
+/// [peerHandles] is a second allowlist of other bots, accepted in groups only
+/// and throttled to [peerReplyLimit] turns per [peerReplyWindow] per
+/// conversation until a human writes again.
 Future<void> runBridge(
   CallTypeBot bot, {
   required Set<String> allowedHandles,
+  Set<String> peerHandles = const {},
+  int peerReplyLimit = 5,
+  Duration peerReplyWindow = const Duration(minutes: 30),
+  DateTime Function()? now,
   required Backend backend,
   required void Function(String) log,
 }) async {
   // Incoming messages carry device ids, not handles, so resolve once here.
   // ponytail: resolved at startup only — restart the bridge after changing
-  // ALLOWED_HANDLES (or after an allowed user re-installs and gets a new id).
-  final allowedIds = <String>{};
-  for (final handle in allowedHandles) {
-    final id = await bot.deviceIdForHandle(handle);
-    id == null
-        ? log('ALLOWED_HANDLES: $handle is unknown to the server — ignored.')
-        : allowedIds.add(id);
+  // ALLOWED_HANDLES / PEER_BOT_HANDLES (or after someone re-installs and gets
+  // a new id).
+  final allowedIds = <String, String>{}; // device id -> handle
+  final peerIds = <String, String>{};
+  Future<void> resolve(
+    String name,
+    Set<String> handles,
+    Map<String, String> into,
+  ) async {
+    for (final handle in handles) {
+      final id = await bot.deviceIdForHandle(handle);
+      id == null
+          ? log('$name: $handle is unknown to the server — ignored.')
+          : into[id] = handle;
+    }
   }
+
+  await resolve('ALLOWED_HANDLES', allowedHandles, allowedIds);
+  await resolve('PEER_BOT_HANDLES', peerHandles, peerIds);
   if (allowedIds.isEmpty) {
     log(
       'ALLOWED_HANDLES is empty (or nothing resolved): the bot will reply '
@@ -169,13 +232,44 @@ Future<void> runBridge(
     );
   }
 
+  final limiter = PeerRateLimiter(
+    limit: peerReplyLimit,
+    window: peerReplyWindow,
+    now: now,
+  );
+  final notice =
+      'Bot-to-bot limit reached ($peerReplyLimit per '
+      '${peerReplyWindow.inMinutes} min). Waiting for a human to mention me.';
+
   await bot.onMessage((message) async {
+    // In groups the runtime only calls this handler for messages that mention
+    // the bot, so only a human message WITH a mention re-arms the limit.
+    final human = allowedIds[message.senderId];
+    if (human != null) {
+      limiter.reset(message.conversationId);
+    } else {
+      // WHY groups only: a 1:1 bot-to-bot chat has no human watching it.
+      if (!message.isGroup) return;
+      switch (limiter.check(message.conversationId)) {
+        case PeerVerdict.drop:
+          return;
+        case PeerVerdict.notify:
+          await message.reply(notice);
+          return;
+        case PeerVerdict.allow:
+          break;
+      }
+    }
+    // The prefix tells the agent who is speaking (and that it is a bot).
+    final label = human != null
+        ? '[from $human]'
+        : '[from ${peerIds[message.senderId]} (bot)]';
     final reply = await backend(
-      message.text,
+      '$label: ${message.text}',
       conversationId: message.conversationId,
     );
     for (final chunk in splitMessage(reply)) {
       await message.reply(chunk);
     }
-  }, allowSender: allowedIds.contains);
+  }, allowSender: (id) => allowedIds.containsKey(id) || peerIds.containsKey(id));
 }

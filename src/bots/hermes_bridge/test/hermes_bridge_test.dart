@@ -181,9 +181,12 @@ void main() {
       hub.deliver(await alice.messageTo(bot.deviceId, api.botBundle, 'hi'));
       await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
 
-      expect(backendCalls, ['${alice.id}: hi']);
+      expect(backendCalls, ['${alice.id}: [from CT-AAAA-0001]: hi']);
       final sent = hub.calls('SendReliableMessage').single;
-      expect(await alice.read(bot.deviceId, sent[2] as String), 'answer to hi');
+      expect(
+        await alice.read(bot.deviceId, sent[2] as String),
+        'answer to [from CT-AAAA-0001]: hi',
+      );
     });
 
     test('disallowed handle: backend never called, no reply', () async {
@@ -210,6 +213,144 @@ void main() {
       expect(backendCalls, isEmpty);
       expect(hub.calls('SendReliableMessage'), isEmpty);
       expect(logs.join('\n'), contains('Set ALLOWED_HANDLES='));
+    });
+
+    group('peer bots', () {
+      const groupId = '00000000-0000-4000-8000-0000000000c0';
+      late FakeUser peer;
+      late FakeUser stranger;
+
+      setUp(() async {
+        peer = await FakeUser.create('00000000-0000-4000-8000-00000000000b');
+        stranger = await FakeUser.create('00000000-0000-4000-8000-00000000000c');
+        api.handles['CT-PEER-0002'] = peer.id;
+        api.keyBundles[alice.id] = await alice.keyBundle();
+        api.keyBundles[peer.id] = await peer.keyBundle();
+        api.groups[groupId] = [alice.id, peer.id, bot.deviceId];
+      });
+      tearDown(() async {
+        await peer.close();
+        await stranger.close();
+      });
+
+      Future<void> start({int limit = 2}) => runBridge(
+        bot,
+        allowedHandles: {'CT-AAAA-0001'},
+        peerHandles: {'CT-PEER-0002'},
+        peerReplyLimit: limit,
+        backend: backend,
+        log: logs.add,
+      );
+
+      // Sends [text] mentioning the bot and waits until it was acknowledged
+      // (the handler, including its replies, has finished by then).
+      Future<void> say(FakeUser from, String text, {String? group = groupId}) async {
+        final before = hub.calls('AcknowledgeMessage').length;
+        hub.deliver(
+          await from.messageTo(
+            bot.deviceId,
+            api.botBundle,
+            '@${bot.handle} $text',
+            groupId: group,
+          ),
+        );
+        await until(() => hub.calls('AcknowledgeMessage').length == before + 1);
+      }
+
+      test('peer in a group: backend gets the "(bot)" label', () async {
+        await start();
+        await say(peer, 'ping');
+        expect(backendCalls, ['$groupId: [from CT-PEER-0002 (bot)]: @${bot.handle} ping']);
+        expect(hub.calls('SendReliableGroupMessage'), hasLength(1));
+      });
+
+      test('human message gets the plain handle label', () async {
+        await start();
+        await say(alice, 'hi');
+        expect(backendCalls, ['$groupId: [from CT-AAAA-0001]: @${bot.handle} hi']);
+      });
+
+      test('peer in a 1:1 chat is ignored', () async {
+        await start();
+        await say(peer, 'psst', group: null);
+        expect(backendCalls, isEmpty);
+        expect(hub.calls('SendReliableMessage'), isEmpty);
+      });
+
+      test('sender in neither list is still dropped', () async {
+        await start();
+        await say(stranger, 'let me in');
+        expect(backendCalls, isEmpty);
+        expect(hub.calls('SendReliableGroupMessage'), isEmpty);
+      });
+
+      test('limit: one notice, then silence; a human message resets', () async {
+        await start(limit: 2);
+        await say(peer, 'one');
+        await say(peer, 'two');
+        expect(backendCalls, hasLength(2));
+        final answers = hub.calls('SendReliableGroupMessage').length;
+
+        await say(peer, 'three'); // over the limit -> notice, no backend
+        expect(backendCalls, hasLength(2));
+        expect(hub.calls('SendReliableGroupMessage'), hasLength(answers + 1));
+        final notice = hub.calls('SendReliableGroupMessage').last;
+        final body = (notice[2] as Map<String, String>)[alice.id]!;
+        expect(
+          await alice.read(bot.deviceId, body),
+          'Bot-to-bot limit reached (2 per 30 min). Waiting for a human to mention me.',
+        );
+
+        await say(peer, 'four'); // silent
+        expect(backendCalls, hasLength(2));
+        expect(hub.calls('SendReliableGroupMessage'), hasLength(answers + 1));
+
+        await say(alice, 'carry on'); // human resets
+        await say(peer, 'five');
+        expect(backendCalls, hasLength(4));
+      });
+    });
+  });
+
+  group('PeerRateLimiter', () {
+    var t = DateTime.utc(2026, 1, 1);
+    PeerRateLimiter make() => PeerRateLimiter(
+      limit: 2,
+      window: const Duration(minutes: 30),
+      now: () => t,
+    );
+    setUp(() => t = DateTime.utc(2026, 1, 1));
+
+    test('allows up to the limit, then notifies once, then drops', () {
+      final limiter = make();
+      expect(limiter.check('c'), PeerVerdict.allow);
+      expect(limiter.check('c'), PeerVerdict.allow);
+      expect(limiter.check('c'), PeerVerdict.notify);
+      expect(limiter.check('c'), PeerVerdict.drop);
+      expect(limiter.check('other'), PeerVerdict.allow); // per conversation
+    });
+
+    test('window slides: allowed again after it passes', () {
+      final limiter = make();
+      limiter.check('c');
+      limiter.check('c');
+      expect(limiter.check('c'), PeerVerdict.notify);
+      t = t.add(const Duration(minutes: 30));
+      expect(limiter.check('c'), PeerVerdict.allow);
+      // The notice flag was re-armed by the new window.
+      limiter.check('c');
+      expect(limiter.check('c'), PeerVerdict.notify);
+    });
+
+    test('reset clears the count and the notice flag', () {
+      final limiter = make();
+      limiter.check('c');
+      limiter.check('c');
+      limiter.check('c');
+      limiter.reset('c');
+      expect(limiter.check('c'), PeerVerdict.allow);
+      expect(limiter.check('c'), PeerVerdict.allow);
+      expect(limiter.check('c'), PeerVerdict.notify);
     });
   });
 }
