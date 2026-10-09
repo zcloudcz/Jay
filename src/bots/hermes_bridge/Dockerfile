@@ -1,7 +1,9 @@
 # Build context MUST be the repository's src/ directory, because the bridge
 # depends on sibling packages by path:
 #   docker build -f src/bots/hermes_bridge/Dockerfile -t hermes-bridge src
-FROM dart:stable AS build
+# Base images come through mirror.gcr.io (Google's Docker Hub mirror): the
+# GitHub runner repeatedly timed out on auth.docker.io (run 37993841440).
+FROM mirror.gcr.io/library/dart:stable AS build
 WORKDIR /src
 COPY client/calltype_core client/calltype_core
 COPY bots/calltype_bot bots/calltype_bot
@@ -20,7 +22,7 @@ RUN cd bots/hermes_bridge \
  && dart build cli -o /out
 
 # glibc base: the AOT binary and the bundled libsqlite3 are dynamically linked.
-FROM debian:bookworm-slim
+FROM mirror.gcr.io/library/debian:bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
