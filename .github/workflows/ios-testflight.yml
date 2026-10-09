@@ -100,6 +100,10 @@ jobs:
       # rejects it with "Invalid Signature" for Runner and every framework
       # (run 37956965796). So Flutter only writes the Xcode config here and
       # xcodebuild archives with automatic signing + the API key.
+      # The identity is forced to "Apple Distribution" because a development
+      # profile needs at least one registered device and the team has none
+      # (run 37960436598); the project's sdk-conditional "iPhone Developer"
+      # value is overridden too.
       - name: Archive, sign with cloud-managed certificate and upload to TestFlight
         shell: bash
         env:
@@ -138,6 +142,8 @@ jobs:
             -archivePath build/ios/archive/Runner.xcarchive \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            "CODE_SIGN_IDENTITY[sdk=iphoneos*]=Apple Distribution" \
             "${AUTH[@]}"
 
           sed "s/__TEAM_ID__/$TEAM_ID/" ios/ci/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
