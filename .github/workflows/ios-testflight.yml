@@ -124,13 +124,29 @@ jobs:
 
           # Generates ios/Flutter/Generated.xcconfig (build number, dart
           # defines) and runs pod install, without building anything.
-          flutter build ios --release --config-only             --build-number=${{ github.run_number }}             --dart-define=API_BASE_URL=${{ vars.CALLTYPE_API_BASE_URL }}
+          # --no-codesign only skips Flutter's own local certificate check: the
+          # runner has no certificate until xcodebuild fetches a cloud one below.
+          flutter build ios --release --config-only --no-codesign \
+            --build-number=${{ github.run_number }} \
+            --dart-define=API_BASE_URL=${{ vars.CALLTYPE_API_BASE_URL }}
 
-          xcodebuild archive             -workspace ios/Runner.xcworkspace             -scheme Runner             -configuration Release             -destination 'generic/platform=iOS'             -archivePath build/ios/archive/Runner.xcarchive             DEVELOPMENT_TEAM="$TEAM_ID"             CODE_SIGN_STYLE=Automatic             "${AUTH[@]}"
+          xcodebuild archive \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/ios/archive/Runner.xcarchive \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            "${AUTH[@]}"
 
           sed "s/__TEAM_ID__/$TEAM_ID/" ios/ci/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
 
-          xcodebuild -exportArchive             -archivePath build/ios/archive/Runner.xcarchive             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"             -exportPath build/ios/ipa             "${AUTH[@]}"
+          xcodebuild -exportArchive \
+            -archivePath build/ios/archive/Runner.xcarchive \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath build/ios/ipa \
+            "${AUTH[@]}"
 
       - name: Summary
         if: success()
