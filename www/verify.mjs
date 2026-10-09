@@ -32,7 +32,7 @@ const home = readFileSync(resolve(root, 'index.html'), 'utf8');
 assert.equal((home.match(/role="tab"/g) || []).length, 3);
 assert.equal((home.match(/role="tabpanel"/g) || []).length, 3);
 assert.ok(home.includes('placené služby zatím neprodáváme'));
-assert.ok(home.includes('V aplikaci zatím uvidíte název CallType'));
+assert.ok(home.includes('https://jay.zcloud.cz'));
 assert.ok(home.includes('nemá nezávislý audit'));
 assert.ok(home.includes('256 KiB'));
 assert.ok(!home.includes('business-case.html'), 'Investor page must not be linked from home');
