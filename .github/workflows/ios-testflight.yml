@@ -5,8 +5,9 @@
 # 10x, and a TestFlight upload is only needed when testers should get a new
 # native build, not on every web/API deploy.
 #
-# Signing model: Apple "cloud signing". The archive is built unsigned, then
-# `xcodebuild -exportArchive` signs and uploads it using an App Store Connect
+# Signing model: Apple "cloud signing". `xcodebuild archive` signs with a
+# cloud-managed development certificate, then `xcodebuild -exportArchive`
+# re-signs for distribution and uploads, both using an App Store Connect
 # API key with -allowProvisioningUpdates. Apple manages the distribution
 # certificate and provisioning profile, so no .p12 / .mobileprovision is ever
 # stored here.
@@ -94,19 +95,18 @@ jobs:
 
       # The build number must strictly increase for every upload of the same
       # marketing version; the workflow run number gives that for free.
-      # --no-codesign: signing happens at export time with the cloud certificate.
-      - name: Build unsigned archive
-        run: >
-          flutter build ipa --release --no-codesign
-          --build-number=${{ github.run_number }}
-          --dart-define=API_BASE_URL=${{ vars.CALLTYPE_API_BASE_URL }}
-
-      - name: Sign with cloud-managed certificate and upload to TestFlight
+      # The archive is signed at build time: an unsigned archive
+      # (`flutter build ipa --no-codesign`) exports fine but App Store Connect
+      # rejects it with "Invalid Signature" for Runner and every framework
+      # (run 37956965796). So Flutter only writes the Xcode config here and
+      # xcodebuild archives with automatic signing + the API key.
+      - name: Archive, sign with cloud-managed certificate and upload to TestFlight
         shell: bash
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           KEY_DIR="$RUNNER_TEMP/asc"
@@ -117,17 +117,20 @@ jobs:
           trap 'rm -rf "$KEY_DIR"' EXIT
           echo "$ASC_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
+          AUTH=(-allowProvisioningUpdates
+                -authenticationKeyPath "$KEY_PATH"
+                -authenticationKeyID "$ASC_KEY_ID"
+                -authenticationKeyIssuerID "$ASC_ISSUER_ID")
 
-          sed "s/__TEAM_ID__/${{ vars.APPLE_TEAM_ID }}/" ios/ci/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
+          # Generates ios/Flutter/Generated.xcconfig (build number, dart
+          # defines) and runs pod install, without building anything.
+          flutter build ios --release --config-only             --build-number=${{ github.run_number }}             --dart-define=API_BASE_URL=${{ vars.CALLTYPE_API_BASE_URL }}
 
-          xcodebuild -exportArchive \
-            -archivePath build/ios/archive/Runner.xcarchive \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -exportPath build/ios/ipa \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$KEY_PATH" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          xcodebuild archive             -workspace ios/Runner.xcworkspace             -scheme Runner             -configuration Release             -destination 'generic/platform=iOS'             -archivePath build/ios/archive/Runner.xcarchive             DEVELOPMENT_TEAM="$TEAM_ID"             CODE_SIGN_STYLE=Automatic             "${AUTH[@]}"
+
+          sed "s/__TEAM_ID__/$TEAM_ID/" ios/ci/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
+
+          xcodebuild -exportArchive             -archivePath build/ios/archive/Runner.xcarchive             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"             -exportPath build/ios/ipa             "${AUTH[@]}"
 
       - name: Summary
         if: success()
