@@ -95,7 +95,7 @@ function Step-AppleSecrets {
     Write-Host "`nOne-time in the browser first (see docs/acceptance/ios-testflight.md):"
     Write-Host "  developer.apple.com → Identifiers → App ID 'cz.zcloud.jay'"
     Write-Host "  appstoreconnect.apple.com → Apps → New App 'Jay', bundle cz.zcloud.jay, SKU jay-ios"
-    Write-Host "  App Store Connect → Users and Access → Integrations → Team Keys → '+' role App Manager → download .p8"
+    Write-Host "  App Store Connect → Users and Access → Integrations → Team Keys → '+' role Admin (App Manager cannot cloud-sign) → download .p8"
     Write-Host "  developer.apple.com → Membership → Team ID"
     if (-not (Confirm "Done, continue with secrets?")) { return }
 

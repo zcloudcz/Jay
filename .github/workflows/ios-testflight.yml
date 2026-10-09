@@ -13,7 +13,7 @@
 #
 # One-time setup by the account owner (names only — never commit values):
 #   App Store Connect > Users and Access > Integrations > App Store Connect API:
-#     create a Team key with the "App Manager" role (needed for cloud signing),
+#     create a Team key with the "Admin" role (App Manager fails with "Cloud signing permission error"),
 #     download AuthKey_XXXXXXXXXX.p8 once.
 #   App Store Connect > Apps: create the app with bundle ID cz.zcloud.jay
 #     (register the identifier under Certificates, IDs & Profiles first).
