@@ -1,4 +1,4 @@
-package com.example.calltype
+package cz.zcloud.jay
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 

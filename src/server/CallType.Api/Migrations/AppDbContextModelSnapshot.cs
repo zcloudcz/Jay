@@ -375,6 +375,10 @@ namespace CallType.Api.Migrations
                         .IsRequired()
                         .HasColumnType("bytea");
 
+                    b.Property<string>("DisplayName")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
                     b.Property<byte[]>("IdentityKey")
                         .IsRequired()
                         .HasColumnType("bytea");
