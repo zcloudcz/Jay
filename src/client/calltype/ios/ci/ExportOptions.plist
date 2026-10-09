@@ -2,23 +2,26 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Export options for the TestFlight workflow (.github/workflows/ios-testflight.yml).
-  - signingStyle automatic + an App Store Connect API key passed to xcodebuild
-    means Apple's cloud-managed distribution certificate and profile are used:
-    no .p12 or .mobileprovision ever has to be stored in GitHub secrets.
-  - destination upload sends the signed .ipa straight to App Store Connect, so
-    there is no separate altool/Transporter step.
-  - __TEAM_ID__ is substituted by the workflow from the APPLE_TEAM_ID variable.
+  - Manual signing with the team's Apple Distribution certificate and the
+    "Jay App Store" provisioning profile, both imported by the workflow from
+    GitHub secrets (same model as zDrive).
+  - No destination key = export to disk; the workflow uploads the .ipa with
+    `xcrun altool` afterwards.
+  - __TEAM_ID__ and __PROFILE_UUID__ are substituted by the workflow.
 -->
 <plist version="1.0">
 <dict>
 	<key>method</key>
 	<string>app-store-connect</string>
-	<key>destination</key>
-	<string>upload</string>
 	<key>signingStyle</key>
-	<string>automatic</string>
+	<string>manual</string>
 	<key>teamID</key>
 	<string>__TEAM_ID__</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>cz.zcloud.jay</key>
+		<string>__PROFILE_UUID__</string>
+	</dict>
 	<key>uploadSymbols</key>
 	<true/>
 	<key>manageAppVersionAndBuildNumber</key>

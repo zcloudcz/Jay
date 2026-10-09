@@ -18,7 +18,7 @@ Stav: workflow a projekt připraveny (bundle ID `cz.zcloud.jay`, min. iOS 14, ik
 ## Každé vydání
 
 ```bash
-gh workflow run ios-testflight.yml -R zcloudcz/Jay -f commit_sha=<plný SHA, který prošel deploy.yml>
+gh workflow run ios-testflight.yml -R zcloudcz/Jay --ref <větev s aktuálním workflow> -f commit_sha=<plný SHA, který prošel deploy.yml>
 ```
 
 Build number = číslo běhu workflow (roste samo). Po ~5–15 min zpracování: App Store Connect → TestFlight → u buildu odpovědět na **Export Compliance** a přidat ho do skupiny testerů (interní testeři = členové týmu, bez review; externí = první build prochází Beta App Review).
@@ -28,4 +28,4 @@ Build number = číslo běhu workflow (roste samo). Po ~5–15 min zpracování:
 - **Export compliance:** aplikace používá šifrování (E2EE, standardní algoritmy AES-GCM/X25519/Ed25519). `ITSAppUsesNonExemptEncryption` záměrně **není** nastaveno — odpověď je právní prohlášení vlastníka účtu; dokud klíč chybí, ptá se App Store Connect u každého buildu.
 - **Push:** bez APNs klíče a Firebase projektu; `UIBackgroundModes=remote-notification` je v Info.plist, entitlement `aps-environment` ne → Apple pošle varovný e-mail (ITMS-90078), upload neblokuje.
 - **Náklady CI:** macOS runner (10× minuty). Na private repu vyžaduje spending limit, nebo dočasně public repo jako u `deploy.yml`.
-- **Cloud signing** vyžaduje roli Admin u API klíče (App Manager nestačí) a Xcode ≥ 13 na runneru (macos-latest splňuje).
+- **Podepisování: ručně, stejně jako zDrive** (2026-10-09). Týmový certifikát *Apple Distribution* (`.p12`, sdílený se zDrive, tým DZR3FD9ZNT) + App Store profil „Jay App Store“ (UUID 7aa933fe-…, platí do 2027-09-17) v secrets `IOS_CERTIFICATE_BASE64`, `IOS_CERTIFICATE_PASSWORD`, `IOS_PROVISION_PROFILE_BASE64`; workflow je importuje do dočasné keychain, Runner přepne na Manual, upload `xcrun altool`. Cloud signing jsme opustili: nepodepsaný archiv ASC odmítne („Invalid Signature“), automatické podepsání archivu chce development profil a ten registrované zařízení.
