@@ -20,6 +20,20 @@ Future<void> main() async {
   void log(String line) =>
       stdout.writeln('${DateTime.now().toUtc().toIso8601String()} $line');
 
+  int positiveInt(String name, int fallback) {
+    final raw = env[name]?.trim() ?? '';
+    if (raw.isEmpty) return fallback;
+    final value = int.tryParse(raw);
+    if (value == null || value <= 0) {
+      stderr.writeln('$name must be a positive integer, got "$raw".');
+      exit(78); // EX_CONFIG
+    }
+    return value;
+  }
+
+  final peerReplyLimit = positiveInt('PEER_REPLY_LIMIT', 5);
+  final peerReplyWindowMinutes = positiveInt('PEER_REPLY_WINDOW_MINUTES', 30);
+
   final hermes = HermesClient(
     baseUrl: env['HERMES_URL'] ?? 'http://127.0.0.1:8642',
     apiKey: required('HERMES_API_KEY'),
@@ -51,6 +65,9 @@ Future<void> main() async {
   await runBridge(
     bot,
     allowedHandles: parseAllowedHandles(env['ALLOWED_HANDLES']),
+    peerHandles: parseAllowedHandles(env['PEER_BOT_HANDLES']),
+    peerReplyLimit: peerReplyLimit,
+    peerReplyWindow: Duration(minutes: peerReplyWindowMinutes),
     backend: hermes.ask,
     log: log,
   );

@@ -18,6 +18,9 @@ messages, therefore:
   the list, or after an allowed user reinstalls Jay (new device id).
 - In a group, only allowed members can trigger the bot (by `@Hermes` / `@<handle>`),
   but the reply is visible to **every** member of that group.
+- `PEER_BOT_HANDLES` is a **second allowlist** (other bots), also fail-closed:
+  empty = no peers. Peers are served in groups only and rate-limited, see
+  "Two bots in one group".
 - Keep Hermes' API on localhost. The bot's SQLite session DB is plaintext on disk
   (see `../calltype_bot/README.md`), so the host must be trusted.
 
@@ -33,6 +36,9 @@ messages, therefore:
 | `HERMES_API_KEY` | yes | Hermes' `API_SERVER_KEY` |
 | `HERMES_TIMEOUT_SECONDS` | no, default `300` | per-request timeout (agent turns with tools are slow) |
 | `ALLOWED_HANDLES` | effectively yes | comma-separated `CT-XXXX-XXXX` handles allowed to talk to Hermes |
+| `PEER_BOT_HANDLES` | no | comma-separated `CT-XXXX-XXXX` handles of other bots that may talk to this one (groups only) |
+| `PEER_REPLY_LIMIT` | no, default `5` | max peer-triggered turns per conversation within the window (positive int) |
+| `PEER_REPLY_WINDOW_MINUTES` | no, default `30` | sliding window for the limit (positive int) |
 
 ## Run
 
@@ -64,6 +70,27 @@ docker build -f src/bots/hermes_bridge/Dockerfile -t hermes-bridge src
 docker run -d --restart unless-stopped --network host -v hermes-bridge:/data \
   -e CALLTYPE_API_URL -e BOT_STORE_KEY -e HERMES_API_KEY -e ALLOWED_HANDLES hermes-bridge
 ```
+
+Docker image (built by `.github/workflows/hermes-bridge-image.yml`):
+`docker run ... ghcr.io/zcloudcz/jay-hermes-bridge:latest` (same flags as above).
+
+## Two bots in one group
+
+Run two bridges, put both bots and yourself in one Jay group, and set each
+bridge's `PEER_BOT_HANDLES` to the **other** bot's handle.
+
+- Bots address each other with `@<handle>` (in groups the bot is only called
+  when mentioned). A peer message in a 1:1 chat is ignored.
+- Per conversation at most `PEER_REPLY_LIMIT` peer-triggered turns per
+  `PEER_REPLY_WINDOW_MINUTES` (sliding window). At the limit the bot posts one
+  notice (`Bot-to-bot limit reached (5 per 30 min). Waiting for a human to mention me.`),
+  then stays silent. A message from an `ALLOWED_HANDLES` member that mentions
+  the bot resets it (unmentioned group messages never reach the bot).
+  Counters are in memory and reset on restart.
+- Every text passed to Hermes is prefixed `[from CT-XXXX-XXXX]: ` (human) or
+  `[from CT-XXXX-XXXX (bot)]: ` (peer).
+- In a group all replies, including bot-to-bot ones, are visible to every member.
+- Add to Hermes' instructions: "To ask the other agent, mention it as @<its handle>."
 
 ## Hermes contract: verified vs assumed
 

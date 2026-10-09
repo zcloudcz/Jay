@@ -1,0 +1,59 @@
+# ---------------------------------------------------------------------------
+# hermes_bridge Docker image -> ghcr.io (manual, SHA-pinned)
+# ---------------------------------------------------------------------------
+# Why: Hermes hosts pull a ready image instead of copying the private sources
+# and building the Dart bridge themselves.
+#
+# One-time: after the first push, make the package public in GitHub package
+# settings (ghcr.io/zcloudcz/jay-hermes-bridge), otherwise hosts need a login.
+#
+# Actions do not start on the private repo (billing): run this only in the
+# short public window described in CLAUDE.md (Deploy section, /gh-actions-public).
+# ---------------------------------------------------------------------------
+
+name: Hermes bridge image
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Full commit SHA to build'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      # GitHub expressions have no substring function, so the short tag is
+      # computed in a step.
+      - id: tag
+        run: echo "short=${COMMIT_SHA::12}" >> "$GITHUB_OUTPUT"
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Context is src/ because the Dockerfile uses path dependencies.
+      - uses: docker/build-push-action@v6
+        with:
+          context: src
+          file: src/bots/hermes_bridge/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/zcloudcz/jay-hermes-bridge:latest
+            ghcr.io/zcloudcz/jay-hermes-bridge:${{ steps.tag.outputs.short }}
