@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "Bu kod zaten kullanıldı. Sonraki kodu bekleyin.",
   "mfaErrorLocked": "Çok fazla deneme. 15 dakika sonra tekrar deneyin.",
   "mfaErrorNotConfigured": "Yönetim geçici olarak kullanılamıyor.",
-  "mfaErrorAlreadyEnabled": "İki aşamalı doğrulama zaten etkin."
+  "mfaErrorAlreadyEnabled": "İki aşamalı doğrulama zaten etkin.",
+  "chatMessageReply": "Yanıtla",
+  "chatMessageForward": "İlet",
+  "chatMessageDelete": "Sil",
+  "chatDeleteTitle": "Mesaj silinsin mi?",
+  "chatDeleteForMe": "Benden sil",
+  "chatDeleteForEveryone": "Herkesten sil",
+  "chatDeleteForEveryoneFailed": "Herkesten silinemedi. Bağlantınızı kontrol edip tekrar deneyin.",
+  "chatMessageDeleted": "Bu mesaj silindi",
+  "chatMessageForwarded": "İletildi",
+  "chatForwardTitle": "Şuraya ilet",
+  "chatYou": "Sen",
+  "chatReplyCancel": "Yanıtı iptal et"
 }

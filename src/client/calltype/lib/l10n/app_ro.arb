@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "Acest cod a fost deja folosit. Așteaptă-l pe următorul.",
   "mfaErrorLocked": "Prea multe încercări. Încearcă din nou în 15 minute.",
   "mfaErrorNotConfigured": "Administrarea este temporar indisponibilă.",
-  "mfaErrorAlreadyEnabled": "Verificarea în doi pași este deja activată."
+  "mfaErrorAlreadyEnabled": "Verificarea în doi pași este deja activată.",
+  "chatMessageReply": "Răspunde",
+  "chatMessageForward": "Redirecționează",
+  "chatMessageDelete": "Șterge",
+  "chatDeleteTitle": "Ștergi mesajul?",
+  "chatDeleteForMe": "Șterge pentru mine",
+  "chatDeleteForEveryone": "Șterge pentru toți",
+  "chatDeleteForEveryoneFailed": "Nu s-a putut șterge pentru toți. Verifică conexiunea și încearcă din nou.",
+  "chatMessageDeleted": "Acest mesaj a fost șters",
+  "chatMessageForwarded": "Redirecționat",
+  "chatForwardTitle": "Redirecționează către",
+  "chatYou": "Tu",
+  "chatReplyCancel": "Anulează răspunsul"
 }

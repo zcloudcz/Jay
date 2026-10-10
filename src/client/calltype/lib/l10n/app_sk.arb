@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "Tento kód už bol použitý. Počkajte na ďalší.",
   "mfaErrorLocked": "Príliš mnoho pokusov. Skúste to znova za 15 minút.",
   "mfaErrorNotConfigured": "Administrácia je momentálne nedostupná.",
-  "mfaErrorAlreadyEnabled": "Dvojfázové overenie je už zapnuté."
+  "mfaErrorAlreadyEnabled": "Dvojfázové overenie je už zapnuté.",
+  "chatMessageReply": "Odpovedať",
+  "chatMessageForward": "Preposlať",
+  "chatMessageDelete": "Vymazať",
+  "chatDeleteTitle": "Vymazať správu?",
+  "chatDeleteForMe": "Vymazať u mňa",
+  "chatDeleteForEveryone": "Vymazať u všetkých",
+  "chatDeleteForEveryoneFailed": "U všetkých sa vymazať nepodarilo. Skontrolujte pripojenie a skúste to znova.",
+  "chatMessageDeleted": "Táto správa bola vymazaná",
+  "chatMessageForwarded": "Preposlané",
+  "chatForwardTitle": "Preposlať do",
+  "chatYou": "Vy",
+  "chatReplyCancel": "Zrušiť odpoveď"
 }

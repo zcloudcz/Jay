@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "Цей код вже було використано. Зачекайте на наступний.",
   "mfaErrorLocked": "Занадто багато спроб. Спробуйте ще раз через 15 хвилин.",
   "mfaErrorNotConfigured": "Адміністрування тимчасово недоступне.",
-  "mfaErrorAlreadyEnabled": "Двоетапна перевірка вже увімкнена."
+  "mfaErrorAlreadyEnabled": "Двоетапна перевірка вже увімкнена.",
+  "chatMessageReply": "Відповісти",
+  "chatMessageForward": "Переслати",
+  "chatMessageDelete": "Видалити",
+  "chatDeleteTitle": "Видалити повідомлення?",
+  "chatDeleteForMe": "Видалити в мене",
+  "chatDeleteForEveryone": "Видалити в усіх",
+  "chatDeleteForEveryoneFailed": "Не вдалося видалити в усіх. Перевірте з'єднання та спробуйте ще раз.",
+  "chatMessageDeleted": "Це повідомлення видалено",
+  "chatMessageForwarded": "Переслано",
+  "chatForwardTitle": "Переслати до",
+  "chatYou": "Ви",
+  "chatReplyCancel": "Скасувати відповідь"
 }

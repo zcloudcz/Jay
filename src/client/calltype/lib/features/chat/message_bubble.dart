@@ -3,6 +3,24 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 
+/// One entry of the message menu. The same list feeds the three-dots popup
+/// (web/desktop) and the long-press bottom sheet (touch).
+class MessageAction {
+  const MessageAction({
+    required this.icon,
+    required this.label,
+    required this.onSelected,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onSelected;
+
+  /// Drawn in the error color (delete).
+  final bool destructive;
+}
+
 /// A single message bubble in the chat view.
 ///
 /// Aligns to the END side for outgoing messages (mine) and to the START side
@@ -16,11 +34,29 @@ class MessageBubble extends StatelessWidget {
     required this.text,
     required this.time,
     required this.isMine,
-    this.onCopy,
+    this.actions = const [],
+    this.content,
+    this.quoteAuthor,
+    this.quoteText,
+    this.forwarded = false,
+    this.deleted = false,
   });
 
-  /// Message body text.
+  /// Message body text (ignored when [content] or [deleted] is set).
   final String text;
+
+  /// Replaces the text, e.g. the download button of a file attachment.
+  final Widget? content;
+
+  /// Quoted message shown above the content (reply).
+  final String? quoteAuthor;
+  final String? quoteText;
+
+  /// Shows the small "Forwarded" line.
+  final bool forwarded;
+
+  /// "Deleted for everyone" tombstone: muted placeholder, no quote/forwarded.
+  final bool deleted;
 
   /// Formatted timestamp to display in the bottom-right corner.
   final String time;
@@ -28,25 +64,40 @@ class MessageBubble extends StatelessWidget {
   /// Whether this message was sent by the local user.
   final bool isMine;
 
-  /// Copies this message. Null hides the message menu entirely.
-  final VoidCallback? onCopy;
+  /// Menu entries. Empty hides the message menu and the long-press entirely.
+  final List<MessageAction> actions;
 
-  /// Touch fallback: the same single action as the three-dots menu, as a
-  /// bottom sheet (a popup has no visible anchor after a long-press).
+  /// Touch fallback: the same actions as the three-dots menu, as a bottom
+  /// sheet (a popup has no visible anchor after a long-press).
   void _showSheet(BuildContext context) {
+    final errorColor = Theme.of(context).colorScheme.error;
     showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) => SafeArea(
-        child: ListTile(
-          leading: const Icon(Icons.copy_rounded),
-          title: Text(sheetContext.l10n.chatMessageCopy),
-          // onCopy runs inside the tap handler itself, not after the sheet's
-          // future completes: browsers (Safari above all) only allow
-          // clipboard writes directly within a user gesture.
-          onTap: () {
-            Navigator.of(sheetContext).pop();
-            onCopy?.call();
-          },
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final action in actions)
+              ListTile(
+                leading: Icon(
+                  action.icon,
+                  color: action.destructive ? errorColor : null,
+                ),
+                title: Text(
+                  action.label,
+                  style: action.destructive
+                      ? TextStyle(color: errorColor)
+                      : null,
+                ),
+                // onSelected runs inside the tap handler itself, not after
+                // the sheet's future completes: browsers (Safari above all)
+                // only allow clipboard writes directly within a user gesture.
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  action.onSelected();
+                },
+              ),
+          ],
         ),
       ),
     );
@@ -72,7 +123,7 @@ class MessageBubble extends StatelessWidget {
     // desktop) every message gets a three-dots menu; long-press stays as the
     // familiar shortcut on touch screens.
     final showMenuButton =
-        onCopy != null &&
+        actions.isNotEmpty &&
         (kIsWeb ||
             const {
               TargetPlatform.windows,
@@ -89,16 +140,28 @@ class MessageBubble extends StatelessWidget {
             ),
             padding: EdgeInsets.zero,
             itemBuilder: (_) => [
-              PopupMenuItem(
-                onTap: onCopy,
-                child: Row(
-                  children: [
-                    const Icon(Icons.copy_rounded, size: 20),
-                    const SizedBox(width: 12),
-                    Text(context.l10n.chatMessageCopy),
-                  ],
+              for (final action in actions)
+                PopupMenuItem(
+                  // PopupMenuItem.onTap runs synchronously in the tap
+                  // handler, which keeps the clipboard-gesture rule.
+                  onTap: action.onSelected,
+                  child: Row(
+                    children: [
+                      Icon(
+                        action.icon,
+                        size: 20,
+                        color: action.destructive ? colorScheme.error : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        action.label,
+                        style: action.destructive
+                            ? TextStyle(color: colorScheme.error)
+                            : null,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
             ],
           );
 
@@ -120,7 +183,7 @@ class MessageBubble extends StatelessWidget {
                 maxWidth: MediaQuery.sizeOf(context).width * 0.75,
               ),
               child: GestureDetector(
-                onLongPress: onCopy == null ? null : () => _showSheet(context),
+                onLongPress: actions.isEmpty ? null : () => _showSheet(context),
                 child: Container(
                   margin: const EdgeInsets.symmetric(
                     horizontal: 12,
@@ -146,12 +209,51 @@ class MessageBubble extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text(
-                        text,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: textColor,
+                      if (forwarded && !deleted)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.forward_rounded,
+                                size: 14,
+                                color: textColor.withAlpha(150),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                context.l10n.chatMessageForwarded,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: textColor.withAlpha(150),
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
+                      if (quoteText != null && !deleted)
+                        _Quote(
+                          author: quoteAuthor,
+                          text: quoteText!,
+                          textColor: textColor,
+                          accent: colorScheme.primary,
+                        ),
+                      if (deleted)
+                        Text(
+                          context.l10n.chatMessageDeleted,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: textColor.withAlpha(150),
+                            fontStyle: FontStyle.italic,
+                          ),
+                        )
+                      else
+                        content ??
+                            Text(
+                              text,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: textColor,
+                              ),
+                            ),
                       const SizedBox(height: 4),
                       Text(
                         time,
@@ -166,6 +268,54 @@ class MessageBubble extends StatelessWidget {
             ),
           ),
           if (menu != null && !isMine) menu,
+        ],
+      ),
+    );
+  }
+}
+
+/// Quoted message block: inset, with an accent border on the start side
+/// (directional so it flips in RTL).
+class _Quote extends StatelessWidget {
+  const _Quote({
+    required this.author,
+    required this.text,
+    required this.textColor,
+    required this.accent,
+  });
+
+  final String? author;
+  final String text;
+  final Color textColor;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsetsDirectional.only(start: 8, top: 2, bottom: 2),
+      decoration: BoxDecoration(
+        color: textColor.withAlpha(20),
+        border: BorderDirectional(start: BorderSide(color: accent, width: 3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (author != null)
+            Text(
+              author!,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: accent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          Text(
+            text,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(color: textColor),
+          ),
         ],
       ),
     );

@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "Ezt a kódot már használták. Várja meg a következőt.",
   "mfaErrorLocked": "Túl sok próbálkozás. Próbálja újra 15 perc múlva.",
   "mfaErrorNotConfigured": "A kezelés átmenetileg nem elérhető.",
-  "mfaErrorAlreadyEnabled": "A kétlépcsős azonosítás már be van kapcsolva."
+  "mfaErrorAlreadyEnabled": "A kétlépcsős azonosítás már be van kapcsolva.",
+  "chatMessageReply": "Válasz",
+  "chatMessageForward": "Továbbítás",
+  "chatMessageDelete": "Törlés",
+  "chatDeleteTitle": "Törlöd az üzenetet?",
+  "chatDeleteForMe": "Törlés nálam",
+  "chatDeleteForEveryone": "Törlés mindenkinél",
+  "chatDeleteForEveryoneFailed": "Nem sikerült mindenkinél törölni. Ellenőrizd a kapcsolatot, és próbáld újra.",
+  "chatMessageDeleted": "Ez az üzenet törölve lett",
+  "chatMessageForwarded": "Továbbítva",
+  "chatForwardTitle": "Továbbítás ide",
+  "chatYou": "Te",
+  "chatReplyCancel": "Válasz megszakítása"
 }

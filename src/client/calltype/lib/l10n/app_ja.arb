@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "そのコードは既に使用されています。次のコードをお待ちください。",
   "mfaErrorLocked": "試行回数が多すぎます。15分後に再試行してください。",
   "mfaErrorNotConfigured": "管理機能は一時的に利用できません。",
-  "mfaErrorAlreadyEnabled": "二段階認証は既に有効になっています。"
+  "mfaErrorAlreadyEnabled": "二段階認証は既に有効になっています。",
+  "chatMessageReply": "返信",
+  "chatMessageForward": "転送",
+  "chatMessageDelete": "削除",
+  "chatDeleteTitle": "メッセージを削除しますか？",
+  "chatDeleteForMe": "自分のみ削除",
+  "chatDeleteForEveryone": "全員から削除",
+  "chatDeleteForEveryoneFailed": "全員から削除できませんでした。接続を確認して、もう一度お試しください。",
+  "chatMessageDeleted": "このメッセージは削除されました",
+  "chatMessageForwarded": "転送済み",
+  "chatForwardTitle": "転送先",
+  "chatYou": "あなた",
+  "chatReplyCancel": "返信をキャンセル"
 }

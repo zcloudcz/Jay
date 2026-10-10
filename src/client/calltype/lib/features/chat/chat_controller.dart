@@ -5,6 +5,7 @@ import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:calltype_core/network/organization_api.dart';
+import 'package:calltype_core/network/organization_dtos.dart';
 import '../../core/crypto/group_cipher.dart';
 import '../../core/crypto/session_manager.dart';
 import '../../core/network/api_client.dart';
@@ -12,6 +13,14 @@ import '../../core/network/signalr_client.dart';
 import '../../core/storage/database.dart';
 import 'message_inbox_service.dart';
 import 'attachment.dart';
+
+/// Handed to the chat route (`GoRouter` `extra`) by the forward dialog; the
+/// route's `create:` sends it once on the freshly created controller.
+class ForwardDraft {
+  const ForwardDraft({required this.body, required this.type});
+  final String body;
+  final String type;
+}
 
 class ChatController extends ChangeNotifier {
   ChatController({
@@ -29,7 +38,16 @@ class ChatController extends ChangeNotifier {
     _subscription =
         (_db.select(_db.messages)
               ..where((m) => m.conversationId.equals(conversationId))
-              ..orderBy([(m) => OrderingTerm.desc(m.createdAt)]))
+              // 'delete' rows are hidden control messages (see
+              // deleteForEveryone); they ride the outbox but are not chat.
+              ..where((m) => m.type.equals('delete').not())
+              // rowId breaks ties: timestamps are stored with second
+              // precision, so a quick answer could otherwise land ABOVE the
+              // message it answers.
+              ..orderBy([
+                (m) => OrderingTerm.desc(m.createdAt),
+                (m) => OrderingTerm.desc(m.rowId),
+              ]))
             .watch()
             .listen((rows) {
               _messages = rows;
@@ -201,15 +219,142 @@ class ChatController extends ChangeNotifier {
         .write(const ConversationsCompanion(unreadCount: Value(0)));
   }
 
+  Message? _replyingTo;
+
+  /// The message the next sent message will quote, or null.
+  Message? get replyingTo => _replyingTo;
+
+  void startReply(Message message) {
+    _replyingTo = message;
+    notifyListeners();
+  }
+
+  void cancelReply() {
+    if (_replyingTo == null) return;
+    _replyingTo = null;
+    notifyListeners();
+  }
+
+  /// What a quote of [message] shows: the text, or the file name for a file,
+  /// cut to [maxReplyPreview]. It is copied into the outgoing payload because
+  /// the receiver may not have the original.
+  static String replyPreviewOf(Message message) {
+    var text = message.body ?? '';
+    if (message.type == 'file') {
+      try {
+        text = Attachment.decode(text).name;
+      } catch (_) {
+        text = '';
+      }
+    }
+    return text.length > maxReplyPreview
+        ? text.substring(0, maxReplyPreview)
+        : text;
+  }
+
   Future<void> sendMessage(String text) => _send(text, 'text');
 
   Future<void> sendAttachment(String name, Uint8List bytes) =>
       _send(Attachment(name: name, bytes: bytes).encode(), 'file');
 
-  Future<void> _send(String text, String type) async {
+  /// Sends [body] into THIS conversation marked as forwarded. The forward UI
+  /// navigates to the target chat first and calls this on that chat's own
+  /// controller (a second controller would mark the conversation read).
+  Future<void> sendForwarded({required String body, required String type}) =>
+      _send(body, type, forwarded: true);
+
+  /// Removes the message from this device only. Works for any message,
+  /// including tombstones and failed sends (also drops its pending outbox).
+  Future<void> deleteForMe(String messageId) => _db.transaction(() async {
+    await (_db.delete(_db.messages)..where((m) => m.id.equals(messageId))).go();
+    await (_db.delete(
+      _db.backupState,
+    )..where((s) => s.key.equals('outbox:$messageId'))).go();
+  });
+
+  /// Deletes an own, already sent message for every participant by sending a
+  /// `delete` control message through the normal encrypted pipeline. Returns
+  /// false (and leaves the original untouched) if it is not allowed or the
+  /// send failed, so the UI can say so.
+  Future<bool> deleteForEveryone(String messageId) async {
+    final target = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(messageId))).getSingleOrNull();
+    if (target == null ||
+        target.senderId != myDeviceId ||
+        target.conversationId != conversationId ||
+        target.deleted ||
+        target.type == 'call-event' ||
+        target.type == 'delete' ||
+        target.status == 'sending' ||
+        target.status == 'failed') {
+      return false;
+    }
+    final conversation = await (_db.select(
+      _db.conversations,
+    )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
+    if (conversation == null || conversation.organizationId != null) {
+      return false;
+    }
+    if (conversation.type == 'group') {
+      // The cached organizationId may simply not be filled in yet. Fail
+      // CLOSED: business messages are archived and must never be retracted.
+      // Asked directly instead of through getGroupBusinessInfo: that helper
+      // turns a network error into "not business", which here would mean
+      // failing OPEN.
+      try {
+        final response = await _api.transport.get<Map<String, dynamic>>(
+          '/groups/$conversationId',
+        );
+        if (GroupBusinessInfo.fromJson(response.data!).isBusiness) {
+          return false;
+        }
+      } catch (_) {
+        return false;
+      }
+    }
+    // A local row of type 'delete' reuses the outbox, so a retry resends the
+    // SAME ciphertext and the receiver's redelivery marker keeps it idempotent.
+    // It deliberately does not touch lastMessageAt.
+    final controlId = _uuid.v4();
+    await _db
+        .into(_db.messages)
+        .insert(
+          MessagesCompanion.insert(
+            id: controlId,
+            conversationId: conversationId,
+            senderId: myDeviceId,
+            body: Value(messageId),
+            type: const Value('delete'),
+            status: const Value('sending'),
+            createdAt: DateTime.now(),
+          ),
+        );
+    await retryMessage(controlId);
+    final control = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(controlId))).getSingleOrNull();
+    final sent = control?.status == 'sent';
+    await _db.transaction(() async {
+      // Only after a successful send does the original change, exactly like
+      // on the receiving side.
+      if (sent) await tombstoneMessage(_db, messageId);
+      await (_db.delete(
+        _db.messages,
+      )..where((m) => m.id.equals(controlId))).go();
+      await (_db.delete(
+        _db.backupState,
+      )..where((s) => s.key.equals('outbox:$controlId'))).go();
+    });
+    return sent;
+  }
+
+  Future<void> _send(String text, String type, {bool forwarded = false}) async {
     if (text.trim().isEmpty) return;
     final id = _uuid.v4();
     final now = DateTime.now();
+    final reply = forwarded ? null : _replyingTo;
+    if (reply != null) cancelReply();
     await _db.transaction(() async {
       await _db
           .into(_db.messages)
@@ -222,6 +367,10 @@ class ChatController extends ChangeNotifier {
               type: Value(type),
               status: const Value('sending'),
               createdAt: now,
+              replyToId: Value(reply?.id),
+              replySenderId: Value(reply?.senderId),
+              replyPreview: Value(reply == null ? null : replyPreviewOf(reply)),
+              forwarded: Value(forwarded),
             ),
           );
       await (_db.update(_db.conversations)
@@ -271,6 +420,14 @@ class ChatController extends ChangeNotifier {
           'groupId': groupId,
           'groupName': groupId == null ? null : conversation.title,
           'createdAt': message.createdAt.toUtc().toIso8601String(),
+          // Additive keys: old clients ignore them and show a normal message.
+          if (message.replyToId != null)
+            'replyTo': {
+              'id': message.replyToId,
+              'senderId': message.replySenderId,
+              'preview': message.replyPreview ?? '',
+            },
+          if (message.forwarded) 'forwarded': true,
         });
         await _db.transaction(() async {
           final envelopes = <String, String>{};

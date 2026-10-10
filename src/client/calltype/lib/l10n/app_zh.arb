@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "该代码已被使用，请等待下一个代码。",
   "mfaErrorLocked": "尝试次数过多，请在 15 分钟后重试。",
   "mfaErrorNotConfigured": "管理功能暂时不可用。",
-  "mfaErrorAlreadyEnabled": "两步验证已经启用。"
+  "mfaErrorAlreadyEnabled": "两步验证已经启用。",
+  "chatMessageReply": "回复",
+  "chatMessageForward": "转发",
+  "chatMessageDelete": "删除",
+  "chatDeleteTitle": "删除消息？",
+  "chatDeleteForMe": "为我删除",
+  "chatDeleteForEveryone": "为所有人删除",
+  "chatDeleteForEveryoneFailed": "无法为所有人删除。请检查网络连接后重试。",
+  "chatMessageDeleted": "此消息已被删除",
+  "chatMessageForwarded": "已转发",
+  "chatForwardTitle": "转发给",
+  "chatYou": "你",
+  "chatReplyCancel": "取消回复"
 }

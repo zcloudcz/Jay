@@ -20,8 +20,16 @@ class MessageInput extends StatefulWidget {
     required this.onSend,
     this.onAttachment,
     this.mentionCandidates = const [],
+    this.replyAuthor,
+    this.replyText,
+    this.onCancelReply,
   });
   final VoidCallback? onAttachment;
+
+  /// Reply bar above the field; shown while [replyText] is non-null.
+  final String? replyAuthor;
+  final String? replyText;
+  final VoidCallback? onCancelReply;
 
   /// Group members offered while the user types `@...`; empty in direct chats.
   final List<MentionCandidate> mentionCandidates;
@@ -46,6 +54,16 @@ class _MessageInputState extends State<MessageInput> {
   /// enable the send button — prevents sending empty messages.
   bool _hasText = false;
   bool _sending = false;
+
+  @override
+  void didUpdateWidget(MessageInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Choosing "Reply" means "I want to type now": put the cursor in the
+    // field so the user does not have to click or tap it first.
+    if (widget.replyText != null && oldWidget.replyText == null) {
+      _focus.requestFocus();
+    }
+  }
 
   @override
   void initState() {
@@ -140,6 +158,47 @@ class _MessageInputState extends State<MessageInput> {
                     );
                   },
                 ),
+              ),
+            ),
+          if (widget.replyText != null)
+            Container(
+              margin: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+              padding: const EdgeInsetsDirectional.only(start: 10),
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest,
+                border: BorderDirectional(
+                  start: BorderSide(color: colorScheme.primary, width: 3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (widget.replyAuthor != null)
+                          Text(
+                            widget.replyAuthor!,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  color: colorScheme.primary,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                        Text(
+                          widget.replyText!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded),
+                    tooltip: context.l10n.chatReplyCancel,
+                    onPressed: widget.onCancelReply,
+                  ),
+                ],
               ),
             ),
           Padding(

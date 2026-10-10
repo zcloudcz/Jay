@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "Deze code is al gebruikt. Wacht op de volgende.",
   "mfaErrorLocked": "Te veel pogingen. Probeer het over 15 minuten opnieuw.",
   "mfaErrorNotConfigured": "Beheer is tijdelijk niet beschikbaar.",
-  "mfaErrorAlreadyEnabled": "Tweestapsverificatie is al ingeschakeld."
+  "mfaErrorAlreadyEnabled": "Tweestapsverificatie is al ingeschakeld.",
+  "chatMessageReply": "Beantwoorden",
+  "chatMessageForward": "Doorsturen",
+  "chatMessageDelete": "Verwijderen",
+  "chatDeleteTitle": "Bericht verwijderen?",
+  "chatDeleteForMe": "Voor mij verwijderen",
+  "chatDeleteForEveryone": "Voor iedereen verwijderen",
+  "chatDeleteForEveryoneFailed": "Verwijderen voor iedereen is mislukt. Controleer je verbinding en probeer het opnieuw.",
+  "chatMessageDeleted": "Dit bericht is verwijderd",
+  "chatMessageForwarded": "Doorgestuurd",
+  "chatForwardTitle": "Doorsturen naar",
+  "chatYou": "Jij",
+  "chatReplyCancel": "Antwoord annuleren"
 }

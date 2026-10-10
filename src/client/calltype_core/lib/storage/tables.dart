@@ -112,6 +112,24 @@ class Messages extends Table {
   /// When we received it locally — null for outgoing messages.
   DateTimeColumn get receivedAt => dateTime().nullable()();
 
+  /// Reply: id of the quoted message. The quote is a COPY ([replyPreview])
+  /// because the receiver may never have had, or may have deleted, the
+  /// original. Like in WhatsApp the sender controls the quote text.
+  TextColumn get replyToId => text().nullable()();
+
+  /// Device id of the quoted message's author (to label the quote).
+  TextColumn get replySenderId => text().nullable()();
+
+  /// Quoted text (max 140 chars) or the attachment file name.
+  TextColumn get replyPreview => text().nullable()();
+
+  /// True when the message was forwarded from another conversation.
+  BoolColumn get forwarded => boolean().withDefault(const Constant(false))();
+
+  /// Tombstone of "deleted for everyone": body and attachment are wiped, the
+  /// row stays so the chat shows "This message was deleted".
+  BoolColumn get deleted => boolean().withDefault(const Constant(false))();
+
   @override
   Set<Column> get primaryKey => {id};
 }

@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "تم استخدام هذا الرمز مسبقًا. انتظر الرمز التالي.",
   "mfaErrorLocked": "عدد كبير جدًا من المحاولات. حاول مرة أخرى بعد 15 دقيقة.",
   "mfaErrorNotConfigured": "الإدارة غير متاحة مؤقتًا.",
-  "mfaErrorAlreadyEnabled": "التحقق بخطوتين مُفعَّل مسبقًا."
+  "mfaErrorAlreadyEnabled": "التحقق بخطوتين مُفعَّل مسبقًا.",
+  "chatMessageReply": "رد",
+  "chatMessageForward": "إعادة توجيه",
+  "chatMessageDelete": "حذف",
+  "chatDeleteTitle": "حذف الرسالة؟",
+  "chatDeleteForMe": "حذف عندي",
+  "chatDeleteForEveryone": "حذف عند الجميع",
+  "chatDeleteForEveryoneFailed": "تعذّر الحذف عند الجميع. تحقق من اتصالك وحاول مرة أخرى.",
+  "chatMessageDeleted": "تم حذف هذه الرسالة",
+  "chatMessageForwarded": "معاد توجيهها",
+  "chatForwardTitle": "إعادة التوجيه إلى",
+  "chatYou": "أنت",
+  "chatReplyCancel": "إلغاء الرد"
 }
