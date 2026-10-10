@@ -85,6 +85,7 @@
   "chatStatusSent": "Enviada",
   "chatMessageCopy": "Copiar",
   "chatMessageCopied": "Mensagem copiada",
+  "chatMessageCopyFailed": "Não foi possível copiar a mensagem",
   "chatInputAttach": "Anexar arquivo",
   "chatInputHint": "Mensagem",
   "chatInputSend": "Enviar",

@@ -85,6 +85,7 @@
   "chatStatusSent": "已发送",
   "chatMessageCopy": "复制",
   "chatMessageCopied": "消息已复制",
+  "chatMessageCopyFailed": "无法复制消息",
   "chatInputAttach": "添加附件",
   "chatInputHint": "消息",
   "chatInputSend": "发送",

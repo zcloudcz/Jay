@@ -85,6 +85,7 @@
   "chatStatusSent": "Odoslané",
   "chatMessageCopy": "Kopírovať",
   "chatMessageCopied": "Správa skopírovaná",
+  "chatMessageCopyFailed": "Správu sa nepodarilo skopírovať",
   "chatInputAttach": "Priložiť súbor",
   "chatInputHint": "Správa",
   "chatInputSend": "Odoslať",

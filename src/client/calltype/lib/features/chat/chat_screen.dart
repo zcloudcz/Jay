@@ -183,25 +183,27 @@ class ChatScreen extends StatelessWidget {
     }
   }
 
-  /// Bottom sheet with the message actions (copy). Opened by long-press or
-  /// right-click on a text bubble.
-  Future<void> _showActions(BuildContext context, String body) async {
-    // Captured before the awaits: the sheet's own context is gone by then.
+  /// Copies a message and confirms it; the menu itself lives in
+  /// [MessageBubble].
+  Future<void> _copy(BuildContext context, String body) async {
+    // Captured before the await: the list item's context may be gone by then.
     final l10n = context.l10n;
     final messenger = ScaffoldMessenger.of(context);
-    final copy = await showModalBottomSheet<bool>(
-      context: context,
-      builder: (sheetContext) => SafeArea(
-        child: ListTile(
-          leading: const Icon(Icons.copy_rounded),
-          title: Text(l10n.chatMessageCopy),
-          onTap: () => Navigator.of(sheetContext).pop(true),
+    // A browser can refuse clipboard access (permission, embedded frame);
+    // say so instead of leaving the user guessing whether it worked.
+    var copied = true;
+    try {
+      await Clipboard.setData(ClipboardData(text: body));
+    } catch (_) {
+      copied = false;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          copied ? l10n.chatMessageCopied : l10n.chatMessageCopyFailed,
         ),
       ),
     );
-    if (copy != true) return;
-    await Clipboard.setData(ClipboardData(text: body));
-    messenger.showSnackBar(SnackBar(content: Text(l10n.chatMessageCopied)));
   }
 
   Future<void> _save(BuildContext context, Attachment attachment) async {
@@ -417,8 +419,8 @@ class ChatScreen extends StatelessWidget {
                                 message.createdAt.toLocal(),
                               ),
                               isMine: mine,
-                              onActions: () =>
-                                  _showActions(context, message.body ?? ''),
+                              onCopy: () =>
+                                  _copy(context, message.body ?? ''),
                             ),
                           if (mine)
                             Padding(

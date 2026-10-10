@@ -85,6 +85,7 @@
   "chatStatusSent": "भेजा गया",
   "chatMessageCopy": "कॉपी करें",
   "chatMessageCopied": "संदेश कॉपी किया गया",
+  "chatMessageCopyFailed": "संदेश कॉपी नहीं किया जा सका",
   "chatInputAttach": "फ़ाइल अटैच करें",
   "chatInputHint": "मैसेज",
   "chatInputSend": "भेजें",

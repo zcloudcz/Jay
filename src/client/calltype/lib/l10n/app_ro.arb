@@ -85,6 +85,7 @@
   "chatStatusSent": "Trimis",
   "chatMessageCopy": "Copiază",
   "chatMessageCopied": "Mesaj copiat",
+  "chatMessageCopyFailed": "Mesajul nu a putut fi copiat",
   "chatInputAttach": "Atașează un fișier",
   "chatInputHint": "Mesaj",
   "chatInputSend": "Trimite",

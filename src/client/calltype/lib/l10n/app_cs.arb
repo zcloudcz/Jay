@@ -85,6 +85,7 @@
   "chatStatusSent": "Odesláno",
   "chatMessageCopy": "Kopírovat",
   "chatMessageCopied": "Zpráva zkopírována",
+  "chatMessageCopyFailed": "Zprávu se nepodařilo zkopírovat",
   "chatInputAttach": "Přiložit soubor",
   "chatInputHint": "Zpráva",
   "chatInputSend": "Odeslat",

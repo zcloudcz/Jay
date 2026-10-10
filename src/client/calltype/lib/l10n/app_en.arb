@@ -153,6 +153,10 @@
   "@chatMessageCopied": {
     "description": "Snackbar after a message was copied."
   },
+  "chatMessageCopyFailed": "Could not copy the message",
+  "@chatMessageCopyFailed": {
+    "description": "Snackbar when the browser or OS refused clipboard access."
+  },
   "chatInputAttach": "Attach file",
   "chatInputHint": "Message",
   "@chatInputHint": {
