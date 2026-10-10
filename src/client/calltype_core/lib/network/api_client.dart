@@ -115,6 +115,24 @@ class ApiClient {
         .toList();
   }
 
+  /// Like [getGroupMembers] but keeps the profile fields the server returns per
+  /// member (used for @mention suggestions and sender names in groups).
+  ///
+  /// `userHandle`, `displayName` and `isBot` are optional on purpose: servers
+  /// deployed before they were added return only deviceId/role/joinedAt.
+  Future<List<GroupMemberInfo>> getGroupMemberInfos(String groupId) async {
+    final response = await _dio.get<List<dynamic>>('/groups/$groupId/members');
+    return response.data!.map((member) {
+      final m = member as Map;
+      return GroupMemberInfo(
+        deviceId: m['deviceId'] as String,
+        userHandle: m['userHandle'] as String?,
+        displayName: m['displayName'] as String?,
+        isBot: m['isBot'] == true,
+      );
+    }).toList();
+  }
+
   // -- Device registration ---------------------------------------------------
 
   /// Registers a new anonymous device with the server.
@@ -581,4 +599,23 @@ class _AuthInterceptor extends Interceptor {
       handler.next(retryErr);
     }
   }
+}
+
+/// One member of a group as reported by `GET /groups/{id}/members`.
+class GroupMemberInfo {
+  const GroupMemberInfo({
+    required this.deviceId,
+    this.userHandle,
+    this.displayName,
+    this.isBot = false,
+  });
+
+  final String deviceId;
+
+  /// `CT-XXXX-XXXX`; null when talking to an older server.
+  final String? userHandle;
+
+  /// The member's own (server-side) profile name, not a local contact rename.
+  final String? displayName;
+  final bool isBot;
 }

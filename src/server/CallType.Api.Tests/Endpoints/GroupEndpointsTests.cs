@@ -29,6 +29,52 @@ public class GroupEndpointsTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task Member_list_includes_public_profile_of_each_member()
+    {
+        // A bot registers anonymously, exactly like the real bots do.
+        var botReg = await Client.PostAsJsonAsync("/devices", new
+        {
+            identityKey = Convert.ToBase64String([0x01, 0x02, 0x03]),
+            signedPreKey = Convert.ToBase64String([0x04, 0x05, 0x06]),
+            isBot = true
+        });
+        botReg.StatusCode.Should().Be(HttpStatusCode.Created);
+        var botBody = await botReg.Content.ReadFromJsonAsync<JsonElement>();
+        var botId = Guid.Parse(botBody.GetProperty("deviceId").GetString()!);
+        var botHandle = botBody.GetProperty("userHandle").GetString()!;
+
+        // A named member: only the device itself may set its display name.
+        var (namedId, _, namedHandle) = await RegisterAndAuthenticateAsync();
+        (await Client.PutAsJsonAsync($"/devices/{namedId}/profile", new { displayName = "Alice" }))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        // The creator (admin) has no display name and is not a bot.
+        var (creatorId, _, creatorHandle) = await RegisterAndAuthenticateAsync();
+        var group = await CreateGroupAsync(namedId, botId);
+
+        var members = (await Client.GetFromJsonAsync<JsonElement>($"/groups/{group}/members"))
+            .EnumerateArray().ToDictionary(m => m.GetProperty("deviceId").GetGuid());
+        members.Count.Should().Be(3);
+
+        members[namedId].GetProperty("userHandle").GetString().Should().Be(namedHandle);
+        members[namedId].GetProperty("displayName").GetString().Should().Be("Alice");
+        members[namedId].GetProperty("isBot").GetBoolean().Should().BeFalse();
+
+        members[botId].GetProperty("userHandle").GetString().Should().Be(botHandle);
+        members[botId].GetProperty("displayName").ValueKind.Should().Be(JsonValueKind.Null);
+        members[botId].GetProperty("isBot").GetBoolean().Should().BeTrue();
+
+        members[creatorId].GetProperty("userHandle").GetString().Should().Be(creatorHandle);
+        members[creatorId].GetProperty("displayName").ValueKind.Should().Be(JsonValueKind.Null);
+        members[creatorId].GetProperty("isBot").GetBoolean().Should().BeFalse();
+
+        // Pre-existing fields are unchanged.
+        members[creatorId].GetProperty("role").GetString().Should().Be("admin");
+        members[namedId].GetProperty("role").GetString().Should().Be("member");
+        members.Values.Select(m => m.GetProperty("joinedAt").GetDateTimeOffset()).Should().HaveCount(3);
+    }
+
+    [Fact]
     public async Task Unknown_initial_member_rejects_creation()
     {
         await RegisterAndAuthenticateAsync();

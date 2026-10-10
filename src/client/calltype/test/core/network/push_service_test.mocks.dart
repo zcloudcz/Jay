@@ -103,6 +103,16 @@ class MockApiClient extends _i1.Mock implements _i4.ApiClient {
           as _i5.Future<List<String>>);
 
   @override
+  _i5.Future<List<_i4.GroupMemberInfo>> getGroupMemberInfos(String? groupId) =>
+      (super.noSuchMethod(
+            Invocation.method(#getGroupMemberInfos, [groupId]),
+            returnValue: _i5.Future<List<_i4.GroupMemberInfo>>.value(
+              <_i4.GroupMemberInfo>[],
+            ),
+          )
+          as _i5.Future<List<_i4.GroupMemberInfo>>);
+
+  @override
   _i5.Future<Map<String, dynamic>> registerDevice({
     required String? identityKey,
     required String? signedPreKey,
@@ -196,6 +206,21 @@ class MockApiClient extends _i1.Mock implements _i4.ApiClient {
               #deviceId: deviceId,
               #token: token,
               #platform: platform,
+            }),
+            returnValue: _i5.Future<void>.value(),
+            returnValueForMissingStub: _i5.Future<void>.value(),
+          )
+          as _i5.Future<void>);
+
+  @override
+  _i5.Future<void> updateDisplayName({
+    required String? deviceId,
+    required String? displayName,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#updateDisplayName, [], {
+              #deviceId: deviceId,
+              #displayName: displayName,
             }),
             returnValue: _i5.Future<void>.value(),
             returnValueForMissingStub: _i5.Future<void>.value(),

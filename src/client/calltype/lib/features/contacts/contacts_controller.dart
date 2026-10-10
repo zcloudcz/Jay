@@ -45,6 +45,24 @@ class ContactsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Sets the local nickname of a contact; blank/null clears it so the
+  /// handle is shown again.
+  ///
+  /// Purely local on purpose: it is never sent to the server, so the other
+  /// person's own profile name (and what bots match on) is unaffected.
+  Future<void> renameContact(String deviceId, String? name) async {
+    final trimmed = name?.trim();
+    await (_db.update(_db.contacts)..where((c) => c.deviceId.equals(deviceId)))
+        .write(
+          ContactsCompanion(
+            displayName: Value(
+              trimmed == null || trimmed.isEmpty ? null : trimmed,
+            ),
+          ),
+        );
+    await loadContacts();
+  }
+
   /// Adds a contact by their human-readable handle (e.g. CT-A1B2-C3D4).
   ///
   /// The handle is stored immediately. The actual key exchange happens

@@ -12,6 +12,9 @@ import '../chat_list/chat_list_controller.dart';
 import 'chat_controller.dart';
 import 'message_bubble.dart';
 import 'message_input.dart';
+import 'mentions.dart';
+import '../contacts/rename_contact_dialog.dart';
+import 'package:flutter/services.dart';
 import 'attachment.dart';
 import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
@@ -180,6 +183,27 @@ class ChatScreen extends StatelessWidget {
     }
   }
 
+  /// Bottom sheet with the message actions (copy). Opened by long-press or
+  /// right-click on a text bubble.
+  Future<void> _showActions(BuildContext context, String body) async {
+    // Captured before the awaits: the sheet's own context is gone by then.
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    final copy = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: ListTile(
+          leading: const Icon(Icons.copy_rounded),
+          title: Text(l10n.chatMessageCopy),
+          onTap: () => Navigator.of(sheetContext).pop(true),
+        ),
+      ),
+    );
+    if (copy != true) return;
+    await Clipboard.setData(ClipboardData(text: body));
+    messenger.showSnackBar(SnackBar(content: Text(l10n.chatMessageCopied)));
+  }
+
   Future<void> _save(BuildContext context, Attachment attachment) async {
     try {
       await FilePicker.saveFile(
@@ -198,9 +222,8 @@ class ChatScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<ChatController>();
-    final contacts = context.watch<ContactsController>().contacts.where(
-      (c) => c.deviceId == contactId,
-    );
+    final allContacts = context.watch<ContactsController>().contacts;
+    final contacts = allContacts.where((c) => c.deviceId == contactId);
     final conversations = context
         .watch<ChatListController>()
         .conversations
@@ -306,6 +329,15 @@ class ChatScreen extends StatelessWidget {
                 ]);
               },
             ),
+          if (!group && contact != null)
+            PopupMenuButton<void>(
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  onTap: () => showRenameContactDialog(context, contact),
+                  child: Text(l10n.contactRename),
+                ),
+              ],
+            ),
         ],
       ),
       body: Column(
@@ -353,7 +385,11 @@ class ChatScreen extends StatelessWidget {
                                 horizontal: 16,
                               ),
                               child: Text(
-                                message.senderId,
+                                senderLabel(
+                                  message.senderId,
+                                  members: controller.groupMembers,
+                                  contacts: allContacts,
+                                ),
                                 style: Theme.of(context).textTheme.labelSmall,
                               ),
                             ),
@@ -381,6 +417,8 @@ class ChatScreen extends StatelessWidget {
                                 message.createdAt.toLocal(),
                               ),
                               isMine: mine,
+                              onActions: () =>
+                                  _showActions(context, message.body ?? ''),
                             ),
                           if (mine)
                             Padding(
@@ -414,6 +452,13 @@ class ChatScreen extends StatelessWidget {
           MessageInput(
             onSend: controller.sendMessage,
             onAttachment: () => _attach(context),
+            mentionCandidates: group
+                ? buildMentionCandidates(
+                    members: controller.groupMembers,
+                    contacts: allContacts,
+                    myDeviceId: controller.myDeviceId,
+                  )
+                : const [],
           ),
         ],
       ),

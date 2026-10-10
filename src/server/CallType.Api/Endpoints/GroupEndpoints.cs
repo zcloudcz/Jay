@@ -119,8 +119,13 @@ public static class GroupEndpoints
     {
         var denial = await Authorize(groupId, user, db, false, ct);
         if (denial != null) return denial;
+        // One JOIN instead of a Devices lookup per member (no N+1). The profile
+        // fields are the same ones GET /devices/by-handle/{handle} already shows to
+        // any authenticated device, so this reveals no new class of information.
         var members = await db.GroupMembers.Where(m => m.GroupId == groupId)
-            .Select(m => new GroupMemberDto(m.DeviceId, m.Role, m.JoinedAt)).ToListAsync(ct);
+            .Join(db.Devices, m => m.DeviceId, d => d.DeviceId,
+                (m, d) => new GroupMemberDto(m.DeviceId, m.Role, m.JoinedAt, d.UserHandle, d.DisplayName, d.IsBot))
+            .ToListAsync(ct);
         return Results.Ok(members);
     }
 
@@ -187,5 +192,8 @@ public record CreateGroupRequest(Guid[]? MemberDeviceIds);
 public record CreateBusinessGroupRequest(Guid OrganizationId, Guid[]? MemberDeviceIds);
 public record CreateGroupResponse(Guid GroupId);
 public record AddGroupMemberRequest(Guid DeviceId);
-public record GroupMemberDto(Guid DeviceId, string Role, DateTimeOffset JoinedAt);
+// The last three fields are additive (old clients read only deviceId) and let
+// clients offer @mentions and show sender names in groups.
+public record GroupMemberDto(Guid DeviceId, string Role, DateTimeOffset JoinedAt,
+    string UserHandle, string? DisplayName, bool IsBot);
 public record GroupInfoDto(Guid GroupId, Guid? OrganizationId, string? OrganizationName, Guid? AuditorDeviceId);

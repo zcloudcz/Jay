@@ -10,6 +10,7 @@ import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
 import '../chat_list/chat_list_controller.dart';
 import 'contacts_controller.dart';
+import 'rename_contact_dialog.dart';
 import 'qr_scanner_screen.dart';
 
 /// Screen showing all known contacts with options to add new ones.
@@ -330,13 +331,25 @@ class _ContactTile extends StatelessWidget {
       ),
       // Verified contacts show a blue checkmark — indicates the identity
       // key was verified out-of-band (e.g. safety number comparison).
-      trailing: contact.verified
-          ? Icon(
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (contact.verified as bool)
+            Icon(
               Icons.verified_rounded,
               color: Theme.of(context).colorScheme.primary,
               size: 20,
-            )
-          : null,
+            ),
+          PopupMenuButton<void>(
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                onTap: () => showRenameContactDialog(context, contact),
+                child: Text(context.l10n.contactRename),
+              ),
+            ],
+          ),
+        ],
+      ),
       onTap: () async {
         // Make sure the conversation row exists BEFORE opening the chat —
         // sending and the chat list both rely on it (messages would send
