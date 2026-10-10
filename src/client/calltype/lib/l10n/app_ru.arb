@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "Этот код уже был использован. Подождите следующий.",
   "mfaErrorLocked": "Слишком много попыток. Повторите попытку через 15 минут.",
   "mfaErrorNotConfigured": "Администрирование временно недоступно.",
-  "mfaErrorAlreadyEnabled": "Двухэтапная проверка уже включена."
+  "mfaErrorAlreadyEnabled": "Двухэтапная проверка уже включена.",
+  "chatMessageReply": "Ответить",
+  "chatMessageForward": "Переслать",
+  "chatMessageDelete": "Удалить",
+  "chatDeleteTitle": "Удалить сообщение?",
+  "chatDeleteForMe": "Удалить у меня",
+  "chatDeleteForEveryone": "Удалить у всех",
+  "chatDeleteForEveryoneFailed": "Не удалось удалить у всех. Проверьте соединение и попробуйте снова.",
+  "chatMessageDeleted": "Это сообщение удалено",
+  "chatMessageForwarded": "Пересланное",
+  "chatForwardTitle": "Переслать в",
+  "chatYou": "Вы",
+  "chatReplyCancel": "Отменить ответ"
 }

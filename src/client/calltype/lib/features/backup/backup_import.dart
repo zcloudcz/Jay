@@ -71,6 +71,19 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
       status: Value(status == 'sending' ? 'failed' : status),
       createdAt: DateTime.parse(requiredText(m, 'createdAt')),
       receivedAt: Value(date(m['receivedAt'])),
+      // Reply/forward/delete fields are absent in backups made before they
+      // existed; `is String` / `== true` makes missing or odd values harmless.
+      replyToId: Value(
+        m['replyToId'] is String ? m['replyToId'] as String : null,
+      ),
+      replySenderId: Value(
+        m['replySenderId'] is String ? m['replySenderId'] as String : null,
+      ),
+      replyPreview: Value(
+        m['replyPreview'] is String ? m['replyPreview'] as String : null,
+      ),
+      forwarded: Value(m['forwarded'] == true),
+      deleted: Value(m['deleted'] == true),
     );
   }).toList();
   await db.transaction(() async {

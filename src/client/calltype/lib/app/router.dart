@@ -123,15 +123,27 @@ final router = GoRouter(
             // that subscription when the user navigates away (auto-dispose
             // via ChangeNotifierProvider).
             return ChangeNotifierProvider(
-              create: (ctx) => ChatController(
-                database: ctx.read<AppDatabase>(),
-                signalRClient: ctx.read<SignalRClient>(),
-                sessionManager: ctx.read<SessionManager>(),
-                inbox: ctx.read<MessageInboxService>(),
-                apiClient: ctx.read<ApiClient>(),
-                conversationId: id,
-                myDeviceId: ctx.read<SignalRClient>().deviceId,
-              ),
+              create: (ctx) {
+                final controller = ChatController(
+                  database: ctx.read<AppDatabase>(),
+                  signalRClient: ctx.read<SignalRClient>(),
+                  sessionManager: ctx.read<SessionManager>(),
+                  inbox: ctx.read<MessageInboxService>(),
+                  apiClient: ctx.read<ApiClient>(),
+                  conversationId: id,
+                  myDeviceId: ctx.read<SignalRClient>().deviceId,
+                );
+                // Forward: the message to forward arrives as route `extra`.
+                // `create` runs once per route, so it is sent exactly once,
+                // by the controller of the chat the user is now looking at.
+                final draft = state.extra;
+                if (draft is ForwardDraft) {
+                  controller
+                      .sendForwarded(body: draft.body, type: draft.type)
+                      .catchError((_) {});
+                }
+                return controller;
+              },
               child: ChatScreen(contactId: id),
             );
           },

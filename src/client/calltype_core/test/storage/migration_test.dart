@@ -25,8 +25,8 @@ const _schemaV1 = [
 ];
 
 void main() {
-  test('v1 -> v3 keeps contacts, messages and sessions and adds bots + '
-      'channels + organization columns', () async {
+  test('v1 -> v4 keeps contacts, messages and sessions and adds bots + '
+      'channels + organization + message action columns', () async {
     final db = AppDatabase(
       NativeDatabase.memory(
         setup: (raw) {
@@ -111,8 +111,15 @@ void main() {
     expect(conversation.organizationId, isNull);
     expect(conversation.organizationName, isNull);
 
+    // v4 (reply / forward / delete for everyone) columns take their defaults
+    // on an existing message.
+    expect(message.replyToId, isNull);
+    expect(message.replyPreview, isNull);
+    expect(message.forwarded, isFalse);
+    expect(message.deleted, isFalse);
+
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 3);
+    expect(version.read<int>('user_version'), 4);
   });
 
   test('a fresh install creates the v2 schema directly', () async {

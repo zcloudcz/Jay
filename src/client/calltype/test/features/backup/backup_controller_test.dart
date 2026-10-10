@@ -36,6 +36,21 @@ void main() {
               senderId: 'peer',
               body: const Value('secret message'),
               createdAt: DateTime.utc(2026),
+              replyToId: const Value('orig'),
+              replySenderId: const Value('peer'),
+              replyPreview: const Value('quoted'),
+              forwarded: const Value(true),
+            ),
+          );
+      await source
+          .into(source.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: 'm2',
+              conversationId: 'chat',
+              senderId: 'peer',
+              createdAt: DateTime.utc(2026),
+              deleted: const Value(true),
             ),
           );
       final dio = Dio();
@@ -83,10 +98,16 @@ void main() {
         (await target.select(target.contacts).get()).single.identityKey,
         isEmpty,
       );
-      expect(
-        (await target.select(target.messages).get()).single.body,
-        'secret message',
-      );
+      final restored = {
+        for (final m in await target.select(target.messages).get()) m.id: m,
+      };
+      expect(restored['m1']!.body, 'secret message');
+      // Reply / forward / tombstone survive the encrypted round trip.
+      expect(restored['m1']!.replyToId, 'orig');
+      expect(restored['m1']!.replySenderId, 'peer');
+      expect(restored['m1']!.replyPreview, 'quoted');
+      expect(restored['m1']!.forwarded, isTrue);
+      expect(restored['m2']!.deleted, isTrue);
     },
   );
   test(

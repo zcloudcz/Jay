@@ -224,6 +224,11 @@ class BackupController extends ChangeNotifier {
                 'status': m.status,
                 'createdAt': m.createdAt.toIso8601String(),
                 'receivedAt': m.receivedAt?.toIso8601String(),
+                'replyToId': m.replyToId,
+                'replySenderId': m.replySenderId,
+                'replyPreview': m.replyPreview,
+                'forwarded': m.forwarded,
+                'deleted': m.deleted,
               },
             )
             .toList(),

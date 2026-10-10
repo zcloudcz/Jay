@@ -667,5 +667,53 @@
   "mfaErrorCodeReused": "This code was already used. Wait for the next one.",
   "mfaErrorLocked": "Too many attempts. Try again in 15 minutes.",
   "mfaErrorNotConfigured": "Administration is temporarily unavailable.",
-  "mfaErrorAlreadyEnabled": "Two-step verification is already enabled."
+  "mfaErrorAlreadyEnabled": "Two-step verification is already enabled.",
+  "chatMessageReply": "Reply",
+  "@chatMessageReply": {
+    "description": "Action in the message menu: reply to (quote) this message."
+  },
+  "chatMessageForward": "Forward",
+  "@chatMessageForward": {
+    "description": "Action in the message menu: forward this message to another chat."
+  },
+  "chatMessageDelete": "Delete",
+  "@chatMessageDelete": {
+    "description": "Action in the message menu: delete this message."
+  },
+  "chatDeleteTitle": "Delete message?",
+  "@chatDeleteTitle": {
+    "description": "Title of the dialog asking how to delete a message."
+  },
+  "chatDeleteForMe": "Delete for me",
+  "@chatDeleteForMe": {
+    "description": "Delete option: remove the message only on this device."
+  },
+  "chatDeleteForEveryone": "Delete for everyone",
+  "@chatDeleteForEveryone": {
+    "description": "Delete option: remove the message for all participants."
+  },
+  "chatDeleteForEveryoneFailed": "Could not delete for everyone. Check your connection and try again.",
+  "@chatDeleteForEveryoneFailed": {
+    "description": "Snackbar when deleting a message for everyone failed."
+  },
+  "chatMessageDeleted": "This message was deleted",
+  "@chatMessageDeleted": {
+    "description": "Placeholder shown in place of a message that its author deleted for everyone."
+  },
+  "chatMessageForwarded": "Forwarded",
+  "@chatMessageForwarded": {
+    "description": "Small label above a message that was forwarded."
+  },
+  "chatForwardTitle": "Forward to",
+  "@chatForwardTitle": {
+    "description": "Title of the dialog listing chats to forward a message to."
+  },
+  "chatYou": "You",
+  "@chatYou": {
+    "description": "Label for the local user in a quoted reply (\"You\")."
+  },
+  "chatReplyCancel": "Cancel reply",
+  "@chatReplyCancel": {
+    "description": "Tooltip of the button that cancels the reply being composed."
+  }
 }

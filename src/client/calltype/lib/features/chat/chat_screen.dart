@@ -18,6 +18,7 @@ import 'package:flutter/services.dart';
 import 'attachment.dart';
 import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
+import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
 import '../organization/business_banner.dart';
 
@@ -183,6 +184,21 @@ class ChatScreen extends StatelessWidget {
     }
   }
 
+  /// "You" for my own messages, else the same name used above group bubbles
+  /// (in a direct chat this resolves to the contact).
+  String _authorLabel(
+    BuildContext context,
+    ChatController controller,
+    String senderId,
+    List<Contact> contacts,
+  ) => senderId == controller.myDeviceId
+      ? context.l10n.chatYou
+      : senderLabel(
+          senderId,
+          members: controller.groupMembers,
+          contacts: contacts,
+        );
+
   /// Copies a message and confirms it; the menu itself lives in
   /// [MessageBubble].
   Future<void> _copy(BuildContext context, String body) async {
@@ -204,6 +220,161 @@ class ChatScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Delete dialog: "for me" always, "for everyone" only for own, sent
+  /// messages outside business conversations.
+  Future<void> _delete(
+    BuildContext context,
+    ChatController controller,
+    Message message, {
+    required bool canDeleteForEveryone,
+  }) async {
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    final choice = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.chatDeleteTitle),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.commonCancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.chatDeleteForMe),
+          ),
+          if (canDeleteForEveryone)
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(l10n.chatDeleteForEveryone),
+            ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    if (!choice) {
+      await controller.deleteForMe(message.id);
+      return;
+    }
+    if (!await controller.deleteForEveryone(message.id)) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.chatDeleteForEveryoneFailed)),
+      );
+    }
+  }
+
+  /// Lists the other chats; picking one opens it and the route sends the
+  /// message there (see `ForwardDraft`).
+  Future<void> _forward(
+    BuildContext context,
+    Message message, {
+    required ChatController controller,
+    required List<Contact> contacts,
+  }) async {
+    final conversations = context
+        .read<ChatListController>()
+        .conversations
+        .toList();
+    final l10n = context.l10n;
+    final target = await showDialog<Conversation>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.chatForwardTitle),
+        contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        content: SizedBox(
+          width: 360,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: conversations.length,
+            itemBuilder: (context, index) {
+              final row = conversations[index];
+              final matches = contacts.where((c) => c.deviceId == row.id);
+              final contact = matches.isEmpty ? null : matches.first;
+              final title =
+                  row.title ??
+                  contact?.displayName ??
+                  contact?.userHandle ??
+                  row.id;
+              return ListTile(
+                leading: LetterAvatar(name: title),
+                title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                onTap: () => Navigator.of(dialogContext).pop(row),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.commonCancel),
+          ),
+        ],
+      ),
+    );
+    if (target == null || !context.mounted) return;
+    final body = message.body ?? '';
+    if (target.id == controller.conversationId) {
+      // Already here: a second controller/route for this chat is not needed.
+      await controller.sendForwarded(body: body, type: message.type);
+    } else {
+      context.push(
+        '/chats/${target.id}',
+        extra: ForwardDraft(body: body, type: message.type),
+      );
+    }
+  }
+
+  List<MessageAction> _actions(
+    BuildContext context,
+    ChatController controller,
+    Message message, {
+    required bool mine,
+    required bool business,
+    required List<Contact> contacts,
+  }) {
+    final l10n = context.l10n;
+    final isFile = message.type == 'file';
+    final pending = message.status == 'sending' || message.status == 'failed';
+    final delete = MessageAction(
+      icon: Icons.delete_outline_rounded,
+      label: l10n.chatMessageDelete,
+      destructive: true,
+      onSelected: () => _delete(
+        context,
+        controller,
+        message,
+        canDeleteForEveryone:
+            mine && !pending && !business && !message.deleted,
+      ),
+    );
+    if (message.deleted) return [delete];
+    final copy = MessageAction(
+      icon: Icons.copy_rounded,
+      label: l10n.chatMessageCopy,
+      onSelected: () => _copy(context, message.body ?? ''),
+    );
+    if (pending) return [if (!isFile) copy, delete];
+    return [
+      MessageAction(
+        icon: Icons.reply_rounded,
+        label: l10n.chatMessageReply,
+        onSelected: () => controller.startReply(message),
+      ),
+      if (!isFile) copy,
+      MessageAction(
+        icon: Icons.forward_rounded,
+        label: l10n.chatMessageForward,
+        onSelected: () => _forward(
+          context,
+          message,
+          controller: controller,
+          contacts: contacts,
+        ),
+      ),
+      delete,
+    ];
   }
 
   Future<void> _save(BuildContext context, Attachment attachment) async {
@@ -395,33 +566,44 @@ class ChatScreen extends StatelessWidget {
                                 style: Theme.of(context).textTheme.labelSmall,
                               ),
                             ),
-                          if (file != null)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 4,
-                              ),
-                              child: OutlinedButton.icon(
-                                onPressed: () => _save(context, file),
-                                icon: const Icon(Icons.download),
-                                label: Text(
-                                  l10n.chatAttachmentLabel(
-                                    file.name,
-                                    l10n.sizeBytes(file.bytes.length),
-                                  ),
-                                ),
-                              ),
-                            )
-                          else
-                            MessageBubble(
-                              text: message.body ?? '',
-                              time: DateFormat.Hm(l10n.localeName).format(
-                                message.createdAt.toLocal(),
-                              ),
-                              isMine: mine,
-                              onCopy: () =>
-                                  _copy(context, message.body ?? ''),
+                          MessageBubble(
+                            text: message.body ?? '',
+                            time: DateFormat.Hm(l10n.localeName).format(
+                              message.createdAt.toLocal(),
                             ),
+                            isMine: mine,
+                            deleted: message.deleted,
+                            forwarded: message.forwarded,
+                            quoteAuthor: message.replySenderId == null
+                                ? null
+                                : _authorLabel(
+                                    context,
+                                    controller,
+                                    message.replySenderId!,
+                                    allContacts,
+                                  ),
+                            quoteText: message.replyPreview,
+                            content: file == null
+                                ? null
+                                : OutlinedButton.icon(
+                                    onPressed: () => _save(context, file),
+                                    icon: const Icon(Icons.download),
+                                    label: Text(
+                                      l10n.chatAttachmentLabel(
+                                        file.name,
+                                        l10n.sizeBytes(file.bytes.length),
+                                      ),
+                                    ),
+                                  ),
+                            actions: _actions(
+                              context,
+                              controller,
+                              message,
+                              mine: mine,
+                              business: conversation?.organizationId != null,
+                              contacts: allContacts,
+                            ),
+                          ),
                           if (mine)
                             Padding(
                               padding: const EdgeInsets.symmetric(
@@ -454,6 +636,18 @@ class ChatScreen extends StatelessWidget {
           MessageInput(
             onSend: controller.sendMessage,
             onAttachment: () => _attach(context),
+            replyAuthor: controller.replyingTo == null
+                ? null
+                : _authorLabel(
+                    context,
+                    controller,
+                    controller.replyingTo!.senderId,
+                    allContacts,
+                  ),
+            replyText: controller.replyingTo == null
+                ? null
+                : ChatController.replyPreviewOf(controller.replyingTo!),
+            onCancelReply: controller.cancelReply,
             mentionCandidates: group
                 ? buildMentionCandidates(
                     members: controller.groupMembers,

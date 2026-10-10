@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "यह कोड पहले ही उपयोग किया जा चुका है। अगले कोड की प्रतीक्षा करें।",
   "mfaErrorLocked": "बहुत अधिक प्रयास। 15 मिनट बाद पुनः प्रयास करें।",
   "mfaErrorNotConfigured": "प्रशासन अस्थायी रूप से अनुपलब्ध है।",
-  "mfaErrorAlreadyEnabled": "दो-चरणीय सत्यापन पहले से ही सक्षम है।"
+  "mfaErrorAlreadyEnabled": "दो-चरणीय सत्यापन पहले से ही सक्षम है।",
+  "chatMessageReply": "जवाब दें",
+  "chatMessageForward": "फ़ॉरवर्ड करें",
+  "chatMessageDelete": "हटाएँ",
+  "chatDeleteTitle": "संदेश हटाएँ?",
+  "chatDeleteForMe": "मेरे लिए हटाएँ",
+  "chatDeleteForEveryone": "सभी के लिए हटाएँ",
+  "chatDeleteForEveryoneFailed": "सभी के लिए नहीं हटाया जा सका। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
+  "chatMessageDeleted": "यह संदेश हटा दिया गया",
+  "chatMessageForwarded": "फ़ॉरवर्ड किया गया",
+  "chatForwardTitle": "इन्हें फ़ॉरवर्ड करें",
+  "chatYou": "आप",
+  "chatReplyCancel": "जवाब रद्द करें"
 }

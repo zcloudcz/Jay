@@ -37,7 +37,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   /// Schema history:
   ///   1 — contacts, conversations, messages, sessions, backup state
@@ -45,6 +45,8 @@ class AppDatabase extends _$AppDatabase {
   ///       (bots and channels shipped together, hence ONE step)
   ///   3 — conversations.organization_id / organization_name (Jay Business
   ///       mode banner/badge, E05)
+  ///   4 — messages.reply_to_id / reply_sender_id / reply_preview /
+  ///       forwarded / deleted (reply, forward, delete for everyone)
   ///
   /// WHY explicit steps instead of destructive recreation: this database
   /// holds the user's only copy of their decrypted history and the ratchet
@@ -62,6 +64,13 @@ class AppDatabase extends _$AppDatabase {
       if (from < 3) {
         await m.addColumn(conversations, conversations.organizationId);
         await m.addColumn(conversations, conversations.organizationName);
+      }
+      if (from < 4) {
+        await m.addColumn(messages, messages.replyToId);
+        await m.addColumn(messages, messages.replySenderId);
+        await m.addColumn(messages, messages.replyPreview);
+        await m.addColumn(messages, messages.forwarded);
+        await m.addColumn(messages, messages.deleted);
       }
     },
   );

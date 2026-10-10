@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "Dieser Code wurde bereits verwendet. Warten Sie auf den nächsten.",
   "mfaErrorLocked": "Zu viele Versuche. Versuchen Sie es in 15 Minuten erneut.",
   "mfaErrorNotConfigured": "Die Verwaltung ist vorübergehend nicht verfügbar.",
-  "mfaErrorAlreadyEnabled": "Die Zwei-Faktor-Verifizierung ist bereits aktiviert."
+  "mfaErrorAlreadyEnabled": "Die Zwei-Faktor-Verifizierung ist bereits aktiviert.",
+  "chatMessageReply": "Antworten",
+  "chatMessageForward": "Weiterleiten",
+  "chatMessageDelete": "Löschen",
+  "chatDeleteTitle": "Nachricht löschen?",
+  "chatDeleteForMe": "Für mich löschen",
+  "chatDeleteForEveryone": "Für alle löschen",
+  "chatDeleteForEveryoneFailed": "Löschen für alle fehlgeschlagen. Prüfe deine Verbindung und versuche es erneut.",
+  "chatMessageDeleted": "Diese Nachricht wurde gelöscht",
+  "chatMessageForwarded": "Weitergeleitet",
+  "chatForwardTitle": "Weiterleiten an",
+  "chatYou": "Du",
+  "chatReplyCancel": "Antwort abbrechen"
 }

@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "Tento kód byl již použit. Počkejte na další.",
   "mfaErrorLocked": "Příliš mnoho pokusů. Zkuste to znovu za 15 minut.",
   "mfaErrorNotConfigured": "Administrace je momentálně nedostupná.",
-  "mfaErrorAlreadyEnabled": "Dvoufázové ověření je již zapnuté."
+  "mfaErrorAlreadyEnabled": "Dvoufázové ověření je již zapnuté.",
+  "chatMessageReply": "Odpovědět",
+  "chatMessageForward": "Přeposlat",
+  "chatMessageDelete": "Smazat",
+  "chatDeleteTitle": "Smazat zprávu?",
+  "chatDeleteForMe": "Smazat u mě",
+  "chatDeleteForEveryone": "Smazat u všech",
+  "chatDeleteForEveryoneFailed": "U všech se smazat nepodařilo. Zkontrolujte připojení a zkuste to znovu.",
+  "chatMessageDeleted": "Tato zpráva byla smazána",
+  "chatMessageForwarded": "Přeposláno",
+  "chatForwardTitle": "Přeposlat do",
+  "chatYou": "Vy",
+  "chatReplyCancel": "Zrušit odpověď"
 }

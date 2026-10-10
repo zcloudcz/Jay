@@ -85,4 +85,33 @@ void main() {
     await importBackup(db, fixture());
     expect((await db.select(db.contacts).get()).single.verified, false);
   });
+  test('a backup from before reply/forward/delete imports with defaults', () async {
+    // fixture() has none of the v4 message keys, like an old app's backup.
+    await importBackup(db, fixture());
+    final m = (await db.select(db.messages).get()).single;
+    expect(m.replyToId, isNull);
+    expect(m.replyPreview, isNull);
+    expect(m.forwarded, isFalse);
+    expect(m.deleted, isFalse);
+  });
+  test('reply, forwarded and deleted fields are restored', () async {
+    final data = fixture();
+    data['messages'] = [
+      {
+        ...(data['messages'] as List).single as Map<String, dynamic>,
+        'replyToId': 'orig',
+        'replySenderId': 'peer',
+        'replyPreview': 'quoted',
+        'forwarded': true,
+        'deleted': true,
+      },
+    ];
+    await importBackup(db, data);
+    final m = (await db.select(db.messages).get()).single;
+    expect(m.replyToId, 'orig');
+    expect(m.replySenderId, 'peer');
+    expect(m.replyPreview, 'quoted');
+    expect(m.forwarded, isTrue);
+    expect(m.deleted, isTrue);
+  });
 }

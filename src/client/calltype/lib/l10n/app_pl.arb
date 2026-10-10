@@ -449,5 +449,17 @@
   "mfaErrorCodeReused": "Ten kod został już użyty. Poczekaj na następny.",
   "mfaErrorLocked": "Za dużo prób. Spróbuj ponownie za 15 minut.",
   "mfaErrorNotConfigured": "Administracja jest tymczasowo niedostępna.",
-  "mfaErrorAlreadyEnabled": "Weryfikacja dwuetapowa jest już włączona."
+  "mfaErrorAlreadyEnabled": "Weryfikacja dwuetapowa jest już włączona.",
+  "chatMessageReply": "Odpowiedz",
+  "chatMessageForward": "Przekaż dalej",
+  "chatMessageDelete": "Usuń",
+  "chatDeleteTitle": "Usunąć wiadomość?",
+  "chatDeleteForMe": "Usuń u mnie",
+  "chatDeleteForEveryone": "Usuń u wszystkich",
+  "chatDeleteForEveryoneFailed": "Nie udało się usunąć u wszystkich. Sprawdź połączenie i spróbuj ponownie.",
+  "chatMessageDeleted": "Ta wiadomość została usunięta",
+  "chatMessageForwarded": "Przekazano dalej",
+  "chatForwardTitle": "Przekaż do",
+  "chatYou": "Ty",
+  "chatReplyCancel": "Anuluj odpowiedź"
 }

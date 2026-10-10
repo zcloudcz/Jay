@@ -22,6 +22,26 @@ class MessageProcessingQueue {
   }
 }
 
+/// Longest quote kept in a `replyTo` preview.
+const maxReplyPreview = 140;
+
+/// Turns a stored message into its "deleted for everyone" tombstone. Shared by
+/// the receiver (a `delete` control message) and the sender (after the control
+/// message was sent) so both sides end in exactly the same state.
+Future<void> tombstoneMessage(AppDatabase db, String messageId) =>
+    (db.update(db.messages)..where((m) => m.id.equals(messageId))).write(
+      const MessagesCompanion(
+        body: Value(null),
+        type: Value('text'),
+        attachmentPath: Value(null),
+        replyToId: Value(null),
+        replySenderId: Value(null),
+        replyPreview: Value(null),
+        forwarded: Value(false),
+        deleted: Value(true),
+      ),
+    );
+
 /// Persists incoming messages before acknowledging their server queue entries.
 class MessageInboxService {
   MessageInboxService({
@@ -68,6 +88,16 @@ class MessageInboxService {
         throw const FormatException('Missing message identity');
       }
       final conversationId = groupId ?? senderId;
+      // A `delete` control message never gets a messages row, so redelivery
+      // (ack lost) is recognised by this marker instead of the row below.
+      // Replaying it would otherwise fail in the ratchet and stay queued.
+      final handled = await (_db.select(
+        _db.backupState,
+      )..where((s) => s.key.equals('control:$messageId'))).getSingleOrNull();
+      if (handled != null) {
+        await _acknowledge?.call(senderId, messageId);
+        return;
+      }
       final existing = await (_db.select(
         _db.messages,
       )..where((m) => m.id.equals(messageId))).getSingleOrNull();
@@ -81,7 +111,7 @@ class MessageInboxService {
       }
       // Membership was authorized by the relay when it accepted the message.
       // Current membership can differ after an offline recipient reconnects.
-      late Message inserted;
+      Message? inserted;
       await _db.transaction(() async {
         final envelope = utf8.decode(
           base64Decode(data['encryptedBody'] as String),
@@ -101,8 +131,30 @@ class MessageInboxService {
           );
         }
         final type = payload['type'] as String? ?? 'text';
-        if (type != 'text' && type != 'file' && type != 'call-event') {
+        // 'delete' is a control message added after the first release. An OLD
+        // client throws here, so the message stays queued on the server for
+        // it (accepted: that client keeps showing the original message).
+        if (type != 'text' &&
+            type != 'file' &&
+            type != 'call-event' &&
+            type != 'delete') {
           throw const FormatException('Unsupported message type');
+        }
+        if (type == 'delete') {
+          await _applyDelete(
+            targetId: payload['body'] as String,
+            senderId: senderId,
+            conversationId: conversationId,
+          );
+          await _db
+              .into(_db.backupState)
+              .insert(
+                BackupStateCompanion.insert(
+                  key: 'control:$messageId',
+                  value: '1',
+                ),
+              );
+          return;
         }
         if (type == 'file') Attachment.decode(payload['body'] as String);
         final now = DateTime.now();
@@ -127,6 +179,23 @@ class MessageInboxService {
             (groupId == null ? 'direct' : 'group')) {
           throw const FormatException('Conflicting conversation type');
         }
+        // WHY defensive: replyTo is attacker-controlled JSON; a malformed one
+        // must drop the quote, never the message. The preview is the SENDER's
+        // claim about what was quoted (same limit as WhatsApp): we cannot
+        // verify it against the original, which we may not even have.
+        final replyTo = payload['replyTo'];
+        String? replyToId, replySenderId, replyPreview;
+        if (replyTo is Map &&
+            replyTo['id'] is String &&
+            replyTo['senderId'] is String &&
+            replyTo['preview'] is String) {
+          replyToId = replyTo['id'] as String;
+          replySenderId = replyTo['senderId'] as String;
+          final preview = replyTo['preview'] as String;
+          replyPreview = preview.length > maxReplyPreview
+              ? preview.substring(0, maxReplyPreview)
+              : preview;
+        }
         await _db
             .into(_db.messages)
             .insert(
@@ -139,6 +208,10 @@ class MessageInboxService {
                 status: const Value('delivered'),
                 createdAt: createdAt,
                 receivedAt: Value(now),
+                replyToId: Value(replyToId),
+                replySenderId: Value(replySenderId),
+                replyPreview: Value(replyPreview),
+                forwarded: Value(payload['forwarded'] == true),
               ),
             );
         await (_db.update(
@@ -158,12 +231,41 @@ class MessageInboxService {
         )..where((m) => m.id.equals(messageId))).getSingle();
       });
       await _sessionManager.finalizePreKeyCleanup();
-      _persisted.add(inserted);
+      if (inserted != null) _persisted.add(inserted!);
       await _acknowledge?.call(senderId, messageId);
     } catch (error) {
       // Leave failures queued on the server; never report corrupt ciphertext as delivered.
       _errors.add(error);
     }
+  }
+
+  /// Tombstones [targetId] if, and only if, the delete is legitimate.
+  /// Illegitimate deletes are silently ignored (the caller still acks them so
+  /// they leave the server queue).
+  Future<void> _applyDelete({
+    required String targetId,
+    required String senderId,
+    required String conversationId,
+  }) async {
+    final target = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(targetId))).getSingleOrNull();
+    if (target == null) return;
+    // SECURITY: the relay authenticates only the sender of THIS control
+    // message, so we must check the target is that sender's own message in
+    // that same conversation. Without it any contact could erase anybody's
+    // messages by guessing or learning an id.
+    if (target.conversationId != conversationId ||
+        target.senderId != senderId) {
+      return;
+    }
+    final conversation = await (_db.select(
+      _db.conversations,
+    )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
+    // Business conversations are archived for audit; they never support
+    // deleting for everyone (the client does not send it either).
+    if (conversation == null || conversation.organizationId != null) return;
+    await tombstoneMessage(_db, targetId);
   }
 
   Future<void> dispose() async {

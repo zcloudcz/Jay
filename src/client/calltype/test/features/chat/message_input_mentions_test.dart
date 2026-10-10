@@ -62,7 +62,13 @@ void main() {
         text: 'hello',
         time: '10:00',
         isMine: false,
-        onCopy: onCopy,
+        actions: [
+          MessageAction(
+            icon: Icons.copy_rounded,
+            label: l10nEn.chatMessageCopy,
+            onSelected: onCopy,
+          ),
+        ],
       ),
     ),
   );
