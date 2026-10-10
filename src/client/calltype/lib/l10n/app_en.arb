@@ -145,6 +145,14 @@
   },
   "chatStatusSendingRetry": "Sending — retry",
   "chatStatusSent": "Sent",
+  "chatMessageCopy": "Copy",
+  "@chatMessageCopy": {
+    "description": "Action in the message long-press menu: copy the text to the clipboard."
+  },
+  "chatMessageCopied": "Message copied",
+  "@chatMessageCopied": {
+    "description": "Snackbar after a message was copied."
+  },
   "chatInputAttach": "Attach file",
   "chatInputHint": "Message",
   "@chatInputHint": {
@@ -171,6 +179,14 @@
   "botNotice": "Bot — messages are read by an automated program operated by a third party. The BOT label is self-declared and not verified by Jay.",
   "@botNotice": {
     "description": "Honest warning shown before adding / when chatting with a bot. Keep 'BOT' untranslated (it matches the badge) and 'Jay' (product name)."
+  },
+  "contactRename": "Rename",
+  "@contactRename": {
+    "description": "Menu item to give a contact a local nickname."
+  },
+  "contactRenameLabel": "Name (visible only to you)",
+  "@contactRenameLabel": {
+    "description": "Label of the rename-contact text field; the name is stored only on this device."
   },
   "contactsTitle": "Contacts",
   "contactsScanQr": "Scan QR code",

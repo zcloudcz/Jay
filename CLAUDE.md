@@ -210,7 +210,7 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
 | `POST /accounts/{id}/devices/{id}` | Link device to account | ✅ Done |
 | `GET /accounts/{id}/devices` | List linked devices | ✅ Done |
 | `POST /groups` | Create group | ✅ Done |
-| `GET /groups/{id}/members` | List members | ✅ Done |
+| `GET /groups/{id}/members` | List members (+ public profile: handle, display name, isBot) | ✅ Done |
 | `PUT /groups/{id}/members` | Add member | ✅ Done |
 | `DELETE /groups/{id}/members/{id}` | Remove member | ✅ Done |
 | `POST /backups` | Upload backup metadata | ✅ Done |

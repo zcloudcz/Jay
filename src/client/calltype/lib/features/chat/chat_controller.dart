@@ -40,6 +40,7 @@ class ChatController extends ChangeNotifier {
     });
     _markRead();
     _syncBusinessInfo();
+    _loadGroupMembers();
   }
 
   /// Backfills the local `organizationId`/`organizationName` cache for this
@@ -69,6 +70,27 @@ class ChatController extends ChangeNotifier {
     } catch (_) {
       // Best-effort cache warm-up; the banner simply won't show yet.
     }
+  }
+
+  List<GroupMemberInfo> _groupMembers = [];
+
+  /// Members of this conversation when it is a group (empty for direct chats
+  /// and until the one-time load finishes); feeds @mentions and sender names.
+  List<GroupMemberInfo> get groupMembers => List.unmodifiable(_groupMembers);
+
+  /// Loads the member profiles once. Best effort like [_syncBusinessInfo]:
+  /// offline or an old server just means no suggestions / raw sender ids.
+  Future<void> _loadGroupMembers() async {
+    try {
+      final conversation = await (_db.select(
+        _db.conversations,
+      )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
+      if (conversation?.type != 'group') return;
+      final members = await _api.getGroupMemberInfos(conversationId);
+      if (_disposed) return;
+      _groupMembers = members;
+      notifyListeners();
+    } catch (_) {}
   }
 
   /// H2: a business "1:1" is really a business GROUP with exactly one other

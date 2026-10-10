@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import '../../shared/widgets/bot_badge.dart';
+import 'mentions.dart';
 
 /// Composable message input bar with text field and send button.
 ///
@@ -13,8 +15,16 @@ import '../../l10n/l10n.dart';
 /// avoid memory leaks — this is important because the input bar lives
 /// as long as the chat screen and the controller holds native resources.
 class MessageInput extends StatefulWidget {
-  const MessageInput({super.key, required this.onSend, this.onAttachment});
+  const MessageInput({
+    super.key,
+    required this.onSend,
+    this.onAttachment,
+    this.mentionCandidates = const [],
+  });
   final VoidCallback? onAttachment;
+
+  /// Group members offered while the user types `@...`; empty in direct chats.
+  final List<MentionCandidate> mentionCandidates;
 
   /// Called with the non-empty trimmed message text when the user submits.
   final Future<void> Function(String) onSend;
@@ -25,6 +35,12 @@ class MessageInput extends StatefulWidget {
 
 class _MessageInputState extends State<MessageInput> {
   final _controller = TextEditingController();
+  final _focus = FocusNode();
+
+  /// Suggestions currently shown above the field. Kept as state (instead of
+  /// recomputed in build) so setState runs only when the visible list changes.
+  MentionQuery? _mention;
+  List<MentionCandidate> _suggestions = const [];
 
   /// Track whether the text field has content so we can conditionally
   /// enable the send button — prevents sending empty messages.
@@ -39,9 +55,38 @@ class _MessageInputState extends State<MessageInput> {
 
   void _onTextChanged() {
     final hasText = _controller.text.trim().isNotEmpty;
-    if (hasText != _hasText) {
-      setState(() => _hasText = hasText);
+    final cursor = _controller.selection.baseOffset;
+    final mention = activeMentionQuery(_controller.text, cursor);
+    final suggestions = mention == null
+        ? const <MentionCandidate>[]
+        : filterMentions(widget.mentionCandidates, mention.query);
+    final changed =
+        suggestions.length != _suggestions.length ||
+        !suggestions.indexed.every((e) => identical(e.$2, _suggestions[e.$1]));
+    if (hasText != _hasText || changed) {
+      setState(() {
+        _hasText = hasText;
+        _mention = mention;
+        _suggestions = suggestions;
+      });
     }
+  }
+
+  void _pick(MentionCandidate candidate) {
+    final mention = _mention;
+    if (mention == null) return;
+    final cursor = _controller.selection.baseOffset;
+    final result = applyMention(
+      _controller.text,
+      mention,
+      cursor,
+      candidate.token,
+    );
+    _controller.value = TextEditingValue(
+      text: result.text,
+      selection: TextSelection.collapsed(offset: result.cursor),
+    );
+    _focus.requestFocus();
   }
 
   Future<void> _submit() async {
@@ -65,6 +110,7 @@ class _MessageInputState extends State<MessageInput> {
   @override
   void dispose() {
     _controller.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -73,56 +119,82 @@ class _MessageInputState extends State<MessageInput> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        child: Row(
-          children: [
-            // Attachment button — placeholder for Phase 5 file sharing.
-            IconButton(
-              icon: const Icon(Icons.attach_file_rounded),
-              tooltip: context.l10n.chatInputAttach,
-              onPressed: widget.onAttachment,
-            ),
-
-            Expanded(
-              child: TextField(
-                controller: _controller,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _submit(),
-                decoration: InputDecoration(
-                  hintText: context.l10n.chatInputHint,
-                  filled: true,
-                  fillColor: colorScheme.surfaceContainerHighest,
-                  // Fully rounded ends give the input field the pill shape
-                  // that's become standard in messaging app UIs.
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_suggestions.isNotEmpty)
+            Material(
+              color: colorScheme.surfaceContainer,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 200),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _suggestions.length,
+                  itemBuilder: (context, i) {
+                    final c = _suggestions[i];
+                    return ListTile(
+                      dense: true,
+                      title: NameWithBotBadge(name: c.label, isBot: c.isBot),
+                      subtitle: c.detail == null ? null : Text(c.detail!),
+                      onTap: () => _pick(c),
+                    );
+                  },
                 ),
               ),
             ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: Row(
+              children: [
+                // Attachment button — placeholder for Phase 5 file sharing.
+                IconButton(
+                  icon: const Icon(Icons.attach_file_rounded),
+                  tooltip: context.l10n.chatInputAttach,
+                  onPressed: widget.onAttachment,
+                ),
 
-            const SizedBox(width: 4),
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    focusNode: _focus,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _submit(),
+                    decoration: InputDecoration(
+                      hintText: context.l10n.chatInputHint,
+                      filled: true,
+                      fillColor: colorScheme.surfaceContainerHighest,
+                      // Fully rounded ends give the input field the pill shape
+                      // that's become standard in messaging app UIs.
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                    ),
+                  ),
+                ),
 
-            // Send button — visually distinct when text is present to
-            // signal that the message is ready to send.
-            IconButton(
-              icon: Icon(
-                Icons.send_rounded,
-                color: _hasText
-                    ? colorScheme.primary
-                    : colorScheme.onSurfaceVariant,
-              ),
-              tooltip: context.l10n.chatInputSend,
-              onPressed: _hasText && !_sending ? _submit : null,
+                const SizedBox(width: 4),
+
+                // Send button — visually distinct when text is present to
+                // signal that the message is ready to send.
+                IconButton(
+                  icon: Icon(
+                    Icons.send_rounded,
+                    color: _hasText
+                        ? colorScheme.primary
+                        : colorScheme.onSurfaceVariant,
+                  ),
+                  tooltip: context.l10n.chatInputSend,
+                  onPressed: _hasText && !_sending ? _submit : null,
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
