@@ -85,6 +85,7 @@
   "chatStatusSent": "Отправлено",
   "chatMessageCopy": "Копировать",
   "chatMessageCopied": "Сообщение скопировано",
+  "chatMessageCopyFailed": "Не удалось скопировать сообщение",
   "chatInputAttach": "Прикрепить файл",
   "chatInputHint": "Сообщение",
   "chatInputSend": "Отправить",

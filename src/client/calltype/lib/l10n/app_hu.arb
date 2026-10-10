@@ -85,6 +85,7 @@
   "chatStatusSent": "Elküldve",
   "chatMessageCopy": "Másolás",
   "chatMessageCopied": "Üzenet másolva",
+  "chatMessageCopyFailed": "Az üzenetet nem sikerült másolni",
   "chatInputAttach": "Fájl csatolása",
   "chatInputHint": "Üzenet",
   "chatInputSend": "Küldés",

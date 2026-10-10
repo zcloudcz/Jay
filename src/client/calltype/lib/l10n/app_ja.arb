@@ -85,6 +85,7 @@
   "chatStatusSent": "送信済み",
   "chatMessageCopy": "コピー",
   "chatMessageCopied": "メッセージをコピーしました",
+  "chatMessageCopyFailed": "メッセージをコピーできませんでした",
   "chatInputAttach": "ファイルを添付",
   "chatInputHint": "メッセージ",
   "chatInputSend": "送信",

@@ -85,6 +85,7 @@
   "chatStatusSent": "Gönderildi",
   "chatMessageCopy": "Kopyala",
   "chatMessageCopied": "Mesaj kopyalandı",
+  "chatMessageCopyFailed": "Mesaj kopyalanamadı",
   "chatInputAttach": "Dosya ekle",
   "chatInputHint": "Mesaj",
   "chatInputSend": "Gönder",

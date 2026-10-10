@@ -85,6 +85,7 @@
   "chatStatusSent": "Verzonden",
   "chatMessageCopy": "Kopiëren",
   "chatMessageCopied": "Bericht gekopieerd",
+  "chatMessageCopyFailed": "Bericht kon niet worden gekopieerd",
   "chatInputAttach": "Bestand bijvoegen",
   "chatInputHint": "Bericht",
   "chatInputSend": "Verzenden",

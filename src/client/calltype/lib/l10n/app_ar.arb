@@ -85,6 +85,7 @@
   "chatStatusSent": "تم الإرسال",
   "chatMessageCopy": "نسخ",
   "chatMessageCopied": "تم نسخ الرسالة",
+  "chatMessageCopyFailed": "تعذّر نسخ الرسالة",
   "chatInputAttach": "إرفاق ملف",
   "chatInputHint": "رسالة",
   "chatInputSend": "إرسال",

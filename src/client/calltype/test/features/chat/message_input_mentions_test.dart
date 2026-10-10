@@ -1,7 +1,7 @@
 import 'package:calltype/features/chat/mentions.dart';
 import 'package:calltype/features/chat/message_bubble.dart';
 import 'package:calltype/features/chat/message_input.dart';
-import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -56,26 +56,42 @@ void main() {
     expect(find.byType(ListTile), findsNothing);
   });
 
-  testWidgets('long-press and right-click on a bubble trigger onActions', (
+  Widget bubble(VoidCallback onCopy) => localizedApp(
+    home: Scaffold(
+      body: MessageBubble(
+        text: 'hello',
+        time: '10:00',
+        isMine: false,
+        onCopy: onCopy,
+      ),
+    ),
+  );
+
+  testWidgets('touch: long-press opens a sheet whose Copy calls onCopy', (
     tester,
   ) async {
-    var calls = 0;
-    await tester.pumpWidget(
-      localizedApp(
-        home: Scaffold(
-          body: MessageBubble(
-            text: 'hello',
-            time: '10:00',
-            isMine: false,
-            onActions: () => calls++,
-          ),
-        ),
-      ),
-    );
+    var copies = 0;
+    await tester.pumpWidget(bubble(() => copies++));
+    // No mouse expected on a phone, so no extra button clutters the bubble.
+    expect(find.byIcon(Icons.more_vert), findsNothing);
     await tester.longPress(find.text('hello'));
-    expect(calls, 1);
-    await tester.tap(find.text('hello'), buttons: kSecondaryButton);
-    await tester.pump();
-    expect(calls, 2);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10nEn.chatMessageCopy));
+    await tester.pumpAndSettle();
+    expect(copies, 1);
+  });
+
+  testWidgets('desktop/web: a visible three-dots menu offers Copy', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    var copies = 0;
+    await tester.pumpWidget(bubble(() => copies++));
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10nEn.chatMessageCopy));
+    await tester.pumpAndSettle();
+    expect(copies, 1);
+    debugDefaultTargetPlatformOverride = null;
   });
 }
