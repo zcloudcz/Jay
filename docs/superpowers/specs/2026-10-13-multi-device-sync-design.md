@@ -143,7 +143,8 @@ nothing about trust.
    because `consentSig` names the primary and it only learns the primary here.
 5. The primary verifies `consentSig`, signs version + 1 and PUTs it.
 6. The new device receives `DeviceListChanged`, fetches the list, pins the
-   primary's keys from it on first use and verifies the signature, checks that
+   primary's keys from the primary's key bundle (it needs a session with the
+   primary anyway) and verifies the signature, checks that
    its own entry is exactly what it consented to, and switches to companion
    mode.
 
@@ -179,27 +180,34 @@ become a companion.
 ### Hub
 
 ```
-SendReliableFanoutMessage(Guid messageId, Guid? recipientPrimaryId,
-                          Guid? groupId, Dictionary<Guid,string> payloads)
+SendReliableDirectFanout(Guid recipientPrimaryId, Guid messageId,
+                         List<Guid> allRecipients, Dictionary<Guid,string> payloads)
+SendReliableGroupFanout(Guid groupId, Guid messageId,
+                        List<Guid> allRecipients, Dictionary<Guid,string> payloads)
 ```
 
-Exactly one of `recipientPrimaryId` / `groupId` is set.
+Two methods because the Dart hub transport cannot send `null` arguments.
 
-- Allowed keys: devices of the recipient identity (direct) or of every group
-  member (group), plus the devices of the sender's own identity.
-- Completeness: if a device of those identities is missing, or a device that
-  is no longer listed is present, the call fails with `device_list_stale`.
-  The client refetches the lists, verifies them, patches its outbox and
-  retries. This is how a peer learns about a list change without the server
-  knowing who the user's contacts are.
+- The required device set: devices of the recipient identity (direct) or of
+  every group member (group), plus the devices of the sender's own identity,
+  minus the sending device.
+- Completeness is checked on `allRecipients`, which must equal the required
+  set. Otherwise the call fails with `device_list_stale:<required ids>`. The
+  client then sends to the required devices it has verified, and refuses if
+  the server requires a device it cannot verify. This is how a peer learns
+  about a list change without the server knowing who the user's contacts are.
+- `payloads` may carry only a part of `allRecipients`: copies of an attachment
+  for several devices do not fit one 1 MiB hub frame, so a large send is split
+  per device, as group attachments are today. One call is one transaction.
 - The server can only lie towards an outage here. A sender encrypts only for
-  devices from a list it verified, so if the server claims a device that is
-  not in the signed list, the send fails. It cannot add a reader.
+  devices from a list it verified. It cannot add a reader.
+- Business groups reject `SendReliableGroupFanout`
+  (`fanout_unsupported_in_business_group`) and stay on
+  `SendReliableGroupMessage`.
 - A device that no longer exists (deleted itself) is skipped by the
   completeness check.
 - Queueing, acknowledgement and push are unchanged; they are already per
-  device, and the whole fan-out is enqueued in one transaction, exactly like
-  `SendReliableGroupMessage` today.
+  device.
 - `communicationPolicy.IsAllowedAsync` is evaluated on primary IDs, otherwise
   an enrolled employee could bypass `RequireBusinessConversations` through a
   companion.
@@ -272,7 +280,7 @@ conversation uses the identity ID.
 | Companion deleted itself | skipped by the completeness check; dropped at the primary's next signature |
 | Primary deleted | list is gone; companions stay in "cannot verify" |
 | Decryption fails on one device | message stays queued for that device only (as today) |
-| Fan-out | one transaction (as groups today) |
+| Fan-out | one transaction per call; a split attachment send is not atomic (as groups today) |
 
 ### Tests
 
