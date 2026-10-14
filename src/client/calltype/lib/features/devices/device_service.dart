@@ -1,0 +1,354 @@
+import 'dart:async';
+
+import 'package:calltype_core/crypto/device_list.dart';
+import 'package:calltype_core/devices/device_directory.dart';
+import 'package:dio/dio.dart';
+import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
+
+import '../../core/crypto/key_manager.dart';
+import '../../core/crypto/session_manager.dart';
+import '../../core/network/api_client.dart';
+import '../../core/network/signalr_client.dart';
+import '../../core/storage/database.dart';
+import '../chat/message_inbox_service.dart' show MessageProcessingQueue;
+
+/// What a companion knows about its own link (shown on the chat list).
+enum CompanionStatus {
+  /// Not a companion, or a companion whose list verified.
+  ok,
+
+  /// The list this companion is in is missing or does not verify. Nothing is
+  /// deleted: otherwise the server could force a wipe by lying (spec Part A,
+  /// "Removing a device").
+  cannotVerify,
+
+  /// A verified, newer list no longer contains this device; its chats were
+  /// deleted.
+  removed,
+}
+
+/// BackupState key: the handle of the primary this device is linked to.
+/// The hub's LinkOffer carries it; it is shown on the companion and used for
+/// its "My identity" invite.
+const linkedPrimaryHandleKey = 'linked_primary_handle';
+
+/// App-wide owner of this device's multi-device state (spec Part A).
+///
+/// Built before onboarding (the inbox needs a reference at startup) and
+/// [open]ed once the device has an id. Every list refresh it starts runs in
+/// [MessageProcessingQueue]: a refresh may create a session (ratchet state),
+/// and the inbox and the outbox refresh through the same queue.
+class DeviceService extends ChangeNotifier {
+  DeviceService({
+    required AppDatabase database,
+    required ApiClient apiClient,
+    required KeyManager keyManager,
+    required SessionManager sessionManager,
+    required SignalRClient signalRClient,
+  }) : _db = database,
+       _api = apiClient,
+       _keys = keyManager,
+       _sessions = sessionManager,
+       _signalR = signalRClient;
+
+  final AppDatabase _db;
+  final ApiClient _api;
+  final KeyManager _keys;
+  final SessionManager _sessions;
+  final SignalRClient _signalR;
+  static const _uuid = Uuid();
+
+  DeviceDirectory? _directory;
+  StreamSubscription<DeviceListChange>? _changes;
+  StreamSubscription<Map<String, dynamic>>? _hints;
+  CompanionStatus _status = CompanionStatus.ok;
+  String? _pendingPrimary;
+  bool _disposed = false;
+
+  bool get isOpen => _directory != null;
+
+  DeviceDirectory get directory =>
+      _directory ?? (throw StateError('This device is not registered yet.'));
+
+  bool get isCompanion => _directory?.isCompanion ?? false;
+
+  CompanionStatus get status => _status;
+
+  /// Loads the verified lists for [deviceId]. Routing reads
+  /// `selfIdentityId`, so this must finish before the hub delivers the first
+  /// message (constraint 8).
+  Future<void> open(String deviceId) async {
+    if (_directory != null) return;
+    final directory = DeviceDirectory(
+      database: _db,
+      apiClient: _api,
+      selfDeviceId: deviceId,
+      selfSigningKey: () async =>
+          (await _keys.getSignedIdentityBundle())['signingKey']!,
+      selfIdentityKey: _keys.getPublicIdentityKey,
+    );
+    await directory.load();
+    _directory = directory;
+    _changes = directory.changes.listen(
+      (change) => unawaited(_onChange(change).catchError((Object _) {})),
+    );
+    _hints = _signalR.onDeviceListChanged.listen((event) {
+      final primary = (event['primaryDeviceId'] as String?)?.toLowerCase();
+      // The event is only a hint to refetch and verify. Only our own
+      // identity, or the primary we just consented to join, is worth a fetch:
+      // anything else would let the server make us pin and store arbitrary
+      // identities.
+      if (primary == null ||
+          (primary != directory.selfIdentityId && primary != _pendingPrimary)) {
+        return;
+      }
+      unawaited(checkOwnList(primary));
+    });
+    _notify();
+  }
+
+  /// The new device consented to join [primaryDeviceId]; its next list hint
+  /// is the one that makes this device a companion.
+  void expectLink(String primaryDeviceId) =>
+      _pendingPrimary = primaryDeviceId.toLowerCase();
+
+  Future<String?> linkedPrimaryHandle() async =>
+      (await (_db.select(
+        _db.backupState,
+      )..where((s) => s.key.equals(linkedPrimaryHandleKey))).getSingleOrNull())
+          ?.value;
+
+  /// Re-reads and verifies the list this device belongs to: on a
+  /// DeviceListChanged hint, on every hub connect (a hint sent while we were
+  /// offline is lost) and after our own PUT (fan-out targets come from the
+  /// STORED list, constraint 5).
+  Future<void> checkOwnList([String? primaryDeviceId]) =>
+      MessageProcessingQueue.forDatabase(_db).run(() async {
+        final directory = _directory;
+        if (directory == null) return;
+        // Most devices never link anything: no own list and not a companion
+        // means there is nothing to re-check, and a reconnect costs nothing.
+        if (primaryDeviceId == null &&
+            !directory.isCompanion &&
+            await _ownList() == null) {
+          return;
+        }
+        try {
+          await directory.refresh(
+            primaryDeviceId ?? directory.selfIdentityId,
+            ensurePinned: _ensureSession,
+          );
+          // refresh() answers null both for "unchanged" and for "the server
+          // has no list". Only the second matters for a companion, and only a
+          // direct look tells them apart.
+          if (directory.isCompanion &&
+              await _api.getDeviceList(directory.selfDeviceId) == null) {
+            _setStatus(CompanionStatus.cannotVerify);
+            return;
+          }
+        } on DeviceListException {
+          if (directory.isCompanion) _setStatus(CompanionStatus.cannotVerify);
+          return;
+        } catch (_) {
+          // Offline, 429 or 5xx: no verdict about the list either way.
+          return;
+        }
+        if (_status == CompanionStatus.cannotVerify) {
+          _setStatus(CompanionStatus.ok);
+        }
+      });
+
+  Future<void> _onChange(DeviceListChange change) async {
+    final directory = _directory!;
+    if (change.removed.contains(directory.selfDeviceId)) {
+      await _wipe();
+      return;
+    }
+    if (change.added.contains(directory.selfDeviceId)) {
+      _pendingPrimary = null;
+      _setStatus(CompanionStatus.ok);
+      return;
+    }
+    // Our own identity (as primary or as companion): screens re-read, but no
+    // line; the user linked that device themselves.
+    if (change.identityId == directory.selfIdentityId) {
+      _notify();
+      return;
+    }
+    // Only a change between two verified versions is news. The first list
+    // we ever store for somebody may be years old; showing it as "added a
+    // device" would be noise.
+    if (change.firstList) return;
+    await _noteDeviceChange(change);
+  }
+
+  /// Spec Part A, "What a peer sees": nothing happens silently, same
+  /// principle as the visible auditor. One line per direction, not per
+  /// device: the fact matters, not the count.
+  Future<void> _noteDeviceChange(DeviceListChange change) async {
+    final conversation = await (_db.select(
+      _db.conversations,
+    )..where((c) => c.id.equals(change.identityId))).getSingleOrNull();
+    // ponytail: direct conversations only. A group would need the line in
+    // every group shared with that person; add it when users ask for it.
+    if (conversation == null || conversation.type != 'direct') return;
+    final now = DateTime.now();
+    for (final (kind, devices) in [
+      ('added', change.added),
+      ('removed', change.removed),
+    ]) {
+      if (devices.isEmpty) continue;
+      await _db
+          .into(_db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: _uuid.v4(),
+              conversationId: change.identityId,
+              senderId: change.identityId,
+              body: Value(kind),
+              type: const Value('device-change'),
+              status: const Value('delivered'),
+              createdAt: now,
+              receivedAt: Value(now),
+            ),
+          );
+    }
+  }
+
+  /// A verified, newer list without this device: delete what it holds of the
+  /// identity's conversations. Keys and registration stay, so the device is
+  /// simply an empty, standalone device again.
+  Future<void> _wipe() => MessageProcessingQueue.forDatabase(_db).run(() async {
+    await _db.transaction(() async {
+      await _db.delete(_db.messages).go();
+      await _db.delete(_db.conversations).go();
+      await _db.delete(_db.contacts).go();
+      await _db.delete(_db.knownDeviceListMembers).go();
+      await _db.delete(_db.knownDeviceLists).go();
+      await (_db.delete(_db.backupState)..where(
+            (s) =>
+                s.key.like('outbox:%') |
+                s.key.like('control:%') |
+                s.key.equals(linkedPrimaryHandleKey),
+          ))
+          .go();
+    });
+    await _directory!.load();
+    _setStatus(CompanionStatus.removed);
+  });
+
+  Future<KnownDeviceList?> _ownList() => (_db.select(
+    _db.knownDeviceLists,
+  )..where((l) => l.primaryDeviceId.equals(directory.selfDeviceId))).getSingleOrNull();
+
+  /// The companions in this primary's own verified list.
+  Future<List<DeviceListEntry>> companions() async {
+    final own = await _ownList();
+    return own == null ? const [] : parseDeviceListPayload(own.payload).devices;
+  }
+
+  Future<void> addCompanion(DeviceListEntry entry) => _publish(
+    (current) => [
+      for (final d in current)
+        if (d.deviceId != entry.deviceId) d,
+      entry,
+    ],
+  );
+
+  Future<void> removeCompanions(Set<String> deviceIds) => _publish(
+    (current) => [
+      for (final d in current)
+        if (!deviceIds.contains(d.deviceId)) d,
+    ],
+  );
+
+  /// Constraint 5: a stale answer that leaves out one of OUR companions means
+  /// the server no longer knows that device (it deleted itself). Re-sign
+  /// without it; otherwise every peer pays a stale round trip per message and
+  /// the next PUT fails with device_list_unknown_device.
+  ///
+  /// Starts [checkOwnList] (a [MessageProcessingQueue] job) after the PUT, so
+  /// callers already running inside that queue (the outbox repair) must NOT
+  /// await this: the queue is not reentrant and they would wait for themselves.
+  /// Call it fire-and-forget from there.
+  Future<void> dropVanishedCompanions(Set<String> required) async {
+    final directory = _directory;
+    if (directory == null || directory.isCompanion) return;
+    final own = (await directory.devicesOf(directory.selfDeviceId)).skip(1);
+    final vanished = own.toSet().difference(required);
+    if (vanished.isEmpty) return;
+    try {
+      await removeCompanions(vanished);
+    } catch (_) {
+      // Retried by the next stale answer.
+    }
+  }
+
+  /// Signs version + 1 of this primary's list with [edit] applied and
+  /// uploads it (spec Part A, steps 5 and "Removing a device").
+  Future<void> _publish(
+    List<DeviceListEntry> Function(List<DeviceListEntry> current) edit,
+  ) async {
+    final directory = this.directory;
+    if (directory.isCompanion) {
+      throw StateError('Only the primary device signs its device list.');
+    }
+    for (var attempt = 1; ; attempt++) {
+      final own = await _ownList();
+      final signed = await signDeviceList(
+        primarySigningKey: await _keys.getSigningKeyPair(),
+        list: DeviceList(
+          primaryDeviceId: directory.selfDeviceId,
+          version: (own?.version ?? 0) + 1,
+          devices: edit(
+            own == null ? const [] : parseDeviceListPayload(own.payload).devices,
+          ),
+        ),
+      );
+      try {
+        await _api.putDeviceList(
+          directory.selfDeviceId,
+          payload: signed.payload,
+          signature: signed.signature,
+        );
+        break;
+      } on DioException catch (e) {
+        final data = e.response?.data;
+        final conflict =
+            data is Map && data['error'] == 'device_list_version_conflict';
+        // Two edits at once (spec Part C): load the newer list and sign
+        // version + 1 of it. Bounded, so a server that keeps answering 409
+        // produces an error instead of a loop.
+        if (!conflict || attempt == 3) rethrow;
+        await checkOwnList(directory.selfDeviceId);
+      }
+    }
+    await checkOwnList(directory.selfDeviceId);
+    _notify();
+  }
+
+  Future<void> _ensureSession(String deviceId) async {
+    if (!await _sessions.hasSession(deviceId)) {
+      await _sessions.initiateSession(deviceId, await _api.getKeyBundle(deviceId));
+    }
+  }
+
+  void _setStatus(CompanionStatus status) {
+    _status = status;
+    _notify();
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _changes?.cancel();
+    _hints?.cancel();
+    super.dispose();
+  }
+}

@@ -18,6 +18,7 @@ import 'features/channels/channels_controller.dart';
 import 'features/chat/message_inbox_service.dart';
 import 'features/chat_list/chat_list_controller.dart';
 import 'features/contacts/contacts_controller.dart';
+import 'features/devices/device_service.dart';
 
 /// Application entry point with full dependency injection wiring.
 ///
@@ -71,6 +72,19 @@ void main() async {
   // state in the local DB. Both are needed by every chat screen.
   final keyManager = KeyManager(secureStorage: secureStorage);
   final sessionManager = SessionManager(database: db, keyManager: keyManager);
+
+  // Multi-device: owns the verified device lists, the companion state and the
+  // device's own list. Opened before the inbox can see a message: routing
+  // needs selfIdentityId (constraint 8). A fresh install opens it in the
+  // onboarding route instead.
+  final devices = DeviceService(
+    database: db,
+    apiClient: apiClient,
+    keyManager: keyManager,
+    sessionManager: sessionManager,
+    signalRClient: signalRClient,
+  );
+  if (deviceId.isNotEmpty) await devices.open(deviceId);
 
   // Built here (not inside a provider `create:`) so its callReports stream
   // can be wired to CallEventSender below, app-wide and before runApp.
@@ -126,6 +140,9 @@ void main() async {
     final connected = signalRClient.connected;
     if (connected && !wasConnected) {
       unawaited(channels.sync().catchError((Object _) {}));
+      // A DeviceListChanged hint sent while this device was offline is lost,
+      // so a (re)connect re-checks the own list (cheap no-op when unlinked).
+      if (devices.isOpen) unawaited(devices.checkOwnList());
     }
     wasConnected = connected;
   });
@@ -170,6 +187,7 @@ void main() async {
         // connection state changes (offline banner, call state).
         ChangeNotifierProvider.value(value: signalRClient),
         ChangeNotifierProvider.value(value: webrtcManager),
+        ChangeNotifierProvider.value(value: devices),
 
         // -- Feature controllers --------------------------------------------
         // Chat list and contacts controllers are app-wide singletons because

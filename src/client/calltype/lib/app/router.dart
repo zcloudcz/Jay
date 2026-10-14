@@ -27,6 +27,7 @@ import '../features/chat/message_inbox_service.dart';
 import '../features/chat_list/chat_list_screen.dart';
 import '../features/contacts/contacts_screen.dart';
 import '../features/contacts/qr_scanner_screen.dart';
+import '../features/devices/device_service.dart';
 import '../features/groups/group_create_screen.dart';
 import '../features/organization/emergency/emergency_controller.dart';
 import '../features/organization/emergency/emergency_enroll_screen.dart';
@@ -98,7 +99,11 @@ final router = GoRouter(
             // SecureStorage, so a route-scoped instance is fine here.
             keyManager: KeyManager(secureStorage: ctx.read<SecureStorage>()),
             onRegistered: (id) async {
+              // Read before the await: ctx must not be used across an async gap.
               final connection = ctx.read<SignalRClient>();
+              // Before connecting: the inbox routes through the directory from
+              // the first queued message on.
+              await ctx.read<DeviceService>().open(id);
               connection.setDeviceId(id);
               // Registration is complete even if the first socket attempt fails.
               try {
