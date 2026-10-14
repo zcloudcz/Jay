@@ -28,7 +28,7 @@
 6. **Server-side consent gate (found in Task 1 review).** The server does not verify signatures, so without a gate any user could upload a list naming somebody else's device; clients would reject the list, but the server would route that device as the uploader's and the victim could no longer send (DoS). The companion's authenticated `LinkConsent` hub call is therefore recorded (memory cache, 10 minutes; the API is a single instance by design) and PUT accepts a NEW companion only with that record.
 7. **`assertListedKeys` fails closed** when the device has no pinned keys (found in Task 1 review). Consent only proves that the key written in the entry agreed; the binding to the real device is the comparison with the pinned keys, so "nothing pinned" must not pass. Both session paths pin (`initiateSession`, and `decryptMessage` for a pre-key message), so callers always call it after a session exists.
 8. **`DeviceDirectory.refresh` refuses hijacking lists (found in Task 6 review; the plan's code was vulnerable).** A list is accepted only if it concerns the device that was asked about (`unrelated_list`); a list naming OUR device must carry our own keys (`self_not_consented`, consent alone is signed with a key the list author chooses); a list may not claim a device already attributed to another identity or a known primary (`device_claimed_by_other_identity`); refreshes are serialized and the version is re-checked inside the write transaction. The constructor therefore also takes `selfIdentityKey`. The code in the repo (commit "fix(core): device directory refuses hijacking lists") supersedes the Task 6 code below.
-9. **`FanoutSender` owns session setup and refreshes lazily (found in Task 7 review).** It compares a companion's key bundle with the signed entry BEFORE creating a session (a pin cannot be taken back), tolerates one identity's failed refresh in `encrypt` (keeps its stored verified list), and refreshes in `encrypt` only identities without a stored list; changes arrive through `device_list_stale` -> `reconcile`. Constructor: `FanoutSender({directory, sessions, apiClient})`. The code in the repo supersedes the Task 7 code below.
+9. **`FanoutSender` owns session setup and refreshes lazily (found in Task 7 review).** It compares a companion's key bundle with the signed entry BEFORE creating a session (a pin cannot be taken back), tolerates one identity's failed refresh in `encrypt` (keeps its stored verified list), and refreshes in `encrypt` only identities without a stored list; changes arrive through `device_list_stale` -> `reconcile`, which re-reads the lists on EVERY stale answer (also when it only drops devices, so a removal takes effect on our side). Constructor: `FanoutSender({directory, sessions, apiClient})`. The code in the repo supersedes the Task 7 code below.
 
 ## File map
 
@@ -2728,8 +2728,9 @@ void main() {
       expect((await onPhone).body, 'phone only');
       await Future<void>.delayed(const Duration(seconds: 2));
       expect(leaked, isFalse);
-      // B's stored list is still version 1: the stale retry only DROPS
-      // devices, it never needs a refresh for that (fewer readers is safe).
+      // The stale answer made B re-read A's list: the removal now holds on
+      // B's side too, not only on the (honest) server.
+      expect(await b.directory.devicesOf(aPhone.id), [aPhone.id]);
     },
   );
 }
