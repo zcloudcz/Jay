@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:calltype_core/crypto/device_list.dart' show DeviceListException;
+import 'package:calltype_core/devices/device_directory.dart';
 import 'package:drift/drift.dart';
 
 import '../../core/crypto/session_manager.dart';
@@ -43,22 +45,37 @@ Future<void> tombstoneMessage(AppDatabase db, String messageId) =>
     );
 
 /// Persists incoming messages before acknowledging their server queue entries.
+///
+/// Multi-device: the hub's `senderId` is the sending DEVICE. [directory]
+/// turns it into the identity that `messages.senderId` stores and decides
+/// the conversation: a contact's companion lands in the contact's
+/// conversation, a copy from one of our own devices in the one named by `to`.
 class MessageInboxService {
   MessageInboxService({
     required AppDatabase database,
     required SessionManager sessionManager,
     required Stream<Map<String, dynamic>> incomingMessages,
+    required DeviceDirectory Function() directory,
     ApiClient? apiClient,
     Future<void> Function(String senderId, String messageId)? acknowledge,
   }) : _db = database,
        _sessionManager = sessionManager,
        _incoming = incomingMessages,
-
+       _directory = directory,
+       _api = apiClient,
        _acknowledge = acknowledge;
 
   final AppDatabase _db;
   final SessionManager _sessionManager;
   final Stream<Map<String, dynamic>> _incoming;
+
+  /// A getter, not the directory itself: the app builds the inbox at startup,
+  /// before onboarding has given a fresh install its id (DeviceService.open).
+  final DeviceDirectory Function() _directory;
+
+  /// Fetches the key bundle of a sender's PRIMARY when its list must be
+  /// verified (the primary's pin is the trust anchor).
+  final ApiClient? _api;
 
   final Future<void> Function(String, String)? _acknowledge;
   StreamSubscription<Map<String, dynamic>>? _subscription;
@@ -87,7 +104,7 @@ class MessageInboxService {
           messageId.isEmpty) {
         throw const FormatException('Missing message identity');
       }
-      final conversationId = groupId ?? senderId;
+      final directory = _directory();
       // A `delete` control message never gets a messages row, so redelivery
       // (ack lost) is recognised by this marker instead of the row below.
       // Replaying it would otherwise fail in the ratchet and stay queued.
@@ -102,12 +119,27 @@ class MessageInboxService {
         _db.messages,
       )..where((m) => m.id.equals(messageId))).getSingleOrNull();
       if (existing != null) {
-        if (existing.senderId != senderId ||
-            existing.conversationId != conversationId) {
+        // Rows store the sender's IDENTITY (a companion's message is filed
+        // under its primary), so a redelivery is compared with that.
+        if (existing.senderId != await directory.identityOf(senderId) ||
+            (groupId != null && existing.conversationId != groupId)) {
           throw const FormatException('Conflicting message identity');
         }
         await _acknowledge?.call(senderId, messageId);
         return;
+      }
+      // Constraint 1: a device we never talked to may be a companion of
+      // somebody we know. Look it up once, before decrypting, and only then:
+      // a known sender has a session, so this costs nothing per message. No
+      // contact row is created here (that would mark the device as claimed).
+      if (await directory.identityOf(senderId) == senderId.toLowerCase() &&
+          !await _sessionManager.hasSession(senderId)) {
+        try {
+          await directory.refresh(senderId, ensurePinned: _ensureSession);
+        } catch (_) {
+          // No verified list: the sender stays a standalone device, exactly
+          // as before multi-device. Attribution is never forced.
+        }
       }
       // Membership was authorized by the relay when it accepted the message.
       // Current membership can differ after an offline recipient reconnects.
@@ -121,6 +153,16 @@ class MessageInboxService {
           envelope,
           deferPreKeyCleanup: true,
         );
+        // Constraint 2: the keys this device used (pinned by the decrypt
+        // above) must be the keys its primary signed into the list. On a
+        // mismatch the message is DROPPED: the ratchet step commits with this
+        // transaction, so it is not decrypted again, and the caller
+        // acknowledges it, but it is never stored or shown.
+        try {
+          await directory.assertListedKeys(senderId);
+        } on DeviceListException {
+          return;
+        }
         final payload = jsonDecode(plaintext) as Map<String, dynamic>;
         if (payload['v'] != 1 ||
             payload['id'] != messageId ||
@@ -140,10 +182,20 @@ class MessageInboxService {
             type != 'delete') {
           throw const FormatException('Unsupported message type');
         }
+        // Who sent it and where it belongs. `to` is honoured only for copies
+        // from our own devices (DeviceDirectory.routeInbound): a peer cannot
+        // steer a message into another conversation with it.
+        final to = payload['to'];
+        final route = await directory.routeInbound(
+          senderDeviceId: senderId,
+          groupId: groupId,
+          to: to is String ? to : null,
+        );
+        final conversationId = route.conversationId;
         if (type == 'delete') {
           await _applyDelete(
             targetId: payload['body'] as String,
-            senderId: senderId,
+            senderId: route.senderIdentityId,
             conversationId: conversationId,
           );
           await _db
@@ -202,12 +254,14 @@ class MessageInboxService {
               MessagesCompanion.insert(
                 id: messageId,
                 conversationId: conversationId,
-                senderId: senderId,
+                senderId: route.senderIdentityId,
                 body: Value(payload['body'] as String),
                 type: Value(type),
-                status: const Value('delivered'),
+                // A copy of what our other device sent is OUR message: shown
+                // as sent, like on the device that wrote it.
+                status: Value(route.own ? 'sent' : 'delivered'),
                 createdAt: createdAt,
-                receivedAt: Value(now),
+                receivedAt: Value(route.own ? null : now),
                 replyToId: Value(replyToId),
                 replySenderId: Value(replySenderId),
                 replyPreview: Value(replyPreview),
@@ -219,10 +273,11 @@ class MessageInboxService {
         )..where((c) => c.id.equals(conversationId))).write(
           ConversationsCompanion(
             lastMessageAt: Value(now),
-            // A call-event is a log line, not something to "read" — it must
-            // not bump the unread badge (H2).
+            // A call-event is a log line and an own copy was written by us:
+            // neither is something to "read" (H2).
             unreadCount: Value(
-              (conversation?.unreadCount ?? 0) + (type == 'call-event' ? 0 : 1),
+              (conversation?.unreadCount ?? 0) +
+                  (route.own || type == 'call-event' ? 0 : 1),
             ),
           ),
         );
@@ -236,6 +291,17 @@ class MessageInboxService {
     } catch (error) {
       // Leave failures queued on the server; never report corrupt ciphertext as delivered.
       _errors.add(error);
+    }
+  }
+
+  Future<void> _ensureSession(String deviceId) async {
+    final api = _api;
+    if (api == null) throw StateError('No API client to fetch a key bundle.');
+    if (!await _sessionManager.hasSession(deviceId)) {
+      await _sessionManager.initiateSession(
+        deviceId,
+        await api.getKeyBundle(deviceId),
+      );
     }
   }
 

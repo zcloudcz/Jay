@@ -110,6 +110,7 @@ void main() {
       inbox = MessageInboxService(
         database: bob.db,
         sessionManager: bob.sessions,
+        directory: () => bob.directory,
         incomingMessages: transport.stream,
         acknowledge: (sender, id) async => acks.add(id),
       );
@@ -328,6 +329,7 @@ void main() {
       inbox = MessageInboxService(
         database: alice.db,
         sessionManager: alice.sessions,
+        directory: () => alice.directory,
         incomingMessages: const Stream.empty(),
       );
     });

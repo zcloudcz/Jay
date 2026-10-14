@@ -140,6 +140,7 @@ void main() {
         inbox: MessageInboxService(
           database: db,
           sessionManager: sessions,
+          directory: () => directory,
           incomingMessages: const Stream.empty(),
         ),
         apiClient: ApiClient(baseUrl: 'http://unused'),

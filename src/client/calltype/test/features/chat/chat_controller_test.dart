@@ -68,6 +68,7 @@ void main() {
       final inbox = MessageInboxService(
         database: alice.db,
         sessionManager: alice.sessions,
+        directory: () => alice.directory,
         incomingMessages: const Stream.empty(),
       );
       await alice.db
@@ -168,6 +169,7 @@ void main() {
       final inbox = MessageInboxService(
         database: alice.db,
         sessionManager: alice.sessions,
+        directory: () => alice.directory,
         incomingMessages: const Stream.empty(),
       );
       await alice.db
@@ -221,6 +223,7 @@ void main() {
       final inbox = MessageInboxService(
         database: alice.db,
         sessionManager: alice.sessions,
+        directory: () => alice.directory,
         incomingMessages: const Stream.empty(),
       );
       await alice.db
@@ -276,6 +279,7 @@ void main() {
       final inbox = MessageInboxService(
         database: alice.db,
         sessionManager: alice.sessions,
+        directory: () => alice.directory,
         incomingMessages: const Stream.empty(),
       );
       await alice.db
@@ -332,6 +336,7 @@ void main() {
     final inbox = MessageInboxService(
       database: web.db,
       sessionManager: web.sessions,
+      directory: () => web.directory,
       incomingMessages: const Stream.empty(),
     );
     final controller = ChatController(

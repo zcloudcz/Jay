@@ -102,6 +102,7 @@ void main() async {
     database: db,
     sessionManager: sessionManager,
     incomingMessages: signalRClient.onMessage,
+    directory: () => devices.directory,
     apiClient: apiClient,
     acknowledge: signalRClient.acknowledgeMessage,
   );

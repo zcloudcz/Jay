@@ -33,6 +33,7 @@ void main() {
     inbox = MessageInboxService(
       database: bob.db,
       sessionManager: bob.sessions,
+      directory: () => bob.directory,
       incomingMessages: transport.stream,
       apiClient: groupApi,
       acknowledge: (sender, id) async {
