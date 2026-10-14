@@ -272,6 +272,32 @@ void main() {
     expect(await alice.read(bot.deviceId, payloads[alice.id]!), 'hi both');
   });
 
+  test('a server hint naming another identity re-reads the list: a removed companion is no longer the user', () async {
+    final aliceWeb = await FakeUser.create('00000000-0000-4000-8000-0000000000aa');
+    addTearDown(aliceWeb.close);
+    api.keyBundles[aliceWeb.id] = await aliceWeb.keyBundle();
+    final list = await signedDeviceList(alice, [aliceWeb], version: 1);
+    api.deviceLists[alice.id] = list;
+    api.deviceLists[aliceWeb.id] = list;
+    final bot = await startBot();
+    final seen = <BotMessage>[];
+    await bot.onMessage((msg) async => seen.add(msg));
+    hub.deliver(await aliceWeb.messageTo(bot.deviceId, api.botBundle, 'while listed'));
+    await until(() => seen.length == 1);
+    expect(seen.single.senderId, alice.id);
+
+    // Alice removes the web device; the bot has not heard yet.
+    final v2 = await signedDeviceList(alice, [], version: 2);
+    api.deviceLists[alice.id] = v2;
+    api.deviceLists[aliceWeb.id] = v2;
+    final event = await aliceWeb.messageTo(bot.deviceId, api.botBundle, 'after removal');
+    hub.deliver({...event, 'senderPrimaryId': aliceWeb.id});
+    await until(() => seen.length == 2);
+
+    expect(seen.last.senderId, aliceWeb.id);
+    expect(seen.last.conversationId, aliceWeb.id);
+  });
+
   test('a companion the bot does not know yet: device_list_stale repairs the fan-out', () async {
     final aliceWeb = await FakeUser.create('00000000-0000-4000-8000-0000000000aa');
     addTearDown(aliceWeb.close);

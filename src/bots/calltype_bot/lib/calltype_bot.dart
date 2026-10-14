@@ -215,7 +215,14 @@ class CallTypeBot {
         transportFactory: transportFactory ?? WebSocketHubTransport.new,
       ),
       directory,
-      FanoutSender(directory: directory, sessions: sessions, apiClient: api),
+      FanoutSender(
+        directory: directory,
+        sessions: sessions,
+        apiClient: api,
+        // A listed companion of the user vanished from the server: the bot
+        // has no one to ask, so the log is the only place to surface it.
+        onMissingDevice: (id) => log!('Skipped listed device $id: its key bundle is gone'),
+      ),
       deviceId,
       handle,
       displayName,
@@ -291,6 +298,21 @@ class CallTypeBot {
         // No verified list: the sender stays its own identity, as before.
         // Any other error (network, 5xx) escapes on purpose: the message
         // stays queued on the server and nothing was decrypted yet.
+      }
+    }
+    // The server's attribution is only a HINT. If it names another identity
+    // than our verified list does, the list may be stale (the owner removed
+    // this companion, maybe a stolen browser): re-read it so the device is no
+    // longer treated as the owner. Attribution itself still comes only from
+    // the verified list; same error rule as above.
+    final hint = (data['senderPrimaryId'] as String?)?.toLowerCase();
+    if (hint != null &&
+        hint.isNotEmpty &&
+        hint != await _directory.identityOf(senderId)) {
+      try {
+        await _directory.refresh(senderId, ensurePinned: _ensureSession);
+      } on DeviceListException {
+        // Keep the local view.
       }
     }
     final identity = await _directory.identityOf(senderId);
