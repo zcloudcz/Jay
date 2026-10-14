@@ -27,8 +27,13 @@ class ServerApi extends ApiClient {
   final bundleFrom = <String, String>{};
 
   @override
-  Future<Map<String, dynamic>?> getDeviceList(String deviceId) async =>
-      served[deviceId];
+  Future<Map<String, dynamic>?> getDeviceList(String deviceId) async {
+    onGetDeviceList?.call(deviceId);
+    return served[deviceId];
+  }
+
+  /// Lets a test count list fetches.
+  void Function(String)? onGetDeviceList;
 
   @override
   Future<Map<String, dynamic>> getKeyBundle(String deviceId) =>
@@ -125,52 +130,77 @@ void main() {
         utf8.decode(base64Decode(envelopes[device]!)),
       );
 
-  test('encrypts one envelope per verified device, each decryptable', () async {
+  /// What the app does on a first send to a multi-device identity: encrypt to
+  /// the stored state, then the hub answers device_list_stale with [required].
+  Future<Map<String, String>> sendThenReconcile(
+    List<String> identities,
+    Set<String> required,
+  ) async {
+    final first = await sender.encrypt(identities, payload);
+    return sender.reconcile(
+      envelopes: first,
+      required: required,
+      identityIds: identities,
+      payload: payload,
+    );
+  }
+
+  test('encrypt alone makes no network fetch and covers known devices',
+      () async {
+    var listFetches = 0;
+    api.onGetDeviceList = (_) => listFetches++;
     await serveBobList(1, [bobWeb]);
-    final envelopes = await sender.encrypt([bob], payload);
+    await serveList(carol, 1, [], signer: rogue); // would not verify
+    final envelopes = await sender.encrypt([bob, carol], payload);
+    // Nothing fetched yet, so only the primaries are known.
+    expect(envelopes.keys, unorderedEquals([bob, carol]));
+    expect(listFetches, 0);
+  });
+
+  test('first send to a multi-device identity: stale then reconcile adds it',
+      () async {
+    await serveBobList(1, [bobWeb]);
+    final envelopes = await sendThenReconcile([bob], {bob, bobWeb});
     expect(envelopes.keys, unorderedEquals([bob, bobWeb]));
     for (final id in [bob, bobWeb]) {
       expect(jsonDecode(await open(id, envelopes))['body'], 'hi');
     }
+    // Afterwards encrypt covers both without any fetch.
+    final next = await sender.encrypt([bob], payload);
+    expect(next.keys, unorderedEquals([bob, bobWeb]));
   });
 
   test('a group send covers the devices of every identity', () async {
     await serveBobList(1, [bobWeb]);
-    final envelopes = await sender.encrypt([bob, carol], payload);
+    final envelopes = await sendThenReconcile([bob, carol], {
+      bob,
+      bobWeb,
+      carol,
+    });
     expect(envelopes.keys, unorderedEquals([bob, bobWeb, carol]));
   });
 
   test('our own other device gets a decryptable copy', () async {
     await serveList(me, 1, [mySibling]);
-    // encrypt does not fetch a known own list; load it as the app would.
+    // Our own list is loaded by the app (not by encrypt).
     await directory.refresh(me, ensurePinned: (_) async {});
-    await serveBobList(1, []);
     final envelopes = await sender.encrypt([bob], payload);
     expect(envelopes.keys, unorderedEquals([bob, mySibling]));
     expect(jsonDecode(await open(mySibling, envelopes))['body'], 'hi');
   });
 
-  test('a known list is not fetched again on every send', () async {
-    await serveBobList(1, []);
-    await sender.encrypt([bob], payload);
-    await serveBobList(2, [bobWeb]);
-    final second = await sender.encrypt([bob], payload);
-    expect(second.keys, [bob]); // the new device arrives via stale/reconcile
-  });
-
-  test('one list that does not verify does not block the others', () async {
-    await serveBobList(1, [bobWeb]);
-    await serveList(carol, 1, [], signer: rogue); // wrong signer
-    final envelopes = await sender.encrypt([bob, carol], payload);
-    expect(envelopes.keys, unorderedEquals([bob, bobWeb, carol]));
-  });
-
   test('a swapped companion bundle is refused without pinning, then recovers',
       () async {
     await serveBobList(1, [bobWeb]);
+    final first = await sender.encrypt([bob], payload);
     api.bundleFrom[bobWeb] = rogue;
     await expectLater(
-      sender.encrypt([bob], payload),
+      sender.reconcile(
+        envelopes: first,
+        required: {bob, bobWeb},
+        identityIds: [bob],
+        payload: payload,
+      ),
       throwsA(
         isA<DeviceListException>().having(
           (e) => e.reason,
@@ -183,14 +213,20 @@ void main() {
     expect(await pinOf(bobWeb), isNull);
 
     api.bundleFrom.clear(); // server honest again
-    final envelopes = await sender.encrypt([bob], payload);
-    expect(envelopes.keys, unorderedEquals([bob, bobWeb]));
+    final fixed = await sender.reconcile(
+      envelopes: first,
+      required: {bob, bobWeb},
+      identityIds: [bob],
+      payload: payload,
+    );
+    expect(fixed.keys, unorderedEquals([bob, bobWeb]));
+    expect(fixed[bob], first[bob]);
   });
 
   test('stale: a device the server no longer has is dropped, others resent as is',
       () async {
     await serveBobList(1, [bobWeb]);
-    final first = await sender.encrypt([bob], payload);
+    final first = await sendThenReconcile([bob], {bob, bobWeb});
     final fixed = await sender.reconcile(
       envelopes: first,
       required: {bob},
@@ -256,7 +292,7 @@ void main() {
   test('stale: a verified device of an identity outside the send is refused',
       () async {
     await serveBobList(1, [bobWeb]);
-    final first = await sender.encrypt([bob, carol], payload);
+    final first = await sendThenReconcile([bob, carol], {bob, bobWeb, carol});
     expect(
       sender.reconcile(
         envelopes: {carol: first[carol]!},

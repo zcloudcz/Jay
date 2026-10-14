@@ -30,27 +30,18 @@ class FanoutSender {
   final ApiClient _api;
 
   /// One base64 envelope per device of [identityIds] and of our own other
-  /// devices.
+  /// devices, from the STORED verified lists only: no network fetch here.
   ///
-  /// Only identities without a stored list are fetched here. Changes to a
-  /// known list arrive through `device_list_stale` -> [reconcile], which
-  /// refreshes; one GET per recipient per message would make a 50-member
-  /// group cost 51 round trips.
+  /// A list we never fetched (or a new companion) is caught by the hub's
+  /// completeness check -> `device_list_stale` -> [reconcile], which refreshes
+  /// and verifies. That costs one extra round trip on the first message to a
+  /// multi-device identity and nothing afterwards, whereas a GET per
+  /// recipient per message would make a 50-member group cost 51 round trips
+  /// (and every single-device contact a pointless GET).
   Future<Map<String, String>> encrypt(
     Iterable<String> identityIds,
     String payload,
   ) async {
-    for (final id in identityIds) {
-      if (await _directory.hasList(id)) continue;
-      try {
-        await _directory.refresh(id, ensurePinned: _ensureSession);
-      } on DeviceListException {
-        // A failed refresh leaves the verified state untouched, so encrypting
-        // to it is safe, and one hostile list must not block a whole group.
-        // If more devices are really required, the hub's completeness check
-        // answers device_list_stale and reconcile (strict) takes over.
-      }
-    }
     return {
       for (final target in await _directory.fanoutTargets(identityIds))
         target: await _encryptFor(target, payload),

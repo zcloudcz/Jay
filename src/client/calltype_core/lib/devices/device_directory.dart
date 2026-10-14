@@ -291,14 +291,6 @@ class DeviceDirectory {
     );
   }
 
-  /// True when a verified list of [identityId] is stored. Lets a sender skip
-  /// the network for identities it already knows.
-  Future<bool> hasList(String identityId) async =>
-      (await (_db.select(_db.knownDeviceLists)
-                ..where((l) => l.primaryDeviceId.equals(identityId.toLowerCase())))
-              .getSingleOrNull()) !=
-      null;
-
   /// `<identityKey>|<signingKey>` that the signed list holds for the listed
   /// companion [deviceId], in the format of the pin; null when the device is
   /// not a listed companion (a primary is pinned directly, on first contact).
