@@ -187,4 +187,48 @@ public class DeviceListEndpointsTests : IntegrationTestBase
             (await db.DeviceLists.AnyAsync()).Should().BeFalse();
         }
     }
+
+    [Fact]
+    public async Task Invalid_shapes_are_400()
+    {
+        var primary = await RegisterAndAuthenticateAsync();
+        var other = await RegisterAndAuthenticateAsync();
+        var client = As(primary.Token);
+        var url = $"/devices/{primary.DeviceId}/device-list";
+        string B64(string json) => Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
+        string Json(Guid p, int v, params Guid[] c) => JsonSerializer.Serialize(new
+        {
+            primaryDeviceId = p, version = v, devices = c.Select(d => new { deviceId = d })
+        });
+
+        // Over 8 KB.
+        (await client.PutAsJsonAsync(url, new { payload = Convert.ToBase64String(new byte[8 * 1024 + 1]), signature = Signature }))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // Signature not 64 bytes.
+        (await client.PutAsJsonAsync(url, new { payload = B64(Json(primary.DeviceId, 1)), signature = Convert.ToBase64String(new byte[63]) }))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        // Duplicate companion, primary listing itself, version 0, version int.MaxValue.
+        foreach (var json in new[]
+        {
+            Json(primary.DeviceId, 1, other.DeviceId, other.DeviceId),
+            Json(primary.DeviceId, 1, primary.DeviceId),
+            Json(primary.DeviceId, 0),
+            Json(primary.DeviceId, int.MaxValue),
+        })
+            (await client.PutAsJsonAsync(url, new { payload = B64(json), signature = Signature }))
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Concurrent_writes_of_the_same_version_give_one_204_and_one_409()
+    {
+        var primary = await RegisterAndAuthenticateAsync();
+        var client = As(primary.Token);
+        var url = $"/devices/{primary.DeviceId}/device-list";
+        var results = await Task.WhenAll(
+            client.PutAsJsonAsync(url, Body(primary.DeviceId, 1)),
+            client.PutAsJsonAsync(url, Body(primary.DeviceId, 1)));
+        results.Select(r => r.StatusCode).Should().BeEquivalentTo(
+            new[] { HttpStatusCode.NoContent, HttpStatusCode.Conflict });
+    }
 }

@@ -65,7 +65,9 @@ public static class DeviceListEndpoints
         DeviceListPayload? parsed;
         try { parsed = JsonSerializer.Deserialize<DeviceListPayload>(payload, JsonOptions); }
         catch (JsonException) { parsed = null; }
-        if (parsed?.Devices is null || parsed.PrimaryDeviceId != primaryId || parsed.Version < 1)
+        if (parsed?.Devices is null || parsed.PrimaryDeviceId != primaryId
+            // int.MaxValue could never be superseded, the list would be stuck.
+            || parsed.Version < 1 || parsed.Version >= int.MaxValue)
             return Bad("device_list_malformed");
 
         var companions = parsed.Devices.Select(d => d.DeviceId).ToList();
@@ -73,6 +75,14 @@ public static class DeviceListEndpoints
             return Results.UnprocessableEntity(new { error = "device_list_too_large" });
         if (companions.Distinct().Count() != companions.Count || companions.Contains(primaryId))
             return Bad("device_list_malformed");
+
+        // The "one identity per device, in either role" rule below is
+        // check-then-act: two concurrent PUTs (P lists C while Q lists P) could
+        // both pass the checks and both commit. One global lock serializes all
+        // list writes; fine because writes are rare and interactive. The API is
+        // a single instance, but the lock lives in Postgres anyway.
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlRawAsync("SELECT pg_advisory_xact_lock(7261014)", ct);
 
         var existing = await db.DeviceLists.Include(l => l.Members)
             .FirstOrDefaultAsync(l => l.PrimaryDeviceId == primaryId, ct);
@@ -119,19 +129,32 @@ public static class DeviceListEndpoints
         existing.Signature = signature;
         existing.UpdatedAt = DateTimeOffset.UtcNow;
 
-        try { await db.SaveChangesAsync(ct); }
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+        }
         catch (DbUpdateConcurrencyException) { return Conflict("device_list_version_conflict"); }
         catch (DbUpdateException ex)
-            when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-        { return Conflict("device_list_member_conflict"); }
+            when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } pg)
+        {
+            // Defensive (the lock should prevent it): a second first-time PUT hits the list's PK.
+            return Conflict(pg.ConstraintName == "PK_DeviceLists"
+                ? "device_list_version_conflict" : "device_list_member_conflict");
+        }
+        // A listed companion deleted itself between the check and the save.
+        catch (DbUpdateException ex)
+            when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.ForeignKeyViolation })
+        { return Conflict("device_list_unknown_device"); }
 
         foreach (var id in newCompanions)
             cache.Remove(ConsentKey(id, primaryId));
 
+        // The list is already saved: a cancelled request must not look like a failed write.
         foreach (var deviceId in notify)
             if (MessengerHub.TryGetConnection(deviceId, out var connectionId))
                 await hub.Clients.Client(connectionId).SendAsync("DeviceListChanged",
-                    new { primaryDeviceId = primaryId, version = parsed.Version }, ct);
+                    new { primaryDeviceId = primaryId, version = parsed.Version }, CancellationToken.None);
 
         return Results.NoContent();
     }
