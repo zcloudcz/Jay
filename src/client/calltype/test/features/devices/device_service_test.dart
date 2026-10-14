@@ -183,20 +183,58 @@ void main() {
     },
   );
 
-  test(
-    'a stale answer without one of our companions re-signs without it',
-    () async {
+  group('vanished companions', () {
+    Future<DeviceService> phoneWithWeb() async {
       await server.link(phone, [web], version: 1);
       final service = await server.deviceServiceFor(phone);
       await service.checkOwnList(phoneId);
+      return service;
+    }
 
-      await service.dropVanishedCompanions({bobId});
-      expect(await service.companions(), isEmpty);
-      // Nothing vanished any more: no further version.
-      await service.dropVanishedCompanions({bobId});
+    test('are recorded, persisted and ignored when not ours', () async {
+      final service = await phoneWithWeb();
+      await service.reportVanishedCompanions({bobId, webId});
+      expect(service.vanishedCompanions, {webId});
+      // Nothing was re-signed on the server's word alone.
+      expect(server.lists[phoneId]!['version'], 1);
+
+      final reopened = DeviceService(
+        database: phone.db,
+        apiClient: FakeDeviceApi(server),
+        keyManager: phone.keys,
+        sessionManager: phone.sessions,
+        signalRClient: server.hubs[phoneId]!,
+      );
+      await reopened.open(phoneId);
+      expect(reopened.vanishedCompanions, {webId});
+      reopened.dispose();
+    });
+
+    test('confirming signs the list without them', () async {
+      final service = await phoneWithWeb();
+      await service.reportVanishedCompanions({webId});
+      await service.confirmRemoveVanished();
       expect(server.lists[phoneId]!['version'], 2);
-    },
-  );
+      expect(await service.companions(), isEmpty);
+      expect(service.vanishedCompanions, isEmpty);
+    });
+
+    test('dismissing keeps the list and clears the prompt', () async {
+      final service = await phoneWithWeb();
+      await service.reportVanishedCompanions({webId});
+      await service.dismissVanished();
+      expect(service.vanishedCompanions, isEmpty);
+      expect(server.lists[phoneId]!['version'], 1);
+      expect((await service.companions()).map((d) => d.deviceId), [webId]);
+    });
+
+    test('a normal removal clears the pending entry', () async {
+      final service = await phoneWithWeb();
+      await service.reportVanishedCompanions({webId});
+      await service.removeCompanions({webId});
+      await until(() => service.vanishedCompanions.isEmpty);
+    });
+  });
 
   test('a list-changed hint for a foreign identity is ignored', () async {
     await server.deviceServiceFor(phone);

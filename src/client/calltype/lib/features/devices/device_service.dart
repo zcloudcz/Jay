@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:calltype_core/crypto/device_list.dart';
 import 'package:calltype_core/devices/device_directory.dart';
@@ -42,6 +43,10 @@ const linkedPrimaryHandleKey = 'linked_primary_handle';
 /// the removal is already stored and a refresh reports no change.
 const companionOfKey = 'companion_of';
 
+/// BackupState key: JSON list of our companions the server claims no longer
+/// exist, waiting for the user's decision (see [DeviceService.reportVanishedCompanions]).
+const vanishedCompanionsKey = 'vanished_companions';
+
 /// App-wide owner of this device's multi-device state (spec Part A).
 ///
 /// Built before onboarding (the inbox needs a reference at startup) and
@@ -74,6 +79,7 @@ class DeviceService extends ChangeNotifier {
   CompanionStatus _status = CompanionStatus.ok;
   String? _pendingPrimary;
   bool _disposed = false;
+  Set<String> _vanished = {};
 
   bool get isOpen => _directory != null;
 
@@ -100,6 +106,14 @@ class DeviceService extends ChangeNotifier {
     await directory.load();
     _directory = directory;
     await _finishInterruptedWipe(directory);
+    final saved = await (_db.select(
+      _db.backupState,
+    )..where((s) => s.key.equals(vanishedCompanionsKey))).getSingleOrNull();
+    if (saved != null) {
+      _vanished = {
+        for (final id in jsonDecode(saved.value) as List) id as String,
+      };
+    }
     _changes = directory.changes.listen(
       (change) => unawaited(_onChange(change).catchError((Object _) {})),
     );
@@ -188,6 +202,7 @@ class DeviceService extends ChangeNotifier {
     // Our own identity (as primary or as companion): screens re-read, but no
     // line; the user linked that device themselves.
     if (change.identityId == directory.selfIdentityId) {
+      await _pruneVanished();
       _notify();
       return;
     }
@@ -323,26 +338,70 @@ class DeviceService extends ChangeNotifier {
     ],
   );
 
-  /// Constraint 5: a stale answer that leaves out one of OUR companions means
-  /// the server no longer knows that device (it deleted itself). Re-sign
-  /// without it; otherwise every peer pays a stale round trip per message and
-  /// the next PUT fails with device_list_unknown_device.
+  /// Companions the server claims no longer exist and the user has not decided
+  /// about yet.
+  Set<String> get vanishedCompanions => Set.unmodifiable(_vanished);
+
+  /// Constraint 5: a stale answer that leaves out one of OUR companions may
+  /// mean the device deleted itself. It may also be a lying server, and
+  /// re-signing without the device would then wipe a healthy companion (a
+  /// verified removal is what triggers its wipe). So this only RECORDS the ids
+  /// and the user decides ([confirmRemoveVanished] / [dismissVanished]).
   ///
-  /// Starts [checkOwnList] (a [MessageProcessingQueue] job) after the PUT, so
-  /// callers already running inside that queue (the outbox repair) must NOT
-  /// await this: the queue is not reentrant and they would wait for themselves.
-  /// Call it fire-and-forget from there.
-  Future<void> dropVanishedCompanions(Set<String> required) async {
+  /// Only ids in our current verified list count: anything else is not ours to
+  /// ask about. No network and no [MessageProcessingQueue] job, so callers
+  /// already running inside that queue (the outbox repair) may call it
+  /// fire-and-forget, or even await it, without waiting for themselves.
+  Future<void> reportVanishedCompanions(Iterable<String> deviceIds) async {
     final directory = _directory;
     if (directory == null || directory.isCompanion) return;
-    final own = (await directory.devicesOf(directory.selfDeviceId)).skip(1);
-    final vanished = own.toSet().difference(required);
-    if (vanished.isEmpty) return;
-    try {
-      await removeCompanions(vanished);
-    } catch (_) {
-      // Retried by the next stale answer.
+    final own = {for (final d in await companions()) d.deviceId};
+    final next = {
+      ..._vanished,
+      ...deviceIds.map((i) => i.toLowerCase()).where(own.contains),
+    };
+    if (next.length == _vanished.length) return;
+    await _storeVanished(next);
+  }
+
+  /// The user agreed: re-sign the list without the vanished devices.
+  Future<void> confirmRemoveVanished() async {
+    final ids = _vanished.toSet();
+    if (ids.isEmpty) return;
+    await removeCompanions(ids);
+    await _storeVanished({});
+  }
+
+  /// The user keeps them (they may know the device is fine). A later stale
+  /// answer reports the device again, so a real vanishing is not lost.
+  Future<void> dismissVanished() => _storeVanished({});
+
+  /// Forgets reported ids that are no longer in our list (e.g. removed
+  /// normally), so the prompt never asks about a device that is already gone.
+  Future<void> _pruneVanished() async {
+    if (_vanished.isEmpty) return;
+    final own = {for (final d in await companions()) d.deviceId};
+    final next = _vanished.where(own.contains).toSet();
+    if (next.length != _vanished.length) await _storeVanished(next);
+  }
+
+  Future<void> _storeVanished(Set<String> ids) async {
+    _vanished = ids;
+    if (ids.isEmpty) {
+      await (_db.delete(
+        _db.backupState,
+      )..where((s) => s.key.equals(vanishedCompanionsKey))).go();
+    } else {
+      await _db
+          .into(_db.backupState)
+          .insertOnConflictUpdate(
+            BackupStateCompanion.insert(
+              key: vanishedCompanionsKey,
+              value: jsonEncode(ids.toList()),
+            ),
+          );
     }
+    _notify();
   }
 
   /// Signs version + 1 of this primary's list with [edit] applied and

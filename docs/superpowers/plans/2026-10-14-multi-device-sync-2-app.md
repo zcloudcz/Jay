@@ -20,7 +20,7 @@ Not in scope: history transfer (spec 2), read state / delete-for-me / contact re
 4. **`ChatController.myDeviceId` becomes the identity id** (`myIdentityId`, incl. `chat_screen.dart`, `mentions.dart`, tests). `WebRTCManager` and `SignalRClient` keep the transport device id. (Task 6)
 5. **A `device-change` system line** appears in the conversation when a contact's list adds or removes devices (never for our own identity), together with the `backup_import.dart` fix (accept `call-event` and `device-change`, skip `delete` control rows). (Tasks 3, 5, 9)
 6. **Linking UI:** the new device ("Link to an existing device", from onboarding and from settings when the device is empty) shows a `jaylink://<deviceId>/<fingerprint>` QR code, waits for `LinkOffer`, shows "Link to CT-XXXX-XXXX?" and sends `LinkConsent`. The primary (Settings > Linked devices) lists companions, scans, fetches the key bundle, compares the fingerprint BEFORE `LinkOffer`, waits for `LinkConsent`, verifies it with `verifyDeviceLinkConsent`, signs version + 1, PUTs, refreshes its own list; "Remove" re-signs without the device. On 409 it reloads and retries with version + 1. (Tasks 5, 10)
-7. **Companion removal:** local data is wiped only when a verified change lists `selfDeviceId` in `removed`; a missing list or a failed verification is "cannot verify" and deletes nothing. The primary re-signs without a companion the server dropped in a stale answer. (Tasks 5, 8)
+7. **Companion removal:** local data is wiped only when a verified change lists `selfDeviceId` in `removed`; a missing list or a failed verification is "cannot verify" and deletes nothing. The primary never re-signs on the server's word alone: a companion the server dropped in a stale answer is only reported, and the user confirms its removal (open question 7). (Tasks 5, 8, 10)
 8. **Bot runtime** routes inbound through `DeviceDirectory` and replies with fan-out. (Task 11)
 9. **Strings in all 19 ARB files** (machine translation is acceptable per `CLAUDE.md`), l10n guards green, security wording keeps its meaning. (Task 4)
 
@@ -32,7 +32,7 @@ Not in scope: history transfer (spec 2), read state / delete-for-me / contact re
 4. **Device-change lines only in direct conversations, one line per direction (not per device), and only for a change between two verified versions.** The first list ever stored for an identity produces no line (its existing companions are not news to the user). Recommendation: accept for v1 (one `ponytail:` comment marks the group gap).
 5. **On a companion, conversations with people who are not contacts there show the raw id as title** (contacts are not synced until spec 3). Recommendation: accept for v1, document in the acceptance checklist.
 6. **"Link a device" is hidden on Windows/Linux** (no camera; the contact scanner has the same gap). The web primary can scan with the browser camera. Recommendation: accept.
-7. **Dropping a vanished companion trusts the server's stale answer** (constraint 5). The server can thereby unlink a companion of ours, which is the "may remove, never add" direction the spec accepts. Recommendation: accept, as the constraint says.
+7. **Vanished companions (DECIDED by the owner, replaces "trust the stale answer").** A stale answer that leaves out one of our companions is not trusted: a lying server could otherwise get a healthy companion removed, and a verified removal wipes it. `DeviceService.reportVanishedCompanions` only records the ids (persistently, only ids in our own verified list), and the Linked devices screen asks the user "Remove" / "Keep" (`confirmRemoveVanished` / `dismissVanished`). Until then peers pay a stale round trip per message, which is the accepted cost.
 
 ## Deviations from the spec and plan 1, decided while planning
 
@@ -2807,6 +2807,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 8: App - fan-out send and outbox repair
 
+> **Plan change (owner decision, open question 7):** `DeviceService.dropVanishedCompanions` no longer exists. The `onStale` hook calls `reportVanishedCompanions(vanished)` instead, with `vanished` = our own companions (`directory.devicesOf(selfDeviceId)` minus the primary) that are missing from `required`. It does no network call and starts no queue job, so it is safe to call fire-and-forget from inside the queue. Read every "drops a vanished companion" / `dropVanishedCompanions` below that way.
+
 Constraint 4: every non-business send goes through `FanoutSender` + `sendDirectFanout` / `sendGroupFanout`, `to` is always in direct payloads, envelopes are persisted per message and resent byte for byte, `device_list_stale` is repaired by `reconcile` in a bounded loop, and an unresolved stale answer is a visible failure. Business conversations keep the per-member `sendGroupMessage` path and a companion refuses them (decision 2). A business group whose `organizationId` is not cached yet (the hub answers `fanout_unsupported_in_business_group`) is finished on the business path within the SAME send attempt (same messageId, envelopes for the server's member list incl. the auditor) and the cache is filled, so a first send never ends as `failed`. The primary drops a vanished companion (constraint 5).
 
 **Files:**
@@ -3463,7 +3465,7 @@ Replace `retryMessage` entirely with:
                   // Not awaited: the hook runs inside the processing queue and
                   // re-signing our list goes through that queue too.
                   onStale: (required) => unawaited(
-                    ctx.read<DeviceService>().dropVanishedCompanions(required),
+                    ctx.read<DeviceService>().reportVanishedCompanions(required),
                   ),
 ```
 
@@ -3748,6 +3750,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 10: App - linking UI
+
+> **Plan change (owner decision, open question 7):** the Linked devices screen also shows `DeviceService.vanishedCompanions` (the devices the server claims no longer exist). Each gets the prompt `devicesVanishedPrompt` ("{device} no longer exists on the server. Remove it?", placeholder `device`) with a "Remove" button (`confirmRemoveVanished`) and a "Keep" button (`devicesKeep`, "Keep", calls `dismissVanished`). Two NEW l10n keys, `devicesVanishedPrompt` and `devicesKeep`, must be added with `@` descriptions to `app_en.arb` and translated in all 19 ARB files in this task (translations are written then); "Remove" reuses the existing key.
 
 Spec Part A "Linking a device" with decisions 3 and 6 and constraint 7: the QR code is the out-of-band channel, the fingerprint is compared BEFORE `LinkOffer`, the consent is verified before signing, the PUT follows right after the consent (the hub keeps it for 10 minutes), and `link_target_offline` after `LinkConsent` does not undo the consent.
 
@@ -5460,4 +5464,4 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - Spec coverage: Part A linking (Task 10), removal and "cannot verify" (Task 5), peer notice (Tasks 5, 9); Part B sending (Task 8) and receiving rules 1-4 (Task 7); the identity split (Task 6); Limits of v1 in UI (Task 9) and docs (Task 12); Part C client tests (Tasks 5, 7, 8, 10); bots (Task 11); backup bug (Task 3). The server-side items of Part A/B were plan 1.
 - Constraints: 1 and 2 (Task 7), 3 (Task 5), 4 (Task 8), 5 (Tasks 5, 8), 6 (Tasks 1, 8, 9), 7 (Task 10), 8 (Tasks 5, 6), 9 (carried over unchanged; not touched here).
-- Names used across tasks: `DeviceListChange.firstList`, `ChatController._sendBusinessFallback`, `DeviceService.{open, directory, isOpen, isCompanion, status, checkOwnList, expectLink, linkedPrimaryHandle, companions, addCompanion, removeCompanions, dropVanishedCompanions}`, `CompanionStatus.{ok, cannotVerify, removed}`, `linkedPrimaryHandleKey`, `ChatController.{myIdentityId, isCompanion}`, `MessageInboxService(directory:)`, `LinkCode`, `linkFingerprint`, `isEmptyDevice`, `PrimaryLinkController`/`PrimaryLinkState`, `CompanionLinkController`/`CompanionLinkState`, `FakeMultiDeviceServer.{add, link, store, signedList, directoryFor, pinFor, deviceServiceFor, hubs, lists, members, deviceListRequests, close}`, `FakeDeviceApi`, `FakeHubClient`, `until`, `TestDevice.directory`, `NoDeviceListsApi`.
+- Names used across tasks: `DeviceListChange.firstList`, `ChatController._sendBusinessFallback`, `DeviceService.{open, directory, isOpen, isCompanion, status, checkOwnList, expectLink, linkedPrimaryHandle, companions, addCompanion, removeCompanions, reportVanishedCompanions, vanishedCompanions, confirmRemoveVanished, dismissVanished}`, `CompanionStatus.{ok, cannotVerify, removed}`, `linkedPrimaryHandleKey`, `ChatController.{myIdentityId, isCompanion}`, `MessageInboxService(directory:)`, `LinkCode`, `linkFingerprint`, `isEmptyDevice`, `PrimaryLinkController`/`PrimaryLinkState`, `CompanionLinkController`/`CompanionLinkState`, `FakeMultiDeviceServer.{add, link, store, signedList, directoryFor, pinFor, deviceServiceFor, hubs, lists, members, deviceListRequests, close}`, `FakeDeviceApi`, `FakeHubClient`, `until`, `TestDevice.directory`, `NoDeviceListsApi`.
