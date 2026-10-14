@@ -291,6 +291,33 @@ class DeviceDirectory {
     );
   }
 
+  /// True when a verified list of [identityId] is stored. Lets a sender skip
+  /// the network for identities it already knows.
+  Future<bool> hasList(String identityId) async =>
+      (await (_db.select(_db.knownDeviceLists)
+                ..where((l) => l.primaryDeviceId.equals(identityId.toLowerCase())))
+              .getSingleOrNull()) !=
+      null;
+
+  /// `<identityKey>|<signingKey>` that the signed list holds for the listed
+  /// companion [deviceId], in the format of the pin; null when the device is
+  /// not a listed companion (a primary is pinned directly, on first contact).
+  /// Lets a caller check a key bundle BEFORE pinning it: a pin cannot be
+  /// taken back, see [assertListedKeys].
+  Future<String?> expectedKeysOf(String deviceId) async {
+    deviceId = deviceId.toLowerCase();
+    final identity = await identityOf(deviceId);
+    if (identity == deviceId) return null;
+    final stored = await (_db.select(
+      _db.knownDeviceLists,
+    )..where((l) => l.primaryDeviceId.equals(identity))).getSingleOrNull();
+    if (stored == null) return null;
+    for (final d in parseDeviceListPayload(stored.payload).devices) {
+      if (d.deviceId == deviceId) return '${d.identityKey}|${d.signingKey}';
+    }
+    return null;
+  }
+
   /// Throws when the keys this device pinned for a companion (at session
   /// start) are not the keys its primary signed into the list. Catches a
   /// server that swaps a companion's key bundle, and a signer who lists a
