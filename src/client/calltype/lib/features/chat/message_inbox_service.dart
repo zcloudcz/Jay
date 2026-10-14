@@ -120,9 +120,13 @@ class MessageInboxService {
       )..where((m) => m.id.equals(messageId))).getSingleOrNull();
       if (existing != null) {
         // Rows store the sender's IDENTITY (a companion's message is filed
-        // under its primary), so a redelivery is compared with that.
-        if (existing.senderId != await directory.identityOf(senderId) ||
-            (groupId != null && existing.conversationId != groupId)) {
+        // under its primary), but attribution can change between delivery and
+        // redelivery (the companion was removed from the list, or the row was
+        // filed while the sender was still standalone). Acking is a pure
+        // queue operation here, nothing is written, so a changed attribution
+        // must not leave the entry stuck on the server forever. Only a
+        // redelivery that claims another GROUP stays a conflict.
+        if (groupId != null && existing.conversationId != groupId) {
           throw const FormatException('Conflicting message identity');
         }
         await _acknowledge?.call(senderId, messageId);
@@ -136,10 +140,17 @@ class MessageInboxService {
           !await _sessionManager.hasSession(senderId)) {
         try {
           await directory.refresh(senderId, ensurePinned: _ensureSession);
-        } catch (_) {
-          // No verified list: the sender stays a standalone device, exactly
-          // as before multi-device. Attribution is never forced.
+        } on DeviceListException {
+          // The server served a list that does not verify: the sender stays
+          // a standalone device, exactly as before multi-device. Attribution
+          // is never forced.
         }
+        // Any other error (network, 429, 5xx) is transient and propagates
+        // BEFORE decrypting: nothing is decrypted, no session or ratchet step
+        // exists and nothing is acked, so the message stays queued on the
+        // server and is retried on reconnect. Swallowing it would file a
+        // companion's messages as a stranger's forever, because later
+        // messages already have a session and never refresh again.
       }
       // Membership was authorized by the relay when it accepted the message.
       // Current membership can differ after an offline recipient reconnects.
@@ -186,11 +197,19 @@ class MessageInboxService {
         // from our own devices (DeviceDirectory.routeInbound): a peer cannot
         // steer a message into another conversation with it.
         final to = payload['to'];
-        final route = await directory.routeInbound(
-          senderDeviceId: senderId,
-          groupId: groupId,
-          to: to is String ? to : null,
-        );
+        final InboundRoute route;
+        try {
+          route = await directory.routeInbound(
+            senderDeviceId: senderId,
+            groupId: groupId,
+            to: to is String ? to : null,
+          );
+        } on DeviceListException {
+          // An own copy without `to` is a bug of our own other device, not an
+          // attack, and retrying cannot fix it. Drop it and let the caller
+          // ack it instead of re-decrypting it until the server's TTL.
+          return;
+        }
         final conversationId = route.conversationId;
         if (type == 'delete') {
           await _applyDelete(
