@@ -323,7 +323,11 @@ conversation uses the identity ID.
 - Peers and the server learn how many devices an identity has. Client-side
   fan-out cannot avoid that.
 - The server can withhold a list update (delay a removal). It cannot add. A
-  removal reaches a peer when its next stale answer or refresh happens.
+  removal reaches a peer when its next stale answer or refresh happens. The
+  server's sender hint (`senderPrimaryId` on every delivered message) shortens
+  that window: a removed companion that is not wiped makes the peer re-read the
+  list as soon as it writes. The hint only triggers a re-read; attribution
+  still comes from the verified list.
 - No cross-signing: a lost primary cannot change the list.
 - First contact stays TOFU, as before.
 - A companion that reinstalls with new keys is refused by peers (pinned keys
