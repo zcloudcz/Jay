@@ -4,9 +4,12 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:calltype_core/auth/auth_service.dart';
+import 'package:calltype_core/crypto/device_list.dart' show DeviceListException;
 import 'package:calltype_core/crypto/group_cipher.dart';
 import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
+import 'package:calltype_core/devices/device_directory.dart';
+import 'package:calltype_core/devices/fanout_sender.dart';
 import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/network/hub_transport.dart';
 import 'package:calltype_core/network/signalr_client.dart';
@@ -45,18 +48,27 @@ class BotMessage {
     required this.conversationId,
     required this.isGroup,
     required this.mentionsBot,
+    required String ackSenderId,
     String? groupName,
-  }) : _groupName = groupName;
+  }) : _groupName = groupName,
+       _ackSenderId = ackSenderId;
 
   final CallTypeBot _bot;
   final String? _groupName;
 
+  /// The device that actually sent it. The server queues per device, so the
+  /// acknowledgement must name this one, not the identity in [senderId].
+  final String _ackSenderId;
+
   /// Server-unique message UUID — the idempotence key.
   final String id;
   final String text;
+
+  /// The sender's IDENTITY (a user's primary device id): the same for every
+  /// device of that user, so allowlists and per-user memory keep working.
   final String senderId;
 
-  /// Stable per conversation: the peer's device id (1:1) or the group id.
+  /// Stable per conversation: the peer's identity id (1:1) or the group id.
   /// Backends use it to keep separate memory per conversation.
   final String conversationId;
   final bool isGroup;
@@ -82,6 +94,8 @@ class CallTypeBot {
     this._api,
     this._sessions,
     this._signalR,
+    this._directory,
+    this._fanout,
     this.deviceId,
     this.handle,
     this.displayName,
@@ -93,6 +107,11 @@ class CallTypeBot {
   final ApiClient _api;
   final SessionManager _sessions;
   final SignalRClient _signalR;
+
+  /// Multi-device: who owns which device (a user's companion belongs to the
+  /// user's conversation) and the per-device envelopes of a reply.
+  final DeviceDirectory _directory;
+  final FanoutSender _fanout;
   final void Function(String) _log;
   final Duration _sendRetryDelay;
 
@@ -175,16 +194,28 @@ class CallTypeBot {
       log('Add it in Jay by handle, or paste this invite: ct://$deviceId/$handle');
     }
 
+    final sessions = SessionManager(database: db, keyManager: keys);
+    final directory = DeviceDirectory(
+      database: db,
+      apiClient: api,
+      selfDeviceId: deviceId,
+      selfSigningKey: () async =>
+          (await keys.getSignedIdentityBundle())['signingKey']!,
+      selfIdentityKey: keys.getPublicIdentityKey,
+    );
+    await directory.load();
     return CallTypeBot._(
       db,
       api,
-      SessionManager(database: db, keyManager: keys),
+      sessions,
       SignalRClient(
         baseUrl: apiBaseUrl,
         deviceId: deviceId,
         authService: auth,
         transportFactory: transportFactory ?? WebSocketHubTransport.new,
       ),
+      directory,
+      FanoutSender(directory: directory, sessions: sessions, apiClient: api),
       deviceId,
       handle,
       displayName,
@@ -248,7 +279,22 @@ class CallTypeBot {
     final groupId = data['groupId'] as String?;
     if (senderId == null || messageId == null) return;
 
-    if (!(_allowSender?.call(senderId) ?? true)) {
+    // Multi-device: a device the bot never talked to may be a companion of a
+    // user it knows. Learn that BEFORE the allowlist, which names users
+    // (identities). Only for a sender without a session: one lookup per new
+    // device, never one per message.
+    if (await _directory.identityOf(senderId) == senderId.toLowerCase() &&
+        !await _sessions.hasSession(senderId)) {
+      try {
+        await _directory.refresh(senderId, ensurePinned: _ensureSession);
+      } on DeviceListException {
+        // No verified list: the sender stays its own identity, as before.
+        // Any other error (network, 5xx) escapes on purpose: the message
+        // stays queued on the server and nothing was decrypted yet.
+      }
+    }
+    final identity = await _directory.identityOf(senderId);
+    if (!(_allowSender?.call(identity) ?? true)) {
       await _ack(senderId, messageId);
       return;
     }
@@ -267,39 +313,60 @@ class CallTypeBot {
       return;
     }
 
-    final Map<String, dynamic> payload;
+    final ({Map<String, dynamic> payload, InboundRoute route})? result;
     try {
-      payload = await _db.transaction(() async {
-        final plaintext = await _sessions.decryptMessage(
-          senderId,
-          utf8.decode(base64Decode(data['encryptedBody'] as String)),
-          deferPreKeyCleanup: true,
-        );
-        final decoded = jsonDecode(plaintext) as Map<String, dynamic>;
-        // The inner (encrypted, authenticated) payload must agree with the
-        // outer (server-controlled) routing data — otherwise the server
-        // could replay a 1:1 message into a group or under another id.
-        if (decoded['v'] != 1 ||
-            decoded['id'] != messageId ||
-            decoded['groupId'] != groupId ||
-            decoded['body'] is! String) {
-          throw const FormatException('Message context mismatch');
-        }
-        await _db
-            .into(_db.messages)
-            .insert(
-              MessagesCompanion.insert(
-                id: messageId,
-                conversationId: groupId ?? senderId,
-                senderId: senderId,
-                // Body deliberately NOT stored: only the id is needed for
-                // idempotence, and less plaintext on disk is better.
-                status: const Value('seen'),
-                createdAt: DateTime.now(),
-              ),
-            );
-        return decoded;
-      });
+      result = await _db
+          .transaction<({Map<String, dynamic> payload, InboundRoute route})?>(
+            () async {
+              final plaintext = await _sessions.decryptMessage(
+                senderId,
+                utf8.decode(base64Decode(data['encryptedBody'] as String)),
+                deferPreKeyCleanup: true,
+              );
+              Map<String, dynamic>? decoded;
+              InboundRoute? route;
+              try {
+                // The keys the device used must be the keys its primary
+                // signed. A mismatch is dropped, but only after the ratchet
+                // step and the seen-row commit, so a replay is acked instead
+                // of decrypted again.
+                await _directory.assertListedKeys(senderId);
+                decoded = jsonDecode(plaintext) as Map<String, dynamic>;
+                // The inner (encrypted, authenticated) payload must agree with
+                // the outer (server-controlled) routing data - otherwise the
+                // server could replay a 1:1 message into a group or under
+                // another id.
+                if (decoded['v'] != 1 ||
+                    decoded['id'] != messageId ||
+                    decoded['groupId'] != groupId ||
+                    decoded['body'] is! String) {
+                  throw const FormatException('Message context mismatch');
+                }
+                final to = decoded['to'];
+                route = await _directory.routeInbound(
+                  senderDeviceId: senderId,
+                  groupId: groupId,
+                  to: to is String ? to : null,
+                );
+              } on DeviceListException {
+                route = null;
+              }
+              await _db
+                  .into(_db.messages)
+                  .insert(
+                    MessagesCompanion.insert(
+                      id: messageId,
+                      conversationId: route?.conversationId ?? groupId ?? identity,
+                      senderId: route?.senderIdentityId ?? identity,
+                      // Body deliberately NOT stored: only the id is needed for
+                      // idempotence, and less plaintext on disk is better.
+                      status: const Value('seen'),
+                      createdAt: DateTime.now(),
+                    ),
+                  );
+              return route == null ? null : (payload: decoded!, route: route);
+            },
+          );
       await _sessions.finalizePreKeyCleanup();
     } catch (error) {
       // Not acked, like the app: a message we could not authenticate is
@@ -310,6 +377,14 @@ class CallTypeBot {
       return;
     }
 
+    // Dropped (keys differ from the signed list), or a copy from one of the
+    // bot's own devices (a bot has none; never answer itself).
+    if (result == null || result.route.own) {
+      await _ack(senderId, messageId);
+      return;
+    }
+    final payload = result.payload;
+    final route = result.route;
     final body = payload['body'] as String;
     final mentioned = mentionsBot(
       body,
@@ -328,10 +403,11 @@ class CallTypeBot {
       this,
       id: messageId,
       text: body,
-      senderId: senderId,
-      conversationId: groupId ?? senderId,
+      senderId: route.senderIdentityId,
+      conversationId: route.conversationId,
       isGroup: groupId != null,
       mentionsBot: mentioned,
+      ackSenderId: senderId,
       groupName: payload['groupName'] as String?,
     );
     final tail = _conversations[message.conversationId] ?? Future.value();
@@ -368,7 +444,7 @@ class CallTypeBot {
     // Ack only now: if the process dies mid-handler the server still holds
     // the message, re-delivers it, and the seen-row turns that into a plain
     // ack instead of a second backend call.
-    await _ack(message.senderId, message.id);
+    await _ack(message._ackSenderId, message.id);
   }
 
   Future<void> _ack(String senderId, String messageId) async {
@@ -395,63 +471,108 @@ class CallTypeBot {
       'type': 'text',
       'groupId': groupId,
       'groupName': groupName,
+      // Multi-device: names the direct conversation for a sender's own other
+      // devices; required in every direct payload.
+      if (groupId == null) 'to': conversationId,
       'createdAt': DateTime.now().toUtc().toIso8601String(),
     });
+    Future<List<String>> groupIdentities() async => [
+      for (final id in await _api.getGroupMembers(groupId!))
+        if (id.toLowerCase() != deviceId.toLowerCase()) id,
+    ];
+    var identityIds = groupId == null
+        ? [conversationId]
+        : await groupIdentities();
 
     // Encrypt once (inside the crypto queue), then retry only the network
     // send: re-encrypting would advance the ratchet for a message the peer
-    // may already have received.
-    final encrypt = _crypto.then((_) async {
-      final recipients = groupId == null
-          ? [conversationId]
-          : (await _api.getGroupMembers(
-              groupId,
-            )).where((id) => id != deviceId).toList();
-      return _db.transaction(() async {
-        if (groupId == null) {
-          await _ensureSession(conversationId);
-          return {
-            conversationId: base64Encode(
-              utf8.encode(
-                await _sessions.encryptMessage(conversationId, payload),
-              ),
-            ),
-          };
-        }
-        // Per-member fan-out, as in the app (Sender Keys are not in v1).
-        final encrypted = await GroupCipher(
-          sessionManager: _sessions,
-          ensureSession: _ensureSession,
-        ).encryptForGroup(groupId, recipients, payload);
-        return encrypted.map((id, bytes) => MapEntry(id, base64Encode(bytes)));
-      });
-    });
-    _crypto = encrypt.then<void>((_) {}, onError: (Object _) {});
-    final envelopes = await encrypt;
-
+    // may already have received. One envelope per device of every recipient
+    // identity (a user's companions included), from verified lists only.
+    var envelopes = await _inCrypto(
+      () => _db.transaction(() => _fanout.encrypt(identityIds, payload)),
+    );
+    var businessGroup = false;
     // ponytail: 3 attempts, then the reply is lost (logged by the caller's
     // error path). Add a persistent outbox like the app's if this bites.
     for (var attempt = 1; ; attempt++) {
       try {
-        // Groups: the whole fan-out in one call (see sendGroupMessage) —
-        // a business group rejects any call without the auditor's envelope.
-        groupId == null
-            ? await _signalR.sendMessage(
-                envelopes.keys.single,
-                envelopes.values.single,
-                messageId: messageId,
-              )
-            : await _signalR.sendGroupMessage(
-                groupId,
-                envelopes,
-                messageId: messageId,
-              );
+        if (businessGroup) {
+          // Whole fan-out in one call: the hub rejects a business group call
+          // without the auditor's envelope (KB2).
+          await _signalR.sendGroupMessage(
+            groupId!,
+            envelopes,
+            messageId: messageId,
+          );
+        } else if (groupId == null) {
+          await _signalR.sendDirectFanout(
+            conversationId,
+            envelopes,
+            messageId: messageId,
+          );
+        } else {
+          await _signalR.sendGroupFanout(
+            groupId,
+            envelopes,
+            messageId: messageId,
+          );
+        }
         return;
-      } catch (_) {
+      } catch (e) {
         if (attempt == 3) rethrow;
-        await Future<void>.delayed(_sendRetryDelay);
+        final required = SignalRClient.staleRequired(e);
+        if (!businessGroup &&
+            groupId != null &&
+            e.toString().contains('fanout_unsupported_in_business_group')) {
+          // The bot cannot tell a business group beforehand. Business groups
+          // stay on the per-member call (primary devices only). The refused
+          // call queued nothing, so encrypting again only skips a ratchet
+          // step for the members.
+          businessGroup = true;
+          final ids = identityIds;
+          envelopes = await _inCrypto(
+            () => _db.transaction(() async {
+              final encrypted = await GroupCipher(
+                sessionManager: _sessions,
+                ensureSession: _ensureSession,
+              ).encryptForGroup(groupId, ids, payload);
+              return encrypted.map(
+                (id, bytes) => MapEntry(id, base64Encode(bytes)),
+              );
+            }),
+          );
+        } else if (!businessGroup && required != null) {
+          if (groupId != null) {
+            // The hub computes `required` from the CURRENT membership; a
+            // member added since the first attempt would stay unverified and
+            // fail every retry. The union is harmless for removed members:
+            // reconcile already trims envelopes the hub no longer wants.
+            identityIds = {...identityIds, ...await groupIdentities()}.toList();
+          }
+          // The hub knows a different device set: re-read the lists, keep
+          // existing envelopes byte for byte, add or drop the difference.
+          final current = envelopes;
+          final ids = identityIds;
+          envelopes = await _inCrypto(
+            () => _fanout.reconcile(
+              envelopes: current,
+              required: required,
+              identityIds: ids,
+              payload: payload,
+            ),
+          );
+        } else {
+          await Future<void>.delayed(_sendRetryDelay);
+        }
       }
     }
+  }
+
+  /// Runs [action] in the crypto queue (see [_crypto]) and returns its result.
+  Future<T> _inCrypto<T>(Future<T> Function() action) {
+    final result = _crypto.then((_) => action());
+    _crypto = result.then<void>((_) {}, onError: (Object _) {});
+    return result;
   }
 
   Future<void> _ensureSession(String peer) async {

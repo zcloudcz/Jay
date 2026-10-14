@@ -75,9 +75,9 @@ void main() {
     expect(seen.single.isGroup, isFalse);
     expect(seen.single.conversationId, alice.id);
     expect(hub.calls('TypingIndicator').first, [alice.id]);
-    final sent = hub.calls('SendReliableMessage').single;
+    final sent = hub.calls('SendReliableDirectFanout').single;
     expect(sent[0], alice.id);
-    expect(await alice.read(bot.deviceId, sent[2] as String), 'echo: hi');
+    expect(await alice.read(bot.deviceId, (sent[3] as Map<String, String>)[alice.id]!), 'echo: hi');
     expect(hub.calls('AcknowledgeMessage').single, [alice.id, seen.single.id]);
   });
 
@@ -109,10 +109,10 @@ void main() {
     // The session survived the restart: a follow-up decrypts and the reply
     // is readable by the user (no identity / safety-number change).
     hub.deliver(await alice.messageTo(bot.deviceId, api.botBundle, 'again'));
-    await until(() => hub.calls('SendReliableMessage').isNotEmpty);
+    await until(() => hub.calls('SendReliableDirectFanout').isNotEmpty);
     expect(handled, 2);
-    final sent = hub.calls('SendReliableMessage').single;
-    expect(await alice.read(bot.deviceId, sent[2] as String), 'still me');
+    final sent = hub.calls('SendReliableDirectFanout').single;
+    expect(await alice.read(bot.deviceId, (sent[3] as Map<String, String>)[alice.id]!), 'still me');
   });
 
   test('handler exception -> apology reply, ack, loop survives', () async {
@@ -127,8 +127,8 @@ void main() {
     await until(() => hub.calls('AcknowledgeMessage').length == 2);
 
     final replies = [
-      for (final sent in hub.calls('SendReliableMessage'))
-        await alice.read(bot.deviceId, sent[2] as String),
+      for (final sent in hub.calls('SendReliableDirectFanout'))
+        await alice.read(bot.deviceId, (sent[3] as Map<String, String>)[alice.id]!),
     ];
     expect(replies, [startsWith('Sorry'), 'ok']);
     expect(logs.join('\n'), contains('backend down'));
@@ -186,19 +186,19 @@ void main() {
     expect(seen.single.mentionsBot, isTrue);
     expect(seen.single.conversationId, groupId);
 
-    final sends = hub.calls('SendReliableGroupMessage');
+    final sends = hub.calls('SendReliableGroupFanout');
     // ONE call for the whole group: a business group's hub rejects any call
     // that lacks the auditor's envelope (KB2), so per-recipient calls would
     // make the bot mute there.
     expect(sends, hasLength(1));
     final recipients = {
-      for (final s in sends) ...(s[2] as Map<String, String>).keys,
+      for (final s in sends) ...(s[3] as Map<String, String>).keys,
     };
     expect(recipients, {alice.id, bob.id});
     // Bob never talked to the bot: his copy is a pre-key message that his
     // real stack can establish a session from.
     final bobCopy = sends
-        .map((s) => s[2] as Map<String, String>)
+        .map((s) => s[3] as Map<String, String>)
         .firstWhere((m) => m.containsKey(bob.id))[bob.id]!;
     expect(await bob.read(bot.deviceId, bobCopy), 'pong');
   });
@@ -213,7 +213,7 @@ void main() {
 
     expect(handled, 0);
     expect(hub.calls('TypingIndicator'), isEmpty);
-    expect(hub.calls('SendReliableMessage'), isEmpty);
+    expect(hub.calls('SendReliableDirectFanout'), isEmpty);
   });
 
   test('undecryptable message is not acked and does not stop the loop', () async {
@@ -239,5 +239,34 @@ void main() {
     api.handles['CT-AAAA-0001'] = alice.id;
     expect(await bot.deviceIdForHandle('CT-AAAA-0001'), alice.id);
     expect(await bot.deviceIdForHandle('CT-NOPE-0000'), isNull);
+  });
+
+  test("a user's companion lands in the user's conversation; the reply reaches both devices", () async {
+    final aliceWeb = await FakeUser.create('00000000-0000-4000-8000-0000000000aa');
+    addTearDown(aliceWeb.close);
+    api.keyBundles[aliceWeb.id] = await aliceWeb.keyBundle();
+    final list = await signedDeviceList(alice, [aliceWeb], version: 1);
+    api.deviceLists[alice.id] = list;
+    api.deviceLists[aliceWeb.id] = list;
+    final bot = await startBot();
+    final seen = <BotMessage>[];
+    await bot.onMessage((msg) async {
+      seen.add(msg);
+      await msg.reply('hi both');
+    });
+
+    hub.deliver(await aliceWeb.messageTo(bot.deviceId, api.botBundle, 'from the web'));
+    await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
+
+    expect(seen.single.senderId, alice.id);
+    expect(seen.single.conversationId, alice.id);
+    // Acknowledged with the TRANSPORT sender: the server queues per device.
+    expect(hub.calls('AcknowledgeMessage').single, [aliceWeb.id, seen.single.id]);
+    final sent = hub.calls('SendReliableDirectFanout').single;
+    expect(sent[0], alice.id);
+    final payloads = sent[3] as Map<String, String>;
+    expect(payloads.keys.toSet(), {alice.id, aliceWeb.id});
+    expect(await aliceWeb.read(bot.deviceId, payloads[aliceWeb.id]!), 'hi both');
+    expect(await alice.read(bot.deviceId, payloads[alice.id]!), 'hi both');
   });
 }

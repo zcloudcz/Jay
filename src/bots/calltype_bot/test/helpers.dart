@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:calltype_core/crypto/device_list.dart';
 import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/network/hub_transport.dart';
@@ -147,6 +148,10 @@ class FakeApi {
   final groups = <String, List<String>>{};
   final handles = <String, String>{};
 
+  /// GET /devices/{id}/device-list bodies, keyed by EVERY device id of the
+  /// list (the real server answers for the primary and its companions).
+  final deviceLists = <String, Map<String, dynamic>>{};
+
   String get url => 'http://127.0.0.1:${_server.port}';
 
   int _nextOneTimeKey = 0;
@@ -189,6 +194,8 @@ class FakeApi {
       };
     } else if (segments.length == 3 && segments[2] == 'key-bundle') {
       body = keyBundles[segments[1]];
+    } else if (segments.length == 3 && segments[2] == 'device-list') {
+      body = deviceLists[segments[1]];
     } else if (segments.length == 3 && segments[0] == 'groups') {
       body = [
         for (final id in groups[segments[1]] ?? <String>[]) {'deviceId': id},
@@ -204,4 +211,38 @@ class FakeApi {
   }
 
   Future<void> close() => _server.close(force: true);
+}
+
+/// [primary]'s signed device list naming [companions], as the server serves it.
+Future<Map<String, dynamic>> signedDeviceList(
+  FakeUser primary,
+  List<FakeUser> companions, {
+  required int version,
+}) async {
+  final signed = await signDeviceList(
+    primarySigningKey: await primary.keys.getSigningKeyPair(),
+    list: DeviceList(
+      primaryDeviceId: primary.id,
+      version: version,
+      devices: [
+        for (final c in companions)
+          DeviceListEntry(
+            deviceId: c.id,
+            identityKey: await c.keys.getPublicIdentityKey(),
+            signingKey: (await c.keys.getSignedIdentityBundle())['signingKey']!,
+            consentSig: await signDeviceLinkConsent(
+              companionSigningKey: await c.keys.getSigningKeyPair(),
+              primaryDeviceId: primary.id,
+              companionDeviceId: c.id,
+            ),
+          ),
+      ],
+    ),
+  );
+  return {
+    'primaryDeviceId': primary.id,
+    'version': version,
+    'payload': signed.payload,
+    'signature': signed.signature,
+  };
 }
