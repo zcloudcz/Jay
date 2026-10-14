@@ -13,6 +13,15 @@ public class DeviceListService(AppDbContext db)
         await db.DeviceListMembers.Where(m => m.DeviceId == deviceId)
             .Select(m => (Guid?)m.PrimaryDeviceId).FirstOrDefaultAsync(ct) ?? deviceId;
 
+    /// <summary>Both mappings in ONE query (policy hot path).</summary>
+    public async Task<(Guid, Guid)> PrimariesOfAsync(Guid a, Guid b, CancellationToken ct)
+    {
+        var rows = await db.DeviceListMembers.Where(m => m.DeviceId == a || m.DeviceId == b)
+            .Select(m => new { m.DeviceId, m.PrimaryDeviceId }).ToListAsync(ct);
+        return (rows.FirstOrDefault(r => r.DeviceId == a)?.PrimaryDeviceId ?? a,
+                rows.FirstOrDefault(r => r.DeviceId == b)?.PrimaryDeviceId ?? b);
+    }
+
     /// <summary>
     /// Every device of the given identities: the primaries themselves plus
     /// their companions. A companion that deleted itself is already gone here

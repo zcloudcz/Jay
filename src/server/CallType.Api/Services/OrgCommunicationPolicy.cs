@@ -50,20 +50,23 @@ public class OrgCommunicationPolicy(
     {
         if (!businessMode.Enabled) return true;
 
+        // Cache first, under the RAW pair (before identity mapping): this keeps
+        // the pre-multi-device hot-path cost (the legacy group loop checks up to
+        // 256 pairs per message, and mapping first would add 2 queries each). A
+        // link/unlink is therefore reflected after PolicyCacheSeconds, the same
+        // staleness as enrollment changes. Order-independent key.
+        var (low, high) = deviceA.CompareTo(deviceB) <= 0 ? (deviceA, deviceB) : (deviceB, deviceA);
+        var cacheKey = $"org-comm-policy:{low}:{high}";
+        if (cache.TryGetValue(cacheKey, out bool cached))
+            return cached;
+
         // Enrollment belongs to the PRIMARY device; a companion is never in
         // OrgEnrollments. Companions inherit the rules of their identity, so
         // map both sides here: every caller (legacy and fan-out) is covered
         // without touching them, and no companion can step around
         // RequireBusinessConversations.
-        deviceA = await deviceLists.PrimaryOfAsync(deviceA, ct);
-        deviceB = await deviceLists.PrimaryOfAsync(deviceB, ct);
+        (deviceA, deviceB) = await deviceLists.PrimariesOfAsync(deviceA, deviceB, ct);
         if (deviceA == deviceB) return true;
-
-        // Order-independent cache key — the pair means the same thing either way.
-        var (low, high) = deviceA.CompareTo(deviceB) <= 0 ? (deviceA, deviceB) : (deviceB, deviceA);
-        var cacheKey = $"org-comm-policy:{low}:{high}";
-        if (cache.TryGetValue(cacheKey, out bool cached))
-            return cached;
 
         var allowed = await ComputeAllowedAsync(deviceA, deviceB, ct);
         var duration = TimeSpan.FromSeconds(Math.Max(0, options.Value.PolicyCacheSeconds));
