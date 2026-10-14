@@ -99,11 +99,11 @@ Contact? _contactFor(List<Contact> contacts, String deviceId) {
 List<MentionCandidate> buildMentionCandidates({
   required List<GroupMemberInfo> members,
   required List<Contact> contacts,
-  required String myDeviceId,
+  required String myIdentityId,
 }) {
   final result = <MentionCandidate>[];
   for (final member in members) {
-    if (member.deviceId == myDeviceId) continue;
+    if (member.deviceId == myIdentityId) continue;
     final contact = _contactFor(contacts, member.deviceId);
     final handle = member.userHandle ?? contact?.userHandle;
     // Old server and not a contact: nothing a bot (or a person) could match.

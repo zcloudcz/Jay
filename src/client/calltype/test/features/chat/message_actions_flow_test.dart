@@ -316,7 +316,7 @@ void main() {
         inbox: inbox,
         apiClient: api,
         conversationId: id,
-        myDeviceId: alice.id,
+        directory: alice.directory,
       );
     }
 

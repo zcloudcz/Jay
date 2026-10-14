@@ -1,4 +1,6 @@
 import 'package:drift/native.dart';
+import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype/core/crypto/key_manager.dart';
 import 'package:calltype/core/crypto/session_manager.dart';
 import 'package:calltype/core/storage/database.dart';
@@ -17,6 +19,19 @@ class TestDevice {
   final SecureStorage secureStorage;
   final KeyManager keys;
   final SessionManager sessions;
+
+  /// This device's view of device lists. Its API answers "no list" for
+  /// everybody, which is the single-device world most tests live in (and
+  /// avoids a DNS lookup of the dummy base URL); tests that need lists build
+  /// a directory against FakeMultiDeviceServer instead.
+  late final DeviceDirectory directory = DeviceDirectory(
+    database: db,
+    apiClient: NoDeviceListsApi(),
+    selfDeviceId: id,
+    selfSigningKey: () async =>
+        (await keys.getSignedIdentityBundle())['signingKey']!,
+    selfIdentityKey: keys.getPublicIdentityKey,
+  );
 
   static Future<TestDevice> create(String id) =>
       createWithSecureStorage(id, InMemorySecureStorage());
@@ -78,4 +93,11 @@ class InMemorySecureStorage extends SecureStorage {
 
   @override
   Future<void> delete(String key) async => _values.remove(key);
+}
+
+/// An API with no device lists at all.
+class NoDeviceListsApi extends ApiClient {
+  NoDeviceListsApi() : super(baseUrl: 'http://unused');
+  @override
+  Future<Map<String, dynamic>?> getDeviceList(String deviceId) async => null;
 }

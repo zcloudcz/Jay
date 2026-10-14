@@ -191,7 +191,7 @@ class ChatScreen extends StatelessWidget {
     ChatController controller,
     String senderId,
     List<Contact> contacts,
-  ) => senderId == controller.myDeviceId
+  ) => senderId == controller.myIdentityId
       ? context.l10n.chatYou
       : senderLabel(
           senderId,
@@ -536,7 +536,7 @@ class ChatScreen extends StatelessWidget {
                     itemCount: controller.messages.length,
                     itemBuilder: (context, index) {
                       final message = controller.messages[index];
-                      final mine = message.senderId == controller.myDeviceId;
+                      final mine = message.senderId == controller.myIdentityId;
                       if (message.type == 'call-event') {
                         return _CallEventLine(body: message.body ?? '');
                       }
@@ -652,7 +652,7 @@ class ChatScreen extends StatelessWidget {
                 ? buildMentionCandidates(
                     members: controller.groupMembers,
                     contacts: allContacts,
-                    myDeviceId: controller.myDeviceId,
+                    myIdentityId: controller.myIdentityId,
                   )
                 : const [],
           ),

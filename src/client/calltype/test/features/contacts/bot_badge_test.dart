@@ -12,6 +12,7 @@ import 'package:calltype/features/chat_list/chat_list_controller.dart';
 import 'package:calltype/features/contacts/contacts_controller.dart';
 import 'package:calltype/features/contacts/contacts_screen.dart';
 import 'package:calltype/shared/widgets/bot_badge.dart';
+import 'package:calltype_core/devices/device_directory.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -106,9 +107,15 @@ void main() {
   }) async {
     final db = AppDatabase.forTesting(NativeDatabase.memory());
     final signal = SignalRClient(baseUrl: 'http://unused', deviceId: 'me');
-    final sessions = SessionManager(
+    final keys = KeyManager(secureStorage: InMemorySecureStorage());
+    final sessions = SessionManager(database: db, keyManager: keys);
+    final directory = DeviceDirectory(
       database: db,
-      keyManager: KeyManager(secureStorage: InMemorySecureStorage()),
+      apiClient: NoDeviceListsApi(),
+      selfDeviceId: 'me',
+      selfSigningKey: () async =>
+          (await keys.getSignedIdentityBundle())['signingKey']!,
+      selfIdentityKey: keys.getPublicIdentityKey,
     );
     final contacts = ContactsController(database: db);
     final chats = ChatListController(database: db);
@@ -137,7 +144,7 @@ void main() {
         ),
         apiClient: ApiClient(baseUrl: 'http://unused'),
         conversationId: _botId,
-        myDeviceId: 'me',
+        directory: directory,
       );
     });
     await tester.pumpWidget(

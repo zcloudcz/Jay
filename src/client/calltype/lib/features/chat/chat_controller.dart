@@ -1,3 +1,4 @@
+import 'package:calltype_core/devices/device_directory.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -30,11 +31,12 @@ class ChatController extends ChangeNotifier {
     required MessageInboxService inbox,
     required ApiClient apiClient,
     required this.conversationId,
-    required this.myDeviceId,
+    required DeviceDirectory directory,
   }) : _db = database,
        _signalR = signalRClient,
        _sessions = sessionManager,
-       _api = apiClient {
+       _api = apiClient,
+       _directory = directory {
     _subscription =
         (_db.select(_db.messages)
               ..where((m) => m.conversationId.equals(conversationId))
@@ -121,7 +123,7 @@ class ChatController extends ChangeNotifier {
     if (!info.isBusiness) return null;
     final members = await _api.getGroupMembers(conversationId);
     final others = members
-        .where((id) => id != myDeviceId && id != info.auditorDeviceId)
+        .where((id) => id != myIdentityId && id != info.auditorDeviceId)
         .toList();
     return others.length == 1 ? others.single : null;
   }
@@ -131,7 +133,16 @@ class ChatController extends ChangeNotifier {
   final SessionManager _sessions;
   final ApiClient _api;
   final String conversationId;
-  final String myDeviceId;
+  final DeviceDirectory _directory;
+
+  /// "Me" in this conversation: the IDENTITY id (the primary device id),
+  /// which `messages.senderId` stores for every device of this user. Equals
+  /// the device id unless this device is a companion; the transport id is
+  /// SignalRClient.deviceId.
+  String get myIdentityId => _directory.selfIdentityId;
+
+  /// v1: a companion has no calls and no business conversations.
+  bool get isCompanion => _directory.isCompanion;
   late StreamSubscription<List<Message>> _subscription;
   late StreamSubscription<Message> _incoming;
   bool _disposed = false;
@@ -281,7 +292,7 @@ class ChatController extends ChangeNotifier {
       _db.messages,
     )..where((m) => m.id.equals(messageId))).getSingleOrNull();
     if (target == null ||
-        target.senderId != myDeviceId ||
+        target.senderId != myIdentityId ||
         target.conversationId != conversationId ||
         target.deleted ||
         target.type == 'call-event' ||
@@ -323,7 +334,7 @@ class ChatController extends ChangeNotifier {
           MessagesCompanion.insert(
             id: controlId,
             conversationId: conversationId,
-            senderId: myDeviceId,
+            senderId: myIdentityId,
             body: Value(messageId),
             type: const Value('delete'),
             status: const Value('sending'),
@@ -362,7 +373,7 @@ class ChatController extends ChangeNotifier {
             MessagesCompanion.insert(
               id: id,
               conversationId: conversationId,
-              senderId: myDeviceId,
+              senderId: myIdentityId,
               body: Value(text),
               type: Value(type),
               status: const Value('sending'),
@@ -386,7 +397,7 @@ class ChatController extends ChangeNotifier {
     final message = await (_db.select(
       _db.messages,
     )..where((m) => m.id.equals(messageId))).getSingle();
-    if (message.senderId != myDeviceId ||
+    if (message.senderId != myIdentityId ||
         message.conversationId != conversationId ||
         (message.status != 'failed' && message.status != 'sending')) {
       return;
@@ -408,7 +419,7 @@ class ChatController extends ChangeNotifier {
             ? [conversationId]
             : (await _api.getGroupMembers(
                 groupId,
-              )).where((id) => id != myDeviceId).toList();
+              )).where((id) => id != myIdentityId).toList();
         if (recipients.isEmpty) {
           throw StateError('No recipients in this conversation');
         }

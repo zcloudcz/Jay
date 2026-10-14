@@ -78,7 +78,7 @@ void main() {
           ),
         ],
         contacts: [contact('b', 'CT-1', name: 'My buddy')],
-        myDeviceId: 'me',
+        myIdentityId: 'me',
       );
       expect(c.single.token, 'Hermes');
       expect(c.single.label, 'My buddy');
@@ -90,7 +90,7 @@ void main() {
       final c = buildMentionCandidates(
         members: const [GroupMemberInfo(deviceId: 'b')],
         contacts: [contact('b', 'CT-1', bot: true)],
-        myDeviceId: 'me',
+        myIdentityId: 'me',
       );
       expect(c.single.token, 'CT-1');
       expect(c.single.label, 'CT-1');
@@ -105,7 +105,7 @@ void main() {
           GroupMemberInfo(deviceId: 'y', userHandle: 'CT-Y'),
         ],
         contacts: const [],
-        myDeviceId: 'me',
+        myIdentityId: 'me',
       );
       expect(c.map((e) => e.token), ['CT-Y']);
     });

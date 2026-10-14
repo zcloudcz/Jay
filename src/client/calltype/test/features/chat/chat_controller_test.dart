@@ -86,7 +86,7 @@ void main() {
         inbox: inbox,
         apiClient: ChatApi([bob, carol]),
         conversationId: 'group',
-        myDeviceId: alice.id,
+        directory: alice.directory,
       );
       final first = controller();
       await first.sendMessage('hello team');
@@ -188,7 +188,7 @@ void main() {
         inbox: inbox,
         apiClient: ChatApi([auditor]),
         conversationId: 'biz-group',
-        myDeviceId: alice.id,
+        directory: alice.directory,
       );
 
       await controller.sendMessage('deal terms attached');
@@ -241,7 +241,7 @@ void main() {
         inbox: inbox,
         apiClient: ChatApi([auditor]),
         conversationId: 'biz-group',
-        myDeviceId: alice.id,
+        directory: alice.directory,
       );
 
       await controller.sendMessage('deal terms attached');
@@ -290,7 +290,7 @@ void main() {
         inbox: inbox,
         apiClient: ChatApi([bob]),
         conversationId: bob.id,
-        myDeviceId: alice.id,
+        directory: alice.directory,
       );
 
       await controller.sendMessage('hey');
@@ -310,4 +310,49 @@ void main() {
       await bob.close();
     },
   );
+
+  test('on a companion, own messages are stored under the identity id', () async {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    final web = await TestDevice.create('web');
+    final bob = await TestDevice.create('bob');
+    // What a verified list leaves behind: 'web' belongs to identity 'phone'.
+    await web.db
+        .into(web.db.knownDeviceListMembers)
+        .insert(
+          KnownDeviceListMembersCompanion.insert(
+            deviceId: 'web',
+            primaryDeviceId: 'phone',
+          ),
+        );
+    await web.directory.load();
+    await web.db
+        .into(web.db.conversations)
+        .insert(ConversationsCompanion.insert(id: bob.id, type: 'direct'));
+    final transport = Transport()..fail = true;
+    final inbox = MessageInboxService(
+      database: web.db,
+      sessionManager: web.sessions,
+      incomingMessages: const Stream.empty(),
+    );
+    final controller = ChatController(
+      database: web.db,
+      signalRClient: transport,
+      sessionManager: web.sessions,
+      inbox: inbox,
+      apiClient: ChatApi([bob]),
+      conversationId: bob.id,
+      directory: web.directory,
+    );
+
+    expect(controller.myIdentityId, 'phone');
+    expect(controller.isCompanion, isTrue);
+    await controller.sendMessage('hi');
+    expect((await web.db.select(web.db.messages).getSingle()).senderId, 'phone');
+
+    controller.dispose();
+    await inbox.dispose();
+    transport.dispose();
+    await web.close();
+    await bob.close();
+  });
 }

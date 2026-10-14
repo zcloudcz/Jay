@@ -136,7 +136,7 @@ final router = GoRouter(
                   inbox: ctx.read<MessageInboxService>(),
                   apiClient: ctx.read<ApiClient>(),
                   conversationId: id,
-                  myDeviceId: ctx.read<SignalRClient>().deviceId,
+                  directory: ctx.read<DeviceService>().directory,
                 );
                 // Forward: the message to forward arrives as route `extra`.
                 // `create` runs once per route, so it is sent exactly once,
