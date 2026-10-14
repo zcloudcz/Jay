@@ -29,14 +29,14 @@ Not in scope: history transfer (spec 2), read state / delete-for-me / contact re
 1. **The new device needs the primary's handle for "Link to CT-XXXX-XXXX?", but `LinkOffer` carries only `primaryDeviceId` and there is no endpoint "handle by device id".** Recommendation (planned in Task 1): the hub adds the CALLER's `userHandle`, looked up server-side, to the `LinkOffer` event. Server-side lookup also stops another user from putting somebody else's handle on an offer. Alternative: a new `GET /devices/{id}/profile` endpoint (more surface, same trust).
 2. **`POST /groups` from a companion would make the companion a member on its own** (spec "Limits of v1"). Recommendation (planned in Task 1 + Task 9): the server answers 403 `companion_cannot_manage_groups` and the app hides "New group" on a companion.
 3. **A companion's "My identity" screen would hand out the companion's own `ct://` invite**; a contact that adds it cannot send to it (`recipient_is_not_primary`). Recommendation (planned in Task 9): a companion shows the primary's invite (id + handle stored at link time) and hides the display-name field (it would rename the companion device, which nobody sees).
-4. **Device-change lines only in direct conversations, one line per direction (not per device).** The first time we ever fetch a contact's list, its existing companions show up as "added a device". Recommendation: accept for v1 (one `ponytail:` comment marks the group gap).
+4. **Device-change lines only in direct conversations, one line per direction (not per device), and only for a change between two verified versions.** The first list ever stored for an identity produces no line (its existing companions are not news to the user). Recommendation: accept for v1 (one `ponytail:` comment marks the group gap).
 5. **On a companion, conversations with people who are not contacts there show the raw id as title** (contacts are not synced until spec 3). Recommendation: accept for v1, document in the acceptance checklist.
 6. **"Link a device" is hidden on Windows/Linux** (no camera; the contact scanner has the same gap). The web primary can scan with the browser camera. Recommendation: accept.
 7. **Dropping a vanished companion trusts the server's stale answer** (constraint 5). The server can thereby unlink a companion of ours, which is the "may remove, never add" direction the spec accepts. Recommendation: accept, as the constraint says.
 
 ## Deviations from the spec and plan 1, decided while planning
 
-1. **`DeviceDirectory.changes` (core).** Plan 1 returns a `DeviceListChange` only to the caller of `refresh`, and `FanoutSender.reconcile` refreshes internally without handing changes back. The app needs ONE place that sees every stored change (device-change lines, companion wipe), so the directory also publishes each change on a broadcast stream. (Task 2)
+1. **`DeviceDirectory.changes` (core).** Plan 1 returns a `DeviceListChange` only to the caller of `refresh`, and `FanoutSender.reconcile` refreshes internally without handing changes back. The app needs ONE place that sees every stored change (device-change lines, companion wipe), so the directory also publishes each change on a broadcast stream, with `firstList` set when nothing was stored for that identity before (the app shows no line for a first fetch). (Task 2)
 2. **"Unknown sender" (constraint 1) = not attributed to another identity AND no session yet.** That is exactly the first message of a device we never talked to; a known sender costs no lookup.
 3. **"Cannot verify" needs one extra GET on a companion.** `refresh` answers `null` both for "unchanged" and for "the server has no list"; only a direct `getDeviceList(selfDeviceId)` tells them apart. Done only on a companion, after a refresh that returned without a change.
 4. **`DeviceListChanged` is honoured only for our own identity or the primary we just consented to.** Any other id would let the server make us pin and store arbitrary identities.
@@ -333,19 +333,41 @@ Append inside `main()` of `device_directory_test.dart` (it uses the file's exist
     expect(seen[0].identityId, bob);
     expect(seen[0].added, {bobWeb});
     expect(seen[0].removed, isEmpty);
+    // Nothing was stored for Bob before: a first fetch, not a change.
+    expect(seen[0].firstList, isTrue);
     expect(seen[1].added, isEmpty);
     expect(seen[1].removed, {bobWeb});
+    expect(seen[1].firstList, isFalse);
   });
 ```
 
 - [ ] **Step 2: Run it, verify it fails**
 
 Run (in `src/client/calltype_core`): `dart test test/devices/device_directory_test.dart`
-Expected: compile error, `changes` is not defined.
+Expected: compile error, `changes` and `firstList` are not defined.
 
 - [ ] **Step 3: Implement**
 
-In `device_directory.dart` add `import 'dart:async';` as the first import. Below the field `Future<void> _tail = Future.value();` add:
+In `device_directory.dart` replace the `DeviceListChange` constructor and fields with:
+
+```dart
+  const DeviceListChange({
+    required this.identityId,
+    required this.added,
+    required this.removed,
+    this.firstList = false,
+  });
+  final String identityId;
+  final Set<String> added;
+  final Set<String> removed;
+
+  /// True when nothing was stored for this identity before: the first fetch
+  /// of a list that may have existed for a long time. Its devices are not
+  /// news to the user, so the app shows no "added a device" line for it.
+  final bool firstList;
+```
+
+Add `import 'dart:async';` as the first import. Below the field `Future<void> _tail = Future.value();` add:
 
 ```dart
   final _changes = StreamController<DeviceListChange>.broadcast();
@@ -375,6 +397,9 @@ with
       identityId: primary,
       added: after.difference(before),
       removed: before.difference(after),
+      // `stored` is safe to use here: refreshes are serialized, and the
+      // transaction above re-checked that nothing newer arrived meanwhile.
+      firstList: stored == null,
     );
     _changes.add(change);
     return change;
@@ -389,7 +414,7 @@ Expected: no issues, all tests PASS.
 
 ```bash
 git add src/client/calltype_core/lib/devices/device_directory.dart src/client/calltype_core/test/devices/device_directory_test.dart
-git commit -m "feat(core): device directory publishes every stored change
+git commit -m "feat(core): device directory publishes every stored change, marks first lists
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ```
@@ -1604,21 +1629,31 @@ void main() {
     expect(service.isCompanion, isTrue);
   });
 
-  test('a contact who links a device gets one line in the chat; our own list does not', () async {
+  test('a contact who links a device gets one line in the chat; a first fetch and our own list do not', () async {
     final service = await server.deviceServiceFor(phone);
     await addChat(phone, bobId);
+    // First list ever stored for Bob, already with a companion: no line.
     await server.link(bob, [bobWeb], version: 1);
-    await service.directory.refresh(bobWebId, ensurePinned: server.pinFor(phone));
+    await service.directory.refresh(bobId, ensurePinned: server.pinFor(phone));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(await deviceLines(phone), isEmpty);
+    // Bob removes and re-adds the device: two verified versions apart, so
+    // each change is a line.
+    await server.link(bob, [], version: 2);
+    await service.directory.refresh(bobId, ensurePinned: server.pinFor(phone));
     await until(() async => (await deviceLines(phone)).length == 1);
-    final line = (await deviceLines(phone)).single;
+    expect((await deviceLines(phone)).single.body, 'removed');
+    await server.link(bob, [bobWeb], version: 3);
+    await service.directory.refresh(bobWebId, ensurePinned: server.pinFor(phone));
+    await until(() async => (await deviceLines(phone)).length == 2);
+    final line = (await deviceLines(phone)).firstWhere((m) => m.body == 'added');
     expect(line.conversationId, bobId);
     expect(line.senderId, bobId);
-    expect(line.body, 'added');
 
     await server.link(phone, [web], version: 1);
     await service.checkOwnList(phoneId);
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect(await deviceLines(phone), hasLength(1));
+    expect(await deviceLines(phone), hasLength(2));
   });
 
   test('removing a companion signs the next version and stores it', () async {
@@ -1858,6 +1893,10 @@ class DeviceService extends ChangeNotifier {
       _notify();
       return;
     }
+    // Only a change between two verified versions is news. The first list
+    // we ever store for somebody may be years old; showing it as "added a
+    // device" would be noise.
+    if (change.firstList) return;
     await _noteDeviceChange(change);
   }
 
@@ -2768,7 +2807,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 8: App - fan-out send and outbox repair
 
-Constraint 4: every non-business send goes through `FanoutSender` + `sendDirectFanout` / `sendGroupFanout`, `to` is always in direct payloads, envelopes are persisted per message and resent byte for byte, `device_list_stale` is repaired by `reconcile` in a bounded loop, and an unresolved stale answer is a visible failure. Business conversations keep the per-member `sendGroupMessage` path and a companion refuses them (decision 2). The primary drops a vanished companion (constraint 5).
+Constraint 4: every non-business send goes through `FanoutSender` + `sendDirectFanout` / `sendGroupFanout`, `to` is always in direct payloads, envelopes are persisted per message and resent byte for byte, `device_list_stale` is repaired by `reconcile` in a bounded loop, and an unresolved stale answer is a visible failure. Business conversations keep the per-member `sendGroupMessage` path and a companion refuses them (decision 2). A business group whose `organizationId` is not cached yet (the hub answers `fanout_unsupported_in_business_group`) is finished on the business path within the SAME send attempt (same messageId, envelopes for the server's member list incl. the auditor) and the cache is filled, so a first send never ends as `failed`. The primary drops a vanished companion (constraint 5).
 
 **Files:**
 - Modify: `src/client/calltype/lib/features/chat/chat_controller.dart`, `lib/app/router.dart`
@@ -2806,6 +2845,12 @@ Constraint 4: every non-business send goes through `FanoutSender` + `sendDirectF
 `test/features/chat/message_actions_flow_test.dart`, class `_Transport`, add:
 
 ```dart
+  /// Plays a hub that knows the group is a business group (the client's
+  /// cache does not yet): group fan-out is refused, nothing is queued.
+  bool refuseGroupFanout = false;
+  var refusedGroupFanouts = 0;
+  final sentIds = <String?>[];
+
   @override
   Future<void> sendDirectFanout(
     String recipientIdentityId,
@@ -2813,6 +2858,7 @@ Constraint 4: every non-business send goes through `FanoutSender` + `sendDirectF
     required String messageId,
   }) async {
     sent.add(Map.of(encryptedPayloads));
+    sentIds.add(messageId);
     if (fail) throw StateError('offline');
   }
 
@@ -2822,9 +2868,51 @@ Constraint 4: every non-business send goes through `FanoutSender` + `sendDirectF
     Map<String, String> encryptedPayloads, {
     required String messageId,
   }) async {
+    if (refuseGroupFanout) {
+      refusedGroupFanouts++;
+      throw StateError('HubException: fanout_unsupported_in_business_group');
+    }
     sent.add(Map.of(encryptedPayloads));
+    sentIds.add(messageId);
     if (fail) throw StateError('offline');
   }
+```
+
+In the same class, make the existing `sendGroupMessage` record the id too: add `sentIds.add(messageId);` right after its `sent.add(Map.of(encryptedPayloads));`.
+
+Add to the `controller` group of `message_actions_flow_test.dart`:
+
+```dart
+    test(
+      'a business group the cache does not know yet still sends, in the same attempt',
+      () async {
+        // The chat opens while the server still answers "anonymous", so the
+        // cached organizationId stays empty: the cold-cache case.
+        await setUpChat(id: 'biz', type: 'group');
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        _infoMode = 'business';
+        transport.refuseGroupFanout = true;
+
+        await controller.sendMessage('terms');
+
+        final message = await alice.db.select(alice.db.messages).getSingle();
+        expect(message.status, 'sent');
+        expect(transport.refusedGroupFanouts, 1);
+        // One business call with the SAME message id, one envelope per member
+        // the server lists (here: bob).
+        expect(transport.sent.single.keys, ['bob']);
+        expect(transport.sentIds.single, message.id);
+        final conversation = await (alice.db.select(
+          alice.db.conversations,
+        )..where((c) => c.id.equals('biz'))).getSingle();
+        expect(conversation.organizationId, 'org');
+
+        // The warm cache sends the next message straight to the business path.
+        await controller.sendMessage('more terms');
+        expect(transport.refusedGroupFanouts, 1);
+        expect(transport.sent, hasLength(2));
+      },
+    );
 ```
 
 Add to `chat_controller_test.dart` (inside `main()`):
@@ -3067,8 +3155,8 @@ void main() {
 
 - [ ] **Step 3: Run the tests, verify they fail**
 
-Run: `flutter test test/features/devices/multi_device_flow_test.dart test/features/chat/chat_controller_test.dart`
-Expected: the flow tests FAIL (the controller still calls `sendMessage`, which the fake hub does not route, so A never receives anything); the companion business test FAILS (the message is sent).
+Run: `flutter test test/features/devices/multi_device_flow_test.dart test/features/chat/chat_controller_test.dart test/features/chat/message_actions_flow_test.dart`
+Expected: the flow tests FAIL (the controller still calls `sendMessage`, which the fake hub does not route, so A never receives anything); the companion business test FAILS (the message is sent); the cold-cache business test FAILS (`refusedGroupFanouts` is 0, the controller never tries fan-out yet).
 
 - [ ] **Step 4: Implement in `chat_controller.dart`**
 
@@ -3255,14 +3343,6 @@ Replace `retryMessage` entirely with:
       } else if (e.toString().contains('business_conversation_required')) {
         _businessConversationRequired = true;
         notifyListeners();
-      } else if (e.toString().contains('fanout_unsupported_in_business_group')) {
-        // The business cache was still empty when this was encrypted. The
-        // hub queued nothing: drop the fan-out envelopes and warm the cache,
-        // so the user's retry takes the business path.
-        await (_db.delete(
-          _db.backupState,
-        )..where((s) => s.key.equals('outbox:$messageId'))).go();
-        unawaited(_syncBusinessInfo());
       }
       await _status(messageId, 'failed');
     }
@@ -3298,6 +3378,11 @@ Replace `retryMessage` entirely with:
         }
         return;
       } catch (e) {
+        if (groupId != null &&
+            e.toString().contains('fanout_unsupported_in_business_group')) {
+          await _sendBusinessFallback(messageId, groupId, payload);
+          return;
+        }
         final required = core.SignalRClient.staleRequired(e);
         if (required == null || round == _maxFanoutRounds) rethrow;
         _onStale?.call(required);
@@ -3321,6 +3406,51 @@ Replace `retryMessage` entirely with:
             );
       }
     }
+  }
+
+  /// The hub says this group is a business group, but the local cache did
+  /// not know yet (it is filled asynchronously when the chat opens). Finish
+  /// the SAME send attempt on the business path instead of failing: same
+  /// messageId, one envelope per member from the server's member list (the
+  /// auditor included, KB2), one sendGroupMessage call. The refused fan-out
+  /// call queued nothing, so encrypting again only skips a ratchet step.
+  Future<void> _sendBusinessFallback(
+    String messageId,
+    String groupId,
+    String payload,
+  ) async {
+    // v1: business conversations are primary-only (decision 2).
+    if (isCompanion) {
+      throw StateError('Business conversations are primary-only in v1.');
+    }
+    // Fills the cached organizationId, so the next send goes straight to the
+    // business path (and the banner appears).
+    await _syncBusinessInfo();
+    final recipients = (await _api.getGroupMembers(
+      groupId,
+    )).where((id) => id != myIdentityId).toList();
+    final envelopes = <String, String>{};
+    await _db.transaction(() async {
+      final encrypted = await GroupCipher(
+        sessionManager: _sessions,
+        ensureSession: _ensureSession,
+      ).encryptForGroup(groupId, recipients, payload);
+      envelopes.addAll(
+        encrypted.map((id, bytes) => MapEntry(id, base64Encode(bytes))),
+      );
+      // The outbox becomes a business outbox: a retry after a failed call
+      // below resends these exact envelopes through the business branch.
+      await (_db.update(_db.backupState)
+            ..where((s) => s.key.equals('outbox:$messageId')))
+          .write(
+            BackupStateCompanion(
+              value: Value(
+                jsonEncode({'groupId': groupId, 'envelopes': envelopes}),
+              ),
+            ),
+          );
+    });
+    await _signalR.sendGroupMessage(groupId, envelopes, messageId: messageId);
   }
 ```
 
@@ -5330,4 +5460,4 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 - Spec coverage: Part A linking (Task 10), removal and "cannot verify" (Task 5), peer notice (Tasks 5, 9); Part B sending (Task 8) and receiving rules 1-4 (Task 7); the identity split (Task 6); Limits of v1 in UI (Task 9) and docs (Task 12); Part C client tests (Tasks 5, 7, 8, 10); bots (Task 11); backup bug (Task 3). The server-side items of Part A/B were plan 1.
 - Constraints: 1 and 2 (Task 7), 3 (Task 5), 4 (Task 8), 5 (Tasks 5, 8), 6 (Tasks 1, 8, 9), 7 (Task 10), 8 (Tasks 5, 6), 9 (carried over unchanged; not touched here).
-- Names used across tasks: `DeviceService.{open, directory, isOpen, isCompanion, status, checkOwnList, expectLink, linkedPrimaryHandle, companions, addCompanion, removeCompanions, dropVanishedCompanions}`, `CompanionStatus.{ok, cannotVerify, removed}`, `linkedPrimaryHandleKey`, `ChatController.{myIdentityId, isCompanion}`, `MessageInboxService(directory:)`, `LinkCode`, `linkFingerprint`, `isEmptyDevice`, `PrimaryLinkController`/`PrimaryLinkState`, `CompanionLinkController`/`CompanionLinkState`, `FakeMultiDeviceServer.{add, link, store, signedList, directoryFor, pinFor, deviceServiceFor, hubs, lists, members, deviceListRequests, close}`, `FakeDeviceApi`, `FakeHubClient`, `until`, `TestDevice.directory`, `NoDeviceListsApi`.
+- Names used across tasks: `DeviceListChange.firstList`, `ChatController._sendBusinessFallback`, `DeviceService.{open, directory, isOpen, isCompanion, status, checkOwnList, expectLink, linkedPrimaryHandle, companions, addCompanion, removeCompanions, dropVanishedCompanions}`, `CompanionStatus.{ok, cannotVerify, removed}`, `linkedPrimaryHandleKey`, `ChatController.{myIdentityId, isCompanion}`, `MessageInboxService(directory:)`, `LinkCode`, `linkFingerprint`, `isEmptyDevice`, `PrimaryLinkController`/`PrimaryLinkState`, `CompanionLinkController`/`CompanionLinkState`, `FakeMultiDeviceServer.{add, link, store, signedList, directoryFor, pinFor, deviceServiceFor, hubs, lists, members, deviceListRequests, close}`, `FakeDeviceApi`, `FakeHubClient`, `until`, `TestDevice.directory`, `NoDeviceListsApi`.
