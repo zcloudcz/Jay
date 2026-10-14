@@ -119,7 +119,7 @@ void main() {
     expect(message.deleted, isFalse);
 
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 4);
+    expect(version.read<int>('user_version'), 5);
   });
 
   test('a fresh install creates the v2 schema directly', () async {
@@ -127,5 +127,39 @@ void main() {
     addTearDown(db.close);
     expect(await db.select(db.channels).get(), isEmpty);
     expect(await db.select(db.contacts).get(), isEmpty);
+  });
+
+  test('v1 -> v5 adds the device list tables and keeps existing rows', () async {
+    final db = AppDatabase(
+      NativeDatabase.memory(
+        setup: (raw) {
+          for (final ddl in _schemaV1) {
+            raw.execute(ddl);
+          }
+          raw.execute(
+            "INSERT INTO conversations (id, type, unread_count) "
+            "VALUES ('bob', 'direct', 3)",
+          );
+          // Oldest shipped schema: proves the v5 step also runs at the end
+          // of the full upgrade chain, not only from v4.
+          raw.execute('PRAGMA user_version = 1');
+        },
+      ),
+    );
+    addTearDown(db.close);
+
+    expect((await db.select(db.conversations).getSingle()).unreadCount, 3);
+    await db.into(db.knownDeviceLists).insert(
+      KnownDeviceListsCompanion.insert(
+        primaryDeviceId: 'p',
+        version: 1,
+        payload: 'cGF5',
+        signature: 'c2ln',
+      ),
+    );
+    await db.into(db.knownDeviceListMembers).insert(
+      KnownDeviceListMembersCompanion.insert(deviceId: 'c', primaryDeviceId: 'p'),
+    );
+    expect(await db.select(db.knownDeviceListMembers).get(), hasLength(1));
   });
 }

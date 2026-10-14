@@ -27,6 +27,8 @@ part 'database.g.dart';
     Channels,
     ChannelPosts,
     BlockedChannels,
+    KnownDeviceLists,
+    KnownDeviceListMembers,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -37,7 +39,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   /// Schema history:
   ///   1 — contacts, conversations, messages, sessions, backup state
@@ -47,6 +49,8 @@ class AppDatabase extends _$AppDatabase {
   ///       mode banner/badge, E05)
   ///   4 — messages.reply_to_id / reply_sender_id / reply_preview /
   ///       forwarded / deleted (reply, forward, delete for everyone)
+  ///   5 - known_device_lists / known_device_list_members (multi-device:
+  ///       verified signed device lists of contacts and of this identity)
   ///
   /// WHY explicit steps instead of destructive recreation: this database
   /// holds the user's only copy of their decrypted history and the ratchet
@@ -71,6 +75,10 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(messages, messages.replyPreview);
         await m.addColumn(messages, messages.forwarded);
         await m.addColumn(messages, messages.deleted);
+      }
+      if (from < 5) {
+        await m.createTable(knownDeviceLists);
+        await m.createTable(knownDeviceListMembers);
       }
     },
   );

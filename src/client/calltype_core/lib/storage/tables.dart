@@ -241,3 +241,32 @@ class BlockedChannels extends Table {
   @override
   Set<Column> get primaryKey => {channelId};
 }
+
+/// Multi-device: the last VERIFIED signed device list of an identity (a
+/// contact's, or our own). The row class is `KnownDeviceList` on purpose:
+/// `DeviceList` is the parsed list in crypto/device_list.dart.
+class KnownDeviceLists extends Table {
+  /// The identity: the primary device ID contacts and conversations use.
+  TextColumn get primaryDeviceId => text()();
+
+  /// Highest verified version. A list below it is a replay and is rejected.
+  IntColumn get version => integer()();
+
+  /// Exact signed bytes (base64) and signature, kept so the entry of a
+  /// companion (its keys) can be re-read later without the network.
+  TextColumn get payload => text()();
+  TextColumn get signature => text()();
+
+  @override
+  Set<Column> get primaryKey => {primaryDeviceId};
+}
+
+/// Multi-device: device ID -> identity, derived from [KnownDeviceLists].
+/// Answers "whose device sent this?" with one indexed lookup per message.
+class KnownDeviceListMembers extends Table {
+  TextColumn get deviceId => text()();
+  TextColumn get primaryDeviceId => text()();
+
+  @override
+  Set<Column> get primaryKey => {deviceId};
+}
