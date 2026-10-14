@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:calltype/core/storage/database.dart';
 import 'package:calltype/features/chat/chat_controller.dart';
 import 'package:calltype/features/chat/message_inbox_service.dart';
 import 'package:calltype_core/devices/device_directory.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -174,6 +177,36 @@ void main() {
     expect(await bob.directory.devicesOf(aPhoneId), [aPhoneId]);
   });
 
+  test('a companion whose bundle is gone is skipped and reported as vanished', () async {
+    // The server forgot the web device (it deleted itself) but A's signed
+    // list still names it and A has no session with it.
+    server.members.remove(aWebId);
+    await aPhone.device.db
+        .into(aPhone.device.db.conversations)
+        .insert(ConversationsCompanion.insert(id: bobId, type: 'direct'));
+    final devices = await server.deviceServiceFor(aPhone.device);
+    await devices.checkOwnList(aPhoneId);
+    final controller = ChatController(
+      database: aPhone.device.db,
+      signalRClient: aPhone.hub,
+      sessionManager: aPhone.device.sessions,
+      inbox: aPhone.inbox,
+      apiClient: _GoneBundleApi(server, aWebId),
+      conversationId: bobId,
+      directory: aPhone.directory,
+      onMissingOwnDevice: (d) => unawaited(devices.reportVanishedCompanions([d])),
+    );
+    addTearDown(controller.dispose);
+
+    await controller.sendMessage('still works');
+    await until(() => devices.vanishedCompanions.contains(aWebId));
+    await settle();
+
+    expect((await aPhone.messages()).single.status, 'sent');
+    expect((await bob.messages()).single.body, 'still works');
+    expect(devices.vanishedCompanions, {aWebId});
+  });
+
   test('a group message reaches both devices of A and the web replies into it', () async {
     server.groups['g'] = [bobId, aPhoneId];
     await bob.device.db
@@ -238,6 +271,22 @@ void main() {
     expect((await carolNode.messages()).single.body, 'welcome');
     expect((await aWeb.messages()).single.body, 'welcome');
   });
+}
+
+/// The key bundle of [gone] answers 404, like a device that deleted itself.
+class _GoneBundleApi extends FakeDeviceApi {
+  _GoneBundleApi(super.server, this.gone);
+  final String gone;
+
+  @override
+  Future<Map<String, dynamic>> getKeyBundle(String deviceId) {
+    if (deviceId != gone) return super.getKeyBundle(deviceId);
+    final request = RequestOptions(path: '/devices/$deviceId/key-bundle');
+    throw DioException(
+      requestOptions: request,
+      response: Response(requestOptions: request, statusCode: 404),
+    );
+  }
 }
 
 /// A hub whose group grows right before the first send is judged.

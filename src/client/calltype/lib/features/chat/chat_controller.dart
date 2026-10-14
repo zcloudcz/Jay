@@ -36,6 +36,7 @@ class ChatController extends ChangeNotifier {
     required this.conversationId,
     required DeviceDirectory directory,
     void Function(Set<String> required)? onStale,
+    void Function(String deviceId)? onMissingOwnDevice,
   }) : _db = database,
        _signalR = signalRClient,
        _sessions = sessionManager,
@@ -47,6 +48,17 @@ class ChatController extends ChangeNotifier {
          directory: directory,
          sessions: sessionManager,
          apiClient: apiClient,
+         // Only OUR OWN listed companion that vanished is the user's business
+         // (it may have deleted itself); a contact's missing device is just
+         // skipped. Fire-and-forget: this runs inside the processing queue.
+         // Zone.root: the call happens inside the send's db.transaction, and
+         // drift binds database work to the transaction of the current zone,
+         // which is closed by the time this unawaited write would run.
+         onMissingDevice: (deviceId) => Zone.root.run(
+           () => unawaited(
+             _reportIfOwn(deviceId, directory, onMissingOwnDevice),
+           ),
+         ),
        ),
        _onStale = onStale {
     _subscription =
@@ -162,6 +174,16 @@ class ChatController extends ChangeNotifier {
   /// companion the server no longer knows, constraint 5). Must not await
   /// anything that runs in MessageProcessingQueue: it is called from inside it.
   final void Function(Set<String> required)? _onStale;
+
+  static Future<void> _reportIfOwn(
+    String deviceId,
+    DeviceDirectory directory,
+    void Function(String deviceId)? report,
+  ) async {
+    if (await directory.identityOf(deviceId) == directory.selfIdentityId) {
+      report?.call(deviceId);
+    }
+  }
 
   /// Rounds of "send; on device_list_stale repair the envelopes and resend".
   /// Bounded: a server that keeps answering stale produces a visible failure,

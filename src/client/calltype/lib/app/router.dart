@@ -143,6 +143,10 @@ final router = GoRouter(
                   apiClient: ctx.read<ApiClient>(),
                   conversationId: id,
                   directory: devices.directory,
+                  // Never takes the processing queue, so fire-and-forget is
+                  // safe from inside a send.
+                  onMissingOwnDevice: (d) =>
+                      unawaited(devices.reportVanishedCompanions([d])),
                   // Fire-and-forget: this runs inside the processing queue and
                   // must never wait for a queue job. The server's stale answer
                   // is only a hint; reportVanishedCompanions records it and

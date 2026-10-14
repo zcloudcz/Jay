@@ -241,6 +241,25 @@ void main() {
     expect(rows.single.senderId, aPhoneId);
   });
 
+  test('a server hint that names another identity re-reads the list before filing', () async {
+    await server.link(aPhone, [aWeb], version: 1);
+    await inboxOf(bob);
+    await push(await wireEvent(aWeb, bob, 'while listed'), bob);
+    // A removes the web device; Bob has not heard (no refresh here).
+    await server.link(aPhone, [], version: 2);
+    final event = await wireEvent(aWeb, bob, 'after removal');
+    // The server attributes the device to itself now, not to A.
+    event['senderPrimaryId'] = aWebId;
+
+    await push(event, bob);
+
+    final row = (await bob.db.select(bob.db.messages).get()).firstWhere(
+      (m) => m.body == 'after removal',
+    );
+    expect(row.senderId, aWebId);
+    expect(row.conversationId, aWebId);
+  });
+
   test('delete for everyone from the other device of a contact tombstones the message', () async {
     await server.link(aPhone, [aWeb], version: 1);
     await inboxOf(bob);

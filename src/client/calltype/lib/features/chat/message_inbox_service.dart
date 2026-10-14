@@ -152,6 +152,23 @@ class MessageInboxService {
         // companion's messages as a stranger's forever, because later
         // messages already have a session and never refresh again.
       }
+      // The server's attribution of the sender is only a HINT. If it names
+      // another identity than our verified list does, our list may be stale
+      // (an owner removed this companion, maybe a stolen browser): re-read it
+      // so the device stops being shown as the owner as soon as it writes.
+      // Attribution itself still comes only from the verified list. Same error
+      // rule as above: an unverifiable list keeps the local view, anything
+      // else rethrows before decrypting so the message stays queued.
+      final hint = (data['senderPrimaryId'] as String?)?.toLowerCase();
+      if (hint != null &&
+          hint.isNotEmpty &&
+          hint != await directory.identityOf(senderId)) {
+        try {
+          await directory.refresh(senderId, ensurePinned: _ensureSession);
+        } on DeviceListException {
+          // Keep the local view.
+        }
+      }
       // Membership was authorized by the relay when it accepted the message.
       // Current membership can differ after an offline recipient reconnects.
       Message? inserted;

@@ -459,16 +459,20 @@ class ChatScreen extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(l10n.hubErrorBusinessConversationRequired),
-            action: SnackBarAction(
-              label: l10n.hubErrorBusinessConversationRequiredAction,
-              onPressed: () async {
-                final groupId = await controller
-                    .createBusinessConversationWithPeer();
-                if (groupId != null && context.mounted) {
-                  context.go('/chats/$groupId');
-                }
-              },
-            ),
+            // A companion never takes part in business conversations, so it
+            // gets the explanation only; the primary does the redirect.
+            action: controller.isCompanion
+                ? null
+                : SnackBarAction(
+                    label: l10n.hubErrorBusinessConversationRequiredAction,
+                    onPressed: () async {
+                      final groupId = await controller
+                          .createBusinessConversationWithPeer();
+                      if (groupId != null && context.mounted) {
+                        context.go('/chats/$groupId');
+                      }
+                    },
+                  ),
           ),
         );
       });

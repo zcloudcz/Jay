@@ -114,18 +114,19 @@ void main() {
   );
 
   test(
-    'a contact who links a device gets one line in the chat; a first fetch and our own list do not',
+    'a contact who links a device gets a line in the chat, even on the first list; our own list does not',
     () async {
       final service = await server.deviceServiceFor(phone);
       await addChat(phone, bobId);
-      // First list ever stored for Bob, already with a companion: no line.
+      // First list ever stored for Bob, already with a companion: the first
+      // new reader of an existing conversation is never silent.
       await server.link(bob, [bobWeb], version: 1);
       await service.directory.refresh(
         bobId,
         ensurePinned: server.pinFor(phone),
       );
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(await deviceLines(phone), isEmpty);
+      await until(() async => (await deviceLines(phone)).length == 1);
+      expect((await deviceLines(phone)).single.body, 'added');
       // Bob removes and re-adds the device: two verified versions apart, so
       // each change is a line.
       await server.link(bob, [], version: 2);
@@ -133,14 +134,14 @@ void main() {
         bobId,
         ensurePinned: server.pinFor(phone),
       );
-      await until(() async => (await deviceLines(phone)).length == 1);
-      expect((await deviceLines(phone)).single.body, 'removed');
+      await until(() async => (await deviceLines(phone)).length == 2);
+      expect((await deviceLines(phone)).last.body, 'removed');
       await server.link(bob, [bobWeb], version: 3);
       await service.directory.refresh(
         bobWebId,
         ensurePinned: server.pinFor(phone),
       );
-      await until(() async => (await deviceLines(phone)).length == 2);
+      await until(() async => (await deviceLines(phone)).length == 3);
       final line = (await deviceLines(
         phone,
       )).firstWhere((m) => m.body == 'added');
@@ -150,7 +151,7 @@ void main() {
       await server.link(phone, [web], version: 1);
       await service.checkOwnList(phoneId);
       await Future<void>.delayed(const Duration(milliseconds: 50));
-      expect(await deviceLines(phone), hasLength(2));
+      expect(await deviceLines(phone), hasLength(3));
     },
   );
 
@@ -226,6 +227,20 @@ void main() {
       expect(service.vanishedCompanions, isEmpty);
       expect(server.lists[phoneId]!['version'], 1);
       expect((await service.companions()).map((d) => d.deviceId), [webId]);
+    });
+
+    test('dismissing with ids keeps the other rows pending', () async {
+      final extra = await TestDevice.create('a0000000-0000-4000-8000-000000000003');
+      addTearDown(extra.close);
+      server.add(extra);
+      await server.link(phone, [web, extra], version: 1);
+      final service = await server.deviceServiceFor(phone);
+      await service.checkOwnList(phoneId);
+      await service.reportVanishedCompanions([webId, extra.id]);
+
+      await service.dismissVanished(ids: [webId]);
+
+      expect(service.vanishedCompanions, {extra.id});
     });
 
     test('a normal removal clears the pending entry', () async {

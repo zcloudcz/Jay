@@ -79,7 +79,7 @@ class DevicesScreen extends StatelessWidget {
                               child: Text(l10n.devicesRemove),
                             ),
                             TextButton(
-                              onPressed: devices.dismissVanished,
+                              onPressed: () => devices.dismissVanished(ids: [id]),
                               child: Text(l10n.devicesKeep),
                             ),
                           ],

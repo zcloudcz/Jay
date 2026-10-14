@@ -209,10 +209,8 @@ class DeviceService extends ChangeNotifier {
       _notify();
       return;
     }
-    // Only a change between two verified versions is news. The first list
-    // we ever store for somebody may be years old; showing it as "added a
-    // device" would be noise.
-    if (change.firstList) return;
+    // A FIRST list counts too: the first new reader of an existing
+    // conversation is exactly what must never be silent.
     await _noteDeviceChange(change);
   }
 
@@ -382,7 +380,12 @@ class DeviceService extends ChangeNotifier {
 
   /// The user keeps them (they may know the device is fine). A later stale
   /// answer reports the device again, so a real vanishing is not lost.
-  Future<void> dismissVanished() => _storeVanished({});
+  /// [ids] dismisses only those rows, like [confirmRemoveVanished].
+  Future<void> dismissVanished({Iterable<String>? ids}) {
+    if (ids == null) return _storeVanished({});
+    final keep = _vanished.difference({for (final i in ids) i.toLowerCase()});
+    return _storeVanished(keep);
+  }
 
   /// Forgets reported ids that are no longer in our list (e.g. removed
   /// normally), so the prompt never asks about a device that is already gone.
