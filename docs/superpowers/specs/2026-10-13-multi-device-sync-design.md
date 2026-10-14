@@ -312,6 +312,11 @@ conversation uses the identity ID.
   then ignores the rest of that identity). Clients add primaries only; the
   server does not enforce it yet. Business policy is not affected, it is
   evaluated over identities for every send path.
+- A server can answer a group fan-out with `fanout_unsupported_in_business_group`
+  for a group that is not a business group. The client then sends it the
+  legacy way, to the members' primary devices only: companions (ours and the
+  recipients') miss that message. Availability only: the readers are the same
+  identities the server already lists as members.
 - `LinkOffer` / `LinkConsent` have no rate limit: anyone who knows an online
   device id can pop a link offer on it (the user confirms the handle, so it
   is a nuisance, not a takeover).
