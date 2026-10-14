@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:dio/dio.dart' show DioException;
+
 import '../crypto/device_list.dart';
 import '../crypto/session_manager.dart';
 import '../network/api_client.dart';
@@ -21,9 +23,14 @@ class FanoutSender {
     required DeviceDirectory directory,
     required SessionManager sessions,
     required ApiClient apiClient,
+    this.onMissingDevice,
   }) : _directory = directory,
        _sessions = sessions,
        _api = apiClient;
+
+  /// Called for each listed companion skipped because the server no longer
+  /// has its key bundle (404), so the app can surface or log it.
+  final void Function(String deviceId)? onMissingDevice;
 
   final DeviceDirectory _directory;
   final SessionManager _sessions;
@@ -42,10 +49,12 @@ class FanoutSender {
     Iterable<String> identityIds,
     String payload,
   ) async {
-    return {
-      for (final target in await _directory.fanoutTargets(identityIds))
-        target: await _encryptFor(target, payload),
-    };
+    final result = <String, String>{};
+    for (final target in await _directory.fanoutTargets(identityIds)) {
+      final envelope = await _encryptFor(target, payload);
+      if (envelope != null) result[target] = envelope;
+    }
+    return result;
   }
 
   /// After `device_list_stale`: [required] is the device set the hub wants.
@@ -83,8 +92,19 @@ class FanoutSender {
     if (!verified.containsAll(missing)) {
       throw const DeviceListException('server_requires_unverified_device');
     }
+    var unreachable = false;
     for (final target in missing) {
-      kept[target] = await _encryptFor(target, payload);
+      final envelope = await _encryptFor(target, payload);
+      if (envelope == null) {
+        unreachable = true;
+      } else {
+        kept[target] = envelope;
+      }
+    }
+    // The hub insists on a device whose bundle is gone: we cannot reach it,
+    // same outcome as a device we cannot verify.
+    if (unreachable) {
+      throw const DeviceListException('server_requires_unverified_device');
     }
     return kept;
   }
@@ -119,8 +139,21 @@ class FanoutSender {
     await _sessions.initiateSession(deviceId, bundle);
   }
 
-  Future<String> _encryptFor(String deviceId, String payload) async {
-    await _ensureSession(deviceId);
+  /// Null when [deviceId] is a listed companion whose key bundle is gone from
+  /// the server (404): skipped, because fewer readers is always safe, and if
+  /// the device still exists the hub's completeness check asks for it again.
+  /// A primary's 404 is a real error and propagates.
+  Future<String?> _encryptFor(String deviceId, String payload) async {
+    try {
+      await _ensureSession(deviceId);
+    } on DioException catch (e) {
+      if (e.response?.statusCode != 404 ||
+          await _directory.expectedKeysOf(deviceId) == null) {
+        rethrow;
+      }
+      onMissingDevice?.call(deviceId);
+      return null;
+    }
     // Second line of defence, and the only one for sessions created by
     // receiving a pre-key message: the pinned keys must be the signed ones.
     await _directory.assertListedKeys(deviceId);

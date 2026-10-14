@@ -4,6 +4,7 @@ import 'package:calltype_core/crypto/device_list.dart';
 import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/devices/fanout_sender.dart';
 import 'package:calltype_core/network/api_client.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:test/test.dart';
 
@@ -46,9 +47,20 @@ class ServerApi extends ApiClient {
   /// Lets a test count list fetches.
   void Function(String)? onGetDeviceList;
 
+  /// Device ids whose key bundle answers 404 (deleted on the server).
+  final gone = <String>{};
+
   @override
-  Future<Map<String, dynamic>> getKeyBundle(String deviceId) =>
-      peers[bundleFrom[deviceId] ?? deviceId]!.keyBundle();
+  Future<Map<String, dynamic>> getKeyBundle(String deviceId) async {
+    if (gone.contains(deviceId)) {
+      final request = RequestOptions(path: '/devices/$deviceId/key-bundle');
+      throw DioException(
+        requestOptions: request,
+        response: Response(requestOptions: request, statusCode: 404),
+      );
+    }
+    return peers[bundleFrom[deviceId] ?? deviceId]!.keyBundle();
+  }
 }
 
 void main() {
@@ -179,6 +191,47 @@ void main() {
     // Afterwards encrypt covers both without any fetch.
     final next = await sender.encrypt([bob], payload);
     expect(next.keys, unorderedEquals([bob, bobWeb]));
+  });
+
+  test('a listed companion with a deleted key bundle is skipped, not fatal',
+      () async {
+    await serveBobList(1, [bobWeb]);
+    // Learn the verified list while the bundle still exists, then delete it.
+    await sender.encrypt([bob], payload); // pins bob
+    await directory.refresh(bob, ensurePinned: (_) async {});
+    api.gone.add(bobWeb);
+    final missing = <String>[];
+    final skipping = FanoutSender(
+      directory: directory,
+      sessions: self.sessions,
+      apiClient: api,
+      onMissingDevice: missing.add,
+    );
+    final envelopes = await skipping.encrypt([bob], payload);
+    expect(envelopes.keys, [bob]);
+    expect(missing, [bobWeb]);
+
+    // Reconcile: the hub insists on bobWeb, which we cannot reach.
+    await expectLater(
+      skipping.reconcile(
+        envelopes: envelopes,
+        required: {bob, bobWeb},
+        identityIds: [bob],
+        payload: payload,
+      ),
+      throwsA(
+        isA<DeviceListException>().having(
+          (e) => e.toString(),
+          'message',
+          contains('server_requires_unverified_device'),
+        ),
+      ),
+    );
+  });
+
+  test('a 404 for a primary still fails the send', () async {
+    api.gone.add(bob);
+    await expectLater(sender.encrypt([bob], payload), throwsA(isA<DioException>()));
   });
 
   test('a group send covers the devices of every identity', () async {
