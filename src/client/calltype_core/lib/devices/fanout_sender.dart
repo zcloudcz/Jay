@@ -76,7 +76,14 @@ class FanoutSender {
 
   Future<void> _refresh(Iterable<String> identityIds) async {
     for (final id in {...identityIds, _directory.selfIdentityId}) {
-      await _directory.refresh(id, ensurePinned: _ensureSession);
+      try {
+        await _directory.refresh(id, ensurePinned: _ensureSession);
+      } on DeviceListException {
+        // A bad list for Carol must not block a group send whose missing
+        // device belongs to Bob. A failed refresh leaves the verified state
+        // untouched; a required device that stays unverified is still
+        // refused by the final check in reconcile.
+      }
     }
   }
 

@@ -189,6 +189,21 @@ void main() {
     expect(jsonDecode(await open(mySibling, envelopes))['body'], 'hi');
   });
 
+  test('stale: one bad list does not block a missing device of another identity',
+      () async {
+    await serveBobList(1, []);
+    await serveList(carol, 1, [], signer: rogue); // badly signed
+    final first = await sender.encrypt([bob, carol], payload);
+    await serveBobList(2, [bobWeb]);
+    final fixed = await sender.reconcile(
+      envelopes: first,
+      required: {bob, bobWeb, carol},
+      identityIds: [bob, carol],
+      payload: payload,
+    );
+    expect(fixed.keys, unorderedEquals([bob, bobWeb, carol]));
+  });
+
   test('a swapped companion bundle is refused without pinning, then recovers',
       () async {
     await serveBobList(1, [bobWeb]);
