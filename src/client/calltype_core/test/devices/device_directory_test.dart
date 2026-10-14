@@ -285,7 +285,9 @@ void main() {
     test('another identity cannot take over a device already mapped', () async {
       api.served[bob] = await bobList(1, [bobCompanion]);
       await directory.refresh(bob, ensurePinned: pinBob);
-      api.served[bobWeb] = await listBy(mal, mallory, 1, [(bobWeb, bobCompanion)]);
+      // refresh(bobWeb) is resolved to bob's identity, so the hostile list is
+      // what the server serves for bob.
+      api.served[bob] = await listBy(mal, mallory, 1, [(bobWeb, bobCompanion)]);
       await expectLater(
         directory.refresh(bobWeb, ensurePinned: pinOf(mal)),
         refusedWith('device_claimed_by_other_identity'),
@@ -343,6 +345,28 @@ void main() {
     final stored = await self.db.select(self.db.knownDeviceLists).getSingle();
     expect(stored.version, 3);
     expect(await directory.devicesOf(bob), [bob]);
+  });
+
+  test('refreshing a removed companion by its own id detects the removal', () async {
+    api.served[bob] = await bobList(1, [bobCompanion]);
+    await directory.refresh(bob, ensurePinned: pinBob);
+    // The server finds bobWeb in no list any more: 404 for its own id.
+    api.served[bob] = await bobList(2, []);
+    api.served.remove(bobWeb);
+    await directory.refresh(bobWeb, ensurePinned: pinBob);
+    expect(await directory.identityOf(bobWeb), bobWeb);
+    expect(await directory.devicesOf(bob), [bob]);
+  });
+
+  test('a removed companion refreshing itself stops being a companion', () async {
+    api.served[me] = await listBy(bobPhone, bob, 1, [(me, self)]);
+    await directory.refresh(me, ensurePinned: pinBob);
+    expect(directory.isCompanion, isTrue);
+    api.served.remove(me);
+    api.served[bob] = await bobList(2, []);
+    await directory.refresh(me, ensurePinned: pinBob);
+    expect(directory.selfIdentityId, me);
+    expect(directory.isCompanion, isFalse);
   });
 
   test('an upper-case selfDeviceId still works', () async {

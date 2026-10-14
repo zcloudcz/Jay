@@ -114,7 +114,10 @@ class DeviceDirectory {
   }
 
   /// Fetches the list [deviceId] is in and stores it if, and only if, it
-  /// verifies. Returns what changed, or null when there is no list or it is
+  /// verifies. [deviceId] may be any device id: it is resolved to the identity
+  /// it is CURRENTLY attributed to and that identity's list is fetched, so a
+  /// removed companion (which the server no longer finds in any list) still
+  /// gets its stale attribution replaced. Returns what changed, or null when there is no list or it is
   /// the one already stored.
   ///
   /// [ensurePinned] must make sure the PRIMARY's identity is pinned (start a
@@ -147,7 +150,12 @@ class DeviceDirectory {
     Future<void> Function(String primaryDeviceId) ensurePinned,
   ) async {
     deviceId = deviceId.toLowerCase();
-    final raw = await _api.getDeviceList(deviceId);
+    // A removed companion is in no list any more, so the server answers 404 for
+    // its own id and a missing list never deletes a stored one: the device
+    // would stay attributed to its old owner forever. Asking for the stored
+    // owner's list instead returns the newer list without it.
+    final fetchId = await identityOf(deviceId);
+    final raw = await _api.getDeviceList(fetchId);
     if (raw == null) return null;
     final primary = (raw['primaryDeviceId'] as String).toLowerCase();
     final signed = SignedDeviceList(
@@ -182,8 +190,9 @@ class DeviceDirectory {
     }
     // The server answers "the list of X" from its own records, so it can hand
     // back any validly signed list (e.g. an attacker's). Only a list that
-    // actually concerns the device we asked about may change our view.
-    if (primary != deviceId && !after.contains(deviceId)) {
+    // actually concerns the device we asked about (or the identity it was
+    // resolved to) may change our view.
+    if (primary != deviceId && primary != fetchId && !after.contains(deviceId)) {
       throw const DeviceListException('unrelated_list');
     }
     await _db.transaction(() async {
