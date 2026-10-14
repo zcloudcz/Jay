@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:calltype_bot/calltype_bot.dart';
+import 'package:calltype_core/crypto/device_list.dart';
+import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:test/test.dart';
 
 import 'helpers.dart';
@@ -268,5 +270,144 @@ void main() {
     expect(payloads.keys.toSet(), {alice.id, aliceWeb.id});
     expect(await aliceWeb.read(bot.deviceId, payloads[aliceWeb.id]!), 'hi both');
     expect(await alice.read(bot.deviceId, payloads[alice.id]!), 'hi both');
+  });
+
+  test('a companion the bot does not know yet: device_list_stale repairs the fan-out', () async {
+    final aliceWeb = await FakeUser.create('00000000-0000-4000-8000-0000000000aa');
+    addTearDown(aliceWeb.close);
+    api.keyBundles[aliceWeb.id] = await aliceWeb.keyBundle();
+    final list = await signedDeviceList(alice, [aliceWeb], version: 1);
+    final bot = await startBot();
+    await bot.onMessage((msg) => msg.reply('hello'));
+    // Alice's own id has no list yet (the bot sees her as a single device);
+    // by the time the hub complains, the list is published for the companion.
+    hub.failures['SendReliableDirectFanout'] = [
+      () {
+        api.deviceLists[aliceWeb.id] = list;
+        return Exception('device_list_stale:${alice.id},${aliceWeb.id}');
+      },
+    ];
+
+    hub.deliver(await alice.messageTo(bot.deviceId, api.botBundle, 'hi'));
+    await until(() => hub.calls('SendReliableDirectFanout').length == 2);
+
+    final calls = hub.calls('SendReliableDirectFanout');
+    final first = calls.first[3] as Map<String, String>;
+    final second = calls.last[3] as Map<String, String>;
+    expect(first.keys.toSet(), {alice.id});
+    expect(second.keys.toSet(), {alice.id, aliceWeb.id});
+    // The kept envelope is byte for byte the first one (no ratchet step).
+    expect(second[alice.id], first[alice.id]);
+    expect(calls.last[1], calls.first[1]);
+    expect(await aliceWeb.read(bot.deviceId, second[aliceWeb.id]!), 'hello');
+  });
+
+  test('business group: falls back to the per-member call with the same message id', () async {
+    const groupId = '00000000-0000-4000-8000-0000000000c1';
+    final bot = await startBot();
+    api.groups[groupId] = [alice.id, bot.deviceId];
+    await bot.onMessage((msg) => msg.reply('pong'));
+    hub.failures['SendReliableGroupFanout'] = [
+      () => Exception('fanout_unsupported_in_business_group'),
+    ];
+
+    hub.deliver(await alice.messageTo(bot.deviceId, api.botBundle, '@hermes ping', groupId: groupId));
+    await until(() => hub.calls('SendReliableGroupMessage').isNotEmpty);
+
+    final refused = hub.calls('SendReliableGroupFanout').single;
+    final fallback = hub.calls('SendReliableGroupMessage').single;
+    final payloads = fallback[2] as Map<String, String>;
+    expect(fallback[0], groupId);
+    expect(fallback[1], refused[1]);
+    expect(payloads.keys.toSet(), {alice.id});
+    expect(await alice.read(bot.deviceId, payloads[alice.id]!), 'pong');
+  });
+
+  test('group: a member added before the send is picked up after device_list_stale', () async {
+    const groupId = '00000000-0000-4000-8000-0000000000c2';
+    final bob = await FakeUser.create('00000000-0000-4000-8000-00000000000b');
+    addTearDown(bob.close);
+    api.keyBundles[bob.id] = await bob.keyBundle();
+    final bot = await startBot();
+    api.groups[groupId] = [alice.id, bot.deviceId];
+    await bot.onMessage((msg) => msg.reply('pong'));
+    // Bob joins between the bot's first member read and the hub's answer.
+    hub.failures['SendReliableGroupFanout'] = [
+      () {
+        api.groups[groupId] = [alice.id, bob.id, bot.deviceId];
+        return Exception('device_list_stale:${alice.id},${bob.id}');
+      },
+    ];
+
+    hub.deliver(await alice.messageTo(bot.deviceId, api.botBundle, '@hermes ping', groupId: groupId));
+    await until(() => hub.calls('SendReliableGroupFanout').length == 2);
+
+    final second = hub.calls('SendReliableGroupFanout').last[3] as Map<String, String>;
+    expect(second.keys.toSet(), {alice.id, bob.id});
+    expect(await bob.read(bot.deviceId, second[bob.id]!), 'pong');
+  });
+
+  group("copies from the bot's own devices", () {
+    // The bot is a primary with one extra device; the list is signed with the
+    // bot's REAL signing key, read from its store the way the bot reads it.
+    late FakeUser twin;
+    late bool handled;
+
+    Future<CallTypeBot> startWithTwin() async {
+      twin = await FakeUser.create('00000000-0000-4000-8000-0000000000b1');
+      addTearDown(twin.close);
+      final bot = await startBot();
+      handled = false;
+      await bot.onMessage((msg) async => handled = true);
+      final store = await EncryptedFileStore.open(
+        '${dir.path}/bot.store',
+        EncryptedFileStore.parseKey(testStoreKey),
+      );
+      final botKeys = KeyManager(secureStorage: store);
+      final signed = await signDeviceList(
+        primarySigningKey: await botKeys.getSigningKeyPair(),
+        list: DeviceList(
+          primaryDeviceId: bot.deviceId,
+          version: 1,
+          devices: [
+            DeviceListEntry(
+              deviceId: twin.id,
+              identityKey: await twin.keys.getPublicIdentityKey(),
+              signingKey: (await twin.keys.getSignedIdentityBundle())['signingKey']!,
+              consentSig: await signDeviceLinkConsent(
+                companionSigningKey: await twin.keys.getSigningKeyPair(),
+                primaryDeviceId: bot.deviceId,
+                companionDeviceId: twin.id,
+              ),
+            ),
+          ],
+        ),
+      );
+      api.deviceLists[twin.id] = {
+        'primaryDeviceId': bot.deviceId,
+        'version': 1,
+        'payload': signed.payload,
+        'signature': signed.signature,
+      };
+      return bot;
+    }
+
+    test('with `to` it is acknowledged and never answered', () async {
+      final bot = await startWithTwin();
+      hub.deliver(await twin.messageTo(bot.deviceId, api.botBundle, 'note to self', to: alice.id));
+      await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
+      expect(hub.calls('AcknowledgeMessage').single[0], twin.id);
+      expect(handled, isFalse);
+      expect(hub.calls('SendReliableDirectFanout'), isEmpty);
+      expect(logs.where((l) => l.contains('Cannot decrypt')), isEmpty);
+    });
+
+    test('without `to` it is dropped and acknowledged (like the app inbox)', () async {
+      final bot = await startWithTwin();
+      hub.deliver(await twin.messageTo(bot.deviceId, api.botBundle, 'no target'));
+      await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
+      expect(handled, isFalse);
+      expect(hub.calls('SendReliableDirectFanout'), isEmpty);
+    });
   });
 }

@@ -64,6 +64,7 @@ class FakeUser {
     String text, {
     String? groupId,
     String? messageId,
+    String? to,
   }) async {
     if (!await sessions.hasSession(botId)) {
       await sessions.initiateSession(botId, botBundle);
@@ -78,6 +79,9 @@ class FakeUser {
         'type': 'text',
         'groupId': groupId,
         'groupName': groupId == null ? null : 'Team',
+        // Names the conversation of a copy sent by one of the receiver's own
+        // devices; absent in ordinary messages.
+        'to': ?to,
         'createdAt': DateTime.now().toUtc().toIso8601String(),
       }),
     );
@@ -104,6 +108,10 @@ class FakeUser {
 /// In-memory hub: records what the bot invokes, lets the test push messages.
 class FakeHub implements HubTransport {
   final invocations = <({String method, List<Object> args})>[];
+
+  /// method -> errors to throw on the next calls of it, one per call. A
+  /// function so a test can change the world when the hub "answers".
+  final failures = <String, List<Object Function()>>{};
   final _handlers = <String, void Function(List<Object?>?)>{};
   bool _connected = false;
 
@@ -131,8 +139,13 @@ class FakeHub implements HubTransport {
   @override
   Future<void> stop() async => _connected = false;
   @override
-  Future<void> invoke(String method, [List<Object> args = const []]) async =>
-      invocations.add((method: method, args: args));
+  Future<void> invoke(String method, [List<Object> args = const []]) async {
+    invocations.add((method: method, args: args));
+    // Scripted hub errors: each entry fails ONE call of [method] (the attempt
+    // is still recorded above, like a hub that received and refused it).
+    final queue = failures[method];
+    if (queue != null && queue.isNotEmpty) throw queue.removeAt(0)();
+  }
 }
 
 /// The REST endpoints the bot touches, on a loopback HttpServer.
