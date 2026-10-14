@@ -25,7 +25,7 @@ class PrimaryLinkController extends ChangeNotifier {
     required DeviceService devices,
     required ApiClient apiClient,
     required SignalRClient signalRClient,
-    this.consentTimeout = const Duration(minutes: 2),
+    this.consentTimeout = const Duration(minutes: 3),
   }) : _devices = devices,
        _api = apiClient,
        _signalR = signalRClient;
@@ -35,13 +35,30 @@ class PrimaryLinkController extends ChangeNotifier {
   final SignalRClient _signalR;
 
   /// How long the primary waits for the user to confirm on the new device.
-  /// Shorter than the hub's 10 minute consent record, so the PUT that
-  /// follows always finds it.
+  /// The clock starts after the offer is sent, and the total stays well below
+  /// the hub's 10 minute consent record, so the PUT that follows finds it.
+  /// The new device gives up a little later (see [CompanionLinkController]).
   final Duration consentTimeout;
 
   PrimaryLinkState _state = PrimaryLinkState.idle;
   PrimaryLinkState get state => _state;
   bool _disposed = false;
+  bool _cancelled = false;
+  Completer<String>? _consent;
+  StreamSubscription<Map<String, dynamic>>? _subscription;
+
+  /// Stops a link in progress. WHY it exists: closing the dialog used to
+  /// leave the wait and the consent listener running, so a consent arriving
+  /// later still signed and uploaded a list the user had walked away from.
+  void cancel() {
+    _cancelled = true;
+    _subscription?.cancel();
+    _subscription = null;
+    final pending = _consent;
+    if (pending != null && !pending.isCompleted) {
+      pending.completeError(StateError('cancelled'));
+    }
+  }
 
   Future<void> link(String scanned) async {
     if (_state == PrimaryLinkState.working ||
@@ -54,7 +71,6 @@ class PrimaryLinkController extends ChangeNotifier {
       return;
     }
     _set(PrimaryLinkState.working);
-    StreamSubscription<Map<String, dynamic>>? subscription;
     try {
       final bundle = await _api.getKeyBundle(code.deviceId);
       final identityKey = bundle['identityKey'] as String;
@@ -65,9 +81,10 @@ class PrimaryLinkController extends ChangeNotifier {
         _set(PrimaryLinkState.mismatch);
         return;
       }
-      final consent = Completer<String>();
+      if (_cancelled) return;
+      final consent = _consent = Completer<String>();
       // Listen before the offer goes out, or a fast answer is missed.
-      subscription = _signalR.onLinkConsent.listen((event) {
+      _subscription = _signalR.onLinkConsent.listen((event) {
         final sig = event['consentSig'];
         if ((event['deviceId'] as String?)?.toLowerCase() == code.deviceId &&
             sig is String &&
@@ -78,6 +95,7 @@ class PrimaryLinkController extends ChangeNotifier {
       await _signalR.sendLinkOffer(code.deviceId);
       _set(PrimaryLinkState.waitingForConsent);
       final consentSig = await consent.future.timeout(consentTimeout);
+      if (_cancelled) return;
       final self = _devices.directory.selfDeviceId;
       // The consent must be signed by the key the QR code named, for THIS
       // primary; the hub relays it but cannot forge it.
@@ -90,6 +108,8 @@ class PrimaryLinkController extends ChangeNotifier {
         _set(PrimaryLinkState.failed);
         return;
       }
+      // Last gate before anything is signed and uploaded.
+      if (_cancelled) return;
       await _devices.addCompanion(
         DeviceListEntry(
           deviceId: code.deviceId,
@@ -100,9 +120,10 @@ class PrimaryLinkController extends ChangeNotifier {
       );
       _set(PrimaryLinkState.linked);
     } catch (_) {
-      _set(PrimaryLinkState.failed);
+      if (!_cancelled) _set(PrimaryLinkState.failed);
     } finally {
-      await subscription?.cancel();
+      await _subscription?.cancel();
+      _subscription = null;
     }
   }
 
@@ -114,6 +135,7 @@ class PrimaryLinkController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    cancel();
     super.dispose();
   }
 }
@@ -135,6 +157,7 @@ class CompanionLinkController extends ChangeNotifier {
     required DeviceService devices,
     required KeyManager keyManager,
     required SignalRClient signalRClient,
+    this.waitTimeout = const Duration(minutes: 4),
   }) : _db = database,
        _devices = devices,
        _keys = keyManager,
@@ -146,6 +169,12 @@ class CompanionLinkController extends ChangeNotifier {
   final DeviceService _devices;
   final KeyManager _keys;
   final SignalRClient _signalR;
+
+  /// How long to wait for the primary to finish after consenting. Longer than
+  /// the primary's own consent wait, so when this fires the primary has
+  /// already given up too and nothing can still link us.
+  final Duration waitTimeout;
+  Timer? _waitTimer;
   StreamSubscription<Map<String, dynamic>>? _offers;
   bool _disposed = false;
 
@@ -161,6 +190,11 @@ class CompanionLinkController extends ChangeNotifier {
   String? offeredHandle;
 
   Future<void> start() async {
+    // Not registered yet: there is no device id to put in a code.
+    if (!_devices.isOpen) {
+      _set(CompanionLinkState.failed);
+      return;
+    }
     if (!await isEmptyDevice(_db)) {
       _set(CompanionLinkState.notEmpty);
       return;
@@ -182,22 +216,47 @@ class CompanionLinkController extends ChangeNotifier {
     _set(CompanionLinkState.showingCode);
   }
 
+  /// Cancel / retry: back to the code. Also leaves the waiting state, which
+  /// has no other exit when the primary never finishes.
   void reject() {
+    // A failure before a code existed (not registered) has nothing to show.
+    if (code == null) return;
+    _leaveWaiting();
     offeredPrimary = null;
     offeredHandle = null;
     _set(CompanionLinkState.showingCode);
   }
 
+  void _leaveWaiting() {
+    _waitTimer?.cancel();
+    _waitTimer = null;
+    if (_state == CompanionLinkState.waiting) {
+      // Hints from that primary must not link us after the user cancelled.
+      _devices.cancelExpectedLink();
+    }
+  }
+
   Future<void> accept() async {
     final primary = offeredPrimary;
     if (primary == null || _state != CompanionLinkState.offered) return;
+    // Leave "offered" BEFORE the first await: a second tap or a cancel during
+    // the checks below then sees "waiting" and cannot start a second consent.
+    _set(CompanionLinkState.waiting);
     // Re-checked: a message may have arrived while the question was open.
     if (!await isEmptyDevice(_db)) {
-      _set(CompanionLinkState.notEmpty);
+      if (_state == CompanionLinkState.waiting) {
+        _set(CompanionLinkState.notEmpty);
+      }
       return;
     }
-    _set(CompanionLinkState.waiting);
+    if (_state != CompanionLinkState.waiting) return;
     _devices.expectLink(primary);
+    _waitTimer?.cancel();
+    _waitTimer = Timer(waitTimeout, () {
+      if (_state != CompanionLinkState.waiting) return;
+      _leaveWaiting();
+      _set(CompanionLinkState.failed);
+    });
     await _db
         .into(_db.backupState)
         .insertOnConflictUpdate(
@@ -206,6 +265,8 @@ class CompanionLinkController extends ChangeNotifier {
             value: offeredHandle ?? primary,
           ),
         );
+    // Cancelled while the handle was being stored.
+    if (_state != CompanionLinkState.waiting) return;
     try {
       // The consent names the primary, so it can only be signed now that the
       // offer told us which primary it is (spec Part A, step 4).
@@ -230,6 +291,7 @@ class CompanionLinkController extends ChangeNotifier {
     if (_state == CompanionLinkState.waiting &&
         _devices.isCompanion &&
         _devices.directory.selfIdentityId == offeredPrimary) {
+      _waitTimer?.cancel();
       _set(CompanionLinkState.linked);
     }
   }
@@ -243,6 +305,7 @@ class CompanionLinkController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _offers?.cancel();
+    _waitTimer?.cancel();
     _devices.removeListener(_onDevices);
     super.dispose();
   }

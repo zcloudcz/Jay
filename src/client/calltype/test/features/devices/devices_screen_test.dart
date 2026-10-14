@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:calltype/core/network/api_client.dart';
 import 'package:calltype/core/network/signalr_client.dart';
 import 'package:calltype/core/storage/database.dart';
 import 'package:calltype/features/devices/device_service.dart';
 import 'package:calltype/features/devices/devices_screen.dart';
+import 'package:calltype/features/devices/link_code.dart';
+import 'package:calltype/features/devices/link_controllers.dart';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -99,6 +103,37 @@ void main() {
     expect(devices.vanishedCompanions, isEmpty);
     // Keep changes nothing in the list.
     expect(find.text(l10nEn.devicesDeviceLabel(webId.substring(0, 8))), findsOneWidget);
+    await tearDownDevices(tester);
+  });
+
+  testWidgets('the waiting dialog shows our own handle to compare', (tester) async {
+    await setUpDevices(tester);
+    final devices = (await tester.runAsync(() => server.deviceServiceFor(phone)))!;
+    final controller = PrimaryLinkController(
+      devices: devices,
+      apiClient: FakeDeviceApi(server),
+      signalRClient: server.hubs[phoneId]!,
+    );
+    await tester.pumpWidget(
+      ChangeNotifierProvider<PrimaryLinkController>.value(
+        value: controller,
+        child: localizedApp(home: const PrimaryLinkDialog(handle: 'CT-PHON-E001')),
+      ),
+    );
+    // Drive the controller into waitingForConsent with a real link attempt.
+    final bundle = await tester.runAsync(() => web.keys.getSignedIdentityBundle());
+    final code = LinkCode(
+      webId,
+      linkFingerprint(bundle!['identityKey']!, bundle['signingKey']!),
+    ).toString();
+    unawaited(controller.link(code));
+    await tester.runAsync(() => until(() => server.hubs[phoneId]!.sentOffers.isNotEmpty));
+    await tester.pump();
+
+    expect(find.text(l10nEn.devicesWaitingConsent('CT-PHON-E001')), findsOneWidget);
+    controller.cancel();
+    await tester.pumpWidget(const SizedBox());
+    controller.dispose();
     await tearDownDevices(tester);
   });
 

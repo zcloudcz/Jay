@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "デバイスを削除できませんでした。もう一度お試しください。",
   "devicesScanHint": "新しいデバイスに表示されたコードをスキャンしてください",
   "devicesFingerprintMismatch": "このコードはデバイスの鍵と一致しません。リンクしないでください。",
-  "devicesWaitingConsent": "新しいデバイスでリンクを確認してください。",
+  "devicesWaitingConsent": "新しいデバイスに {handle} が表示されている必要があります。そこでリンクを確認してください。",
   "devicesLinkFailed": "リンクに失敗しました。もう一度お試しください。",
   "devicesLinkedTo": "このデバイスは {handle} にリンクされています。リンク済みデバイスはそちらで管理します。",
   "devicesCannotVerify": "このデバイスのリンクを確認できません。何も削除されていません。",

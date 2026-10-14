@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "Dispozitivul nu a putut fi eliminat. Încearcă din nou.",
   "devicesScanHint": "Scanează codul afișat pe noul dispozitiv",
   "devicesFingerprintMismatch": "Acest cod nu se potrivește cu cheile dispozitivului. Nu îl asocia.",
-  "devicesWaitingConsent": "Confirmă asocierea pe noul dispozitiv.",
+  "devicesWaitingConsent": "Noul dispozitiv trebuie să afișeze {handle}. Confirmă asocierea acolo.",
   "devicesLinkFailed": "Asocierea a eșuat. Încearcă din nou.",
   "devicesLinkedTo": "Acest dispozitiv este asociat cu {handle}. Dispozitivele asociate se gestionează acolo.",
   "devicesCannotVerify": "Asocierea acestui dispozitiv nu poate fi verificată. Nu s-a șters nimic.",

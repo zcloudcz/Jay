@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "تعذّرت إزالة الجهاز. حاول مرة أخرى.",
   "devicesScanHint": "امسح الرمز الظاهر على الجهاز الجديد",
   "devicesFingerprintMismatch": "هذا الرمز لا يطابق مفاتيح الجهاز. لا تربطه.",
-  "devicesWaitingConsent": "أكّد الربط على الجهاز الجديد.",
+  "devicesWaitingConsent": "يجب أن يعرض الجهاز الجديد {handle}. أكّد الربط هناك.",
   "devicesLinkFailed": "فشل الربط. حاول مرة أخرى.",
   "devicesLinkedTo": "هذا الجهاز مرتبط بـ {handle}. تتم إدارة الأجهزة المرتبطة من هناك.",
   "devicesCannotVerify": "لا يمكن التحقق من ربط هذا الجهاز. لم يُحذف أي شيء.",

@@ -774,9 +774,14 @@
   "@devicesFingerprintMismatch": {
     "description": "Security warning: the scanned code and the keys the server returned differ. Must stay a clear 'do not link'."
   },
-  "devicesWaitingConsent": "Confirm the link on the new device.",
+  "devicesWaitingConsent": "The new device must show {handle}. Confirm the link there.",
   "@devicesWaitingConsent": {
-    "description": "Main device waits until the user confirms on the new device."
+    "description": "Main device waits until the user confirms on the new device. handle is this main device's own CT-XXXX-XXXX: the new device must show the same one, so the user can spot a forged offer.",
+    "placeholders": {
+      "handle": {
+        "type": "String"
+      }
+    }
   },
   "devicesLinkFailed": "Linking failed. Try again.",
   "@devicesLinkFailed": {

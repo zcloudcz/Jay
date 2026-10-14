@@ -1,4 +1,5 @@
 import 'package:calltype/core/storage/database.dart';
+import 'package:calltype/features/devices/device_service.dart';
 import 'package:calltype/features/devices/link_code.dart';
 import 'package:calltype/features/devices/link_controllers.dart';
 import 'package:calltype_core/crypto/device_list.dart';
@@ -112,6 +113,26 @@ void main() {
       expect(controller.state, PrimaryLinkState.failed);
       expect(server.lists, isEmpty);
     });
+    test('closing the dialog cancels: a later consent signs nothing', () async {
+      final devices = await server.deviceServiceFor(phone);
+      final hub = server.hubs[phoneId]!;
+      final controller = PrimaryLinkController(
+        devices: devices,
+        apiClient: FakeDeviceApi(server),
+        signalRClient: hub,
+      );
+      addTearDown(controller.dispose);
+
+      final linking = controller.link(await codeOf(web));
+      await until(() => hub.sentOffers.isNotEmpty);
+      controller.cancel();
+      server.recordConsent(webId, phoneId);
+      hub.consents.add({'deviceId': webId, 'consentSig': await consentOf(web, phoneId)});
+      await linking;
+
+      expect(server.lists, isEmpty);
+      expect(controller.state, isNot(PrimaryLinkState.linked));
+    });
   });
 
   group('new device', () {
@@ -173,6 +194,92 @@ void main() {
 
       expect(controller.state, CompanionLinkState.notEmpty);
       expect(controller.code, isNull);
+    });
+    test('cancel in waiting returns to the code and ignores the primary afterwards', () async {
+      final devices = await server.deviceServiceFor(web);
+      final hub = server.hubs[webId]!;
+      final controller = CompanionLinkController(
+        database: web.db,
+        devices: devices,
+        keyManager: web.keys,
+        signalRClient: hub,
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+      hub.offers.add({'primaryDeviceId': phoneId, 'userHandle': 'CT-PHON-E001'});
+      await until(() => controller.state == CompanionLinkState.offered);
+      await controller.accept();
+      expect(controller.state, CompanionLinkState.waiting);
+
+      controller.reject();
+      expect(controller.state, CompanionLinkState.showingCode);
+
+      // The primary finishes anyway: the hint must not link a cancelled device.
+      await server.link(phone, [web], version: 1);
+      hub.listChanged.add({'primaryDeviceId': phoneId, 'version': 1});
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(devices.isCompanion, isFalse);
+      expect(controller.state, CompanionLinkState.showingCode);
+    });
+
+    test('waiting times out into the failed state, and retry shows the code', () async {
+      final devices = await server.deviceServiceFor(web);
+      final hub = server.hubs[webId]!;
+      final controller = CompanionLinkController(
+        database: web.db,
+        devices: devices,
+        keyManager: web.keys,
+        signalRClient: hub,
+        waitTimeout: const Duration(milliseconds: 50),
+      );
+      addTearDown(controller.dispose);
+      await controller.start();
+      hub.offers.add({'primaryDeviceId': phoneId, 'userHandle': 'CT-PHON-E001'});
+      await until(() => controller.state == CompanionLinkState.offered);
+      await controller.accept();
+
+      await until(() => controller.state == CompanionLinkState.failed);
+      controller.reject();
+      expect(controller.state, CompanionLinkState.showingCode);
+    });
+
+    test('a device that is not registered yet fails instead of spinning', () async {
+      final unopened = DeviceService(
+        database: web.db,
+        apiClient: FakeDeviceApi(server),
+        keyManager: web.keys,
+        sessionManager: web.sessions,
+        signalRClient: FakeHubClient(server, webId),
+      );
+      addTearDown(unopened.dispose);
+      final controller = CompanionLinkController(
+        database: web.db,
+        devices: unopened,
+        keyManager: web.keys,
+        signalRClient: FakeHubClient(server, webId),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.start();
+
+      expect(controller.state, CompanionLinkState.failed);
+      controller.reject();
+      expect(controller.state, CompanionLinkState.failed);
+    });
+
+    test('confirming one vanished companion removes only that one', () async {
+      final extra = await TestDevice.create('a0000000-0000-4000-8000-000000000003');
+      addTearDown(extra.close);
+      server.add(extra);
+      await server.link(phone, [web, extra], version: 1);
+      final devices = await server.deviceServiceFor(phone);
+      await devices.checkOwnList(phoneId);
+      await devices.reportVanishedCompanions([webId, extra.id]);
+
+      await devices.confirmRemoveVanished(ids: [webId]);
+
+      expect((await devices.companions()).map((d) => d.deviceId), [extra.id]);
+      expect(devices.vanishedCompanions, {extra.id});
     });
   });
 }

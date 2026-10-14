@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "Impossibile rimuovere il dispositivo. Riprova.",
   "devicesScanHint": "Scansiona il codice mostrato sul nuovo dispositivo",
   "devicesFingerprintMismatch": "Questo codice non corrisponde alle chiavi del dispositivo. Non collegarlo.",
-  "devicesWaitingConsent": "Conferma il collegamento sul nuovo dispositivo.",
+  "devicesWaitingConsent": "Il nuovo dispositivo deve mostrare {handle}. Conferma il collegamento lì.",
   "devicesLinkFailed": "Collegamento non riuscito. Riprova.",
   "devicesLinkedTo": "Questo dispositivo è collegato a {handle}. I dispositivi collegati si gestiscono lì.",
   "devicesCannotVerify": "Impossibile verificare il collegamento di questo dispositivo. Non è stato eliminato nulla.",

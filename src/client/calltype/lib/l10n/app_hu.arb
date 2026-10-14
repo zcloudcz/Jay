@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "Az eszközt nem sikerült eltávolítani. Próbáld újra.",
   "devicesScanHint": "Olvasd be az új eszközön látható kódot",
   "devicesFingerprintMismatch": "Ez a kód nem egyezik az eszköz kulcsaival. Ne kapcsold össze.",
-  "devicesWaitingConsent": "Erősítsd meg az összekapcsolást az új eszközön.",
+  "devicesWaitingConsent": "Az új eszköznek ezt kell mutatnia: {handle}. Ott erősítsd meg az összekapcsolást.",
   "devicesLinkFailed": "Az összekapcsolás nem sikerült. Próbáld újra.",
   "devicesLinkedTo": "Ez az eszköz ehhez van kapcsolva: {handle}. Az összekapcsolt eszközöket ott kezelheted.",
   "devicesCannotVerify": "Az eszköz összekapcsolása nem ellenőrizhető. Semmi sem lett törölve.",

@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "Het apparaat kon niet worden verwijderd. Probeer het opnieuw.",
   "devicesScanHint": "Scan de code die op het nieuwe apparaat staat",
   "devicesFingerprintMismatch": "Deze code past niet bij de sleutels van het apparaat. Koppel het niet.",
-  "devicesWaitingConsent": "Bevestig de koppeling op het nieuwe apparaat.",
+  "devicesWaitingConsent": "Het nieuwe apparaat moet {handle} tonen. Bevestig daar de koppeling.",
   "devicesLinkFailed": "Koppelen mislukt. Probeer het opnieuw.",
   "devicesLinkedTo": "Dit apparaat is gekoppeld aan {handle}. Gekoppelde apparaten beheer je daar.",
   "devicesCannotVerify": "De koppeling van dit apparaat kan niet worden geverifieerd. Er is niets gewist.",

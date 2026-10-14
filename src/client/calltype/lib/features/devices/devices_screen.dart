@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/signalr_client.dart';
 import '../../core/storage/database.dart';
+import '../../core/storage/secure_storage.dart';
 import '../../l10n/l10n.dart';
 import '../contacts/qr_scanner_screen.dart';
 import 'device_service.dart';
@@ -74,7 +75,7 @@ class DevicesScreen extends StatelessWidget {
                         subtitle: Wrap(
                           children: [
                             TextButton(
-                              onPressed: () => _confirmVanished(context),
+                              onPressed: () => _confirmVanished(context, id),
                               child: Text(l10n.devicesRemove),
                             ),
                             TextButton(
@@ -116,12 +117,12 @@ class DevicesScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _confirmVanished(BuildContext context) async {
+  Future<void> _confirmVanished(BuildContext context, String id) async {
     final l10n = context.l10n;
     final devices = context.read<DeviceService>();
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await devices.confirmRemoveVanished();
+      await devices.confirmRemoveVanished(ids: [id]);
     } catch (_) {
       messenger.showSnackBar(SnackBar(content: Text(l10n.devicesRemoveFailed)));
     }
@@ -159,11 +160,17 @@ class DevicesScreen extends StatelessWidget {
     final devices = context.read<DeviceService>();
     final api = context.read<ApiClient>();
     final signalR = context.read<SignalRClient>();
+    final storage = context.read<SecureStorage>();
     final result = await Navigator.of(context).push<Map<String, String>>(
       MaterialPageRoute(builder: (_) => const QrScannerScreen(deviceLink: true)),
     );
     final scanned = result?['link'];
     if (scanned == null || !context.mounted) return;
+    // Our own handle, shown while waiting so the user can compare it with
+    // what the new device displays (a forged offer would show another one).
+    final handle =
+        await storage.read('ct_user_handle') ?? devices.directory.selfDeviceId;
+    if (!context.mounted) return;
     final controller = PrimaryLinkController(
       devices: devices,
       apiClient: api,
@@ -175,22 +182,26 @@ class DevicesScreen extends StatelessWidget {
       barrierDismissible: false,
       builder: (_) => ChangeNotifierProvider.value(
         value: controller,
-        child: const _PrimaryLinkDialog(),
+        child: PrimaryLinkDialog(handle: handle),
       ),
     );
     controller.dispose();
   }
 }
 
-class _PrimaryLinkDialog extends StatelessWidget {
-  const _PrimaryLinkDialog();
+/// Progress of the primary's linking. Closing it cancels the link: a consent
+/// arriving afterwards must not sign anything the user walked away from.
+class PrimaryLinkDialog extends StatelessWidget {
+  const PrimaryLinkDialog({super.key, required this.handle});
+
+  final String handle;
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<PrimaryLinkController>().state;
     final l10n = context.l10n;
     final message = switch (state) {
-      PrimaryLinkState.waitingForConsent => l10n.devicesWaitingConsent,
+      PrimaryLinkState.waitingForConsent => l10n.devicesWaitingConsent(handle),
       PrimaryLinkState.mismatch => l10n.devicesFingerprintMismatch,
       PrimaryLinkState.failed => l10n.devicesLinkFailed,
       _ => null,
@@ -220,7 +231,10 @@ class _PrimaryLinkDialog extends StatelessWidget {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () {
+            context.read<PrimaryLinkController>().cancel();
+            Navigator.of(context).pop();
+          },
           // Built-in and localized in every Flutter language.
           child: Text(MaterialLocalizations.of(context).closeButtonLabel),
         ),

@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "Não foi possível remover o dispositivo. Tente novamente.",
   "devicesScanHint": "Escaneie o código exibido no novo dispositivo",
   "devicesFingerprintMismatch": "Este código não corresponde às chaves do dispositivo. Não o vincule.",
-  "devicesWaitingConsent": "Confirme a vinculação no novo dispositivo.",
+  "devicesWaitingConsent": "O novo dispositivo deve mostrar {handle}. Confirme a vinculação lá.",
   "devicesLinkFailed": "A vinculação falhou. Tente novamente.",
   "devicesLinkedTo": "Este dispositivo está vinculado a {handle}. Os dispositivos vinculados são gerenciados lá.",
   "devicesCannotVerify": "Não é possível verificar a vinculação deste dispositivo. Nada foi apagado.",

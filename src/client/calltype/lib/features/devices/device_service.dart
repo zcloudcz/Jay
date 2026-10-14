@@ -137,6 +137,9 @@ class DeviceService extends ChangeNotifier {
   void expectLink(String primaryDeviceId) =>
       _pendingPrimary = primaryDeviceId.toLowerCase();
 
+  /// The user gave up waiting: hints from that primary are ignored again.
+  void cancelExpectedLink() => _pendingPrimary = null;
+
   Future<String?> linkedPrimaryHandle() async =>
       (await (_db.select(_db.backupState)
                 ..where((s) => s.key.equals(linkedPrimaryHandleKey)))
@@ -365,11 +368,16 @@ class DeviceService extends ChangeNotifier {
   }
 
   /// The user agreed: re-sign the list without the vanished devices.
-  Future<void> confirmRemoveVanished() async {
-    final ids = _vanished.toSet();
-    if (ids.isEmpty) return;
-    await removeCompanions(ids);
-    await _storeVanished({});
+  ///
+  /// [ids] limits it to the rows the user confirmed (one prompt per device);
+  /// the others stay pending. Without it every pending device is removed.
+  Future<void> confirmRemoveVanished({Iterable<String>? ids}) async {
+    final chosen = ids == null
+        ? _vanished.toSet()
+        : _vanished.intersection({for (final i in ids) i.toLowerCase()});
+    if (chosen.isEmpty) return;
+    await removeCompanions(chosen);
+    await _storeVanished(_vanished.difference(chosen));
   }
 
   /// The user keeps them (they may know the device is fine). A later stale

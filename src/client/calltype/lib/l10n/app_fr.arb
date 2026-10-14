@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "Impossible de retirer l'appareil. Réessayez.",
   "devicesScanHint": "Scannez le code affiché sur le nouvel appareil",
   "devicesFingerprintMismatch": "Ce code ne correspond pas aux clés de l'appareil. Ne l'associez pas.",
-  "devicesWaitingConsent": "Confirmez l'association sur le nouvel appareil.",
+  "devicesWaitingConsent": "Le nouvel appareil doit afficher {handle}. Confirmez l'association là-bas.",
   "devicesLinkFailed": "L'association a échoué. Réessayez.",
   "devicesLinkedTo": "Cet appareil est associé à {handle}. Les appareils associés se gèrent là-bas.",
   "devicesCannotVerify": "L'association de cet appareil ne peut pas être vérifiée. Rien n'a été supprimé.",

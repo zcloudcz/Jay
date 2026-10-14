@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "Cihaz kaldırılamadı. Tekrar deneyin.",
   "devicesScanHint": "Yeni cihazda gösterilen kodu tarayın",
   "devicesFingerprintMismatch": "Bu kod cihazın anahtarlarıyla eşleşmiyor. Bağlamayın.",
-  "devicesWaitingConsent": "Bağlantıyı yeni cihazda onaylayın.",
+  "devicesWaitingConsent": "Yeni cihaz {handle} göstermelidir. Bağlantıyı orada onaylayın.",
   "devicesLinkFailed": "Bağlama başarısız oldu. Tekrar deneyin.",
   "devicesLinkedTo": "Bu cihaz {handle} ile bağlı. Bağlı cihazlar orada yönetilir.",
   "devicesCannotVerify": "Bu cihazın bağlantısı doğrulanamıyor. Hiçbir şey silinmedi.",

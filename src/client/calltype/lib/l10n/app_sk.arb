@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "Zariadenie sa nepodarilo odstrániť. Skúste to znova.",
   "devicesScanHint": "Naskenujte kód zobrazený na novom zariadení",
   "devicesFingerprintMismatch": "Tento kód nezodpovedá kľúčom zariadenia. Zariadenie neprepájajte.",
-  "devicesWaitingConsent": "Potvrďte prepojenie na novom zariadení.",
+  "devicesWaitingConsent": "Nové zariadenie musí zobraziť {handle}. Potvrďte prepojenie tam.",
   "devicesLinkFailed": "Prepojenie zlyhalo. Skúste to znova.",
   "devicesLinkedTo": "Toto zariadenie je prepojené s {handle}. Prepojené zariadenia sa spravujú tam.",
   "devicesCannotVerify": "Prepojenie tohto zariadenia nemožno overiť. Nič nebolo vymazané.",

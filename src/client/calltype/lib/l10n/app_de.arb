@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "Das Gerät konnte nicht entfernt werden. Versuche es erneut.",
   "devicesScanHint": "Scanne den Code, der auf dem neuen Gerät angezeigt wird",
   "devicesFingerprintMismatch": "Dieser Code passt nicht zu den Schlüsseln des Geräts. Nicht verknüpfen.",
-  "devicesWaitingConsent": "Bestätige die Verknüpfung auf dem neuen Gerät.",
+  "devicesWaitingConsent": "Das neue Gerät muss {handle} anzeigen. Bestätige die Verknüpfung dort.",
   "devicesLinkFailed": "Verknüpfen fehlgeschlagen. Versuche es erneut.",
   "devicesLinkedTo": "Dieses Gerät ist mit {handle} verknüpft. Verknüpfte Geräte werden dort verwaltet.",
   "devicesCannotVerify": "Die Verknüpfung dieses Geräts kann nicht überprüft werden. Es wurde nichts gelöscht.",

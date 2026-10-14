@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "无法移除该设备。请重试。",
   "devicesScanHint": "扫描新设备上显示的二维码",
   "devicesFingerprintMismatch": "此二维码与该设备的密钥不匹配。请勿关联。",
-  "devicesWaitingConsent": "请在新设备上确认关联。",
+  "devicesWaitingConsent": "新设备必须显示 {handle}。请在新设备上确认关联。",
   "devicesLinkFailed": "关联失败。请重试。",
   "devicesLinkedTo": "此设备已关联到 {handle}。已关联的设备在那里管理。",
   "devicesCannotVerify": "无法验证此设备的关联。未删除任何内容。",

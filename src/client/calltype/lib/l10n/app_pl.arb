@@ -474,7 +474,7 @@
   "devicesRemoveFailed": "Nie udało się usunąć urządzenia. Spróbuj ponownie.",
   "devicesScanHint": "Zeskanuj kod wyświetlony na nowym urządzeniu",
   "devicesFingerprintMismatch": "Ten kod nie pasuje do kluczy urządzenia. Nie łącz go.",
-  "devicesWaitingConsent": "Potwierdź połączenie na nowym urządzeniu.",
+  "devicesWaitingConsent": "Nowe urządzenie musi wyświetlić {handle}. Potwierdź tam połączenie.",
   "devicesLinkFailed": "Nie udało się połączyć. Spróbuj ponownie.",
   "devicesLinkedTo": "To urządzenie jest połączone z {handle}. Połączonymi urządzeniami zarządza się tam.",
   "devicesCannotVerify": "Nie można zweryfikować połączenia tego urządzenia. Nic nie zostało usunięte.",

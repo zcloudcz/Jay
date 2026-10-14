@@ -73,6 +73,12 @@ class LinkDeviceScreen extends StatelessWidget {
           const CircularProgressIndicator(),
           const SizedBox(height: 16),
           Text(l10n.linkDeviceWaiting, textAlign: TextAlign.center),
+          // The only way out if the phone never finishes (it may have timed
+          // out or been closed); otherwise the screen would wait for good.
+          TextButton(
+            onPressed: controller.reject,
+            child: Text(l10n.commonCancel),
+          ),
         ],
       ),
       CompanionLinkState.failed => Column(
