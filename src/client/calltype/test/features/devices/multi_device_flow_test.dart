@@ -173,4 +173,89 @@ void main() {
     expect(await aWeb.messages(), hasLength(webBefore));
     expect(await bob.directory.devicesOf(aPhoneId), [aPhoneId]);
   });
+
+  test('a group message reaches both devices of A and the web replies into it', () async {
+    server.groups['g'] = [bobId, aPhoneId];
+    await bob.device.db
+        .into(bob.device.db.conversations)
+        .insert(ConversationsCompanion.insert(id: 'g', type: 'group'));
+    final fromBob = bob.chat('g');
+    addTearDown(fromBob.dispose);
+    await fromBob.sendMessage('hi group');
+    await settle();
+
+    for (final node in [aPhone, aWeb]) {
+      final m = (await node.messages()).single;
+      expect(m.conversationId, 'g');
+      expect(m.senderId, bobId);
+    }
+
+    final fromWeb = aWeb.chat('g');
+    addTearDown(fromWeb.dispose);
+    await fromWeb.sendMessage('web here');
+    await settle();
+
+    final atBob = (await bob.messages()).firstWhere((m) => m.body == 'web here');
+    expect(atBob.conversationId, 'g');
+    expect(atBob.senderId, aPhoneId);
+    final atPhone = (await aPhone.messages()).firstWhere((m) => m.body == 'web here');
+    expect(atPhone.senderId, aPhoneId);
+    expect(atPhone.status, 'sent');
+  });
+
+  test('a member added between encrypt and send still gets the message', () async {
+    final carol = await TestDevice.create('c0000000-0000-4000-8000-000000000001');
+    server.add(carol);
+    final carolNode = _Node(carol, server);
+    addTearDown(() async {
+      await carolNode.close();
+      await carol.close();
+    });
+    server.groups['g'] = [bobId, aPhoneId];
+    await bob.device.db
+        .into(bob.device.db.conversations)
+        .insert(ConversationsCompanion.insert(id: 'g', type: 'group'));
+    // The hub already sees carol when the send arrives, the client encrypted
+    // for the two-member group.
+    final hub = _GrowingHub(server, bobId, () => server.groups['g']!.add(carol.id));
+    addTearDown(hub.dispose);
+    final controller = ChatController(
+      database: bob.device.db,
+      signalRClient: hub,
+      sessionManager: bob.device.sessions,
+      inbox: bob.inbox,
+      apiClient: FakeDeviceApi(server),
+      conversationId: 'g',
+      directory: bob.directory,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.sendMessage('welcome');
+    await settle();
+    await carolNode.settle();
+
+    expect((await bob.messages()).single.status, 'sent');
+    expect((await carolNode.messages()).single.body, 'welcome');
+    expect((await aWeb.messages()).single.body, 'welcome');
+  });
+}
+
+/// A hub whose group grows right before the first send is judged.
+class _GrowingHub extends FakeHubClient {
+  _GrowingHub(super.server, super.deviceId, this.grow);
+  final void Function() grow;
+  var _grown = false;
+
+  @override
+  Future<void> sendGroupFanout(
+    String groupId,
+    Map<String, String> encryptedPayloads, {
+    required String messageId,
+  }) {
+    if (!_grown) {
+      _grown = true;
+      grow();
+    }
+    return super.sendGroupFanout(groupId, encryptedPayloads, messageId: messageId);
+  }
 }

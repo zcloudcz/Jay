@@ -174,6 +174,10 @@ void _multiDeviceTests() {
       ),
       {'aa-1', 'bb-2'},
     );
+    expect(
+      SignalRClient.staleRequired(Exception('device_list_stale:AA-1,Bb-2')),
+      {'aa-1', 'bb-2'},
+    );
     expect(SignalRClient.staleRequired(Exception('device_list_stale:')), <String>{});
     expect(SignalRClient.staleRequired(Exception('auditor_unavailable')), isNull);
   });

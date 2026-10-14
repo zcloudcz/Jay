@@ -568,7 +568,7 @@ class ChatController extends ChangeNotifier {
   ) async {
     final groupId = outbox['groupId'] as String?;
     final fanout = outbox['fanout'] as Map<String, dynamic>;
-    final identityIds = (fanout['identityIds'] as List).cast<String>();
+    var identityIds = (fanout['identityIds'] as List).cast<String>();
     final payload = fanout['payload'] as String;
     var current = envelopes;
     for (var round = 1; ; round++) {
@@ -596,6 +596,19 @@ class ChatController extends ChangeNotifier {
         final required = core.SignalRClient.staleRequired(e);
         if (required == null || round == _maxFanoutRounds) rethrow;
         _onStale?.call(required);
+        if (groupId != null) {
+          // The hub computes `required` from the CURRENT membership, but the
+          // stored identityIds are from the first attempt. Without this a
+          // member added before a retry stays "unverified" for good and every
+          // retry fails. The union keeps removed members out of nothing:
+          // reconcile already trims envelopes the hub no longer wants. Same
+          // trust as the first send (the member list comes from the server).
+          final members = await _api.getGroupMembers(groupId);
+          identityIds = {
+            ...identityIds,
+            ...members.where((id) => id != myIdentityId),
+          }.toList();
+        }
         // Deliberately NOT inside a database transaction: reconcile refreshes
         // device lists, DeviceDirectory serializes its refreshes, and a
         // transaction held across that could wait for a refresh that waits
@@ -611,7 +624,13 @@ class ChatController extends ChangeNotifier {
               ..where((s) => s.key.equals('outbox:$messageId')))
             .write(
               BackupStateCompanion(
-                value: Value(jsonEncode({...outbox, 'envelopes': current})),
+                value: Value(
+                  jsonEncode({
+                    ...outbox,
+                    'envelopes': current,
+                    'fanout': {...fanout, 'identityIds': identityIds},
+                  }),
+                ),
               ),
             );
       }

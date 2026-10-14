@@ -334,7 +334,14 @@ class SignalRClient {
       r'device_list_stale:([0-9a-fA-F,\-]*)',
     ).firstMatch(error.toString());
     if (match == null) return null;
-    return match.group(1)!.split(',').where((id) => id.isNotEmpty).toSet();
+    // Lowercased: the directory and the envelope keys are lowercase, and
+    // reconcile compares them as plain strings.
+    return match
+        .group(1)!
+        .split(',')
+        .where((id) => id.isNotEmpty)
+        .map((id) => id.toLowerCase())
+        .toSet();
   }
 
   /// Linking, primary side: ask the scanned device to consent.
