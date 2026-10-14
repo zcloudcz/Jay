@@ -13,6 +13,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using CallType.Api.Data;
 using CallType.Api.Models;
+using CallType.Api.Services;
+using Microsoft.Extensions.Logging;
 using CallType.Api.Tests.TestFixtures;
 using CallType.Audit.Domain;
 using CallType.Audit.Infrastructure;
@@ -323,5 +325,82 @@ public class FanoutHubTests : IntegrationTestBase
         Factory.Services.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>()
             .TryGetValue(CallType.Api.Endpoints.DeviceListEndpoints.ConsentKey(web.DeviceId, phone.DeviceId), out _)
             .Should().BeTrue();
+    }
+
+    // Records push targets instead of calling FCM: the smallest seam to
+    // observe who the hub tries to wake (SendPushAsync is virtual for this).
+    private sealed class RecordingPush(IHttpClientFactory h, IServiceScopeFactory sf,
+        FcmTokenProvider t, ILogger<PushNotificationService> l) : PushNotificationService(h, sf, t, l)
+    {
+        public readonly System.Collections.Concurrent.ConcurrentBag<Guid> Pushed = new();
+        public override Task SendPushAsync(Guid recipientDeviceId) { Pushed.Add(recipientDeviceId); return Task.CompletedTask; }
+    }
+
+    [Fact]
+    public async Task Fanout_event_carries_senderPrimaryId_live_and_replayed()
+    {
+        var aPhone = await RegisterAndAuthenticateAsync();
+        var aWeb = await RegisterAndAuthenticateAsync();
+        var bPhone = await RegisterAndAuthenticateAsync();
+        var loner = await RegisterAndAuthenticateAsync();
+        await LinkAsync(aPhone.DeviceId, aWeb.DeviceId);
+
+        // Live: bPhone is connected when the companion aWeb sends.
+        await using var bHub = Hub(bPhone.Token);
+        var live = new TaskCompletionSource<JsonElement>();
+        bHub.On<JsonElement>("ReceiveMessage", e => live.TrySetResult(e));
+        await bHub.StartAsync();
+        await using var aHub = Hub(aWeb.Token);
+        await aHub.StartAsync();
+        var m1 = Guid.NewGuid();
+        var toB = new[] { bPhone.DeviceId, aPhone.DeviceId };
+        await aHub.InvokeAsync("SendReliableDirectFanout", bPhone.DeviceId, m1, toB, Payloads(toB));
+        var ev = await live.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        ev.GetProperty("senderId").GetGuid().Should().Be(aWeb.DeviceId);
+        ev.GetProperty("senderPrimaryId").GetGuid().Should().Be(aPhone.DeviceId);
+
+        // Replayed: a standalone sender writes while the recipient is offline.
+        await using var lonerHub = Hub(loner.Token);
+        await lonerHub.StartAsync();
+        var m2 = Guid.NewGuid();
+        var toLoner = new[] { bPhone.DeviceId };
+        await bHub.StopAsync();
+        await lonerHub.InvokeAsync("SendReliableDirectFanout", bPhone.DeviceId, m2, toLoner, Payloads(toLoner));
+        var replay = new TaskCompletionSource<JsonElement>();
+        await using var bHub2 = Hub(bPhone.Token);
+        bHub2.On<JsonElement>("ReceiveMessage", e =>
+        {
+            if (e.GetProperty("messageId").GetGuid() == m2) replay.TrySetResult(e);
+        });
+        await bHub2.StartAsync();
+        var replayed = await replay.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        replayed.GetProperty("senderPrimaryId").GetGuid().Should().Be(loner.DeviceId);
+    }
+
+    [Fact]
+    public async Task Fanout_pushes_other_identities_but_not_the_senders_own_devices()
+    {
+        var aPhone = await RegisterAndAuthenticateAsync();
+        var aWeb = await RegisterAndAuthenticateAsync();
+        var bPhone = await RegisterAndAuthenticateAsync();
+        await LinkAsync(aPhone.DeviceId, aWeb.DeviceId);
+        var push = new RecordingPush(
+            Factory.Services.GetRequiredService<IHttpClientFactory>(),
+            Factory.Services.GetRequiredService<IServiceScopeFactory>(),
+            Factory.Services.GetRequiredService<FcmTokenProvider>(),
+            Factory.Services.GetRequiredService<ILogger<PushNotificationService>>());
+        await using var factory = Factory.WithWebHostBuilder(b =>
+            b.ConfigureServices(sv => sv.AddSingleton<PushNotificationService>(push)));
+        await using var hub = new HubConnectionBuilder()
+            .WithUrl($"{factory.Server.BaseAddress}hub?access_token={aWeb.Token}",
+                o => o.HttpMessageHandlerFactory = _ => factory.Server.CreateHandler())
+            .Build();
+        await hub.StartAsync();
+
+        // Everyone except the sender is offline, so every copy would be pushed.
+        var targets = new[] { bPhone.DeviceId, aPhone.DeviceId };
+        await hub.InvokeAsync("SendReliableDirectFanout", bPhone.DeviceId, Guid.NewGuid(), targets, Payloads(targets));
+
+        push.Pushed.Should().BeEquivalentTo(new[] { bPhone.DeviceId });
     }
 }

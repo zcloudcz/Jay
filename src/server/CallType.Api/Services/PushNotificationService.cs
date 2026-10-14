@@ -152,7 +152,7 @@ public class PushNotificationService
     /// optimization; the client will still get messages on next connect
     /// via the store-and-forward queue.
     /// </remarks>
-    public async Task SendPushAsync(Guid recipientDeviceId)
+    public virtual async Task SendPushAsync(Guid recipientDeviceId)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

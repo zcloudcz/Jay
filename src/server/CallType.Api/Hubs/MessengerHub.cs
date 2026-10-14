@@ -70,10 +70,14 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
     private async Task SendPendingAsync(Guid deviceId)
     {
         var queued = await queueService.DequeueAsync(deviceId, Context.ConnectionAborted);
+        // ONE query for all distinct senders of the replayed batch.
+        var primaries = await deviceLists.PrimariesOfManyAsync(
+            queued.Select(m => m.SenderId).Distinct().ToList(), Context.ConnectionAborted);
         foreach (var msg in queued)
             await Clients.Caller.SendAsync("ReceiveMessage", new
             {
                 senderId = msg.SenderId,
+                senderPrimaryId = primaries.GetValueOrDefault(msg.SenderId, msg.SenderId),
                 encryptedBody = Convert.ToBase64String(msg.EncryptedBody),
                 createdAt = msg.CreatedAt,
                 messageId = msg.MessageId,
@@ -111,7 +115,7 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         var body = DecodePayload(encryptedBodyBase64);
         var message = await queueService.EnqueueReliableAsync(recipientDeviceId, sender, messageId,
             body, cancellationToken: Context.ConnectionAborted);
-        await DeliverAsync(message);
+        await DeliverAsync(message, await deviceLists.PrimaryOfAsync(sender, Context.ConnectionAborted));
     }
 
     public Task SendGroupMessage(Guid groupId, Dictionary<Guid, string> encryptedPayloads)
@@ -173,8 +177,9 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
                     body, groupId, Context.ConnectionAborted));
             await transaction.CommitAsync(Context.ConnectionAborted);
         }
+        var senderPrimary = await deviceLists.PrimaryOfAsync(sender, Context.ConnectionAborted);
         foreach (var message in messages)
-            await DeliverAsync(message);
+            await DeliverAsync(message, senderPrimary);
     }
 
     // -----------------------------------------------------------------------
@@ -204,7 +209,7 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         if (!await communicationPolicy.IsAllowedAsync(senderPrimary, recipientPrimaryId, ct))
             throw new HubException("business_conversation_required");
         var required = await deviceLists.DevicesOfAsync([recipientPrimaryId, senderPrimary], ct);
-        await FanoutAsync(sender, messageId, null, required, allRecipients, encryptedPayloads);
+        await FanoutAsync(sender, senderPrimary, messageId, null, required, allRecipients, encryptedPayloads);
     }
 
     public async Task SendReliableGroupFanout(Guid groupId, Guid messageId,
@@ -227,10 +232,10 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
             if (!await communicationPolicy.IsAllowedAsync(senderPrimary, member, ct))
                 throw new HubException("business_conversation_required");
         var required = await deviceLists.DevicesOfAsync(members, ct);
-        await FanoutAsync(sender, messageId, groupId, required, allRecipients, encryptedPayloads);
+        await FanoutAsync(sender, senderPrimary, messageId, groupId, required, allRecipients, encryptedPayloads);
     }
 
-    private async Task FanoutAsync(Guid sender, Guid messageId, Guid? groupId, HashSet<Guid> required,
+    private async Task FanoutAsync(Guid sender, Guid senderPrimary, Guid messageId, Guid? groupId, HashSet<Guid> required,
         List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads)
     {
         required.Remove(sender);
@@ -254,8 +259,12 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
                     body, groupId, Context.ConnectionAborted));
             await transaction.CommitAsync(Context.ConnectionAborted);
         }
+        // WHY no push to the sender's own identity: those copies are the user's
+        // other devices, they stay queued and arrive on connect. Pushing would
+        // make the phone buzz for every message typed on the web.
+        var own = await deviceLists.DevicesOfAsync([senderPrimary], Context.ConnectionAborted);
         foreach (var message in messages)
-            await DeliverAsync(message);
+            await DeliverAsync(message, senderPrimary, push: !own.Contains(message.RecipientId));
     }
 
     // -----------------------------------------------------------------------
@@ -300,7 +309,12 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         => queueService.AcknowledgeAsync(GetCallerDeviceId() ?? throw new HubException("Invalid device identity"),
             senderId, messageId, Context.ConnectionAborted);
 
-    private async Task DeliverAsync(QueuedMessage message)
+    // senderPrimaryId is only a HINT: it makes a receiver re-read a device list
+    // when its local attribution of the sender differs (a removed, possibly
+    // stolen companion must stop speaking as its former identity as soon as it
+    // writes). It can trigger a refresh, never an attribution; that still comes
+    // only from a verified signed list.
+    private async Task DeliverAsync(QueuedMessage message, Guid senderPrimary, bool push = true)
     {
         if (message.AcknowledgedAt != null) return;
         if (OnlineDevices.TryGetValue(message.RecipientId, out var connectionId))
@@ -308,11 +322,12 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
             {
                 messageId = message.MessageId,
                 senderId = message.SenderId,
+                senderPrimaryId = senderPrimary,
                 encryptedBody = Convert.ToBase64String(message.EncryptedBody),
                 createdAt = message.CreatedAt,
                 groupId = message.GroupId
             }, Context.ConnectionAborted);
-        else
+        else if (push)
             await pushService.SendPushAsync(message.RecipientId);
     }
 

@@ -13,6 +13,16 @@ public class DeviceListService(AppDbContext db)
         await db.DeviceListMembers.Where(m => m.DeviceId == deviceId)
             .Select(m => (Guid?)m.PrimaryDeviceId).FirstOrDefaultAsync(ct) ?? deviceId;
 
+    /// <summary>Primary of each given device in ONE query; standalone devices map to themselves.</summary>
+    public async Task<Dictionary<Guid, Guid>> PrimariesOfManyAsync(IReadOnlyCollection<Guid> deviceIds, CancellationToken ct)
+    {
+        var rows = await db.DeviceListMembers.Where(m => deviceIds.Contains(m.DeviceId))
+            .Select(m => new { m.DeviceId, m.PrimaryDeviceId }).ToListAsync(ct);
+        var map = deviceIds.ToDictionary(id => id, id => id);
+        foreach (var r in rows) map[r.DeviceId] = r.PrimaryDeviceId;
+        return map;
+    }
+
     /// <summary>Both mappings in ONE query (policy hot path).</summary>
     public async Task<(Guid, Guid)> PrimariesOfAsync(Guid a, Guid b, CancellationToken ct)
     {
