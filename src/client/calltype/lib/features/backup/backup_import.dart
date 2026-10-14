@@ -51,14 +51,22 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
     );
   }).toList();
   final conversationIds = conversations.map((c) => c.id.value).toSet();
-  final messages = rows('messages').map((m) {
+  // 'delete' rows are transient outbox control messages (deleteForEveryone).
+  // A backup taken while one was pending must not resurrect it: it has no
+  // bubble and would be resent. Skipped, not rejected, so one such row cannot
+  // fail a whole restore.
+  final messages = rows('messages').where((m) => m['type'] != 'delete').map((m) {
     final conversationId = requiredText(m, 'conversationId');
     if (!conversationIds.contains(conversationId)) {
       throw const FormatException('Missing conversation');
     }
     final type = requiredText(m, 'type');
     final status = requiredText(m, 'status');
-    if (!['text', 'image', 'file', 'audio', 'video'].contains(type) ||
+    // Every type the app itself writes into `messages` must restore:
+    // 'call-event' (business call log) and 'device-change' (multi-device
+    // notice) are rows like any other.
+    if (!['text', 'image', 'file', 'audio', 'video', 'call-event', 'device-change']
+            .contains(type) ||
         !['sending', 'sent', 'delivered', 'read', 'failed'].contains(status)) {
       throw const FormatException('Invalid message type or status');
     }

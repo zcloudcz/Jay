@@ -114,4 +114,23 @@ void main() {
     expect(m.forwarded, isTrue);
     expect(m.deleted, isTrue);
   });
+  test('call-event and device-change rows restore, delete control rows are skipped', () async {
+    final data = fixture();
+    final base = (data['messages'] as List).single as Map<String, dynamic>;
+    data['messages'] = [
+      base,
+      {...base, 'id': 'call', 'type': 'call-event', 'body': '{}', 'status': 'sent'},
+      {...base, 'id': 'device', 'type': 'device-change', 'body': 'added', 'status': 'delivered'},
+      {...base, 'id': 'control', 'type': 'delete', 'body': 'message', 'status': 'sending'},
+    ];
+    await importBackup(db, data);
+    final ids = (await db.select(db.messages).get()).map((m) => m.id);
+    expect(ids, unorderedEquals(['message', 'call', 'device']));
+  });
+  test('an unknown message type still rejects the whole backup', () async {
+    final data = fixture();
+    (data['messages'] as List).single['type'] = 'sticker';
+    await expectLater(importBackup(db, data), throwsFormatException);
+    expect(await db.select(db.contacts).get(), isEmpty);
+  });
 }
