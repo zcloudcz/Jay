@@ -715,5 +715,125 @@
   "chatReplyCancel": "Cancel reply",
   "@chatReplyCancel": {
     "description": "Tooltip of the button that cancels the reply being composed."
+  },
+  "settingsDevices": "Linked devices",
+  "@settingsDevices": {
+    "description": "Settings row and screen title: the user's devices that share one identity (multi-device)."
+  },
+  "settingsDevicesSubtitle": "Use your chats on another device",
+  "@settingsDevicesSubtitle": {
+    "description": "Subtitle of the Linked devices settings row."
+  },
+  "devicesEmpty": "No other devices are linked to this one.",
+  "@devicesEmpty": {
+    "description": "Linked devices screen on the main device when it has no linked devices."
+  },
+  "devicesDeviceLabel": "Device {id}",
+  "@devicesDeviceLabel": {
+    "description": "One linked device in the list; id is the first characters of its technical id.",
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesAdd": "Link a device",
+  "@devicesAdd": {
+    "description": "Action on the main device: scan the code of a new device to link it."
+  },
+  "devicesRemove": "Remove",
+  "@devicesRemove": {
+    "description": "Button that unlinks a device (also the confirm button of the dialog)."
+  },
+  "devicesRemoveConfirm": "Remove this device? It stops receiving your messages and deletes your chats the next time it connects.",
+  "@devicesRemoveConfirm": {
+    "description": "Confirmation before unlinking a device."
+  },
+  "devicesRemoveFailed": "The device could not be removed. Try again.",
+  "@devicesRemoveFailed": {
+    "description": "Snackbar when unlinking failed."
+  },
+  "devicesScanHint": "Scan the code shown on the new device",
+  "@devicesScanHint": {
+    "description": "Hint on the camera screen when linking a new device."
+  },
+  "devicesFingerprintMismatch": "This code does not match the keys of the device. Do not link it.",
+  "@devicesFingerprintMismatch": {
+    "description": "Security warning: the scanned code and the keys the server returned differ. Must stay a clear 'do not link'."
+  },
+  "devicesWaitingConsent": "Confirm the link on the new device.",
+  "@devicesWaitingConsent": {
+    "description": "Main device waits until the user confirms on the new device."
+  },
+  "devicesLinkFailed": "Linking failed. Try again.",
+  "@devicesLinkFailed": {
+    "description": "Generic linking failure."
+  },
+  "devicesLinkedTo": "This device is linked to {handle}. Linked devices are managed there.",
+  "@devicesLinkedTo": {
+    "description": "Linked devices screen on a linked (secondary) device; handle is the main device's CT-XXXX-XXXX.",
+    "placeholders": {
+      "handle": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesCannotVerify": "The link of this device cannot be verified. Nothing was deleted.",
+  "@devicesCannotVerify": {
+    "description": "Banner on a linked device whose device list is missing or invalid. Must say that nothing was deleted."
+  },
+  "devicesRemovedNotice": "This device was unlinked and its chats were deleted.",
+  "@devicesRemovedNotice": {
+    "description": "Banner after the main device unlinked this device and its local chats were wiped."
+  },
+  "linkDeviceAction": "Link to an existing device",
+  "@linkDeviceAction": {
+    "description": "Action on a new, empty device: become a linked device of an existing phone."
+  },
+  "linkDeviceInstructions": "On your main phone open Settings, Linked devices, Link a device, and scan this code.",
+  "@linkDeviceInstructions": {
+    "description": "Shown under the QR code on the new device."
+  },
+  "linkDeviceConfirmTitle": "Link to {handle}?",
+  "@linkDeviceConfirmTitle": {
+    "description": "Question on the new device when a phone offers to link it.",
+    "placeholders": {
+      "handle": {
+        "type": "String"
+      }
+    }
+  },
+  "linkDeviceConfirmBody": "Confirm only if {handle} is the phone in your hand. This device will then receive and send the messages of that phone.",
+  "@linkDeviceConfirmBody": {
+    "description": "Security text under the link question: the user must compare the handle with the phone in their hand.",
+    "placeholders": {
+      "handle": {
+        "type": "String"
+      }
+    }
+  },
+  "linkDeviceConfirm": "Link",
+  "@linkDeviceConfirm": {
+    "description": "Button that confirms linking on the new device."
+  },
+  "linkDeviceNotEmpty": "Only a device without contacts and chats can be linked.",
+  "@linkDeviceNotEmpty": {
+    "description": "Shown when the device already has contacts or chats."
+  },
+  "linkDeviceWaiting": "Waiting for your phone to finish linking…",
+  "@linkDeviceWaiting": {
+    "description": "New device after it confirmed, until the main device has signed the link."
+  },
+  "chatDeviceAdded": "This contact added a device",
+  "@chatDeviceAdded": {
+    "description": "System line in a chat: the contact linked another device that now also receives this chat."
+  },
+  "chatDeviceRemoved": "This contact removed a device",
+  "@chatDeviceRemoved": {
+    "description": "System line in a chat: the contact unlinked one of their devices."
+  },
+  "chatCompanionBusinessReadOnly": "Business chats can only be used on your main device.",
+  "@chatCompanionBusinessReadOnly": {
+    "description": "Shown instead of the message input in a business chat on a linked device."
   }
 }
