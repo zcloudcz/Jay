@@ -189,6 +189,21 @@ void main() {
     expect(jsonDecode(await open(mySibling, envelopes))['body'], 'hi');
   });
 
+  test('stale: a drop-only answer still refreshes, so the removal sticks',
+      () async {
+    await serveBobList(1, [bobWeb]);
+    final first = await sendThenReconcile([bob], {bob, bobWeb});
+    await serveBobList(2, []); // Bob revoked bobWeb
+    await sender.reconcile(
+      envelopes: first,
+      required: {bob},
+      identityIds: [bob],
+      payload: payload,
+    );
+    expect((await sender.encrypt([bob], payload)).keys, [bob]);
+    expect(await directory.devicesOf(bob), [bob]);
+  });
+
   test('stale: one bad list does not block a missing device of another identity',
       () async {
     await serveBobList(1, []);

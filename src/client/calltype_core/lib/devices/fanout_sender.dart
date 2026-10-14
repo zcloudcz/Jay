@@ -61,9 +61,12 @@ class FanoutSender {
       for (final e in envelopes.entries)
         if (required.contains(e.key)) e.key: e.value,
     };
+    // Always re-read, even when the answer only drops devices: any stale
+    // answer means our view differs from the hub's, and refreshing makes a
+    // removal take effect on our side too, not only on an honest server.
+    await _refresh(identityIds);
     final missing = required.difference(kept.keys.toSet());
     if (missing.isEmpty) return kept;
-    await _refresh(identityIds);
     final verified = (await _directory.fanoutTargets(identityIds)).toSet();
     if (!verified.containsAll(missing)) {
       throw const DeviceListException('server_requires_unverified_device');
