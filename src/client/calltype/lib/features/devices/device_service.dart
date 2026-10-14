@@ -34,6 +34,14 @@ enum CompanionStatus {
 /// its "My identity" invite.
 const linkedPrimaryHandleKey = 'linked_primary_handle';
 
+/// BackupState key: the primary this device is a companion of. Written when a
+/// verified list adds us, deleted inside the wipe transaction. It survives a
+/// crash between "the removal was stored" and "the wipe ran": [open] finishes
+/// the wipe when the marker is still there but the stored list no longer
+/// contains us. Without it nothing would ever re-trigger the wipe, because
+/// the removal is already stored and a refresh reports no change.
+const companionOfKey = 'companion_of';
+
 /// App-wide owner of this device's multi-device state (spec Part A).
 ///
 /// Built before onboarding (the inbox needs a reference at startup) and
@@ -91,6 +99,7 @@ class DeviceService extends ChangeNotifier {
     );
     await directory.load();
     _directory = directory;
+    await _finishInterruptedWipe(directory);
     _changes = directory.changes.listen(
       (change) => unawaited(_onChange(change).catchError((Object _) {})),
     );
@@ -115,19 +124,23 @@ class DeviceService extends ChangeNotifier {
       _pendingPrimary = primaryDeviceId.toLowerCase();
 
   Future<String?> linkedPrimaryHandle() async =>
-      (await (_db.select(
-        _db.backupState,
-      )..where((s) => s.key.equals(linkedPrimaryHandleKey))).getSingleOrNull())
+      (await (_db.select(_db.backupState)
+                ..where((s) => s.key.equals(linkedPrimaryHandleKey)))
+              .getSingleOrNull())
           ?.value;
 
   /// Re-reads and verifies the list this device belongs to: on a
   /// DeviceListChanged hint, on every hub connect (a hint sent while we were
   /// offline is lost) and after our own PUT (fan-out targets come from the
   /// STORED list, constraint 5).
+  ///
+  /// Without an argument it checks the primary we consented to join while we
+  /// wait for the link: a hint missed while offline would otherwise lose it.
   Future<void> checkOwnList([String? primaryDeviceId]) =>
       MessageProcessingQueue.forDatabase(_db).run(() async {
         final directory = _directory;
         if (directory == null) return;
+        primaryDeviceId ??= _pendingPrimary;
         // Most devices never link anything: no own list and not a companion
         // means there is nothing to re-check, and a reconnect costs nothing.
         if (primaryDeviceId == null &&
@@ -168,6 +181,7 @@ class DeviceService extends ChangeNotifier {
     }
     if (change.added.contains(directory.selfDeviceId)) {
       _pendingPrimary = null;
+      await _setCompanionMarker(change.identityId);
       _setStatus(CompanionStatus.ok);
       return;
     }
@@ -217,20 +231,52 @@ class DeviceService extends ChangeNotifier {
     }
   }
 
+  Future<void> _setCompanionMarker(String primaryId) => _db
+      .into(_db.backupState)
+      .insertOnConflictUpdate(
+        BackupStateCompanion.insert(key: companionOfKey, value: primaryId),
+      );
+
+  /// Startup half of the wipe's crash safety (see [companionOfKey]).
+  Future<void> _finishInterruptedWipe(DeviceDirectory directory) async {
+    final marker = await (_db.select(
+      _db.backupState,
+    )..where((s) => s.key.equals(companionOfKey))).getSingleOrNull();
+    if (directory.isCompanion) {
+      // Linked (also covers a link stored before the marker existed).
+      if (marker == null) await _setCompanionMarker(directory.selfIdentityId);
+      return;
+    }
+    if (marker == null) return;
+    final stored = await (_db.select(
+      _db.knownDeviceLists,
+    )..where((l) => l.primaryDeviceId.equals(marker.value))).getSingleOrNull();
+    // No stored list means we cannot tell "removed" from "never verified";
+    // only a verified list that lacks us proves the removal.
+    if (stored == null) return;
+    final listed = parseDeviceListPayload(stored.payload).devices;
+    if (listed.any((d) => d.deviceId == directory.selfDeviceId)) return;
+    await _wipe();
+  }
+
   /// A verified, newer list without this device: delete what it holds of the
   /// identity's conversations. Keys and registration stay, so the device is
   /// simply an empty, standalone device again.
+  ///
+  /// The stored device lists are KEPT on purpose: the list that removed us is
+  /// the rollback floor (minVersion). Deleting it would let a hostile server
+  /// replay the old list that still contains us, re-link us and then "remove"
+  /// us again, wiping data the user created after the first wipe.
   Future<void> _wipe() => MessageProcessingQueue.forDatabase(_db).run(() async {
     await _db.transaction(() async {
       await _db.delete(_db.messages).go();
       await _db.delete(_db.conversations).go();
       await _db.delete(_db.contacts).go();
-      await _db.delete(_db.knownDeviceListMembers).go();
-      await _db.delete(_db.knownDeviceLists).go();
       await (_db.delete(_db.backupState)..where(
             (s) =>
                 s.key.like('outbox:%') |
                 s.key.like('control:%') |
+                s.key.equals(companionOfKey) |
                 s.key.equals(linkedPrimaryHandleKey),
           ))
           .go();
@@ -239,9 +285,10 @@ class DeviceService extends ChangeNotifier {
     _setStatus(CompanionStatus.removed);
   });
 
-  Future<KnownDeviceList?> _ownList() => (_db.select(
-    _db.knownDeviceLists,
-  )..where((l) => l.primaryDeviceId.equals(directory.selfDeviceId))).getSingleOrNull();
+  Future<KnownDeviceList?> _ownList() =>
+      (_db.select(_db.knownDeviceLists)
+            ..where((l) => l.primaryDeviceId.equals(directory.selfDeviceId)))
+          .getSingleOrNull();
 
   /// The companions in this primary's own verified list.
   Future<List<DeviceListEntry>> companions() async {
@@ -249,13 +296,25 @@ class DeviceService extends ChangeNotifier {
     return own == null ? const [] : parseDeviceListPayload(own.payload).devices;
   }
 
-  Future<void> addCompanion(DeviceListEntry entry) => _publish(
-    (current) => [
-      for (final d in current)
-        if (d.deviceId != entry.deviceId) d,
-      entry,
-    ],
-  );
+  Future<void> addCompanion(DeviceListEntry entry) async {
+    // Our own refresh rejects a list with an entry whose consent does not
+    // verify, so signing one would freeze the list at the old version (the
+    // server accepts it, we never store it, every later edit gets a 409).
+    final consented = await verifyDeviceLinkConsent(
+      consentSig: entry.consentSig,
+      companionSigningKey: entry.signingKey,
+      primaryDeviceId: directory.selfDeviceId,
+      companionDeviceId: entry.deviceId,
+    );
+    if (!consented) throw const DeviceListException('missing_consent');
+    await _publish(
+      (current) => [
+        for (final d in current)
+          if (d.deviceId != entry.deviceId) d,
+        entry,
+      ],
+    );
+  }
 
   Future<void> removeCompanions(Set<String> deviceIds) => _publish(
     (current) => [
@@ -303,7 +362,9 @@ class DeviceService extends ChangeNotifier {
           primaryDeviceId: directory.selfDeviceId,
           version: (own?.version ?? 0) + 1,
           devices: edit(
-            own == null ? const [] : parseDeviceListPayload(own.payload).devices,
+            own == null
+                ? const []
+                : parseDeviceListPayload(own.payload).devices,
           ),
         ),
       );
@@ -331,7 +392,10 @@ class DeviceService extends ChangeNotifier {
 
   Future<void> _ensureSession(String deviceId) async {
     if (!await _sessions.hasSession(deviceId)) {
-      await _sessions.initiateSession(deviceId, await _api.getKeyBundle(deviceId));
+      await _sessions.initiateSession(
+        deviceId,
+        await _api.getKeyBundle(deviceId),
+      );
     }
   }
 

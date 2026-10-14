@@ -27,6 +27,11 @@ class FakeMultiDeviceServer {
   /// Every device id a client asked the list for, in order.
   final deviceListRequests = <String>[];
   final hubs = <String, FakeHubClient>{};
+
+  /// (companion, primary) pairs the companion consented to through the hub's
+  /// LinkConsent; the real server keeps them in a cache for 10 minutes and
+  /// PUT device-list demands one for every NEW companion.
+  final consents = <(String, String)>{};
   final _services = <DeviceService>[];
 
   void add(TestDevice device) {
@@ -60,8 +65,8 @@ class FakeMultiDeviceServer {
             DeviceListEntry(
               deviceId: id,
               identityKey: await owner.keys.getPublicIdentityKey(),
-              signingKey:
-                  (await owner.keys.getSignedIdentityBundle())['signingKey']!,
+              signingKey: (await owner.keys
+                  .getSignedIdentityBundle())['signingKey']!,
               consentSig: await signDeviceLinkConsent(
                 companionSigningKey: await owner.keys.getSigningKeyPair(),
                 primaryDeviceId: primaryId,
@@ -89,6 +94,23 @@ class FakeMultiDeviceServer {
       for (final c in companions) (c.id, c),
     ]),
   );
+
+  /// What MessengerHub.LinkConsent records when [companion] consents.
+  void recordConsent(String companion, String primary) =>
+      consents.add((companion, primary));
+
+  /// The HTTP 409 the real endpoint answers with.
+  static DioException conflict(String primary, String error) {
+    final request = RequestOptions(path: '/devices/$primary/device-list');
+    return DioException(
+      requestOptions: request,
+      response: Response(
+        requestOptions: request,
+        statusCode: 409,
+        data: {'error': error},
+      ),
+    );
+  }
 
   void store(Map<String, dynamic> body) {
     final primary = body['primaryDeviceId'] as String;
@@ -189,33 +211,73 @@ class FakeDeviceApi extends ApiClient {
     return server.lists[server.primaryOf(deviceId)];
   }
 
-  /// Only the rule the client must handle (version must grow); the consent
-  /// and membership rules are covered by the server's own tests.
+  /// Mirrors DeviceListEndpoints.PutDeviceList: version must grow, a device
+  /// is in one identity only, listed devices must be registered, a NEW
+  /// companion needs its LinkConsent, and old members, new members and the
+  /// primary get a DeviceListChanged hint afterwards. Signatures are not
+  /// checked (the real server does not either).
   @override
   Future<void> putDeviceList(
     String primaryDeviceId, {
     required String payload,
     required String signature,
   }) async {
-    final version = parseDeviceListPayload(payload).version;
+    final list = parseDeviceListPayload(payload);
+    final ids = [for (final d in list.devices) d.deviceId];
     final current = server.lists[primaryDeviceId]?['version'] as int?;
-    if (current != null && version <= current) {
-      final request = RequestOptions(path: '/devices/$primaryDeviceId/device-list');
-      throw DioException(
-        requestOptions: request,
-        response: Response(
-          requestOptions: request,
-          statusCode: 409,
-          data: {'error': 'device_list_version_conflict'},
-        ),
+    if (current != null && list.version <= current) {
+      throw FakeMultiDeviceServer.conflict(
+        primaryDeviceId,
+        'device_list_version_conflict',
+      );
+    }
+    if (server.members.containsKey(primaryDeviceId)) {
+      throw FakeMultiDeviceServer.conflict(
+        primaryDeviceId,
+        'device_list_member_conflict',
+      );
+    }
+    if (ids.any((id) => !server.devices.containsKey(id))) {
+      throw FakeMultiDeviceServer.conflict(
+        primaryDeviceId,
+        'device_list_unknown_device',
+      );
+    }
+    if (ids.any(
+      (id) =>
+          (server.members[id] ?? primaryDeviceId) != primaryDeviceId ||
+          server.devicesOf(id).length > 1,
+    )) {
+      throw FakeMultiDeviceServer.conflict(
+        primaryDeviceId,
+        'device_list_member_conflict',
+      );
+    }
+    final oldMembers = server.devicesOf(primaryDeviceId)
+      ..remove(primaryDeviceId);
+    final added = ids.where((id) => !oldMembers.contains(id)).toList();
+    if (added.any((id) => !server.consents.contains((id, primaryDeviceId)))) {
+      throw FakeMultiDeviceServer.conflict(
+        primaryDeviceId,
+        'device_list_consent_missing',
       );
     }
     server.store({
       'primaryDeviceId': primaryDeviceId,
-      'version': version,
+      'version': list.version,
       'payload': payload,
       'signature': signature,
     });
+    // A consent is single use, like the real cache entry.
+    for (final id in added) {
+      server.consents.remove((id, primaryDeviceId));
+    }
+    for (final id in {...oldMembers, ...ids, primaryDeviceId}) {
+      final hub = server.hubs[id]?.listChanged;
+      if (hub != null && !hub.isClosed) {
+        hub.add({'primaryDeviceId': primaryDeviceId, 'version': list.version});
+      }
+    }
   }
 
   @override
@@ -277,8 +339,13 @@ class FakeHubClient extends SignalRClient {
       sentOffers.add(targetDeviceId);
 
   @override
-  Future<void> sendLinkConsent(String primaryDeviceId, String consentSig) async =>
-      sentConsents.add((primaryDeviceId, consentSig));
+  Future<void> sendLinkConsent(
+    String primaryDeviceId,
+    String consentSig,
+  ) async {
+    sentConsents.add((primaryDeviceId, consentSig));
+    server.recordConsent(deviceId, primaryDeviceId);
+  }
 
   @override
   void dispose() {
