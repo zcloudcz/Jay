@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "डिवाइस {id}",
   "devicesAdd": "डिवाइस लिंक करें",
   "devicesRemove": "हटाएँ",
+  "devicesVanishedPrompt": "{device} अब सर्वर पर मौजूद नहीं है। इसे हटाएँ?",
+  "devicesKeep": "रखें",
   "devicesRemoveConfirm": "यह डिवाइस हटाएँ? इसे आपके संदेश मिलने बंद हो जाएँगे और अगली बार कनेक्ट होने पर यह आपकी चैट मिटा देगा।",
   "devicesRemoveFailed": "डिवाइस हटाया नहीं जा सका। फिर कोशिश करें।",
   "devicesScanHint": "नए डिवाइस पर दिखाया गया कोड स्कैन करें",

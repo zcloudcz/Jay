@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "Gerät {id}",
   "devicesAdd": "Gerät verknüpfen",
   "devicesRemove": "Entfernen",
+  "devicesVanishedPrompt": "{device} existiert auf dem Server nicht mehr. Entfernen?",
+  "devicesKeep": "Behalten",
   "devicesRemoveConfirm": "Dieses Gerät entfernen? Es erhält deine Nachrichten nicht mehr und löscht deine Chats, sobald es sich das nächste Mal verbindet.",
   "devicesRemoveFailed": "Das Gerät konnte nicht entfernt werden. Versuche es erneut.",
   "devicesScanHint": "Scanne den Code, der auf dem neuen Gerät angezeigt wird",

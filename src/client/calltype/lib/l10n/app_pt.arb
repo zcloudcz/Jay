@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "Dispositivo {id}",
   "devicesAdd": "Vincular um dispositivo",
   "devicesRemove": "Remover",
+  "devicesVanishedPrompt": "{device} já não existe no servidor. Remover?",
+  "devicesKeep": "Manter",
   "devicesRemoveConfirm": "Remover este dispositivo? Ele deixará de receber suas mensagens e apagará suas conversas na próxima vez que se conectar.",
   "devicesRemoveFailed": "Não foi possível remover o dispositivo. Tente novamente.",
   "devicesScanHint": "Escaneie o código exibido no novo dispositivo",

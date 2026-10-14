@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "Zařízení {id}",
   "devicesAdd": "Propojit zařízení",
   "devicesRemove": "Odebrat",
+  "devicesVanishedPrompt": "{device} už na serveru neexistuje. Odebrat ho?",
+  "devicesKeep": "Ponechat",
   "devicesRemoveConfirm": "Odebrat toto zařízení? Přestane dostávat vaše zprávy a při příštím připojení smaže vaše chaty.",
   "devicesRemoveFailed": "Zařízení se nepodařilo odebrat. Zkuste to znovu.",
   "devicesScanHint": "Naskenujte kód zobrazený na novém zařízení",

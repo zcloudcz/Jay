@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "Eszköz: {id}",
   "devicesAdd": "Eszköz összekapcsolása",
   "devicesRemove": "Eltávolítás",
+  "devicesVanishedPrompt": "A(z) {device} már nem létezik a szerveren. Eltávolítod?",
+  "devicesKeep": "Megtartás",
   "devicesRemoveConfirm": "Eltávolítod ezt az eszközt? Nem kapja tovább az üzeneteidet, és a következő csatlakozáskor törli a csevegéseidet.",
   "devicesRemoveFailed": "Az eszközt nem sikerült eltávolítani. Próbáld újra.",
   "devicesScanHint": "Olvasd be az új eszközön látható kódot",

@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "Urządzenie {id}",
   "devicesAdd": "Połącz urządzenie",
   "devicesRemove": "Usuń",
+  "devicesVanishedPrompt": "Urządzenie {device} nie istnieje już na serwerze. Usunąć je?",
+  "devicesKeep": "Zachowaj",
   "devicesRemoveConfirm": "Usunąć to urządzenie? Przestanie odbierać Twoje wiadomości i usunie Twoje czaty przy następnym połączeniu.",
   "devicesRemoveFailed": "Nie udało się usunąć urządzenia. Spróbuj ponownie.",
   "devicesScanHint": "Zeskanuj kod wyświetlony na nowym urządzeniu",

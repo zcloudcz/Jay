@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "设备 {id}",
   "devicesAdd": "关联设备",
   "devicesRemove": "移除",
+  "devicesVanishedPrompt": "{device} 在服务器上已不存在。要移除它吗？",
+  "devicesKeep": "保留",
   "devicesRemoveConfirm": "移除此设备？它将不再接收您的消息，并会在下次连接时删除您的聊天。",
   "devicesRemoveFailed": "无法移除该设备。请重试。",
   "devicesScanHint": "扫描新设备上显示的二维码",

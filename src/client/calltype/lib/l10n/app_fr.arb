@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "Appareil {id}",
   "devicesAdd": "Associer un appareil",
   "devicesRemove": "Retirer",
+  "devicesVanishedPrompt": "{device} n'existe plus sur le serveur. Le retirer ?",
+  "devicesKeep": "Conserver",
   "devicesRemoveConfirm": "Retirer cet appareil ? Il ne recevra plus vos messages et supprimera vos discussions à sa prochaine connexion.",
   "devicesRemoveFailed": "Impossible de retirer l'appareil. Réessayez.",
   "devicesScanHint": "Scannez le code affiché sur le nouvel appareil",

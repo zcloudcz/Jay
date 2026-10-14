@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "Dispositivo {id}",
   "devicesAdd": "Collega un dispositivo",
   "devicesRemove": "Rimuovi",
+  "devicesVanishedPrompt": "{device} non esiste più sul server. Rimuoverlo?",
+  "devicesKeep": "Mantieni",
   "devicesRemoveConfirm": "Rimuovere questo dispositivo? Non riceverà più i tuoi messaggi ed eliminerà le tue chat alla prossima connessione.",
   "devicesRemoveFailed": "Impossibile rimuovere il dispositivo. Riprova.",
   "devicesScanHint": "Scansiona il codice mostrato sul nuovo dispositivo",

@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "الجهاز {id}",
   "devicesAdd": "ربط جهاز",
   "devicesRemove": "إزالة",
+  "devicesVanishedPrompt": "{device} لم يعد موجودًا على الخادم. هل تريد إزالته؟",
+  "devicesKeep": "إبقاء",
   "devicesRemoveConfirm": "إزالة هذا الجهاز؟ سيتوقف عن تلقي رسائلك وسيحذف محادثاتك عند اتصاله التالي.",
   "devicesRemoveFailed": "تعذّرت إزالة الجهاز. حاول مرة أخرى.",
   "devicesScanHint": "امسح الرمز الظاهر على الجهاز الجديد",

@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "デバイス {id}",
   "devicesAdd": "デバイスをリンク",
   "devicesRemove": "削除",
+  "devicesVanishedPrompt": "{device} はサーバー上に存在しなくなりました。削除しますか？",
+  "devicesKeep": "残す",
   "devicesRemoveConfirm": "このデバイスを削除しますか？メッセージを受信しなくなり、次回接続時にチャットが削除されます。",
   "devicesRemoveFailed": "デバイスを削除できませんでした。もう一度お試しください。",
   "devicesScanHint": "新しいデバイスに表示されたコードをスキャンしてください",

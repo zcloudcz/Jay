@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "Apparaat {id}",
   "devicesAdd": "Een apparaat koppelen",
   "devicesRemove": "Verwijderen",
+  "devicesVanishedPrompt": "{device} bestaat niet meer op de server. Verwijderen?",
+  "devicesKeep": "Behouden",
   "devicesRemoveConfirm": "Dit apparaat verwijderen? Het ontvangt je berichten niet meer en wist je chats zodra het weer verbinding maakt.",
   "devicesRemoveFailed": "Het apparaat kon niet worden verwijderd. Probeer het opnieuw.",
   "devicesScanHint": "Scan de code die op het nieuwe apparaat staat",

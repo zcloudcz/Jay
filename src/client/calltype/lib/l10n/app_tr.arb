@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "Cihaz {id}",
   "devicesAdd": "Cihaz bağla",
   "devicesRemove": "Kaldır",
+  "devicesVanishedPrompt": "{device} artık sunucuda yok. Kaldırılsın mı?",
+  "devicesKeep": "Tut",
   "devicesRemoveConfirm": "Bu cihaz kaldırılsın mı? Mesajlarınızı artık almaz ve bir sonraki bağlantıda sohbetlerinizi siler.",
   "devicesRemoveFailed": "Cihaz kaldırılamadı. Tekrar deneyin.",
   "devicesScanHint": "Yeni cihazda gösterilen kodu tarayın",

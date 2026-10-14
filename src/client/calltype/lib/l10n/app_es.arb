@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "Dispositivo {id}",
   "devicesAdd": "Vincular un dispositivo",
   "devicesRemove": "Quitar",
+  "devicesVanishedPrompt": "{device} ya no existe en el servidor. ¿Quitarlo?",
+  "devicesKeep": "Conservar",
   "devicesRemoveConfirm": "¿Quitar este dispositivo? Dejará de recibir tus mensajes y borrará tus chats la próxima vez que se conecte.",
   "devicesRemoveFailed": "No se pudo quitar el dispositivo. Inténtalo de nuevo.",
   "devicesScanHint": "Escanea el código que aparece en el nuevo dispositivo",

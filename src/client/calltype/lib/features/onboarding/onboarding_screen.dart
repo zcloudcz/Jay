@@ -165,6 +165,14 @@ class _SuccessContent extends StatelessWidget {
           icon: const Icon(Icons.chat_rounded),
           label: Text(context.l10n.onboardingStartMessaging),
         ),
+        const SizedBox(height: 12),
+        // Right after registration the device is still empty, the only kind
+        // of device v1 links as a companion (decision 3).
+        OutlinedButton.icon(
+          onPressed: () => context.go('/settings/devices/link'),
+          icon: const Icon(Icons.link_rounded),
+          label: Text(context.l10n.linkDeviceAction),
+        ),
       ],
     );
   }

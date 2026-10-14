@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "Zariadenie {id}",
   "devicesAdd": "Prepojiť zariadenie",
   "devicesRemove": "Odstrániť",
+  "devicesVanishedPrompt": "{device} už na serveri neexistuje. Odstrániť ho?",
+  "devicesKeep": "Ponechať",
   "devicesRemoveConfirm": "Odstrániť toto zariadenie? Prestane prijímať vaše správy a pri ďalšom pripojení vymaže vaše chaty.",
   "devicesRemoveFailed": "Zariadenie sa nepodarilo odstrániť. Skúste to znova.",
   "devicesScanHint": "Naskenujte kód zobrazený na novom zariadení",

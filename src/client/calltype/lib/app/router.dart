@@ -30,6 +30,9 @@ import '../features/chat_list/chat_list_screen.dart';
 import '../features/contacts/contacts_screen.dart';
 import '../features/contacts/qr_scanner_screen.dart';
 import '../features/devices/device_service.dart';
+import '../features/devices/devices_screen.dart';
+import '../features/devices/link_controllers.dart';
+import '../features/devices/link_device_screen.dart';
 import '../features/groups/group_create_screen.dart';
 import '../features/organization/emergency/emergency_controller.dart';
 import '../features/organization/emergency/emergency_enroll_screen.dart';
@@ -254,6 +257,28 @@ final router = GoRouter(
         GoRoute(
           path: 'identity',
           builder: (context, state) => const IdentityScreen(),
+        ),
+        GoRoute(
+          path: 'devices',
+          builder: (context, state) => const DevicesScreen(),
+          routes: [
+            GoRoute(
+              path: 'link',
+              builder: (context, state) => ChangeNotifierProvider(
+                create: (ctx) {
+                  final controller = CompanionLinkController(
+                    database: ctx.read<AppDatabase>(),
+                    devices: ctx.read<DeviceService>(),
+                    keyManager: ctx.read<KeyManager>(),
+                    signalRClient: ctx.read<SignalRClient>(),
+                  );
+                  unawaited(controller.start());
+                  return controller;
+                },
+                child: const LinkDeviceScreen(),
+              ),
+            ),
+          ],
         ),
         GoRoute(
           path: 'account',

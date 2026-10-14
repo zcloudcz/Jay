@@ -753,6 +753,19 @@
   "@devicesRemoveFailed": {
     "description": "Snackbar when unlinking failed."
   },
+  "devicesVanishedPrompt": "{device} no longer exists on the server. Remove it?",
+  "@devicesVanishedPrompt": {
+    "description": "Linked devices screen on the main device: the server says a linked device no longer exists; asks whether to remove it from the list. device is the label of that device.",
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "devicesKeep": "Keep",
+  "@devicesKeep": {
+    "description": "Button next to the prompt about a linked device the server no longer knows: keep it in the list."
+  },
   "devicesScanHint": "Scan the code shown on the new device",
   "@devicesScanHint": {
     "description": "Hint on the camera screen when linking a new device."

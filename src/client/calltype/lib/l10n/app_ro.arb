@@ -468,6 +468,8 @@
   "devicesDeviceLabel": "Dispozitiv {id}",
   "devicesAdd": "Asociază un dispozitiv",
   "devicesRemove": "Elimină",
+  "devicesVanishedPrompt": "{device} nu mai există pe server. Îl elimini?",
+  "devicesKeep": "Păstrează",
   "devicesRemoveConfirm": "Elimini acest dispozitiv? Nu îți va mai primi mesajele și îți va șterge conversațiile la următoarea conectare.",
   "devicesRemoveFailed": "Dispozitivul nu a putut fi eliminat. Încearcă din nou.",
   "devicesScanHint": "Scanează codul afișat pe noul dispozitiv",
