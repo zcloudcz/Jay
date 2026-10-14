@@ -80,9 +80,19 @@ class SignedDeviceList {
   final String signature;
 }
 
+/// One device must have exactly one spelling. Without this, "+1.." or a
+/// dash-less form would map to the same 16 bytes as the canonical id and
+/// defeat the duplicate / self-listing checks, and string-keyed lookups
+/// downstream would disagree with the byte-level consent message.
+final _canonicalUuid = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+);
+
 Uint8List _uuidBytes(String uuid) {
+  if (!_canonicalUuid.hasMatch(uuid)) {
+    throw const DeviceListException('bad_device_id');
+  }
   final hex = uuid.replaceAll('-', '');
-  if (hex.length != 32) throw const DeviceListException('bad_device_id');
   try {
     return Uint8List.fromList([
       for (var i = 0; i < 32; i += 2)
@@ -130,21 +140,26 @@ Future<bool> verifyDeviceLinkConsent({
     );
   } on FormatException {
     return false;
+  } on DeviceListException {
+    // A malformed id is "no valid consent", not a crash for the caller.
+    return false;
   }
 }
+
+/// The one place that defines the signed payload shape. Signing and the
+/// canonical-form check in [verifyDeviceList] both use it so they cannot drift.
+String _encodeList(DeviceList list) => jsonEncode({
+  'primaryDeviceId': list.primaryDeviceId,
+  'version': list.version,
+  'devices': [for (final d in list.devices) d.toJson()],
+});
 
 /// Called on the PRIMARY.
 Future<SignedDeviceList> signDeviceList({
   required SimpleKeyPair primarySigningKey,
   required DeviceList list,
 }) async {
-  final payload = utf8.encode(
-    jsonEncode({
-      'primaryDeviceId': list.primaryDeviceId,
-      'version': list.version,
-      'devices': [for (final d in list.devices) d.toJson()],
-    }),
-  );
+  final payload = utf8.encode(_encodeList(list));
   final signature = await Ed25519().sign([
     ...utf8.encode(_listDomain),
     ...payload,
@@ -160,7 +175,7 @@ DeviceList parseDeviceListPayload(String payload) {
     if (json is! Map<String, dynamic>) {
       throw const DeviceListException('malformed');
     }
-    return DeviceList(
+    final list = DeviceList(
       primaryDeviceId: (json['primaryDeviceId'] as String).toLowerCase(),
       version: json['version'] as int,
       devices: [
@@ -173,6 +188,13 @@ DeviceList parseDeviceListPayload(String payload) {
           ),
       ],
     );
+    // Reject every non-canonical spelling of an id (see _canonicalUuid).
+    for (final id in list.allDeviceIds) {
+      if (!_canonicalUuid.hasMatch(id)) {
+        throw const DeviceListException('bad_device_id');
+      }
+    }
+    return list;
   } on DeviceListException {
     rethrow;
   } catch (_) {
@@ -184,12 +206,24 @@ DeviceList parseDeviceListPayload(String payload) {
 /// Verifies signature, owner, version floor, size and every consent.
 /// [minVersion] is "highest version already accepted + 1" (1 for a first
 /// list): a lower one is a replay of a list with a removed device.
+///
+/// CALLER CONTRACT: a valid consent only proves that the key listed in the
+/// entry (`signingKey`) agreed. Before attributing a device to the identity,
+/// callers MUST confirm that the listed `identityKey|signingKey` equal the
+/// device's own authenticated keys (pinned `peer_identity:<deviceId>`), see
+/// `DeviceDirectory.assertListedKeys`. Otherwise a signer could list a
+/// stranger's device id together with a key pair of her own.
 Future<DeviceList> verifyDeviceList({
   required SignedDeviceList signed,
   required String primarySigningKey,
   required String expectedPrimaryDeviceId,
   int minVersion = 1,
 }) async {
+  // A valid list (5 entries) is ~4 KB. A malicious server must not make us
+  // copy megabytes before the signature check fails.
+  if (signed.payload.length > 16 * 1024) {
+    throw const DeviceListException('malformed');
+  }
   late final List<int> payload;
   late final List<int> signature;
   late final List<int> key;
@@ -215,6 +249,13 @@ Future<DeviceList> verifyDeviceList({
   final list = parseDeviceListPayload(signed.payload);
   if (list.primaryDeviceId != expectedPrimaryDeviceId.toLowerCase()) {
     throw const DeviceListException('wrong_primary');
+  }
+  // The server derives routing from the same bytes with a different JSON
+  // parser. Duplicate keys, extra fields or whitespace could make server and
+  // clients see different device sets, so only the exact canonical encoding
+  // is accepted.
+  if (_encodeList(list) != utf8.decode(payload)) {
+    throw const DeviceListException('malformed');
   }
   if (list.version < minVersion) throw const DeviceListException('rollback');
   if (list.devices.length > maxCompanionDevices) {
