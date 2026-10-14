@@ -185,6 +185,8 @@ dotnet ef database update --project src/server/CallType.Api
 | `ChannelReaction` | One whitelisted emoji per device per post; API returns totals only | Composite(PostId, DeviceId) |
 | `ChannelPollVote` | One vote per device per poll; API returns totals only | Composite(PostId, DeviceId) |
 | `ChannelReport` | Abuse report for the operator; reporter never exposed | `Id` (auto) |
+| `DeviceList` | Signed list of an identity's companion devices; opaque to the server (it never verifies the signature) | `PrimaryDeviceId` |
+| `DeviceListMember` | Device to identity routing row, derived from the list on every PUT | `DeviceId` |
 
 All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 — with the single deliberate exception of channels, which are public and not E2E.
@@ -229,7 +231,9 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
 | `PUT` / `DELETE /channels/{id}/posts/{postId}/reaction`, `PUT …/vote` | One reaction / vote per device (follower); 422 bad emoji / option index | ✅ Done |
 | `POST /channels/{id}/report` | Abuse report (follower, 5 per device per day), 204 | ✅ Done |
 | `POST /channels/{id}/attachments`, `GET /channels/{id}/attachments/{name}` | Unencrypted image ≤ `Channels:MaxImageBytes` in Blob container `channel-media` (413 over limit) | ✅ Done |
-| `SignalR /hub` | Message relay, typing, call signaling; channels: `JoinChannels`, `LeaveChannel`, events `ReceiveChannelPost`, `ChannelDeleted` | ✅ Done |
+| `PUT /devices/{primaryId}/device-list` | Primary uploads a new signed device list (version grows; a new companion needs its own `LinkConsent` first, else 409 `device_list_consent_missing`; max 5 companions) | ✅ Done |
+| `GET /devices/{id}/device-list` | Signed list `id` is in, as primary or companion; 404 when none | ✅ Done |
+| `SignalR /hub` | Message relay, typing, call signaling; channels: `JoinChannels`, `LeaveChannel`, events `ReceiveChannelPost`, `ChannelDeleted`; multi-device: `SendReliableDirectFanout`, `SendReliableGroupFanout` (error `device_list_stale:<ids>`), `LinkOffer`, `LinkConsent`, event `DeviceListChanged` | ✅ Done |
 | `DELETE /devices/{deviceId}` | GDPR (N09): device forgets itself — keys, queue, memberships, channel activity, push token; 409 `device_is_auditor` if it is an organization's auditor | ✅ Done |
 | `DELETE /accounts/{accountId}` | GDPR (N09): account deletion (requires `authKey` proof, irreversible) — links, backups (DB + Blob), owned channels soft-deleted; 409 `account_owns_organization` | ✅ Done |
 | `GET /accounts/{accountId}/export` | GDPR (N09): everything the server holds about the account, JSON — see `docs/security/data-subject-rights.md` | ✅ Done |
@@ -262,7 +266,9 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
    identity key + signed pre-key before starting a session
    (`KeyManager.verifyIdentityBundle`). **Known limitations:** no header
    encryption, trust on first use (no safety-number check), the signed pre-key
-   is never rotated, Sender Keys for groups pending. Exact primitives and
+   is never rotated, Sender Keys for groups pending, multi-device trust is a
+   device list signed by the primary device (spec:
+   `docs/superpowers/specs/2026-10-13-multi-device-sync-design.md`). Exact primitives and
    parameters, verified against code: `docs/security/crypto-baseline.md` —
    revise it with every change under `calltype_core/lib/crypto`. Document
    limits honestly anywhere user-facing.

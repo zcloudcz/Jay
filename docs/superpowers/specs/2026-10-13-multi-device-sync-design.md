@@ -1,6 +1,8 @@
 # Multi-device sync - Design Specification (spec 1 of 4: live sync)
 
-Status: approved direction (owner, 2026-10-13). Not implemented.
+Status: approved direction (owner, 2026-10-13). Protocol layer (core, server, live
+E2E) implemented on `feat/multi-device-sync`; app wiring and bot runtime are
+plan 2, not done.
 
 ## Problem
 
@@ -118,13 +120,21 @@ nothing about trust.
 - Table `DeviceListMembers`: `DeviceId` (PK), `PrimaryDeviceId`. Derived from
   the payload on every PUT. The PK enforces "a device is in at most one list".
   Used only for routing validation.
-- `PUT /devices/{primaryId}/device-list` - caller must be `primaryId`; version
-  must be greater than the stored one (409 `device_list_version_conflict`
-  otherwise); every listed device must exist, must not be a primary of another
-  list and must not be in another list (409); more than 5 companions is 422.
+- `PUT /devices/{primaryId}/device-list` - caller must be `primaryId`; payload
+  at most 8 KB and a 64-byte signature, else 400 `device_list_malformed` (also
+  for a payload whose `primaryDeviceId` is not the caller, a duplicate or
+  self-listed companion, or a version below 1); version must be greater than
+  the stored one (409 `device_list_version_conflict` otherwise); every listed
+  device must exist (409 `device_list_unknown_device`), must not be a primary
+  with its own companions and must not be in another list (409
+  `device_list_member_conflict`); more than 5 companions is 422
+  `device_list_too_large`. Writes are serialized by a Postgres advisory lock,
+  because the one-identity-per-device rule is check-then-act.
 - Consent gate: a device that is NEW in the list is accepted only after it
   sent `LinkConsent` for this primary itself, authenticated (409
-  `device_list_consent_missing`). The server cannot verify signatures, and
+  `device_list_consent_missing`). The hub records that call in memory for 10
+  minutes (the API is a single instance) and the PUT consumes it. The server
+  cannot verify signatures, and
   without this anybody could name a victim's device in a list: clients would
   reject the list, but the server would route the victim as the uploader's
   device and the victim could no longer send.
@@ -134,7 +144,8 @@ nothing about trust.
   companions (old and new) after a successful PUT.
 - `DELETE /devices/{id}` (existing GDPR endpoint): deleting a companion removes
   its `DeviceListMembers` row; deleting a primary removes the list.
-- `GET /accounts/{id}/export` includes the device list of the caller's identity.
+- `GET /accounts/{id}/export` includes `deviceLists`: every list one of the
+  account's devices is part of, as primary or as companion.
 
 ### Linking a device
 
@@ -209,6 +220,9 @@ Two methods because the Dart hub transport cannot send `null` arguments.
   per device, as group attachments are today. One call is one transaction.
 - The server can only lie towards an outage here. A sender encrypts only for
   devices from a list it verified. It cannot add a reader.
+- The direct method addresses an identity: a recipient that is a companion is
+  rejected (`recipient_is_not_primary`). More than 256 target devices fail with
+  `fanout_too_many_devices`.
 - Business groups reject `SendReliableGroupFanout`
   (`fanout_unsupported_in_business_group`) and stay on
   `SendReliableGroupMessage`.
@@ -228,9 +242,15 @@ Two methods because the Dart hub transport cannot send `null` arguments.
 - The encrypted payload gets one additive key, `to`: the peer's identity ID
   for a direct message. A copy that goes to one of my own devices would
   otherwise not know which conversation it belongs to. Old clients ignore it.
-- On `device_list_stale` the outbox only adds envelopes for new devices and
-  drops envelopes for removed ones. Envelopes that already exist are resent
-  byte for byte, so no ratchet is advanced twice.
+- Envelopes are created only for devices of verified lists, from the stored
+  lists: encrypting never fetches. A companion's key bundle is compared with
+  its signed entry BEFORE a session (and thus a pin) exists.
+- On `device_list_stale` the outbox re-reads the lists on EVERY stale answer
+  (also when the answer only drops devices, so a removal takes effect on our
+  side), adds envelopes for new devices and drops envelopes for removed ones.
+  A failed refresh of one identity does not block the others. Envelopes that
+  already exist are resent byte for byte, so no ratchet is advanced twice. If
+  the server requires a device that is not verified, the send fails.
 
 ### Client - receiving
 
@@ -256,7 +276,15 @@ and the stored state stays as it was):
 - if it names THIS device, the entry carries this device's own keys (consent
   alone is signed with a key the list author chooses);
 - none of its companions is already attributed to another identity, is a
-  known primary or a contact. Attribution never moves silently.
+  known primary or a contact (`device_claimed_by_other_identity`). Attribution
+  never moves silently;
+- for a companion whose keys this device already pinned, the entry carries
+  exactly those keys (`listed_keys_mismatch`, checked in the write
+  transaction), so a hostile list cannot attribute a known contact to
+  somebody else.
+
+Refreshes are serialized, the version is re-checked inside the write
+transaction, and a missing list never deletes a stored one.
 
 `messages.senderId` stores the **identity ID**, never the companion's device
 ID. That keeps "mine vs theirs", delete-for-everyone sent from another device
@@ -289,7 +317,12 @@ conversation uses the identity ID.
   is a nuisance, not a takeover).
 - Peers and the server learn how many devices an identity has. Client-side
   fan-out cannot avoid that.
-- The server can withhold a list update (delay a removal). It cannot add.
+- The server can withhold a list update (delay a removal). It cannot add. A
+  removal reaches a peer when its next stale answer or refresh happens.
+- No cross-signing: a lost primary cannot change the list.
+- First contact stays TOFU, as before.
+- A companion that reinstalls with new keys is refused by peers (pinned keys
+  differ from the signed entry) until the old pin is reset.
 - The web companion is the weakest device: keys sit in browser storage, the
   local database is not SQLCipher. Every companion widens the attack surface,
   hence the device list in settings and removal from the primary.

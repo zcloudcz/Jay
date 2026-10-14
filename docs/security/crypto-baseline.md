@@ -89,6 +89,38 @@ JSON obálka (viz `session_manager.dart:43-51,233-246`):
 (per-recipient fan-out), takže náklady rostou lineárně s počtem členů
 — `group_cipher.dart:15-34`.
 
+### Seznam zařízení (multi-device)
+
+Důvěra v další zařízení identity stojí na seznamu podepsaném primárním
+zařízením; server seznam jen ukládá a podle něj směruje, podpisy neověřuje.
+Kód: `src/client/calltype_core/lib/crypto/device_list.dart`,
+`src/client/calltype_core/lib/devices/device_directory.dart`. Návrh:
+`docs/superpowers/specs/2026-10-13-multi-device-sync-design.md`.
+
+| Co | Definice | Zdroj v kódu |
+|---|---|---|
+| Podpis seznamu | Ed25519 nad `"CallType-DeviceList-v1" \|\| 0x00 \|\| přesné bajty payloadu` (UTF-8 JSON), klíč = signing klíč primárního zařízení (`ct_signing_seed`) | `device_list.dart` (`signDeviceList`, `verifyDeviceList`) |
+| Souhlas zařízení | Ed25519 nad `"CallType-DeviceLink-v1" \|\| 0x00 \|\| UUID primárního (16 B) \|\| UUID companionu (16 B)`, klíč = signing klíč companionu | `device_list.dart` (`signDeviceLinkConsent`, `verifyDeviceLinkConsent`) |
+| Kořen důvěry | signing klíč primárního zařízení tak, jak je připnutý v `peer_identity:<deviceId>` (TOFU, beze změny) | `device_directory.dart` (`_signingKeyOf`) |
+| Ochrana proti rollbacku | `version` musí být větší než nejvyšší ověřená uložená v `known_device_lists`; znovu se kontroluje uvnitř zápisové transakce | `verifyDeviceList(minVersion)`, `DeviceDirectory._refresh` |
+| Tvar payloadu | ověří se podpis nad uloženými bajty, pak parsování a porovnání s kanonickým re-encodem (jinak `malformed`); UUID jen malými písmeny; max 16 KB, max 5 companionů | `verifyDeviceList`, `_canonicalUuid` |
+| Vazba souhlasu na zařízení | `consentSig` dokazuje jen to, že souhlasil klíč zapsaný v položce; zařízení se připíše identitě až po shodě `identityKey\|signingKey` s připnutými klíči (`assertListedKeys`, při zápisu seznamu i `listed_keys_mismatch`); bez připnutí selže (fail closed) | `DeviceDirectory.assertListedKeys`, `FanoutSender` |
+| Odmítnutí únosu | seznam musí týkat se dotazovaného zařízení (`unrelated_list`); seznam jmenující NAŠE zařízení musí nést naše klíče (`self_not_consented`); zařízení patřící jiné identitě se nepřesune (`device_claimed_by_other_identity`) | `DeviceDirectory._refresh` |
+| Obálky | šifrují se jen pro zařízení z ověřeného seznamu; server smí požadovat vynechání zařízení, ne přidání neověřeného (`server_requires_unverified_device`) | `fanout_sender.dart` |
+
+Meze (viz též sekci 4):
+- Server může aktualizaci seznamu zadržet nebo zpozdit; odebrání zařízení se
+  protějšku projeví při jeho příští `device_list_stale` odpovědi nebo refreshi.
+  Server nemůže přidat čtenáře.
+- Protějšky i server znají počet zařízení identity.
+- Webový companion drží klíče v úložišti prohlížeče (lokální DB není SQLCipher).
+- Žádný cross-signing: ztracené primární zařízení seznam nezmění.
+- První kontakt je TOFU jako dosud.
+- `LinkOffer` / `LinkConsent` na serveru nemají rate limit (uživatel potvrzuje
+  handle primárního zařízení, jde o obtěžování, ne převzetí).
+- Companion, který se přeinstaluje s novými klíči, je protějšky odmítán, dokud
+  se starý pin neresetuje.
+
 ## 3. Životní cyklus klíčů
 
 | Klíč | Generování | Úložiště / platforma | Rotace | Mazání |
@@ -118,6 +150,7 @@ rozsah tohoto dokumentu.
 | Group messaging bez Sender Keys | Odesílání do skupiny stojí O(počet členů) šifrování a serverových zpráv — funkční mez, ne bezpečnostní díra, ale je to zdokumentovaný kompromis v `group_cipher.dart`. |
 | Skipped-key limit (256/512) | Zprávy doručené s velkým zpožděním nebo mimo pořadí za hranicí limitu se stanou trvale nedešifrovatelnými. |
 | Žádná rotace signed pre-key ani identity key | Kompromitace dlouhodobého klíče není časově omezena rotací — jen ruční re-registrace zařízení. |
+| Multi-device: seznam zařízení podepisuje jen primární zařízení | Server může zadržet aktualizaci seznamu, počet zařízení je viditelný protějškům i serveru, bez cross-signingu nelze po ztrátě primárního zařízení seznam změnit. Podrobnosti v sekci 2, "Seznam zařízení". |
 
 ## 5. Mapování na doporučení NÚKIB pro kryptografické algoritmy
 

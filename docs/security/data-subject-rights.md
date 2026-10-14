@@ -17,6 +17,11 @@ Tři endpointy, žádné UI (klient zatím nemá tlačítko — jen server):
 - `Channel.FollowerCount` se o smazaná sledování sníží jedním hromadným
   UPDATE ve stejné transakci (viz komentář v `AppDbContext`), aby počítadlo
   po kaskádě `ChannelFollowers` nezůstalo vyšší, než je pravda.
+- Seznamy zařízení (`DeviceLists`, `DeviceListMembers`) - kaskádou z řádku
+  `Devices`: smazaný companion zmizí ze směrování, smazané primární zařízení
+  odstraní celý seznam (zbylé companiony pak server směruje jako samostatná
+  zařízení). Podepsaný payload, který si protějšky uložily lokálně
+  (`known_device_lists`), je mimo dosah serveru a nelze jej smazat na dálku.
 - Skupiny, které zařízení VYTVOŘILO (`Group.CreatedBy`), a kanály vlastněné
   přes JEHO účet zůstávají — vlastnictví kanálu je vázané na účet, ne na
   zařízení, a `CreatedBy` je jen informativní sloupec bez cizího klíče.
@@ -66,6 +71,10 @@ Vrací JSON se vším, co server o účtu drží:
 - `channelReportsFiled` — hlášení, která podala zařízení tohoto účtu
   (jinak se identita nahlašovatele nikde nevrací — tady je to vlastní údaj
   subjektu).
+- `deviceLists` - podepsané seznamy zařízení (multi-device), jejichž součástí
+  je některé zařízení účtu, jako primární i jako companion: `primaryDeviceId`,
+  `version`, `payload` (base64; ID a veřejné klíče zařízení), `updatedAt`.
+  Podpis se nevrací.
 - `queuedMessages.perDevice` — POUZE počet čekajících zpráv na zařízení,
   nikdy šifrovaný obsah (ten patří i druhé straně konverzace, která
   export nežádala).
