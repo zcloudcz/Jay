@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// FanoutHubTests.cs — multi-device fan-out and link relay on MessengerHub
+// FanoutHubTests.cs - multi-device fan-out and link relay on MessengerHub
 // ---------------------------------------------------------------------------
 // Device lists are seeded straight into the database: signature checking is
 // the clients' job, the hub only routes by the stored membership.
@@ -14,6 +14,8 @@ using Microsoft.Extensions.DependencyInjection;
 using CallType.Api.Data;
 using CallType.Api.Models;
 using CallType.Api.Tests.TestFixtures;
+using CallType.Audit.Domain;
+using CallType.Audit.Infrastructure;
 
 namespace CallType.Api.Tests.Hubs;
 
@@ -159,6 +161,136 @@ public class FanoutHubTests : IntegrationTestBase
         await hub.InvokeAsync("SendReliableGroupFanout", groupId, messageId, targets, Payloads(targets));
 
         (await QueuedForAsync(messageId)).Should().BeEquivalentTo(targets);
+    }
+
+    // Organization with RequireBusinessConversations and the given PRIMARY devices
+    // enrolled (companions are never enrolled, which is the point of the tests).
+    private async Task EnrollAsync(params Guid[] devices)
+    {
+        using var scope = Factory.Services.CreateScope();
+        var auditDb = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
+        var org = Organization.Create(Guid.NewGuid(), "Acme", Guid.NewGuid(), DateTimeOffset.UtcNow);
+        org.SetRequireBusinessConversations(true);
+        auditDb.Organizations.Add(org);
+        foreach (var device in devices)
+            auditDb.OrgEnrollments.Add(OrgEnrollment.Enroll(
+                new OrgInvite(Guid.NewGuid(), org.OrganizationId, Guid.NewGuid().ToString(), Guid.NewGuid(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(1)),
+                device, Guid.Empty, DateTimeOffset.UtcNow));
+        await auditDb.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Companion_of_an_enrolled_employee_cannot_fan_out_around_the_business_policy()
+    {
+        var aPhone = await RegisterAndAuthenticateAsync();
+        var aWeb = await RegisterAndAuthenticateAsync();
+        var bPhone = await RegisterAndAuthenticateAsync();
+        await LinkAsync(aPhone.DeviceId, aWeb.DeviceId);
+        await EnrollAsync(aPhone.DeviceId, bPhone.DeviceId);
+        await using var hub = Hub(aWeb.Token);
+        await hub.StartAsync();
+        var messageId = Guid.NewGuid();
+        var targets = new[] { bPhone.DeviceId, aPhone.DeviceId };
+
+        await FluentActions.Awaiting(() => hub.InvokeAsync(
+            "SendReliableDirectFanout", bPhone.DeviceId, messageId, targets, Payloads(targets)))
+            .Should().ThrowAsync<HubException>().WithMessage("*business_conversation_required*");
+
+        (await QueuedForAsync(messageId)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Companion_of_an_enrolled_employee_cannot_use_the_legacy_send_around_the_policy()
+    {
+        // The bypass being closed: OrgEnrollments holds primaries only, so
+        // the old methods saw a companion as an unenrolled outsider.
+        var aPhone = await RegisterAndAuthenticateAsync();
+        var aWeb = await RegisterAndAuthenticateAsync();
+        var bPhone = await RegisterAndAuthenticateAsync();
+        await LinkAsync(aPhone.DeviceId, aWeb.DeviceId);
+        await EnrollAsync(aPhone.DeviceId, bPhone.DeviceId);
+        await using var hub = Hub(aWeb.Token);
+        await hub.StartAsync();
+        var messageId = Guid.NewGuid();
+
+        await FluentActions.Awaiting(() => hub.InvokeAsync(
+            "SendReliableMessage", bPhone.DeviceId, messageId, Body))
+            .Should().ThrowAsync<HubException>().WithMessage("*business_conversation_required*");
+
+        (await QueuedForAsync(messageId)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Group_fanout_is_refused_in_a_business_group()
+    {
+        var aPhone = await RegisterAndAuthenticateAsync();
+        var bPhone = await RegisterAndAuthenticateAsync();
+        var groupId = Guid.NewGuid();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Groups.Add(new Group { GroupId = groupId, CreatedBy = aPhone.DeviceId, CreatedAt = DateTimeOffset.UtcNow, OrganizationId = Guid.NewGuid() });
+            db.GroupMembers.Add(new GroupMember { GroupId = groupId, DeviceId = aPhone.DeviceId, Role = "admin", JoinedAt = DateTimeOffset.UtcNow });
+            db.GroupMembers.Add(new GroupMember { GroupId = groupId, DeviceId = bPhone.DeviceId, Role = "member", JoinedAt = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync();
+        }
+        await using var hub = Hub(aPhone.Token);
+        await hub.StartAsync();
+        var messageId = Guid.NewGuid();
+        var targets = new[] { bPhone.DeviceId };
+
+        await FluentActions.Awaiting(() => hub.InvokeAsync(
+            "SendReliableGroupFanout", groupId, messageId, targets, Payloads(targets)))
+            .Should().ThrowAsync<HubException>().WithMessage("*fanout_unsupported_in_business_group*");
+
+        (await QueuedForAsync(messageId)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Companion_whose_primary_is_not_a_group_member_is_rejected()
+    {
+        var aPhone = await RegisterAndAuthenticateAsync();
+        var aWeb = await RegisterAndAuthenticateAsync();
+        var bPhone = await RegisterAndAuthenticateAsync();
+        await LinkAsync(aPhone.DeviceId, aWeb.DeviceId);
+        var groupId = Guid.NewGuid();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Groups.Add(new Group { GroupId = groupId, CreatedBy = bPhone.DeviceId, CreatedAt = DateTimeOffset.UtcNow });
+            db.GroupMembers.Add(new GroupMember { GroupId = groupId, DeviceId = bPhone.DeviceId, Role = "admin", JoinedAt = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync();
+        }
+        await using var hub = Hub(aWeb.Token);
+        await hub.StartAsync();
+        var messageId = Guid.NewGuid();
+        var targets = new[] { bPhone.DeviceId };
+
+        await FluentActions.Awaiting(() => hub.InvokeAsync(
+            "SendReliableGroupFanout", groupId, messageId, targets, Payloads(targets)))
+            .Should().ThrowAsync<HubException>().WithMessage("*group members*");
+
+        (await QueuedForAsync(messageId)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task One_invalid_payload_queues_nothing_for_the_other_devices()
+    {
+        var a = await RegisterAndAuthenticateAsync();
+        var bPhone = await RegisterAndAuthenticateAsync();
+        var bWeb = await RegisterAndAuthenticateAsync();
+        await LinkAsync(bPhone.DeviceId, bWeb.DeviceId);
+        await using var hub = Hub(a.Token);
+        await hub.StartAsync();
+        var messageId = Guid.NewGuid();
+        var all = new[] { bPhone.DeviceId, bWeb.DeviceId };
+        var payloads = new Dictionary<Guid, string> { [bPhone.DeviceId] = Body, [bWeb.DeviceId] = "not base64!!" };
+
+        await FluentActions.Awaiting(() => hub.InvokeAsync(
+            "SendReliableDirectFanout", bPhone.DeviceId, messageId, all, payloads))
+            .Should().ThrowAsync<HubException>();
+
+        (await QueuedForAsync(messageId)).Should().BeEmpty();
     }
 
     [Fact]

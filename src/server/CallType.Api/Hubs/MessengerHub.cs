@@ -234,8 +234,10 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads)
     {
         required.Remove(sender);
+        // Own error text: this cap counts DEVICES (companions included), so the
+        // group-message wording "maximum member count" would mislead.
         if (required.Count > 256)
-            throw new HubException("Group message exceeds maximum member count");
+            throw new HubException("fanout_too_many_devices");
         // Completeness is checked on the declared set, not on the payloads of
         // this call: an attachment for several devices does not fit one 1 MiB
         // frame, so a client may split the payloads over several calls.

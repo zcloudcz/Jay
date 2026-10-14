@@ -37,7 +37,8 @@ public class OrgCommunicationPolicy(
     AuditDbContext auditDb,
     BusinessModeOptions businessMode,
     IMemoryCache cache,
-    IOptions<BusinessOptions> options)
+    IOptions<BusinessOptions> options,
+    DeviceListService deviceLists)
 {
     /// <summary>
     /// True when deviceA and deviceB may talk outside a business conversation
@@ -48,6 +49,14 @@ public class OrgCommunicationPolicy(
     public async Task<bool> IsAllowedAsync(Guid deviceA, Guid deviceB, CancellationToken ct)
     {
         if (!businessMode.Enabled) return true;
+
+        // Enrollment belongs to the PRIMARY device; a companion is never in
+        // OrgEnrollments. Companions inherit the rules of their identity, so
+        // map both sides here: every caller (legacy and fan-out) is covered
+        // without touching them, and no companion can step around
+        // RequireBusinessConversations.
+        deviceA = await deviceLists.PrimaryOfAsync(deviceA, ct);
+        deviceB = await deviceLists.PrimaryOfAsync(deviceB, ct);
         if (deviceA == deviceB) return true;
 
         // Order-independent cache key — the pair means the same thing either way.
