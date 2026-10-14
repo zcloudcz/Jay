@@ -311,8 +311,10 @@ public class FanoutHubTests : IntegrationTestBase
 
         await webHub.StartAsync();
         await phoneHub.InvokeAsync("LinkOffer", web.DeviceId);
-        (await offer.Task.WaitAsync(TimeSpan.FromSeconds(5)))
-            .GetProperty("primaryDeviceId").GetGuid().Should().Be(phone.DeviceId);
+        var offered = await offer.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        offered.GetProperty("primaryDeviceId").GetGuid().Should().Be(phone.DeviceId);
+        // Looked up by the server, so the new device can show whose phone asks.
+        offered.GetProperty("userHandle").GetString().Should().Be(phone.UserHandle);
 
         await webHub.InvokeAsync("LinkConsent", phone.DeviceId, "c2ln");
         var received = await consent.Task.WaitAsync(TimeSpan.FromSeconds(5));

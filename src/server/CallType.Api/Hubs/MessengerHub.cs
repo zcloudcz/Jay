@@ -271,8 +271,13 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         var caller = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
         if (!OnlineDevices.TryGetValue(targetDeviceId, out var connectionId))
             throw new HubException("link_target_offline");
+        // The new device asks "Link to <handle>?" and the user compares it with
+        // the phone in their hand. Looked up here instead of sent by the caller,
+        // so another user cannot put somebody else's handle on an offer.
+        var userHandle = await db.Devices.Where(d => d.DeviceId == caller)
+            .Select(d => d.UserHandle).SingleOrDefaultAsync(Context.ConnectionAborted);
         await Clients.Client(connectionId).SendAsync("LinkOffer",
-            new { primaryDeviceId = caller }, Context.ConnectionAborted);
+            new { primaryDeviceId = caller, userHandle }, Context.ConnectionAborted);
     }
 
     public async Task LinkConsent(Guid primaryDeviceId, string consentSig)

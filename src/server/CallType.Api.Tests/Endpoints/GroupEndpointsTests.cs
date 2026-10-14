@@ -3,6 +3,9 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using CallType.Api.Data;
+using CallType.Api.Models;
 using CallType.Api.Tests.TestFixtures;
 
 namespace CallType.Api.Tests.Endpoints;
@@ -14,6 +17,73 @@ public class GroupEndpointsTests : IntegrationTestBase
         var response = await Client.PostAsJsonAsync("/groups", new { memberDeviceIds = members });
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("groupId").GetGuid();
+    }
+
+    private HttpClient As(string token)
+    {
+        var client = Factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client;
+    }
+
+    /// <summary>
+    /// Seeded straight into the database, like FanoutHubTests: signatures are
+    /// the clients' business, the server only routes by membership.
+    /// </summary>
+    private async Task LinkAsync(Guid primary, Guid companion)
+    {
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.DeviceLists.Add(new DeviceList
+        {
+            PrimaryDeviceId = primary, Version = 1, Payload = [1], Signature = new byte[64],
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Members = [new DeviceListMember { DeviceId = companion, PrimaryDeviceId = primary }]
+        });
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task A_companion_reads_the_groups_of_its_identity_but_cannot_change_them()
+    {
+        var phone = await RegisterAndAuthenticateAsync();
+        var web = await RegisterAndAuthenticateAsync();
+        var other = await RegisterAndAuthenticateAsync();
+        var stranger = await RegisterAndAuthenticateAsync();
+        await LinkAsync(phone.DeviceId, web.DeviceId);
+        var created = await As(phone.Token).PostAsJsonAsync("/groups", new { memberDeviceIds = new[] { other.DeviceId } });
+        created.StatusCode.Should().Be(HttpStatusCode.Created);
+        var group = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("groupId").GetGuid();
+
+        var companion = As(web.Token);
+        (await companion.GetAsync($"/groups/{group}")).StatusCode.Should().Be(HttpStatusCode.OK);
+        var members = await companion.GetFromJsonAsync<JsonElement>($"/groups/{group}/members");
+        members.EnumerateArray().Select(m => m.GetProperty("deviceId").GetGuid())
+            .Should().BeEquivalentTo(new[] { phone.DeviceId, other.DeviceId });
+
+        // Membership changes stay with the member device itself (the primary).
+        (await companion.PutAsJsonAsync($"/groups/{group}/members", new { deviceId = stranger.DeviceId }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await companion.DeleteAsync($"/groups/{group}/members/{other.DeviceId}"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        // A device outside the group still reads nothing.
+        (await As(stranger.Token).GetAsync($"/groups/{group}/members"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_companion_cannot_create_a_group()
+    {
+        var phone = await RegisterAndAuthenticateAsync();
+        var web = await RegisterAndAuthenticateAsync();
+        var other = await RegisterAndAuthenticateAsync();
+        await LinkAsync(phone.DeviceId, web.DeviceId);
+
+        var response = await As(web.Token).PostAsJsonAsync("/groups", new { memberDeviceIds = new[] { other.DeviceId } });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString()
+            .Should().Be("companion_cannot_manage_groups");
     }
 
     [Fact]
