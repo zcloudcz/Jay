@@ -43,6 +43,13 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
     // but we need the connection map to survive across all instances.
     private static readonly ConcurrentDictionary<Guid, string> OnlineDevices = new();
 
+    /// <summary>
+    /// Lets REST endpoints push an event to a device that is connected right
+    /// now (device list changes). Read-only view of the connection map.
+    /// </summary>
+    internal static bool TryGetConnection(Guid deviceId, out string connectionId) =>
+        OnlineDevices.TryGetValue(deviceId, out connectionId!);
+
 
     public override async Task OnConnectedAsync()
     {

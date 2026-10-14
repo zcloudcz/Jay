@@ -419,6 +419,46 @@ namespace CallType.Api.Migrations
                     b.ToTable("Devices");
                 });
 
+            modelBuilder.Entity("CallType.Api.Models.DeviceList", b =>
+                {
+                    b.Property<Guid>("PrimaryDeviceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<byte[]>("Payload")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<byte[]>("Signature")
+                        .IsRequired()
+                        .HasColumnType("bytea");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.HasKey("PrimaryDeviceId");
+
+                    b.ToTable("DeviceLists");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.DeviceListMember", b =>
+                {
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PrimaryDeviceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("DeviceId");
+
+                    b.HasIndex("PrimaryDeviceId");
+
+                    b.ToTable("DeviceListMembers");
+                });
+
             modelBuilder.Entity("CallType.Api.Models.Group", b =>
                 {
                     b.Property<Guid>("GroupId")
@@ -694,6 +734,30 @@ namespace CallType.Api.Migrations
                     b.Navigation("Channel");
                 });
 
+            modelBuilder.Entity("CallType.Api.Models.DeviceList", b =>
+                {
+                    b.HasOne("CallType.Api.Models.Device", null)
+                        .WithOne()
+                        .HasForeignKey("CallType.Api.Models.DeviceList", "PrimaryDeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.DeviceListMember", b =>
+                {
+                    b.HasOne("CallType.Api.Models.Device", null)
+                        .WithOne()
+                        .HasForeignKey("CallType.Api.Models.DeviceListMember", "DeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CallType.Api.Models.DeviceList", null)
+                        .WithMany("Members")
+                        .HasForeignKey("PrimaryDeviceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("CallType.Api.Models.GroupMember", b =>
                 {
                     b.HasOne("CallType.Api.Models.Device", "Device")
@@ -752,6 +816,11 @@ namespace CallType.Api.Migrations
                     b.Navigation("GroupMemberships");
 
                     b.Navigation("OneTimePreKeys");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.DeviceList", b =>
+                {
+                    b.Navigation("Members");
                 });
 
             modelBuilder.Entity("CallType.Api.Models.Group", b =>
