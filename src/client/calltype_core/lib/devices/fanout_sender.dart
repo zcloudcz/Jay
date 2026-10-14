@@ -61,13 +61,25 @@ class FanoutSender {
       for (final e in envelopes.entries)
         if (required.contains(e.key)) e.key: e.value,
     };
-    // Always re-read, even when the answer only drops devices: any stale
-    // answer means our view differs from the hub's, and refreshing makes a
-    // removal take effect on our side too, not only on an honest server.
-    await _refresh(identityIds);
     final missing = required.difference(kept.keys.toSet());
-    if (missing.isEmpty) return kept;
+    // Refresh only what differs between the hub's view and ours, otherwise a
+    // 100-member group would spend the API's per-device request budget on one
+    // reconcile. (a) Owners of devices we sent that the hub dropped: refreshing
+    // makes the removal take effect on our side too, not only on an honest
+    // server. (b) Required devices we cannot verify yet, by their own id (the
+    // directory resolves it to the identity's list).
+    final verifiedBefore = (await _directory.fanoutTargets(identityIds)).toSet();
+    final toRefresh = <String>{
+      for (final d in envelopes.keys.toSet().difference(required))
+        await _directory.identityOf(d),
+      ...required.difference(verifiedBefore),
+    };
+    await _refresh(toRefresh);
     final verified = (await _directory.fanoutTargets(identityIds)).toSet();
+    // A kept device the refresh just showed as removed must not get the copy:
+    // its envelope was made from an older list than the one we now trust.
+    kept.removeWhere((device, _) => !verified.contains(device));
+    if (missing.isEmpty) return kept;
     if (!verified.containsAll(missing)) {
       throw const DeviceListException('server_requires_unverified_device');
     }
@@ -77,15 +89,16 @@ class FanoutSender {
     return kept;
   }
 
-  Future<void> _refresh(Iterable<String> identityIds) async {
-    for (final id in {...identityIds, _directory.selfIdentityId}) {
+  Future<void> _refresh(Iterable<String> deviceIds) async {
+    for (final id in deviceIds) {
       try {
         await _directory.refresh(id, ensurePinned: _ensureSession);
-      } on DeviceListException {
-        // A bad list for Carol must not block a group send whose missing
-        // device belongs to Bob. A failed refresh leaves the verified state
-        // untouched; a required device that stays unverified is still
-        // refused by the final check in reconcile.
+      } catch (_) {
+        // Any failure (a bad list, a 429/5xx or network error, a session that
+        // cannot start) must not block a group send whose missing device
+        // belongs to someone else. A failed refresh leaves the verified state
+        // untouched; a required device that stays unverified is still refused
+        // by the final check in reconcile.
       }
     }
   }

@@ -29,8 +29,19 @@ class ServerApi extends ApiClient {
   @override
   Future<Map<String, dynamic>?> getDeviceList(String deviceId) async {
     onGetDeviceList?.call(deviceId);
-    return served[deviceId];
+    if (failFor.contains(deviceId)) throw StateError('network down');
+    // Like the real endpoint: any device id of a list answers with that list.
+    return served[deviceId] ??
+        served.values.cast<Map<String, dynamic>?>().firstWhere(
+          (l) => parseDeviceListPayload(
+            l!['payload'] as String,
+          ).devices.any((d) => d.deviceId == deviceId),
+          orElse: () => null,
+        );
   }
+
+  /// Device ids whose list fetch fails with a non-list error.
+  final failFor = <String>{};
 
   /// Lets a test count list fetches.
   void Function(String)? onGetDeviceList;
@@ -338,5 +349,52 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('stale: a failing refresh for another identity does not block Bob',
+      () async {
+    await serveBobList(1, []);
+    final first = await sender.encrypt([bob, carol], payload);
+    await serveBobList(2, [bobWeb]);
+    // The hub dropped rogue's envelope; refreshing its owner hits a network error.
+    api.failFor.add(rogue);
+    final fixed = await sender.reconcile(
+      envelopes: {...first, rogue: 'x'},
+      required: {bob, bobWeb, carol},
+      identityIds: [bob, carol],
+      payload: payload,
+    );
+    expect(fixed.keys, unorderedEquals([bob, bobWeb, carol]));
+  });
+
+  test('stale: only the identity that differs is fetched', () async {
+    await serveBobList(1, []);
+    final first = await sender.encrypt([bob, carol, rogue], payload);
+    await serveBobList(2, [bobWeb]);
+    final fetched = <String>[];
+    api.onGetDeviceList = fetched.add;
+    await sender.reconcile(
+      envelopes: first,
+      required: {bob, bobWeb, carol, rogue},
+      identityIds: [bob, carol, rogue],
+      payload: payload,
+    );
+    // One fetch (by bobWeb's id, answered with Bob's list); none for Carol/rogue.
+    expect(fetched, [bobWeb]);
+  });
+
+  test('stale: a kept device removed by the refreshed list gets no copy',
+      () async {
+    await serveBobList(1, [bobWeb, rogue]);
+    final first = await sendThenReconcile([bob], {bob, bobWeb, rogue});
+    await serveBobList(2, []); // Bob revoked both
+    // The hub dropped rogue only; bobWeb is kept but the refresh removes it.
+    final fixed = await sender.reconcile(
+      envelopes: first,
+      required: {bob, bobWeb},
+      identityIds: [bob],
+      payload: payload,
+    );
+    expect(fixed.keys, [bob]);
   });
 }
