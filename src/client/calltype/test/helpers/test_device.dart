@@ -53,6 +53,8 @@ class TestDevice {
     return device;
   }
 
+  var _servedOneTimeKeys = 0;
+
   /// Builds the key bundle the server would serve for this device,
   /// consuming one one-time pre-key like the real endpoint does.
   Future<Map<String, dynamic>> keyBundle({bool includeOneTime = true}) async {
@@ -62,8 +64,11 @@ class TestDevice {
     Map<String, dynamic>? oneTime;
     if (includeOneTime) {
       final all = await keys.getOrCreateOneTimePreKeys();
-      final first = all.first;
-      oneTime = {'keyId': first['keyId'], 'publicKey': first['publicKey']};
+      // A different key per fetch, like the server: two initiators that got
+      // the same one would break the second one's first message, because the
+      // receiver deletes the private half when the first one arrives.
+      final next = all[_servedOneTimeKeys++ % all.length];
+      oneTime = {'keyId': next['keyId'], 'publicKey': next['publicKey']};
     }
 
     return {

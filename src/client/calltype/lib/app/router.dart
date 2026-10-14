@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
@@ -129,6 +131,7 @@ final router = GoRouter(
             // via ChangeNotifierProvider).
             return ChangeNotifierProvider(
               create: (ctx) {
+                final devices = ctx.read<DeviceService>();
                 final controller = ChatController(
                   database: ctx.read<AppDatabase>(),
                   signalRClient: ctx.read<SignalRClient>(),
@@ -136,7 +139,22 @@ final router = GoRouter(
                   inbox: ctx.read<MessageInboxService>(),
                   apiClient: ctx.read<ApiClient>(),
                   conversationId: id,
-                  directory: ctx.read<DeviceService>().directory,
+                  directory: devices.directory,
+                  // Fire-and-forget: this runs inside the processing queue and
+                  // must never wait for a queue job. The server's stale answer
+                  // is only a hint; reportVanishedCompanions records it and
+                  // the user decides (it never re-signs on its own).
+                  onStale: (required) => unawaited(() async {
+                    final wanted = {for (final d in required) d.toLowerCase()};
+                    // devicesOf lists the primary first; only its companions
+                    // can have vanished.
+                    final own = await devices.directory.devicesOf(
+                      devices.directory.selfDeviceId,
+                    );
+                    await devices.reportVanishedCompanions(
+                      own.skip(1).where((d) => !wanted.contains(d)),
+                    );
+                  }()),
                 );
                 // Forward: the message to forward arrives as route `extra`.
                 // `create` runs once per route, so it is sent exactly once,

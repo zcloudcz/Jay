@@ -1,4 +1,7 @@
 import 'package:calltype_core/devices/device_directory.dart';
+import 'package:calltype_core/devices/fanout_sender.dart';
+import 'package:calltype_core/network/signalr_client.dart' as core
+    show SignalRClient;
 import 'dart:async';
 import 'dart:convert';
 
@@ -32,11 +35,20 @@ class ChatController extends ChangeNotifier {
     required ApiClient apiClient,
     required this.conversationId,
     required DeviceDirectory directory,
+    void Function(Set<String> required)? onStale,
   }) : _db = database,
        _signalR = signalRClient,
        _sessions = sessionManager,
        _api = apiClient,
-       _directory = directory {
+       _directory = directory,
+       // Stateless apart from these references, so each chat builds its own
+       // instead of sharing one through the provider tree.
+       _fanout = FanoutSender(
+         directory: directory,
+         sessions: sessionManager,
+         apiClient: apiClient,
+       ),
+       _onStale = onStale {
     _subscription =
         (_db.select(_db.messages)
               ..where((m) => m.conversationId.equals(conversationId))
@@ -143,6 +155,18 @@ class ChatController extends ChangeNotifier {
 
   /// v1: a companion has no calls and no business conversations.
   bool get isCompanion => _directory.isCompanion;
+
+  final FanoutSender _fanout;
+
+  /// Told about every `device_list_stale` answer (the primary reports a
+  /// companion the server no longer knows, constraint 5). Must not await
+  /// anything that runs in MessageProcessingQueue: it is called from inside it.
+  final void Function(Set<String> required)? _onStale;
+
+  /// Rounds of "send; on device_list_stale repair the envelopes and resend".
+  /// Bounded: a server that keeps answering stale produces a visible failure,
+  /// not a loop.
+  static const _maxFanoutRounds = 3;
   late StreamSubscription<List<Message>> _subscription;
   late StreamSubscription<Message> _incoming;
   bool _disposed = false;
@@ -415,6 +439,13 @@ class ChatController extends ChangeNotifier {
           _db.conversations,
         )..where((c) => c.id.equals(conversationId))).getSingle();
         final groupId = conversation.type == 'group' ? conversationId : null;
+        // Business conversations stay on the per-member group call from the
+        // primary: KB2 auditor rules are defined over member devices and the
+        // hub refuses fan-out there. v1 keeps companions out of them.
+        final business = conversation.organizationId != null;
+        if (business && isCompanion) {
+          throw StateError('Business conversations are primary-only in v1.');
+        }
         final recipients = groupId == null
             ? [conversationId]
             : (await _api.getGroupMembers(
@@ -431,6 +462,9 @@ class ChatController extends ChangeNotifier {
           'groupId': groupId,
           'groupName': groupId == null ? null : conversation.title,
           'createdAt': message.createdAt.toUtc().toIso8601String(),
+          // Multi-device: our OTHER devices get a copy too, and only this
+          // says which direct conversation it belongs to (constraint 4).
+          if (groupId == null) 'to': conversationId,
           // Additive keys: old clients ignore them and show a normal message.
           if (message.replyToId != null)
             'replyTo': {
@@ -441,31 +475,33 @@ class ChatController extends ChangeNotifier {
           if (message.forwarded) 'forwarded': true,
         });
         await _db.transaction(() async {
-          final envelopes = <String, String>{};
-          if (groupId != null) {
+          final Map<String, String> envelopes;
+          if (business) {
             final encrypted = await GroupCipher(
               sessionManager: _sessions,
               ensureSession: _ensureSession,
-            ).encryptForGroup(groupId, recipients, payload);
-            envelopes.addAll(
-              encrypted.map((id, bytes) => MapEntry(id, base64Encode(bytes))),
+            ).encryptForGroup(groupId!, recipients, payload);
+            envelopes = encrypted.map(
+              (id, bytes) => MapEntry(id, base64Encode(bytes)),
             );
           } else {
-            await _ensureSession(conversationId);
-            envelopes[conversationId] = base64Encode(
-              utf8.encode(
-                await _sessions.encryptMessage(conversationId, payload),
-              ),
-            );
+            // One envelope per VERIFIED device of the recipients and of our
+            // own identity, from stored lists only (no fetch per message).
+            envelopes = await _fanout.encrypt(recipients, payload);
           }
           await _db
               .into(_db.backupState)
               .insert(
                 BackupStateCompanion.insert(
                   key: 'outbox:$messageId',
+                  // Recipients and the exact payload are kept for a stale
+                  // answer: a missing device gets a new envelope while every
+                  // existing one is resent byte for byte.
                   value: jsonEncode({
                     'groupId': groupId,
                     'envelopes': envelopes,
+                    if (!business)
+                      'fanout': {'identityIds': recipients, 'payload': payload},
                   }),
                 ),
               );
@@ -478,7 +514,9 @@ class ChatController extends ChangeNotifier {
       final envelopes = (outbox['envelopes'] as Map<String, dynamic>)
           .cast<String, String>();
       final groupId = outbox['groupId'] as String?;
-      if (groupId != null) {
+      if (outbox['fanout'] != null) {
+        await _sendFanout(messageId, outbox, envelopes);
+      } else if (groupId != null) {
         // The whole fan-out in one call (see sendGroupMessage): a business
         // group rejects any call without the auditor's envelope (KB2).
         await _signalR.sendGroupMessage(
@@ -487,6 +525,8 @@ class ChatController extends ChangeNotifier {
           messageId: messageId,
         );
       } else {
+        // An outbox written before multi-device (one envelope for the peer):
+        // finish it the old way rather than encrypting again.
         await _signalR.sendMessage(
           envelopes.keys.single,
           envelopes.values.single,
@@ -517,6 +557,111 @@ class ChatController extends ChangeNotifier {
       await _status(messageId, 'failed');
     }
   });
+
+  /// Sends a fan-out outbox; on `device_list_stale` lets FanoutSender repair
+  /// the envelopes (new devices get one, removed devices lose theirs, the
+  /// rest stays byte for byte) and persists them before the next round.
+  Future<void> _sendFanout(
+    String messageId,
+    Map<String, dynamic> outbox,
+    Map<String, String> envelopes,
+  ) async {
+    final groupId = outbox['groupId'] as String?;
+    final fanout = outbox['fanout'] as Map<String, dynamic>;
+    final identityIds = (fanout['identityIds'] as List).cast<String>();
+    final payload = fanout['payload'] as String;
+    var current = envelopes;
+    for (var round = 1; ; round++) {
+      try {
+        if (groupId == null) {
+          await _signalR.sendDirectFanout(
+            identityIds.single,
+            current,
+            messageId: messageId,
+          );
+        } else {
+          await _signalR.sendGroupFanout(
+            groupId,
+            current,
+            messageId: messageId,
+          );
+        }
+        return;
+      } catch (e) {
+        if (groupId != null &&
+            e.toString().contains('fanout_unsupported_in_business_group')) {
+          await _sendBusinessFallback(messageId, groupId, payload);
+          return;
+        }
+        final required = core.SignalRClient.staleRequired(e);
+        if (required == null || round == _maxFanoutRounds) rethrow;
+        _onStale?.call(required);
+        // Deliberately NOT inside a database transaction: reconcile refreshes
+        // device lists, DeviceDirectory serializes its refreshes, and a
+        // transaction held across that could wait for a refresh that waits
+        // for the database. A crash in between only loses envelopes nobody
+        // has received; encrypting those again is harmless.
+        current = await _fanout.reconcile(
+          envelopes: current,
+          required: required,
+          identityIds: identityIds,
+          payload: payload,
+        );
+        await (_db.update(_db.backupState)
+              ..where((s) => s.key.equals('outbox:$messageId')))
+            .write(
+              BackupStateCompanion(
+                value: Value(jsonEncode({...outbox, 'envelopes': current})),
+              ),
+            );
+      }
+    }
+  }
+
+  /// The hub says this group is a business group, but the local cache did
+  /// not know yet (it is filled asynchronously when the chat opens). Finish
+  /// the SAME send attempt on the business path instead of failing: same
+  /// messageId, one envelope per member from the server's member list (the
+  /// auditor included, KB2), one sendGroupMessage call. The refused fan-out
+  /// call queued nothing, so encrypting again only skips a ratchet step.
+  Future<void> _sendBusinessFallback(
+    String messageId,
+    String groupId,
+    String payload,
+  ) async {
+    // v1: business conversations are primary-only (decision 2).
+    if (isCompanion) {
+      throw StateError('Business conversations are primary-only in v1.');
+    }
+    // Fills the cached organizationId, so the next send goes straight to the
+    // business path (and the banner appears).
+    await _syncBusinessInfo();
+    final recipients = (await _api.getGroupMembers(
+      groupId,
+    )).where((id) => id != myIdentityId).toList();
+    final envelopes = <String, String>{};
+    await _db.transaction(() async {
+      final encrypted = await GroupCipher(
+        sessionManager: _sessions,
+        ensureSession: _ensureSession,
+      ).encryptForGroup(groupId, recipients, payload);
+      envelopes.addAll(
+        encrypted.map((id, bytes) => MapEntry(id, base64Encode(bytes))),
+      );
+      // The outbox becomes a business outbox: a retry after a failed call
+      // below resends these exact envelopes through the business branch.
+      await (_db.update(_db.backupState)
+            ..where((s) => s.key.equals('outbox:$messageId')))
+          .write(
+            BackupStateCompanion(
+              value: Value(
+                jsonEncode({'groupId': groupId, 'envelopes': envelopes}),
+              ),
+            ),
+          );
+    });
+    await _signalR.sendGroupMessage(groupId, envelopes, messageId: messageId);
+  }
 
   Future<void> _status(String id, String status) =>
       (_db.update(_db.messages)..where((m) => m.id.equals(id)))

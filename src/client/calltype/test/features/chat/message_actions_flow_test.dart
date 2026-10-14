@@ -80,6 +80,39 @@ class _Transport extends SignalRClient {
     String? messageId,
   }) async {
     sent.add(Map.of(encryptedPayloads));
+    sentIds.add(messageId);
+    if (fail) throw StateError('offline');
+  }
+
+  /// Plays a hub that knows the group is a business group (the client's
+  /// cache does not yet): group fan-out is refused, nothing is queued.
+  bool refuseGroupFanout = false;
+  var refusedGroupFanouts = 0;
+  final sentIds = <String?>[];
+
+  @override
+  Future<void> sendDirectFanout(
+    String recipientIdentityId,
+    Map<String, String> encryptedPayloads, {
+    required String messageId,
+  }) async {
+    sent.add(Map.of(encryptedPayloads));
+    sentIds.add(messageId);
+    if (fail) throw StateError('offline');
+  }
+
+  @override
+  Future<void> sendGroupFanout(
+    String groupId,
+    Map<String, String> encryptedPayloads, {
+    required String messageId,
+  }) async {
+    if (refuseGroupFanout) {
+      refusedGroupFanouts++;
+      throw StateError('HubException: fanout_unsupported_in_business_group');
+    }
+    sent.add(Map.of(encryptedPayloads));
+    sentIds.add(messageId);
     if (fail) throw StateError('offline');
   }
 }
@@ -469,6 +502,37 @@ void main() {
           )..where((s) => s.key.like('outbox:%'))).get(),
           isEmpty,
         );
+      },
+    );
+
+    test(
+      'a business group the cache does not know yet still sends, in the same attempt',
+      () async {
+        // The chat opens while the server still answers "anonymous", so the
+        // cached organizationId stays empty: the cold-cache case.
+        await setUpChat(id: 'biz', type: 'group');
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        _infoMode = 'business';
+        transport.refuseGroupFanout = true;
+
+        await controller.sendMessage('terms');
+
+        final message = await alice.db.select(alice.db.messages).getSingle();
+        expect(message.status, 'sent');
+        expect(transport.refusedGroupFanouts, 1);
+        // One business call with the SAME message id, one envelope per member
+        // the server lists (here: bob).
+        expect(transport.sent.single.keys, ['bob']);
+        expect(transport.sentIds.single, message.id);
+        final conversation = await (alice.db.select(
+          alice.db.conversations,
+        )..where((c) => c.id.equals('biz'))).getSingle();
+        expect(conversation.organizationId, 'org');
+
+        // The warm cache sends the next message straight to the business path.
+        await controller.sendMessage('more terms');
+        expect(transport.refusedGroupFanouts, 1);
+        expect(transport.sent, hasLength(2));
       },
     );
 
