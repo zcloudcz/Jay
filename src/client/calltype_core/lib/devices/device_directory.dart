@@ -43,16 +43,29 @@ class DeviceDirectory {
   DeviceDirectory({
     required AppDatabase database,
     required ApiClient apiClient,
-    required this.selfDeviceId,
+    required String selfDeviceId,
     required Future<String> Function() selfSigningKey,
+    required Future<String> Function() selfIdentityKey,
   }) : _db = database,
        _api = apiClient,
        _selfSigningKey = selfSigningKey,
-       _selfIdentityId = selfDeviceId;
+       _selfIdentityKey = selfIdentityKey,
+       // Ids are compared as strings everywhere below and the codec only
+       // accepts lowercase, so a differently-cased id would never match.
+       selfDeviceId = selfDeviceId.toLowerCase(),
+       _selfIdentityId = selfDeviceId.toLowerCase();
 
   final AppDatabase _db;
   final ApiClient _api;
   final Future<String> Function() _selfSigningKey;
+
+  /// Base64 public X25519 identity key of this device (callers pass
+  /// `keyManager.getPublicIdentityKey`).
+  final Future<String> Function() _selfIdentityKey;
+
+  /// Serializes [refresh]: two overlapping refreshes (push event plus manual
+  /// pull) must not interleave their read-verify-write steps.
+  Future<void> _tail = Future.value();
 
   /// The transport address of this device (hub connection, sessions).
   final String selfDeviceId;
@@ -70,6 +83,7 @@ class DeviceDirectory {
   }
 
   Future<String> identityOf(String deviceId) async {
+    deviceId = deviceId.toLowerCase();
     final row = await (_db.select(
       _db.knownDeviceListMembers,
     )..where((m) => m.deviceId.equals(deviceId))).getSingleOrNull();
@@ -78,6 +92,7 @@ class DeviceDirectory {
 
   /// The primary first, then its verified companions.
   Future<List<String>> devicesOf(String identityId) async {
+    identityId = identityId.toLowerCase();
     final rows = await (_db.select(
       _db.knownDeviceListMembers,
     )..where((m) => m.primaryDeviceId.equals(identityId))).get();
@@ -88,7 +103,10 @@ class DeviceDirectory {
   /// their devices plus our own other devices (so they see what we sent).
   Future<List<String>> fanoutTargets(Iterable<String> identityIds) async {
     final targets = <String>{};
-    for (final id in {...identityIds, _selfIdentityId}) {
+    for (final id in {
+      ...identityIds.map((i) => i.toLowerCase()),
+      _selfIdentityId,
+    }) {
       targets.addAll(await devicesOf(id));
     }
     targets.remove(selfDeviceId);
@@ -110,7 +128,18 @@ class DeviceDirectory {
   Future<DeviceListChange?> refresh(
     String deviceId, {
     required Future<void> Function(String primaryDeviceId) ensurePinned,
-  }) async {
+  }) {
+    final run = _tail.then((_) => _refresh(deviceId, ensurePinned));
+    // The chain survives a failed refresh; the caller still gets the error.
+    _tail = run.then((_) {}, onError: (_) {});
+    return run;
+  }
+
+  Future<DeviceListChange?> _refresh(
+    String deviceId,
+    Future<void> Function(String primaryDeviceId) ensurePinned,
+  ) async {
+    deviceId = deviceId.toLowerCase();
     final raw = await _api.getDeviceList(deviceId);
     if (raw == null) return null;
     final primary = (raw['primaryDeviceId'] as String).toLowerCase();
@@ -134,7 +163,37 @@ class DeviceDirectory {
     );
     final before = (await devicesOf(primary)).toSet()..remove(primary);
     final after = list.devices.map((d) => d.deviceId).toSet();
+    // Being listed makes THIS device a companion, so the list must carry our
+    // real keys. The entry's own consent signature proves nothing about us:
+    // the attacker chooses the key it was made with. Only our keys can.
+    for (final entry in list.devices) {
+      if (entry.deviceId != selfDeviceId) continue;
+      if (entry.identityKey != await _selfIdentityKey() ||
+          entry.signingKey != await _selfSigningKey()) {
+        throw const DeviceListException('self_not_consented');
+      }
+    }
+    // The server answers "the list of X" from its own records, so it can hand
+    // back any validly signed list (e.g. an attacker's). Only a list that
+    // actually concerns the device we asked about may change our view.
+    if (primary != deviceId && !after.contains(deviceId)) {
+      throw const DeviceListException('unrelated_list');
+    }
     await _db.transaction(() async {
+      final current = await (_db.select(
+        _db.knownDeviceLists,
+      )..where((l) => l.primaryDeviceId.equals(primary))).getSingleOrNull();
+      if (current != null && current.version >= list.version) {
+        throw const DeviceListException('rollback');
+      }
+      // Attribution to another identity must never be forced by a list that
+      // other identity did not sign. A device may move between identities
+      // only after its old owner's list was refreshed without it.
+      for (final device in after) {
+        if (await _isClaimedElsewhere(device, primary)) {
+          throw const DeviceListException('device_claimed_by_other_identity');
+        }
+      }
       await _db
           .into(_db.knownDeviceLists)
           .insertOnConflictUpdate(
@@ -151,7 +210,7 @@ class DeviceDirectory {
       for (final device in list.devices) {
         await _db
             .into(_db.knownDeviceListMembers)
-            .insertOnConflictUpdate(
+            .insert(
               KnownDeviceListMembersCompanion.insert(
                 deviceId: device.deviceId,
                 primaryDeviceId: primary,
@@ -170,10 +229,33 @@ class DeviceDirectory {
     );
   }
 
+  /// True when [device] already belongs to an identity other than [primary]:
+  /// it is a companion of someone else, or it is itself a primary we know
+  /// (a stored list, a contact, or our own identity when we are a companion).
+  Future<bool> _isClaimedElsewhere(String device, String primary) async {
+    if (device == primary) return true;
+    final member = await (_db.select(
+      _db.knownDeviceListMembers,
+    )..where((m) => m.deviceId.equals(device))).getSingleOrNull();
+    if (member != null && member.primaryDeviceId != primary) return true;
+    final list = await (_db.select(
+      _db.knownDeviceLists,
+    )..where((l) => l.primaryDeviceId.equals(device))).getSingleOrNull();
+    if (list != null) return true;
+    final contact = await (_db.select(
+      _db.contacts,
+    )..where((c) => c.deviceId.equals(device))).getSingleOrNull();
+    if (contact != null) return true;
+    return isCompanion && device == _selfIdentityId;
+  }
+
   /// Decides the conversation and the stored sender for an incoming message.
   /// [to] comes from INSIDE the decrypted payload and is honoured only for
   /// copies sent by our own devices; a peer cannot steer a message into
   /// another conversation with it.
+  ///
+  /// Callers must [refresh] the sender first: a companion whose list was never
+  /// fetched is treated as its own identity.
   Future<InboundRoute> routeInbound({
     required String senderDeviceId,
     String? groupId,
@@ -201,6 +283,7 @@ class DeviceDirectory {
   /// pin (initiateSession, and decryptMessage for a pre-key message). No pin
   /// means nothing ties the entry to the device, so it fails closed.
   Future<void> assertListedKeys(String deviceId) async {
+    deviceId = deviceId.toLowerCase();
     final identity = await identityOf(deviceId);
     if (identity == deviceId) return; // a primary: pinned directly, not listed
     final pinned = await _pinOf(deviceId);
@@ -209,10 +292,14 @@ class DeviceDirectory {
     }
     final stored = await (_db.select(
       _db.knownDeviceLists,
-    )..where((l) => l.primaryDeviceId.equals(identity))).getSingle();
-    final entry = parseDeviceListPayload(
-      stored.payload,
-    ).devices.firstWhere((d) => d.deviceId == deviceId);
+    )..where((l) => l.primaryDeviceId.equals(identity))).getSingleOrNull();
+    if (stored == null) {
+      throw const DeviceListException('listed_device_unknown');
+    }
+    final entry = parseDeviceListPayload(stored.payload).devices.firstWhere(
+      (d) => d.deviceId == deviceId,
+      orElse: () => throw const DeviceListException('listed_device_unknown'),
+    );
     if (pinned != '${entry.identityKey}|${entry.signingKey}') {
       throw const DeviceListException('listed_keys_mismatch');
     }
