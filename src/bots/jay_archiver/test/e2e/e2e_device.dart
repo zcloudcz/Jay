@@ -5,9 +5,12 @@ import 'dart:math';
 
 import 'package:calltype_bot/calltype_bot.dart' show WebSocketHubTransport;
 import 'package:calltype_core/auth/auth_service.dart';
+import 'package:calltype_core/crypto/device_list.dart';
 import 'package:calltype_core/crypto/group_cipher.dart';
 import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
+import 'package:calltype_core/devices/device_directory.dart';
+import 'package:calltype_core/devices/fanout_sender.dart';
 import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/network/mfa_api.dart';
 import 'package:calltype_core/network/signalr_client.dart';
@@ -42,7 +45,9 @@ String uuid() {
 /// One registered device with everything the app has: keys, sessions, REST
 /// and hub. State lives in memory — each run is a set of brand-new identities.
 class E2eDevice {
-  E2eDevice._(this.id, this.api, this.sessions, this.signalR, this._db);
+  E2eDevice._(this.id, this.api, this.keys, this.sessions, this.signalR, this._db);
+
+  final KeyManager keys;
 
   final String id;
   final ApiClient api;
@@ -82,6 +87,7 @@ class E2eDevice {
     return E2eDevice._(
       id,
       api,
+      keys,
       SessionManager(database: db, keyManager: keys),
       SignalRClient(
         baseUrl: baseUrl,
@@ -93,10 +99,116 @@ class E2eDevice {
     );
   }
 
-  Future<void> _ensureSession(String peer) async {
+  Future<void> ensureSession(String peer) async {
     if (!await sessions.hasSession(peer)) {
       await sessions.initiateSession(peer, await api.getKeyBundle(peer));
     }
+  }
+
+  late final DeviceDirectory directory = DeviceDirectory(
+    database: _db,
+    apiClient: api,
+    selfDeviceId: id,
+    selfSigningKey: () async =>
+        (await keys.getSignedIdentityBundle())['signingKey']!,
+    selfIdentityKey: keys.getPublicIdentityKey,
+  );
+
+  late final FanoutSender _fanout = FanoutSender(
+    directory: directory,
+    sessions: sessions,
+    apiClient: api,
+  );
+
+  /// Linking without the QR step: each companion signs its consent and sends
+  /// it through the hub (the server records it; PUT refuses a new companion
+  /// without it), then the primary signs the next version and uploads it.
+  /// Both sides must be connected to the hub.
+  Future<void> setCompanions(List<E2eDevice> companions, {required int version}) async {
+    for (final c in companions) {
+      await c.signalR.sendLinkConsent(
+        id,
+        await signDeviceLinkConsent(
+          companionSigningKey: await c.keys.getSigningKeyPair(),
+          primaryDeviceId: id,
+          companionDeviceId: c.id,
+        ),
+      );
+    }
+    final signed = await signDeviceList(
+      primarySigningKey: await keys.getSigningKeyPair(),
+      list: DeviceList(
+        primaryDeviceId: id,
+        version: version,
+        devices: [
+          for (final c in companions)
+            DeviceListEntry(
+              deviceId: c.id,
+              identityKey: await c.keys.getPublicIdentityKey(),
+              signingKey: (await c.keys.getSignedIdentityBundle())['signingKey']!,
+              consentSig: await signDeviceLinkConsent(
+                companionSigningKey: await c.keys.getSigningKeyPair(),
+                primaryDeviceId: id,
+                companionDeviceId: c.id,
+              ),
+            ),
+        ],
+      ),
+    );
+    await api.putDeviceList(id, payload: signed.payload, signature: signed.signature);
+  }
+
+  /// Sends a direct text to an identity the way the app does: fan-out,
+  /// one retry after `device_list_stale`.
+  Future<String> sendDirect(String peerIdentityId, String text) async {
+    final messageId = uuid();
+    final payload = jsonEncode({
+      'v': 1,
+      'id': messageId,
+      'body': text,
+      'type': 'text',
+      'groupId': null,
+      'to': peerIdentityId,
+      'createdAt': DateTime.now().toUtc().toIso8601String(),
+    });
+    var envelopes = await _fanout.encrypt([peerIdentityId], payload);
+    try {
+      await signalR.sendDirectFanout(peerIdentityId, envelopes, messageId: messageId);
+    } catch (e) {
+      final required = SignalRClient.staleRequired(e);
+      if (required == null) rethrow;
+      envelopes = await _fanout.reconcile(
+        envelopes: envelopes,
+        required: required,
+        identityIds: [peerIdentityId],
+        payload: payload,
+      );
+      await signalR.sendDirectFanout(peerIdentityId, envelopes, messageId: messageId);
+    }
+    return messageId;
+  }
+
+  /// Waits for the next message, decrypts it, routes it and acknowledges it.
+  /// Call BEFORE the send it should catch (onMessage is a broadcast stream).
+  Future<({InboundRoute route, String body, String id})> nextMessage() async {
+    final data = await signalR.onMessage.first.timeout(
+      const Duration(seconds: 20),
+    );
+    final senderId = data['senderId'] as String;
+    await directory.refresh(senderId, ensurePinned: ensureSession);
+    final plaintext = await sessions.decryptMessage(
+      senderId,
+      utf8.decode(base64Decode(data['encryptedBody'] as String)),
+    );
+    await directory.assertListedKeys(senderId);
+    final payload = jsonDecode(plaintext) as Map<String, dynamic>;
+    final route = await directory.routeInbound(
+      senderDeviceId: senderId,
+      groupId: data['groupId'] as String?,
+      to: payload['to'] as String?,
+    );
+    await signalR.acknowledgeMessage(senderId, data['messageId'] as String);
+    return (route: route, body: payload['body'] as String, id: payload['id'] as String);
   }
 
   /// Per-recipient fan-out exactly like the app: ONE hub call carrying every
@@ -118,7 +230,7 @@ class E2eDevice {
     });
     final encrypted = await GroupCipher(
       sessionManager: sessions,
-      ensureSession: _ensureSession,
+      ensureSession: ensureSession,
     ).encryptForGroup(groupId, recipients, payload);
     await signalR.sendGroupMessage(
       groupId,
@@ -148,7 +260,7 @@ class E2eDevice {
     });
     final encrypted = await GroupCipher(
       sessionManager: sessions,
-      ensureSession: _ensureSession,
+      ensureSession: ensureSession,
     ).encryptForGroup(groupId, recipients, payload);
     await signalR.sendGroupMessage(
       groupId,
