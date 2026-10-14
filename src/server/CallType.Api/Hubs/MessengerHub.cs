@@ -27,6 +27,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Memory;
+using CallType.Api.Endpoints;
 using CallType.Api.Services;
 using CallType.Api.Data;
 using CallType.Api.Models;
@@ -36,7 +37,8 @@ namespace CallType.Api.Hubs;
 
 [Authorize]
 public class MessengerHub(MessageQueueService queueService, PushNotificationService pushService, AppDbContext db,
-    AuditorLivenessService auditorLiveness, OrgCommunicationPolicy communicationPolicy, IMemoryCache cache) : Hub
+    AuditorLivenessService auditorLiveness, OrgCommunicationPolicy communicationPolicy, IMemoryCache cache,
+    DeviceListService deviceLists) : Hub
 {
     // Maps DeviceId -> ConnectionId for all currently connected devices.
     // Static because SignalR creates a new Hub instance per invocation,
@@ -173,6 +175,118 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         }
         foreach (var message in messages)
             await DeliverAsync(message);
+    }
+
+    // -----------------------------------------------------------------------
+    // Multi-device fan-out
+    // -----------------------------------------------------------------------
+    // An identity is a primary device plus the companions in its signed list.
+    // The sender encrypts one copy per device; this hub checks that the set
+    // of target devices is exactly "every device of the recipient identities
+    // and of the sender's own identity". It never looks at the signed list
+    // itself: clients verify it. If the hub and a client disagree, the send
+    // fails (device_list_stale) and the client re-reads the list. The hub can
+    // therefore withhold a device, but it cannot make a client encrypt for
+    // one the client did not verify.
+
+    public async Task SendReliableDirectFanout(Guid recipientPrimaryId, Guid messageId,
+        List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads)
+    {
+        var ct = Context.ConnectionAborted;
+        var sender = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
+        var senderPrimary = await deviceLists.PrimaryOfAsync(sender, ct);
+        // Conversations are keyed by identity: addressing a companion would
+        // open a second conversation with the same person on the other side.
+        if (await deviceLists.PrimaryOfAsync(recipientPrimaryId, ct) != recipientPrimaryId)
+            throw new HubException("recipient_is_not_primary");
+        // Policy over identities: otherwise an enrolled employee would step
+        // around RequireBusinessConversations through a companion device.
+        if (!await communicationPolicy.IsAllowedAsync(senderPrimary, recipientPrimaryId, ct))
+            throw new HubException("business_conversation_required");
+        var required = await deviceLists.DevicesOfAsync([recipientPrimaryId, senderPrimary], ct);
+        await FanoutAsync(sender, messageId, null, required, allRecipients, encryptedPayloads);
+    }
+
+    public async Task SendReliableGroupFanout(Guid groupId, Guid messageId,
+        List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads)
+    {
+        var ct = Context.ConnectionAborted;
+        var sender = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
+        var senderPrimary = await deviceLists.PrimaryOfAsync(sender, ct);
+        var membership = await db.GroupMembers.Where(m => m.GroupId == groupId)
+            .Select(m => new { m.DeviceId, m.Group.OrganizationId }).ToListAsync(ct);
+        var members = membership.Select(m => m.DeviceId).ToList();
+        if (!members.Contains(senderPrimary))
+            throw new HubException("Sender and recipients must be group members");
+        // Business groups stay on SendReliableGroupMessage (primary devices
+        // only): KB2 auditor rules and the archive are defined over members,
+        // and companions there need their own analysis.
+        if (membership[0].OrganizationId is not null)
+            throw new HubException("fanout_unsupported_in_business_group");
+        foreach (var member in members.Where(id => id != senderPrimary))
+            if (!await communicationPolicy.IsAllowedAsync(senderPrimary, member, ct))
+                throw new HubException("business_conversation_required");
+        var required = await deviceLists.DevicesOfAsync(members, ct);
+        await FanoutAsync(sender, messageId, groupId, required, allRecipients, encryptedPayloads);
+    }
+
+    private async Task FanoutAsync(Guid sender, Guid messageId, Guid? groupId, HashSet<Guid> required,
+        List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads)
+    {
+        required.Remove(sender);
+        if (required.Count > 256)
+            throw new HubException("Group message exceeds maximum member count");
+        // Completeness is checked on the declared set, not on the payloads of
+        // this call: an attachment for several devices does not fit one 1 MiB
+        // frame, so a client may split the payloads over several calls.
+        if (!required.SetEquals(allRecipients))
+            throw new HubException("device_list_stale:" + string.Join(',', required));
+        if (encryptedPayloads.Count == 0 || encryptedPayloads.Keys.Any(id => !required.Contains(id)))
+            throw new HubException("Fan-out payloads must target declared recipients");
+        var decoded = encryptedPayloads.ToDictionary(p => p.Key, p => DecodePayload(p.Value));
+        var messages = new List<QueuedMessage>();
+        await using (var transaction = await db.Database.BeginTransactionAsync(Context.ConnectionAborted))
+        {
+            foreach (var (recipient, body) in decoded)
+                messages.Add(await queueService.EnqueueReliableAsync(recipient, sender, messageId,
+                    body, groupId, Context.ConnectionAborted));
+            await transaction.CommitAsync(Context.ConnectionAborted);
+        }
+        foreach (var message in messages)
+            await DeliverAsync(message);
+    }
+
+    // -----------------------------------------------------------------------
+    // Device linking relay
+    // -----------------------------------------------------------------------
+    // Two tiny messages between a primary and the device it is about to
+    // link. Nothing is stored and nothing here is trusted: the primary got
+    // the new device's keys from a QR code, and the consent is a signature
+    // the primary verifies. Both sides must be online, linking is interactive.
+
+    public async Task LinkOffer(Guid targetDeviceId)
+    {
+        var caller = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
+        if (!OnlineDevices.TryGetValue(targetDeviceId, out var connectionId))
+            throw new HubException("link_target_offline");
+        await Clients.Client(connectionId).SendAsync("LinkOffer",
+            new { primaryDeviceId = caller }, Context.ConnectionAborted);
+    }
+
+    public async Task LinkConsent(Guid primaryDeviceId, string consentSig)
+    {
+        var caller = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
+        // An Ed25519 signature is 88 base64 chars; anything longer is not one.
+        if (string.IsNullOrEmpty(consentSig) || consentSig.Length > 128)
+            throw new HubException("Invalid consent");
+        // The server-side half of consent: PUT device-list accepts this
+        // device as a NEW companion of primaryDeviceId only while this
+        // record exists (see DeviceListEndpoints.ConsentKey).
+        cache.Set(DeviceListEndpoints.ConsentKey(caller, primaryDeviceId), true, TimeSpan.FromMinutes(10));
+        if (!OnlineDevices.TryGetValue(primaryDeviceId, out var connectionId))
+            throw new HubException("link_target_offline");
+        await Clients.Client(connectionId).SendAsync("LinkConsent",
+            new { deviceId = caller, consentSig }, Context.ConnectionAborted);
     }
 
     public Task AcknowledgeMessage(Guid senderId, Guid messageId)
