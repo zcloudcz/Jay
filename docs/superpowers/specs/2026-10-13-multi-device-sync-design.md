@@ -267,6 +267,14 @@ conversation uses the identity ID.
   against membership and archives metadata there; companions need their own
   analysis together with the auditor rules.
 - Calls ring on the primary only. Typing indicators are unchanged.
+- Group membership is not normalized to identities: adding a companion's
+  device id to a group directly makes it a member on its own (the fan-out
+  then ignores the rest of that identity). Clients add primaries only; the
+  server does not enforce it yet. Business policy is not affected, it is
+  evaluated over identities for every send path.
+- `LinkOffer` / `LinkConsent` have no rate limit: anyone who knows an online
+  device id can pop a link offer on it (the user confirms the handle, so it
+  is a nuisance, not a takeover).
 - Peers and the server learn how many devices an identity has. Client-side
   fan-out cannot avoid that.
 - The server can withhold a list update (delay a removal). It cannot add.
