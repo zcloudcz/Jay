@@ -23,6 +23,7 @@ import '../../helpers/localized_app.dart';
 import '../../helpers/test_device.dart';
 
 const _botId = '11111111-2222-3333-4444-555555555555';
+const _primaryId = '99999999-0000-4000-8000-000000000001';
 
 class LookupApi extends ApiClient {
   LookupApi({required this.isBot}) : super(baseUrl: 'http://unused');
@@ -104,6 +105,8 @@ void main() {
   Future<Future<void> Function()> pumpChat(
     WidgetTester tester, {
     required bool isBot,
+    bool companion = false,
+    bool deviceChange = false,
   }) async {
     final db = AppDatabase.forTesting(NativeDatabase.memory());
     final signal = SignalRClient(baseUrl: 'http://unused', deviceId: 'me');
@@ -133,6 +136,34 @@ void main() {
             ),
           );
       await contacts.loadContacts();
+      if (companion) {
+        // What a verified list leaves on a linked device: 'me' belongs to
+        // the identity _primaryId.
+        await db
+            .into(db.knownDeviceListMembers)
+            .insert(
+              KnownDeviceListMembersCompanion.insert(
+                deviceId: 'me',
+                primaryDeviceId: _primaryId,
+              ),
+            );
+        await directory.load();
+      }
+      if (deviceChange) {
+        await db
+            .into(db.messages)
+            .insert(
+              MessagesCompanion.insert(
+                id: 'device-change',
+                conversationId: _botId,
+                senderId: _botId,
+                body: const Value('added'),
+                type: const Value('device-change'),
+                status: const Value('delivered'),
+                createdAt: DateTime.now(),
+              ),
+            );
+      }
       chat = ChatController(
         database: db,
         signalRClient: signal,
@@ -205,6 +236,20 @@ void main() {
     expect(find.byTooltip('Voice call'), findsOneWidget);
     expect(find.byTooltip('Video call'), findsOneWidget);
     expect(find.text(l10nEn.botNotice), findsNothing);
+    await cleanUp();
+  });
+
+  testWidgets('on a companion the call buttons are hidden', (tester) async {
+    final cleanUp = await pumpChat(tester, isBot: false, companion: true);
+    expect(find.byTooltip('Voice call'), findsNothing);
+    expect(find.byTooltip('Video call'), findsNothing);
+    await cleanUp();
+  });
+
+  testWidgets('a device change is a system line, not a bubble', (tester) async {
+    final cleanUp = await pumpChat(tester, isBot: false, deviceChange: true);
+    expect(find.text(l10nEn.chatDeviceAdded), findsOneWidget);
+    expect(find.text('added'), findsNothing);
     await cleanUp();
   });
 }
