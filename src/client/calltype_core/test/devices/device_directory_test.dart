@@ -265,6 +265,23 @@ void main() {
       expect(await directory.devicesOf(mallory), [mallory]);
     });
 
+    test('a list cannot claim a device whose keys we already pinned', () async {
+      // Bob wrote first: his real keys are pinned, no list or contact exists.
+      await pinBob(bob);
+      api.served[bob] = await listBy(mal, mallory, 1, [(bob, mal)]);
+      await expectLater(
+        directory.refresh(bob, ensurePinned: pinOf(mal)),
+        refusedWith('listed_keys_mismatch'),
+      );
+      expect(await directory.identityOf(bob), bob);
+      expect(await directory.devicesOf(mallory), [mallory]);
+
+      // The refusal wrote nothing, so Bob's real list still goes through.
+      api.served[bob] = await bobList(1, [bobCompanion]);
+      await directory.refresh(bob, ensurePinned: pinBob);
+      expect(await directory.identityOf(bobWeb), bob);
+    });
+
     test('another identity cannot take over a device already mapped', () async {
       api.served[bob] = await bobList(1, [bobCompanion]);
       await directory.refresh(bob, ensurePinned: pinBob);

@@ -121,6 +121,13 @@ class DeviceDirectory {
   /// session with it). Only called when no pin exists yet: that is the same
   /// trust-on-first-use moment as a first message to a new contact.
   ///
+  /// [ensurePinned] must not call [refresh] on this directory: calls are
+  /// serialized, so a nested refresh would wait for itself forever.
+  ///
+  /// A device attributed to identity A moves to B only after A's list was
+  /// refreshed without it; a caller that hits
+  /// `device_claimed_by_other_identity` should refresh the old owner first.
+  ///
   /// Throws [DeviceListException] when the server serves something that does
   /// not verify. What was stored before stays untouched in that case, and a
   /// missing list never deletes a stored one: otherwise the server could
@@ -192,6 +199,17 @@ class DeviceDirectory {
       for (final device in after) {
         if (await _isClaimedElsewhere(device, primary)) {
           throw const DeviceListException('device_claimed_by_other_identity');
+        }
+      }
+      // Same check as assertListedKeys, moved to write time: a list must never
+      // claim a device whose real keys we already pinned (e.g. Bob messaged us
+      // first and a hostile list now names him with the attacker's keys).
+      // Stored once, such a list would attribute him to the attacker for good.
+      for (final entry in list.devices) {
+        final pinned = await _pinOf(entry.deviceId);
+        if (pinned != null &&
+            pinned != '${entry.identityKey}|${entry.signingKey}') {
+          throw const DeviceListException('listed_keys_mismatch');
         }
       }
       await _db
