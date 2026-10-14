@@ -27,6 +27,7 @@
 5. **A companion pins its primary from the primary's key bundle**, not from the list (the list contains companions only). It needs a session with the primary anyway.
 6. **Server-side consent gate (found in Task 1 review).** The server does not verify signatures, so without a gate any user could upload a list naming somebody else's device; clients would reject the list, but the server would route that device as the uploader's and the victim could no longer send (DoS). The companion's authenticated `LinkConsent` hub call is therefore recorded (memory cache, 10 minutes; the API is a single instance by design) and PUT accepts a NEW companion only with that record.
 7. **`assertListedKeys` fails closed** when the device has no pinned keys (found in Task 1 review). Consent only proves that the key written in the entry agreed; the binding to the real device is the comparison with the pinned keys, so "nothing pinned" must not pass. Both session paths pin (`initiateSession`, and `decryptMessage` for a pre-key message), so callers always call it after a session exists.
+8. **`DeviceDirectory.refresh` refuses hijacking lists (found in Task 6 review; the plan's code was vulnerable).** A list is accepted only if it concerns the device that was asked about (`unrelated_list`); a list naming OUR device must carry our own keys (`self_not_consented`, consent alone is signed with a key the list author chooses); a list may not claim a device already attributed to another identity or a known primary (`device_claimed_by_other_identity`); refreshes are serialized and the version is re-checked inside the write transaction. The constructor therefore also takes `selfIdentityKey`. The code in the repo (commit "fix(core): device directory refuses hijacking lists") supersedes the Task 6 code below.
 
 ## File map
 
@@ -2332,6 +2333,7 @@ void main() {
       selfDeviceId: me,
       selfSigningKey: () async =>
           (await self.keys.getSignedIdentityBundle())['signingKey']!,
+      selfIdentityKey: self.keys.getPublicIdentityKey,
     );
     await directory.load();
     sender = FanoutSender(
@@ -2540,6 +2542,7 @@ Keep the `KeyManager` (the constructor currently drops it) and add multi-device 
     selfDeviceId: id,
     selfSigningKey: () async =>
         (await keys.getSignedIdentityBundle())['signingKey']!,
+    selfIdentityKey: keys.getPublicIdentityKey,
   );
 
   late final FanoutSender _fanout = FanoutSender(

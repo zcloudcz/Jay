@@ -246,6 +246,18 @@ For an incoming envelope from `senderDeviceId`:
    device, as today. Attribution to somebody else's identity cannot be forced.
 4. The identity key used in X3DH must equal the key in the signed list.
 
+A fetched list is stored only if all of these hold (otherwise it is ignored
+and the stored state stays as it was):
+
+- it verifies against the primary's pinned signing key, with a version above
+  the stored one;
+- it concerns the device that was asked about (that device is its primary or
+  one of its companions);
+- if it names THIS device, the entry carries this device's own keys (consent
+  alone is signed with a key the list author chooses);
+- none of its companions is already attributed to another identity, is a
+  known primary or a contact. Attribution never moves silently.
+
 `messages.senderId` stores the **identity ID**, never the companion's device
 ID. That keeps "mine vs theirs", delete-for-everyone sent from another device
 of the same user, group sender names and reply quotes working unchanged.
