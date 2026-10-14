@@ -398,4 +398,28 @@ void main() {
       refusedWith('listed_device_unknown'),
     );
   });
+
+  test('every stored change is also published on the changes stream', () async {
+    final seen = <DeviceListChange>[];
+    final subscription = directory.changes.listen(seen.add);
+    addTearDown(subscription.cancel);
+
+    api.served[bob] = await bobList(1, [bobCompanion]);
+    await directory.refresh(bob, ensurePinned: pinBob);
+    // The same list again stores nothing and publishes nothing.
+    await directory.refresh(bob, ensurePinned: pinBob);
+    api.served[bob] = await bobList(2, []);
+    await directory.refresh(bob, ensurePinned: pinBob);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(seen, hasLength(2));
+    expect(seen[0].identityId, bob);
+    expect(seen[0].added, {bobWeb});
+    expect(seen[0].removed, isEmpty);
+    // Nothing was stored for Bob before: a first fetch, not a change.
+    expect(seen[0].firstList, isTrue);
+    expect(seen[1].added, isEmpty);
+    expect(seen[1].removed, {bobWeb});
+    expect(seen[1].firstList, isFalse);
+  });
 }

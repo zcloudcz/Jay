@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../crypto/device_list.dart';
 import '../network/api_client.dart';
 import '../storage/database.dart';
@@ -9,10 +11,16 @@ class DeviceListChange {
     required this.identityId,
     required this.added,
     required this.removed,
+    this.firstList = false,
   });
   final String identityId;
   final Set<String> added;
   final Set<String> removed;
+
+  /// True when nothing was stored for this identity before: the first fetch
+  /// of a list that may have existed for a long time. Its devices are not
+  /// news to the user, so the app shows no "added a device" line for it.
+  final bool firstList;
 }
 
 /// Where an incoming message belongs.
@@ -66,6 +74,15 @@ class DeviceDirectory {
   /// Serializes [refresh]: two overlapping refreshes (push event plus manual
   /// pull) must not interleave their read-verify-write steps.
   Future<void> _tail = Future.value();
+
+  final _changes = StreamController<DeviceListChange>.broadcast();
+
+  /// Every change [refresh] stored, whoever asked for it (inbox, outbox
+  /// reconcile, a DeviceListChanged hint). The app derives the "contact added
+  /// a device" line and the companion wipe from this ONE stream: callers such
+  /// as FanoutSender.reconcile refresh internally and do not hand their
+  /// changes back.
+  Stream<DeviceListChange> get changes => _changes.stream;
 
   /// The transport address of this device (hub connection, sessions).
   final String selfDeviceId;
@@ -249,11 +266,16 @@ class DeviceDirectory {
     if (before.contains(selfDeviceId) || after.contains(selfDeviceId)) {
       await load();
     }
-    return DeviceListChange(
+    final change = DeviceListChange(
       identityId: primary,
       added: after.difference(before),
       removed: before.difference(after),
+      // `stored` is safe to use here: refreshes are serialized, and the
+      // transaction above re-checked that nothing newer arrived meanwhile.
+      firstList: stored == null,
     );
+    _changes.add(change);
+    return change;
   }
 
   /// True when [device] already belongs to an identity other than [primary]:
