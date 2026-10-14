@@ -97,9 +97,11 @@ consentSig = Ed25519(companion signing key,
 - `devices` lists companions only. The primary is implicit.
 - `identityKey` + `signingKey` in the list stop the server from swapping a
   companion's key bundle.
-- `consentSig` proves the companion agreed. Without it a user could list a
-  stranger's device and that stranger's messages would be shown to peers as
-  coming from the user.
+- `consentSig` proves that the key written in the entry agreed. It becomes
+  proof that the DEVICE agreed only together with the pinned-key comparison
+  (receiving rule 4): a signer could otherwise list a stranger's device id
+  with a key pair of her own. Clients therefore never attribute a companion
+  whose pinned keys they cannot compare with the entry.
 - `version` only grows. A client remembers the highest verified version per
   identity and rejects anything lower.
 - At most 5 companions.
@@ -120,6 +122,12 @@ nothing about trust.
   must be greater than the stored one (409 `device_list_version_conflict`
   otherwise); every listed device must exist, must not be a primary of another
   list and must not be in another list (409); more than 5 companions is 422.
+- Consent gate: a device that is NEW in the list is accepted only after it
+  sent `LinkConsent` for this primary itself, authenticated (409
+  `device_list_consent_missing`). The server cannot verify signatures, and
+  without this anybody could name a victim's device in a list: clients would
+  reject the list, but the server would route the victim as the uploader's
+  device and the victim could no longer send.
 - `GET /devices/{id}/device-list` - any authenticated device; `id` may be the
   primary or a companion, the same list comes back. 404 when there is none.
 - Hub event `DeviceListChanged(primaryId, version)` to the primary and all

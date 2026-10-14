@@ -25,6 +25,8 @@
 3. **`device_list_stale:<ids>`.** The error carries the device IDs the server requires. The client sends to the intersection of `required` and its verified devices; it refuses when `required` contains a device it cannot verify. That also covers a companion that deleted itself (still in the signed list, gone on the server).
 4. **Business groups reject the new method** (`fanout_unsupported_in_business_group`). Clients keep using `SendReliableGroupMessage` there (primary device only, per spec).
 5. **A companion pins its primary from the primary's key bundle**, not from the list (the list contains companions only). It needs a session with the primary anyway.
+6. **Server-side consent gate (found in Task 1 review).** The server does not verify signatures, so without a gate any user could upload a list naming somebody else's device; clients would reject the list, but the server would route that device as the uploader's and the victim could no longer send (DoS). The companion's authenticated `LinkConsent` hub call is therefore recorded (memory cache, 10 minutes; the API is a single instance by design) and PUT accepts a NEW companion only with that record.
+7. **`assertListedKeys` fails closed** when the device has no pinned keys (found in Task 1 review). Consent only proves that the key written in the entry agreed; the binding to the real device is the comparison with the pinned keys, so "nothing pinned" must not pass. Both session paths pin (`initiateSession`, and `decryptMessage` for a pre-key message), so callers always call it after a session exists.
 
 ## File map
 
@@ -508,8 +510,10 @@ using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using CallType.Api.Data;
+using CallType.Api.Endpoints;
 using CallType.Api.Tests.TestFixtures;
 
 namespace CallType.Api.Tests.Endpoints;
@@ -536,12 +540,18 @@ public class DeviceListEndpointsTests : IntegrationTestBase
         return client;
     }
 
+    /// <summary>What MessengerHub.LinkConsent records when the companion consents.</summary>
+    private void Consent(Guid companion, Guid primary) =>
+        Factory.Services.GetRequiredService<IMemoryCache>()
+            .Set(DeviceListEndpoints.ConsentKey(companion, primary), true, TimeSpan.FromMinutes(10));
+
     [Fact]
     public async Task Primary_stores_a_list_and_both_devices_read_the_same_bytes()
     {
         var primary = await RegisterAndAuthenticateAsync();
         var companion = await RegisterAndAuthenticateAsync();
         var body = Body(primary.DeviceId, 1, companion.DeviceId);
+        Consent(companion.DeviceId, primary.DeviceId);
 
         var put = await As(primary.Token).PutAsJsonAsync($"/devices/{primary.DeviceId}/device-list", body);
         put.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -573,6 +583,7 @@ public class DeviceListEndpointsTests : IntegrationTestBase
         var companion = await RegisterAndAuthenticateAsync();
         var client = As(primary.Token);
         var url = $"/devices/{primary.DeviceId}/device-list";
+        Consent(companion.DeviceId, primary.DeviceId);
         (await client.PutAsJsonAsync(url, Body(primary.DeviceId, 2, companion.DeviceId)))
             .StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await client.PutAsJsonAsync(url, Body(primary.DeviceId, 2)))
@@ -593,6 +604,11 @@ public class DeviceListEndpointsTests : IntegrationTestBase
         var a = await RegisterAndAuthenticateAsync();
         var b = await RegisterAndAuthenticateAsync();
         var shared = await RegisterAndAuthenticateAsync();
+        // Consents everywhere, so every 409 below comes from the membership rule.
+        Consent(shared.DeviceId, a.DeviceId);
+        Consent(shared.DeviceId, b.DeviceId);
+        Consent(a.DeviceId, b.DeviceId);
+        Consent(b.DeviceId, shared.DeviceId);
         (await As(a.Token).PutAsJsonAsync($"/devices/{a.DeviceId}/device-list", Body(a.DeviceId, 1, shared.DeviceId)))
             .StatusCode.Should().Be(HttpStatusCode.NoContent);
         // Already somebody's companion.
@@ -625,12 +641,36 @@ public class DeviceListEndpointsTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task A_new_companion_needs_its_own_consent_but_an_existing_one_does_not()
+    {
+        // Without this gate anybody could upload a list naming a victim's
+        // device: clients reject the list, but the server would route the
+        // victim as the uploader's device and the victim could not send.
+        var primary = await RegisterAndAuthenticateAsync();
+        var companion = await RegisterAndAuthenticateAsync();
+        var client = As(primary.Token);
+        var url = $"/devices/{primary.DeviceId}/device-list";
+
+        var refused = await client.PutAsJsonAsync(url, Body(primary.DeviceId, 1, companion.DeviceId));
+        refused.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await refused.Content.ReadAsStringAsync()).Should().Contain("device_list_consent_missing");
+
+        Consent(companion.DeviceId, primary.DeviceId);
+        (await client.PutAsJsonAsync(url, Body(primary.DeviceId, 1, companion.DeviceId)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        // The record is consumed, and a device already in the list needs none.
+        (await client.PutAsJsonAsync(url, Body(primary.DeviceId, 2, companion.DeviceId)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
     public async Task No_list_is_404_and_deleting_devices_cleans_up()
     {
         var primary = await RegisterAndAuthenticateAsync();
         var companion = await RegisterAndAuthenticateAsync();
         (await As(primary.Token).GetAsync($"/devices/{primary.DeviceId}/device-list"))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        Consent(companion.DeviceId, primary.DeviceId);
         await As(primary.Token).PutAsJsonAsync(
             $"/devices/{primary.DeviceId}/device-list", Body(primary.DeviceId, 1, companion.DeviceId));
 
@@ -817,6 +857,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Npgsql;
 using CallType.Api.Data;
 using CallType.Api.Hubs;
@@ -831,6 +872,13 @@ public static class DeviceListEndpoints
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>
+    /// Cache key written by MessengerHub.LinkConsent: the companion itself,
+    /// authenticated, said "I join this primary". In memory on purpose: the
+    /// API is exactly one instance and linking is interactive (minutes).
+    /// </summary>
+    internal static string ConsentKey(Guid companion, Guid primary) => $"link-consent:{companion}:{primary}";
+
     public static WebApplication MapDeviceListEndpoints(this WebApplication app)
     {
         app.MapPut("/devices/{primaryId:guid}/device-list", PutDeviceList).RequireAuthorization().RequireRateLimiting("api");
@@ -843,7 +891,7 @@ public static class DeviceListEndpoints
 
     private static async Task<IResult> PutDeviceList(
         Guid primaryId, PutDeviceListRequest request, ClaimsPrincipal user,
-        AppDbContext db, IHubContext<MessengerHub> hub, CancellationToken ct)
+        AppDbContext db, IHubContext<MessengerHub> hub, IMemoryCache cache, CancellationToken ct)
     {
         if (AccountEndpoints.CallerDeviceId(user) != primaryId) return Results.Forbid();
 
@@ -885,6 +933,15 @@ public static class DeviceListEndpoints
                 l => companions.Contains(l.PrimaryDeviceId) && l.Members.Any(), ct))
             return Conflict("device_list_member_conflict");
 
+        // The server cannot check signatures, so it asks the device directly:
+        // a NEW companion must have consented through its own authenticated
+        // hub call (LinkConsent). Without this, anybody could claim a
+        // victim's device and break the victim's routing.
+        var newCompanions = companions
+            .Where(id => existing is null || existing.Members.All(m => m.DeviceId != id)).ToList();
+        if (newCompanions.Any(id => !cache.TryGetValue(ConsentKey(id, primaryId), out _)))
+            return Conflict("device_list_consent_missing");
+
         // Old AND new members hear about the change: a removed device must
         // learn it was removed.
         var notify = (existing?.Members.Select(m => m.DeviceId) ?? [])
@@ -910,6 +967,9 @@ public static class DeviceListEndpoints
         catch (DbUpdateException ex)
             when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         { return Conflict("device_list_member_conflict"); }
+
+        foreach (var id in newCompanions)
+            cache.Remove(ConsentKey(id, primaryId));
 
         foreach (var deviceId in notify)
             if (MessengerHub.TryGetConnection(deviceId, out var connectionId))
@@ -956,7 +1016,7 @@ app.MapDeviceListEndpoints();
 - [ ] **Step 7: Run the tests**
 
 Run: `dotnet test src/server/CallType.Api.Tests --filter FullyQualifiedName~DeviceListEndpointsTests`
-Expected: 6 PASS.
+Expected: 7 PASS.
 
 - [ ] **Step 8: Migration**
 
@@ -1169,6 +1229,9 @@ public class FanoutHubTests : IntegrationTestBase
         var received = await consent.Task.WaitAsync(TimeSpan.FromSeconds(5));
         received.GetProperty("deviceId").GetGuid().Should().Be(web.DeviceId);
         received.GetProperty("consentSig").GetString().Should().Be("c2ln");
+        Factory.Services.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>()
+            .TryGetValue(CallType.Api.Endpoints.DeviceListEndpoints.ConsentKey(web.DeviceId, phone.DeviceId), out _)
+            .Should().BeTrue();
     }
 }
 ```
@@ -1182,7 +1245,7 @@ Expected: FAIL, hub methods do not exist.
 
 - [ ] **Step 3: Implement**
 
-In `MessengerHub.cs` add `DeviceListService deviceLists` to the primary constructor parameter list (after `OrgCommunicationPolicy communicationPolicy`). Then add, after `SendReliableGroupMessage`:
+In `MessengerHub.cs` add `DeviceListService deviceLists` to the primary constructor parameter list (after `OrgCommunicationPolicy communicationPolicy`; `IMemoryCache cache` is already injected) and `using CallType.Api.Endpoints;`. Then add, after `SendReliableGroupMessage`:
 
 ```csharp
     // -----------------------------------------------------------------------
@@ -1287,6 +1350,10 @@ In `MessengerHub.cs` add `DeviceListService deviceLists` to the primary construc
         // An Ed25519 signature is 88 base64 chars; anything longer is not one.
         if (string.IsNullOrEmpty(consentSig) || consentSig.Length > 128)
             throw new HubException("Invalid consent");
+        // The server-side half of consent: PUT device-list accepts this
+        // device as a NEW companion of primaryDeviceId only while this
+        // record exists (see DeviceListEndpoints.ConsentKey).
+        cache.Set(DeviceListEndpoints.ConsentKey(caller, primaryDeviceId), true, TimeSpan.FromMinutes(10));
         if (!OnlineDevices.TryGetValue(primaryDeviceId, out var connectionId))
             throw new HubException("link_target_offline");
         await Clients.Client(connectionId).SendAsync("LinkConsent",
@@ -1895,7 +1962,12 @@ void main() {
   test('a companion whose pinned keys differ from the signed entry is refused', () async {
     api.served[bob] = await bobList(1, [bobCompanion]);
     await directory.refresh(bob, ensurePinned: pinBob);
-    await directory.assertListedKeys(bobWeb); // nothing pinned yet: fine
+    // Nothing pinned: fail closed. Consent only proves the key written in the
+    // entry agreed; the pinned keys are what tie the entry to the real device.
+    await expectLater(
+      directory.assertListedKeys(bobWeb),
+      throwsA(isA<DeviceListException>()),
+    );
     await self.db.into(self.db.backupState).insert(
       BackupStateCompanion.insert(key: 'peer_identity:$bobWeb', value: 'x|y'),
     );
@@ -2108,13 +2180,21 @@ class DeviceDirectory {
   }
 
   /// Throws when the keys this device pinned for a companion (at session
-  /// start) are not the keys its primary signed into the list. A server that
-  /// swaps a companion's key bundle is caught here.
+  /// start) are not the keys its primary signed into the list. Catches a
+  /// server that swaps a companion's key bundle, and a signer who lists a
+  /// stranger's device id with a key pair of her own (consent only proves
+  /// that the key written in the entry agreed).
+  ///
+  /// Call it only after a session with [deviceId] exists: both session paths
+  /// pin (initiateSession, and decryptMessage for a pre-key message). No pin
+  /// means nothing ties the entry to the device, so it fails closed.
   Future<void> assertListedKeys(String deviceId) async {
     final identity = await identityOf(deviceId);
     if (identity == deviceId) return; // a primary: pinned directly, not listed
     final pinned = await _pinOf(deviceId);
-    if (pinned == null) return; // no session yet, nothing to compare
+    if (pinned == null) {
+      throw const DeviceListException('listed_device_not_pinned');
+    }
     final stored = await (_db.select(
       _db.knownDeviceLists,
     )..where((l) => l.primaryDeviceId.equals(identity))).getSingle();
@@ -2468,10 +2548,21 @@ Keep the `KeyManager` (the constructor currently drops it) and add multi-device 
     ensureSession: ensureSession,
   );
 
-  /// Primary side of linking, without the QR/hub dance (that relay has its
-  /// own server test): take the companion's consent, sign the next list
-  /// version, upload it.
+  /// Linking without the QR step: each companion signs its consent and sends
+  /// it through the hub (the server records it; PUT refuses a new companion
+  /// without it), then the primary signs the next version and uploads it.
+  /// Both sides must be connected to the hub.
   Future<void> setCompanions(List<E2eDevice> companions, {required int version}) async {
+    for (final c in companions) {
+      await c.signalR.sendLinkConsent(
+        id,
+        await signDeviceLinkConsent(
+          companionSigningKey: await c.keys.getSigningKeyPair(),
+          primaryDeviceId: id,
+          companionDeviceId: c.id,
+        ),
+      );
+    }
     final signed = await signDeviceList(
       primarySigningKey: await keys.getSigningKeyPair(),
       list: DeviceList(
