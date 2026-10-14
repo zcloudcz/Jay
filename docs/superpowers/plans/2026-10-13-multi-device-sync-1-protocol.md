@@ -2801,3 +2801,17 @@ Not tasks yet: the code steps must be written against the core API as it really 
 7. **Companion restrictions in v1.** No business conversations, no calls from or to a companion.
 8. **Bot runtime.** `calltype_bot` routes inbound through the directory and replies with fan-out, otherwise a user's companion never sees bot replies and a message sent from a companion opens a second conversation.
 9. **Strings in all 19 ARB files**, widget tests, `docs/acceptance/` entry, manual check on phone + web.
+
+### Constraints for plan 2 (from the final review of plan 1)
+
+The core API in the repo is the contract; these rules keep the app from undoing its guarantees.
+
+1. **Inbound:** `refresh(sender)` only for an unknown sender or after a hint, never once per message (the E2E helper does it per message only because it is a test). Catch refresh failures and treat the sender as standalone. Never create a contact row for an unknown sender before `refresh` (a contact row makes the device "claimed" and locks that identity out).
+2. **After every `decryptMessage` call `assertListedKeys`;** if it throws, drop the message (already decrypted, ratchet advanced, must not be shown). Dedupe inbound by (sender, messageId) before decrypting: a stale answer in the middle of a split send re-delivers rows that were already queued.
+3. **`DeviceListChanged`:** refresh `event.primaryDeviceId` (or our `selfIdentityId`). Wipe a companion's data only when the verified change lists `selfDeviceId` in `removed`; 404 or a failed verification means "cannot verify", delete nothing. No "contact added a device" line for our own identity.
+4. **Outbox:** bounded reconcile loop (2-3 rounds), envelopes persisted per messageId and resent byte for byte, `server_requires_unverified_device` and an exhausted loop are user-visible send failures. Always set `to` in direct payloads (`routeInbound` refuses own copies without it).
+5. **Primary:** after its own PUT, refresh its own list (fan-out targets come from the stored list). On 409 reload and retry with version + 1. When a stale answer drops one of its own companions (the companion deleted itself on the server), re-sign without it; otherwise every peer pays a stale round trip per message and the next PUT gets `device_list_unknown_device`.
+6. **Groups:** a companion gets 403 on `GET /groups/{id}` and `/members` (`GroupEndpoints.Authorize` checks the raw device). Decide in plan 2: map the caller to its identity for read-only group endpoints, or companions only receive in groups in v1. Business groups stay on `SendReliableGroupMessage` from the primary; hide sending there on a companion. Add companions to groups only through their primary's identity.
+7. **Linking:** enforce "empty device only" on the client (the server does not). Compare the QR fingerprint with the key bundle BEFORE `LinkOffer`. The consent screen shows the primary's handle. `LinkConsent` is valid on the server for 10 minutes; the PUT must follow within that window. `link_target_offline` after `LinkConsent` does not mean the consent was lost.
+8. **`myDeviceId` split:** transport and sessions use `selfDeviceId`; `senderId`, conversations and "mine" use `selfIdentityId`. Call `directory.load()` before any routing.
+9. **Known gaps carried over:** the policy cache path is not covered by tests (they run with `PolicyCacheSeconds=0`); the live E2E printed an "asynchronous suspension" stack fragment before passing (not investigated, probably a listener outliving its test).
