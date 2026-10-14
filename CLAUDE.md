@@ -10,8 +10,10 @@ registration for cloud backup. Voice/video calls via WebRTC.
 A WhatsApp-like messaging app with strong privacy:
 - **Anonymous by default** — no phone number, no email required. Each device
   gets a random ID (`CT-XXXX-XXXX`) and identity key pair on first launch.
-- **Optional registration** (email + passphrase) enables cloud backup and
-  multi-device sync.
+- **Optional registration** (email + passphrase) enables cloud backup.
+- **Multi-device** without an account: a new device is linked by QR code from
+  the primary, which signs the device list (spec
+  `docs/superpowers/specs/2026-10-13-multi-device-sync-design.md`).
 - **E2E encryption** via Signal Protocol (X3DH + Double Ratchet). Server
   never sees plaintext. Messages stored as opaque encrypted blobs.
 - **Store-and-forward** — server holds encrypted messages until delivered,
@@ -211,8 +213,8 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
 | `POST /accounts/login` | Authenticate | ✅ Done |
 | `POST /accounts/{id}/devices/{id}` | Link device to account | ✅ Done |
 | `GET /accounts/{id}/devices` | List linked devices | ✅ Done |
-| `POST /groups` | Create group | ✅ Done |
-| `GET /groups/{id}/members` | List members (+ public profile: handle, display name, isBot) | ✅ Done |
+| `POST /groups` | Create group (403 `companion_cannot_manage_groups` from a companion device) | ✅ Done |
+| `GET /groups/{id}/members` | List members (+ public profile: handle, display name, isBot); a companion reads the groups of its identity | ✅ Done |
 | `PUT /groups/{id}/members` | Add member | ✅ Done |
 | `DELETE /groups/{id}/members/{id}` | Remove member | ✅ Done |
 | `POST /backups` | Upload backup metadata | ✅ Done |
@@ -233,7 +235,7 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
 | `POST /channels/{id}/attachments`, `GET /channels/{id}/attachments/{name}` | Unencrypted image ≤ `Channels:MaxImageBytes` in Blob container `channel-media` (413 over limit) | ✅ Done |
 | `PUT /devices/{primaryId}/device-list` | Primary uploads a new signed device list (version grows; a new companion needs its own `LinkConsent` first, else 409 `device_list_consent_missing`; max 5 companions) | ✅ Done |
 | `GET /devices/{id}/device-list` | Signed list `id` is in, as primary or companion; 404 when none | ✅ Done |
-| `SignalR /hub` | Message relay, typing, call signaling; channels: `JoinChannels`, `LeaveChannel`, events `ReceiveChannelPost`, `ChannelDeleted`; multi-device: `SendReliableDirectFanout`, `SendReliableGroupFanout` (error `device_list_stale:<ids>`), `LinkOffer`, `LinkConsent`, event `DeviceListChanged` | ✅ Done |
+| `SignalR /hub` | Message relay, typing, call signaling; channels: `JoinChannels`, `LeaveChannel`, events `ReceiveChannelPost`, `ChannelDeleted`; multi-device: `SendReliableDirectFanout`, `SendReliableGroupFanout` (error `device_list_stale:<ids>`), `LinkOffer` (event carries the primary's `userHandle`), `LinkConsent`, event `DeviceListChanged` | ✅ Done |
 | `DELETE /devices/{deviceId}` | GDPR (N09): device forgets itself — keys, queue, memberships, channel activity, push token; 409 `device_is_auditor` if it is an organization's auditor | ✅ Done |
 | `DELETE /accounts/{accountId}` | GDPR (N09): account deletion (requires `authKey` proof, irreversible) — links, backups (DB + Blob), owned channels soft-deleted; 409 `account_owns_organization` | ✅ Done |
 | `GET /accounts/{accountId}/export` | GDPR (N09): everything the server holds about the account, JSON — see `docs/security/data-subject-rights.md` | ✅ Done |
@@ -309,6 +311,7 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
 - Beta completion: `docs/superpowers/plans/2026-09-16-beta-zadani.md` (+ `-kontrakty`, `-vyvoj`, `-infrastruktura`); status and evidence in `docs/acceptance/` and `docs/ops/`. Device acceptance (`docs/acceptance/matrix.md`) is mostly NOT_RUN.
 - Channels (`docs/superpowers/plans/2026-09-16-channels.md`, §7 overrides §1–§6) and bots (`docs/superpowers/plans/2026-09-17-bots.md`): implemented and deployed; manual acceptance in `docs/acceptance/bots-channels.md` is NOT_RUN.
 - **Business mode:** `docs/superpowers/plans/2026-09-18-business-mode.md` (+ `-contracts`). Step 1 is deployed and switched on on beta; acceptance and findings in `docs/acceptance/business-mode.md`. Full-content archive (E03b), four-eyes access (E04), Merkle + qualified timestamps (KB4) and MLS (step 2, `spikes/mls/REPORT.md`) wait for validation with three organizations.
+- **Multi-device (spec 1 of 4, live sync):** `docs/superpowers/specs/2026-10-13-multi-device-sync-design.md`, plans `docs/superpowers/plans/2026-10-13-multi-device-sync-1-protocol.md` (core + server) and `2026-10-14-multi-device-sync-2-app.md` (app + bots); manual acceptance in `docs/acceptance/multi-device.md` is NOT_RUN. Companions: no calls, no business conversations, only an empty device can be linked.
 - NIS2 / auditability (N01–N10, nothing started): `docs/superpowers/plans/2026-09-18-nis2-auditovatelnost.md`.
 
 ## Deploy

@@ -1,8 +1,8 @@
 # Multi-device sync - Design Specification (spec 1 of 4: live sync)
 
-Status: approved direction (owner, 2026-10-13). Protocol layer (core, server, live
-E2E) implemented on `feat/multi-device-sync`; app wiring and bot runtime are
-plan 2, not done.
+Status: approved direction (owner, 2026-10-13). Protocol layer (core, server,
+live E2E) and app + bot runtime implemented on `feat/multi-device-sync`
+(plans 1 and 2); manual acceptance in `docs/acceptance/multi-device.md`.
 
 ## Problem
 
