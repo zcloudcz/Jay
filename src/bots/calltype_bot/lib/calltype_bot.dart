@@ -18,12 +18,29 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
 import 'src/encrypted_file_store.dart';
+import 'src/group_info.dart';
 import 'src/ws_hub_transport.dart';
 
+export 'package:calltype_core/network/group_dtos.dart'
+    show BotTalkMode, BotTalkSettings, MuteMode, MuteSetting;
 export 'src/encrypted_file_store.dart';
+export 'src/group_info.dart';
 export 'src/ws_hub_transport.dart';
 
 typedef BotMessageHandler = Future<void> Function(BotMessage message);
+
+/// Second-chance pre-decrypt check for a sender [allowSender] refused, when
+/// the server says the message belongs to group [groupId]. See [CallTypeBot.onMessage].
+typedef GroupSenderCheck =
+    Future<bool> Function(String senderId, String groupId);
+
+/// [CallTypeBot.send] could not address [to] (unknown handle, not a member).
+class BotSendException implements Exception {
+  const BotSendException(this.message);
+  final String message;
+  @override
+  String toString() => 'BotSendException: $message';
+}
 
 /// True when [text] addresses the bot: `@<handle>` or `@<display name>`,
 /// case-insensitive, not followed by another word character (so `@Hermes`
@@ -49,6 +66,7 @@ class BotMessage {
     required this.isGroup,
     required this.mentionsBot,
     required String ackSenderId,
+    this.groupId,
     String? groupName,
   }) : _groupName = groupName,
        _ackSenderId = ackSenderId;
@@ -73,6 +91,14 @@ class BotMessage {
   final String conversationId;
   final bool isGroup;
   final bool mentionsBot;
+
+  /// The group this message was posted in; null for a 1:1 message.
+  final String? groupId;
+
+  /// Whether the sender is a bot device, from the group's member list.
+  /// Null when unknown: 1:1 messages, or the member list could not be read.
+  bool? get senderIsBot => _senderIsBot;
+  bool? _senderIsBot;
 
   /// Sends [text] back into the conversation this message came from.
   Future<void> reply(String text) => _bot._send(
@@ -101,6 +127,7 @@ class CallTypeBot {
     this.displayName,
     this._log,
     this._sendRetryDelay,
+    this._groupCacheTtl,
   );
 
   final AppDatabase _db;
@@ -114,6 +141,7 @@ class CallTypeBot {
   final FanoutSender _fanout;
   final void Function(String) _log;
   final Duration _sendRetryDelay;
+  final Duration _groupCacheTtl;
 
   final String deviceId;
 
@@ -126,7 +154,20 @@ class CallTypeBot {
 
   BotMessageHandler? _handler;
   bool Function(String senderId)? _allowSender;
+  GroupSenderCheck? _allowGroupSender;
   StreamSubscription<Map<String, dynamic>>? _subscription;
+  final _hintSubscriptions = <StreamSubscription<Map<String, dynamic>>>[];
+
+  /// group id (lower-case) -> member list + settings, with its fetch time.
+  /// WHY a cache: the bridge checks the group on every bot message; one REST
+  /// round trip per message would be wasteful and slow. It is dropped on the
+  /// server's hints (see [invalidateGroups]) and after [_groupCacheTtl] as a
+  /// safety net for a missed hint.
+  final _groups = <String, ({DateTime at, Future<GroupInfo> info})>{};
+
+  /// Last group name seen in an incoming payload, so a message the bot starts
+  /// itself ([send]) shows the same name in the app as a reply would.
+  final _groupNames = <String, String>{};
 
   /// ONE queue for everything that touches ratchet state. Double Ratchet
   /// state is read-modify-write in the DB; two interleaved decrypt/encrypt
@@ -155,6 +196,7 @@ class CallTypeBot {
     HubTransportFactory? transportFactory,
     void Function(String line)? log,
     Duration sendRetryDelay = const Duration(seconds: 5),
+    Duration groupCacheTtl = const Duration(minutes: 5),
   }) async {
     log ??= (line) => stdout.writeln(line);
     final key = EncryptedFileStore.parseKey(
@@ -228,6 +270,7 @@ class CallTypeBot {
       displayName,
       log,
       sendRetryDelay,
+      groupCacheTtl,
     );
   }
 
@@ -251,18 +294,150 @@ class CallTypeBot {
   /// [allowSender] is checked BEFORE decryption. A rejected sender's message
   /// is acknowledged and dropped without parsing a byte of it, without a
   /// typing indicator and without the handler — the bot stays silent.
+  ///
+  /// [allowGroupSender] is consulted only when [allowSender] refused and the
+  /// server routes the message to a group. It may do a (cached) group lookup,
+  /// so a bot can admit other bots of groups it is in without knowing them in
+  /// advance; the final decision still belongs to the handler, which sees the
+  /// authenticated group id.
   Future<void> onMessage(
     BotMessageHandler handler, {
     bool Function(String senderId)? allowSender,
+    GroupSenderCheck? allowGroupSender,
   }) async {
     _handler = handler;
     _allowSender = allowSender;
-    _subscription ??= _signalR.onMessage.listen(_enqueue);
+    _allowGroupSender = allowGroupSender;
+    if (_subscription == null) {
+      _subscription = _signalR.onMessage.listen(_enqueue);
+      _hintSubscriptions.addAll([
+        _signalR.onGroupChanged.listen(
+          (hint) => invalidateGroups(hint['groupId'] as String?),
+        ),
+        // A changed device list can change who an identity is; cheap to
+        // re-read, and wrong membership data would be worse.
+        _signalR.onDeviceListChanged.listen((_) => invalidateGroups()),
+      ]);
+    }
     await _signalR.connect();
+  }
+
+  // -- Groups -----------------------------------------------------------------
+
+  /// The bot-talk setting and members of [groupId] (the bot must be a member,
+  /// the server refuses otherwise). Cached; see [_groups].
+  ///
+  /// An old server without `botTalk` yields [BotTalkSettings.off].
+  Future<GroupInfo> group(String groupId) {
+    final key = groupId.toLowerCase();
+    final cached = _groups[key];
+    final now = DateTime.now();
+    if (cached != null && now.difference(cached.at) < _groupCacheTtl) {
+      return cached.info;
+    }
+    final info = _loadGroup(groupId);
+    _groups[key] = (at: now, info: info);
+    // A failure must not stay cached: the next call asks the server again.
+    info.then<void>(
+      (_) {},
+      onError: (Object _) {
+        if (_groups[key]?.info == info) _groups.remove(key);
+      },
+    );
+    return info;
+  }
+
+  /// Forgets the cached [group] data of [groupId], or of every group.
+  void invalidateGroups([String? groupId]) => groupId == null
+      ? _groups.clear()
+      : _groups.remove(groupId.toLowerCase());
+
+  Future<GroupInfo> _loadGroup(String groupId) async {
+    final (details, members) = await (
+      _api.getGroup(groupId),
+      _api.getGroupMemberInfos(groupId),
+    ).wait;
+    return GroupInfo(
+      groupId: groupId,
+      botTalk: details.botTalk,
+      myMute: details.myMute,
+      members: [
+        for (final m in members)
+          GroupMember(
+            deviceId: m.deviceId.toLowerCase(),
+            role: m.role,
+            handle: m.userHandle,
+            displayName: m.displayName,
+            isBot: m.isBot,
+          ),
+      ],
+    );
+  }
+
+  // -- Starting a message -----------------------------------------------------
+
+  static final _handlePattern = RegExp(
+    r'^CT-[A-Z0-9]{4}-[A-Z0-9]{4}$',
+    caseSensitive: false,
+  );
+
+  /// Starts a message instead of replying to one.
+  ///
+  /// [to] is a `CT-XXXX-XXXX` handle (1:1; every device of that user gets a
+  /// copy, like a reply) or the id of a group the bot is a member of (the
+  /// same per-device group fan-out as a group reply). WHO the bot may write
+  /// to is the caller's policy (the Hermes bridge allows only its owners);
+  /// the runtime only refuses what it cannot address, with [BotSendException].
+  /// Like a reply it needs the hub connection, so call [onMessage] first.
+  Future<void> send({required String to, required String text}) async {
+    final target = to.trim();
+    if (text.trim().isEmpty) {
+      throw ArgumentError.value(text, 'text', 'must not be empty');
+    }
+    if (_handlePattern.hasMatch(target)) {
+      final id = await deviceIdForHandle(target.toUpperCase());
+      if (id == null) throw BotSendException('Unknown handle $target.');
+      if (!await _sessions.hasSession(id)) {
+        // First contact: learn the user's signed device list up front, as the
+        // receive path does, so every companion gets its copy right away
+        // instead of after a device_list_stale round trip.
+        try {
+          await _inCrypto(
+            () => _directory.refresh(id, ensurePinned: _ensureSession),
+          );
+        } on DeviceListException {
+          // No verified list: the device is its own identity, as before.
+        }
+      }
+      final identity = await _directory.identityOf(id);
+      if (identity == deviceId.toLowerCase()) {
+        throw const BotSendException('A bot cannot message itself.');
+      }
+      await _send(identity, text);
+      return;
+    }
+    var info = await group(target);
+    if (!info.isMember(deviceId)) {
+      // Maybe the bot was added after the cache was filled.
+      invalidateGroups(target);
+      info = await group(target);
+      if (!info.isMember(deviceId)) {
+        throw BotSendException('The bot is not a member of group $target.');
+      }
+    }
+    await _send(
+      target,
+      text,
+      groupId: target,
+      groupName: _groupNames[target.toLowerCase()],
+    );
   }
 
   Future<void> close() async {
     await _subscription?.cancel();
+    for (final s in _hintSubscriptions) {
+      await s.cancel();
+    }
     _signalR.close();
     await _crypto;
     // Bounded: a handler stuck on a dead backend must not block shutdown.
@@ -309,6 +484,8 @@ class CallTypeBot {
     if (hint != null &&
         hint.isNotEmpty &&
         hint != await _directory.identityOf(senderId)) {
+      // Group member lists name identities; re-read them with the list.
+      invalidateGroups();
       try {
         await _directory.refresh(senderId, ensurePinned: _ensureSession);
       } on DeviceListException {
@@ -316,7 +493,21 @@ class CallTypeBot {
       }
     }
     final identity = await _directory.identityOf(senderId);
-    if (!(_allowSender?.call(identity) ?? true)) {
+    var allowed = _allowSender?.call(identity) ?? true;
+    final groupCheck = _allowGroupSender;
+    if (!allowed && groupId != null && groupCheck != null) {
+      // WHY this may hit the network inside the crypto queue: it runs only
+      // for senders the cheap check refused, the answer is cached per group,
+      // and nothing is decrypted yet. The outer groupId is the server's
+      // claim; the inner payload must name the same group (checked below),
+      // so a lie only gets the message dropped later.
+      try {
+        allowed = await groupCheck(identity, groupId);
+      } catch (e) {
+        allowed = false; // fail closed: cannot verify = do not admit
+      }
+    }
+    if (!allowed) {
       await _ack(senderId, messageId);
       return;
     }
@@ -421,6 +612,10 @@ class CallTypeBot {
       return;
     }
 
+    final groupName = payload['groupName'] as String?;
+    if (groupId != null && groupName != null && groupName.isNotEmpty) {
+      _groupNames[groupId.toLowerCase()] = groupName;
+    }
     final message = BotMessage._(
       this,
       id: messageId,
@@ -430,7 +625,8 @@ class CallTypeBot {
       isGroup: groupId != null,
       mentionsBot: mentioned,
       ackSenderId: senderId,
-      groupName: payload['groupName'] as String?,
+      groupId: groupId,
+      groupName: groupName,
     );
     final tail = _conversations[message.conversationId] ?? Future.value();
     late final Future<void> next;
@@ -452,6 +648,22 @@ class CallTypeBot {
     typing();
     final timer = Timer.periodic(const Duration(seconds: 4), (_) => typing());
     try {
+      final groupId = message.groupId;
+      if (groupId != null) {
+        // Outside the crypto queue on purpose: a slow REST call here only
+        // delays this conversation.
+        try {
+          var info = await group(groupId);
+          if (!info.isMember(message.senderId)) {
+            // A sender the cached list does not know joined after we cached.
+            invalidateGroups(groupId);
+            info = await group(groupId);
+          }
+          message._senderIsBot = info.member(message.senderId)?.isBot;
+        } catch (_) {
+          // Unknown stays null; the handler decides how to treat that.
+        }
+      }
       await _handler!(message);
     } catch (error, stack) {
       _log('Handler failed for message ${message.id}: $error\n$stack');
