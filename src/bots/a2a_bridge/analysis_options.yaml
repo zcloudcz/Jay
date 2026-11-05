@@ -1,0 +1,10 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  exclude:
+    # TEMPORARY: the glue codes against the runtime API of the agent
+    # messaging contract (section 5: BotMessage.reply -> BotSentMessage,
+    # BotSentMessage.edit, CallTypeBot.setCommands, BotCommand), which lands
+    # in calltype_bot / calltype_core on a parallel branch. Remove this
+    # exclude once that branch is merged.
+    - lib/src/jay_glue.dart
