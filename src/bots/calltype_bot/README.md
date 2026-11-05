@@ -46,6 +46,41 @@ info.member(id)?.isAdmin;     // members: deviceId, role, handle, isBot
   routes the message to a group, so a bot can admit other bots of a group by
   its settings (one cached group lookup) instead of a static list.
 
+### Agent messaging: replies, buttons, edits, commands
+
+```dart
+// Buttons (max 8; id 1..64 of [A-Za-z0-9_.:-], label 1..40 chars).
+final sent = await msg.reply('Delete 3 files?', actions: const [
+  MessageButton(id: 'yes', label: 'Yes'),
+  MessageButton(id: 'no', label: 'No'),
+]);
+await sent.edit('Deleting...');                       // null = keep the buttons
+await sent.edit('Deleted 3 files.', actions: const []); // [] = remove them
+
+// Presses on this bot's own button messages, OUTSIDE the conversation queue.
+bot.onAction((press) async {
+  press.action!.id;        // 'yes'
+  press.action!.messageId; // sent.id
+});
+
+await bot.setCommands(const [BotCommand(command: 'help', description: 'Show help')]);
+bot.deepLink(start: 'invite_42'); // calltype://bot/CT-XXXX-XXXX?start=invite_42
+```
+
+- `BotMessage.replyTo` (`id`, `senderId`, `preview`), `mentions` (structured
+  identity ids), `action` (a button press), `mentionsBot` (structured mention or
+  `@handle` text), `repliesToBot`, `addressed` (= either).
+- In a group a `reply` quotes the message it answers (`replyTo`, first 100
+  characters); 1:1 replies do not quote. `send` and `reply` return a
+  `BotSentMessage` that can be `edit`ed (wire `type: edit`, `editOf`).
+- A press on a message the bot sent with buttons goes to `onAction` when set,
+  even while that conversation's handler is still running (WHY: that handler
+  may be waiting for exactly this press, e.g. an approval). Ids of button
+  messages are kept in memory and in the DB (`backupState`
+  `sent-actions:<id>`), so a press after a restart is still recognised.
+  Without `onAction` presses reach the normal handler (body = button label).
+- Edits from others are acknowledged and ignored (the bot keeps no history).
+
 ## What the runtime guarantees
 
 - **Registration** with `isBot: true` on first start; identity is reused afterwards.
@@ -54,8 +89,9 @@ info.member(id)?.isAdmin;     // members: deviceId, role, handle, isBot
   transaction as the ratchet advance. A replay (lost ack, reconnect, restart,
   crash mid-handler) is acknowledged but never reaches the handler again.
 - **Ack after the handler finished**, typing indicator while it runs.
-- **Groups:** the handler runs only when the text mentions `@<handle>` or
-  `@<display name>`. Replies use the per-member fan-out like the app.
+- **Groups:** the handler runs only when the bot is addressed: a structured
+  mention, the text `@<handle>` / `@<display name>`, or a reply to one of the
+  bot's messages. Replies use the per-member fan-out like the app.
 - **Ordering:** handlers run serially per conversation, concurrently across conversations.
 - **Handler exception** → logged, short apology sent, loop continues.
 - **Reconnect forever** (the app gives up after four attempts; a bot has no user to tap retry).
@@ -77,8 +113,6 @@ A wrong key refuses to start rather than silently creating a new identity.
 - **No one-time pre-key replenishment:** the server has no endpoint to upload
   more (the app cannot either). After the initial 100 are consumed, new
   sessions fall back to X3DH without a one-time key, which the protocol supports.
-- **"Replied to the bot" is not detectable:** the message payload has no
-  reply-to field, so in groups only mentions trigger the bot.
 - Text only; attachments and calls are ignored (acknowledged, not handled).
 
 ## Tests
