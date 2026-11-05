@@ -524,5 +524,11 @@
   "botTalkErrorNotABot": "Een van de geselecteerde bots zit niet meer in de groep. Controleer de lijst en sla opnieuw op.",
   "botTalkErrorInvalid": "De server heeft deze waarden niet geaccepteerd. Controleer ze en probeer het opnieuw.",
   "botTalkErrorFailed": "Opslaan mislukt. Controleer je verbinding en probeer het opnieuw.",
-  "botTalkLoadFailed": "Instelling kon niet worden geladen. Tik om het opnieuw te proberen."
+  "botTalkLoadFailed": "Instelling kon niet worden geladen. Tik om het opnieuw te proberen.",
+  "chatMessageEdit": "Bewerken",
+  "chatMessageEdited": "bewerkt",
+  "chatEditTitle": "Bericht bewerken",
+  "chatEditFailed": "Het bericht kon niet worden bewerkt. Controleer je verbinding en probeer het opnieuw.",
+  "chatCommandFromBot": "{description} ({bot})",
+  "botLinkFailed": "Deze bot kon niet worden geopend. Controleer je verbinding en probeer het opnieuw."
 }

@@ -524,5 +524,11 @@
   "botTalkErrorNotABot": "L'un des bots sélectionnés ne fait plus partie du groupe. Vérifiez la liste et enregistrez à nouveau.",
   "botTalkErrorInvalid": "Le serveur n'a pas accepté ces valeurs. Vérifiez-les et réessayez.",
   "botTalkErrorFailed": "Échec de l'enregistrement. Vérifiez votre connexion et réessayez.",
-  "botTalkLoadFailed": "Impossible de charger le réglage. Touchez pour réessayer."
+  "botTalkLoadFailed": "Impossible de charger le réglage. Touchez pour réessayer.",
+  "chatMessageEdit": "Modifier",
+  "chatMessageEdited": "modifié",
+  "chatEditTitle": "Modifier le message",
+  "chatEditFailed": "Impossible de modifier le message. Vérifiez votre connexion et réessayez.",
+  "chatCommandFromBot": "{description} ({bot})",
+  "botLinkFailed": "Impossible d’ouvrir ce bot. Vérifiez votre connexion et réessayez."
 }

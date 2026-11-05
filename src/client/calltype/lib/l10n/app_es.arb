@@ -524,5 +524,11 @@
   "botTalkErrorNotABot": "Uno de los bots seleccionados ya no está en el grupo. Revisa la lista y guarda de nuevo.",
   "botTalkErrorInvalid": "El servidor no aceptó estos valores. Revísalos e inténtalo de nuevo.",
   "botTalkErrorFailed": "No se pudo guardar. Revisa tu conexión e inténtalo de nuevo.",
-  "botTalkLoadFailed": "No se pudo cargar el ajuste. Toca para reintentar."
+  "botTalkLoadFailed": "No se pudo cargar el ajuste. Toca para reintentar.",
+  "chatMessageEdit": "Editar",
+  "chatMessageEdited": "editado",
+  "chatEditTitle": "Editar mensaje",
+  "chatEditFailed": "No se pudo editar el mensaje. Comprueba tu conexión e inténtalo de nuevo.",
+  "chatCommandFromBot": "{description} ({bot})",
+  "botLinkFailed": "No se pudo abrir este bot. Comprueba tu conexión e inténtalo de nuevo."
 }

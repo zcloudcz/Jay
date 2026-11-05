@@ -524,5 +524,11 @@
   "botTalkErrorNotABot": "Az egyik kiválasztott bot már nincs a csoportban. Ellenőrizd a listát, és mentsd újra.",
   "botTalkErrorInvalid": "A szerver nem fogadta el ezeket az értékeket. Ellenőrizd őket, és próbáld újra.",
   "botTalkErrorFailed": "A mentés nem sikerült. Ellenőrizd a kapcsolatot, és próbáld újra.",
-  "botTalkLoadFailed": "A beállítást nem sikerült betölteni. Koppints az újrapróbáláshoz."
+  "botTalkLoadFailed": "A beállítást nem sikerült betölteni. Koppints az újrapróbáláshoz.",
+  "chatMessageEdit": "Szerkesztés",
+  "chatMessageEdited": "szerkesztve",
+  "chatEditTitle": "Üzenet szerkesztése",
+  "chatEditFailed": "Az üzenetet nem sikerült szerkeszteni. Ellenőrizd a kapcsolatot, és próbáld újra.",
+  "chatCommandFromBot": "{description} ({bot})",
+  "botLinkFailed": "Ezt a botot nem sikerült megnyitni. Ellenőrizd a kapcsolatot, és próbáld újra."
 }

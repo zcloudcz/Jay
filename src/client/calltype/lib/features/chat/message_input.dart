@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/bot_badge.dart';
+import 'bot_commands.dart';
 import 'mentions.dart';
 
 /// Composable message input bar with text field and send button.
@@ -23,8 +24,24 @@ class MessageInput extends StatefulWidget {
     this.replyAuthor,
     this.replyText,
     this.onCancelReply,
+    this.onSendWithMentions,
+    this.commandSuggestions,
+    this.initialText,
   });
   final VoidCallback? onAttachment;
+
+  /// Used instead of [onSend] when set: also gets the identity ids of the
+  /// picked @mentions still present in the text (contract section 8).
+  final Future<void> Function(String text, List<String> mentions)?
+  onSendWithMentions;
+
+  /// Loads the "/" menu; null when the chat has no bot (no menu at all).
+  /// Called each time a `/` starts the text, the caller caches.
+  final Future<List<CommandSuggestion>> Function()? commandSuggestions;
+
+  /// Pre-filled, NOT sent (bot deep link `/start <payload>`): the user
+  /// reviews it and presses send.
+  final String? initialText;
 
   /// Reply bar above the field; shown while [replyText] is non-null.
   final String? replyAuthor;
@@ -50,6 +67,17 @@ class _MessageInputState extends State<MessageInput> {
   MentionQuery? _mention;
   List<MentionCandidate> _suggestions = const [];
 
+  /// Mentions picked from the list since the field was last cleared; on
+  /// send only those whose `@token` survived editing are reported.
+  final _picked = <PickedMention>[];
+
+  /// The "/" menu: [_commands] is the loaded list for the current `/` word
+  /// (null = not loaded), [_commandQuery] what is typed after the slash.
+  List<CommandSuggestion>? _commands;
+  String? _commandQuery;
+  List<CommandSuggestion> _commandMatches = const [];
+  int _commandLoad = 0;
+
   /// Track whether the text field has content so we can conditionally
   /// enable the send button — prevents sending empty messages.
   bool _hasText = false;
@@ -68,12 +96,68 @@ class _MessageInputState extends State<MessageInput> {
   @override
   void initState() {
     super.initState();
+    final initial = widget.initialText;
+    if (initial != null && initial.isNotEmpty) {
+      _controller.value = TextEditingValue(
+        text: initial,
+        selection: TextSelection.collapsed(offset: initial.length),
+      );
+      _hasText = initial.trim().isNotEmpty;
+    }
     _controller.addListener(_onTextChanged);
+  }
+
+  /// Opens / filters / closes the "/" menu for the current text.
+  void _updateCommands(String text, int cursor) {
+    final load = widget.commandSuggestions;
+    final query = load == null ? null : activeCommandQuery(text, cursor);
+    if (query == null) {
+      if (_commandQuery != null || _commandMatches.isNotEmpty) {
+        setState(() {
+          _commandQuery = null;
+          _commands = null;
+          _commandMatches = const [];
+        });
+      }
+      return;
+    }
+    final wasClosed = _commandQuery == null;
+    _commandQuery = query;
+    if (wasClosed || _commands == null) {
+      // A new "/" word: (re)load. The token guards against a slow answer
+      // for an earlier "/" landing after the user moved on.
+      final token = ++_commandLoad;
+      load!().then((commands) {
+        if (!mounted || token != _commandLoad || _commandQuery == null) return;
+        setState(() {
+          _commands = commands;
+          _commandMatches = filterCommands(commands, _commandQuery!);
+        });
+      }, onError: (Object _) {});
+    }
+    final commands = _commands;
+    if (commands != null) {
+      setState(() => _commandMatches = filterCommands(commands, query));
+    }
+  }
+
+  void _pickCommand(CommandSuggestion command) {
+    final cursor = _controller.selection.baseOffset;
+    final text = _controller.text;
+    final end = cursor < 0 || cursor > text.length ? text.length : cursor;
+    final result = text.replaceRange(0, end, command.insert);
+    _controller.value = TextEditingValue(
+      text: result,
+      selection: TextSelection.collapsed(offset: command.insert.length),
+    );
+    _focus.requestFocus();
   }
 
   void _onTextChanged() {
     final hasText = _controller.text.trim().isNotEmpty;
     final cursor = _controller.selection.baseOffset;
+    if (_controller.text.isEmpty) _picked.clear();
+    _updateCommands(_controller.text, cursor);
     final mention = activeMentionQuery(_controller.text, cursor);
     final suggestions = mention == null
         ? const <MentionCandidate>[]
@@ -100,6 +184,8 @@ class _MessageInputState extends State<MessageInput> {
       cursor,
       candidate.token,
     );
+    final id = candidate.id;
+    if (id != null) _picked.add((token: candidate.token, id: id));
     _controller.value = TextEditingValue(
       text: result.text,
       selection: TextSelection.collapsed(offset: result.cursor),
@@ -112,7 +198,12 @@ class _MessageInputState extends State<MessageInput> {
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
     try {
-      await widget.onSend(text);
+      final withMentions = widget.onSendWithMentions;
+      if (withMentions != null) {
+        await withMentions(text, mentionedIds(text, _picked));
+      } else {
+        await widget.onSend(text);
+      }
       if (mounted && _controller.text.trim() == text) _controller.clear();
     } catch (_) {
       if (mounted) {
@@ -140,6 +231,34 @@ class _MessageInputState extends State<MessageInput> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_commandMatches.isNotEmpty)
+            Material(
+              color: colorScheme.surfaceContainer,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 200),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _commandMatches.length,
+                  itemBuilder: (context, i) {
+                    final c = _commandMatches[i];
+                    return ListTile(
+                      dense: true,
+                      // A command is a protocol token, never translated.
+                      title: Text('/${c.command}'),
+                      subtitle: Text(
+                        c.botName == null
+                            ? c.description
+                            : context.l10n.chatCommandFromBot(
+                                c.description,
+                                c.botName!,
+                              ),
+                      ),
+                      onTap: () => _pickCommand(c),
+                    );
+                  },
+                ),
+              ),
+            ),
           if (_suggestions.isNotEmpty)
             Material(
               color: colorScheme.surfaceContainer,

@@ -524,5 +524,11 @@
   "botTalkErrorNotABot": "Jednego z wybranych botów nie ma już w grupie. Sprawdź listę i zapisz ponownie.",
   "botTalkErrorInvalid": "Serwer nie zaakceptował tych wartości. Sprawdź je i spróbuj ponownie.",
   "botTalkErrorFailed": "Nie udało się zapisać. Sprawdź połączenie i spróbuj ponownie.",
-  "botTalkLoadFailed": "Nie udało się wczytać ustawienia. Dotknij, aby spróbować ponownie."
+  "botTalkLoadFailed": "Nie udało się wczytać ustawienia. Dotknij, aby spróbować ponownie.",
+  "chatMessageEdit": "Edytuj",
+  "chatMessageEdited": "edytowano",
+  "chatEditTitle": "Edytuj wiadomość",
+  "chatEditFailed": "Nie udało się edytować wiadomości. Sprawdź połączenie i spróbuj ponownie.",
+  "chatCommandFromBot": "{description} ({bot})",
+  "botLinkFailed": "Nie udało się otworzyć tego bota. Sprawdź połączenie i spróbuj ponownie."
 }

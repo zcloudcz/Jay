@@ -524,5 +524,11 @@
   "botTalkErrorNotABot": "Unul dintre boții selectați nu mai este în grup. Verifică lista și salvează din nou.",
   "botTalkErrorInvalid": "Serverul nu a acceptat aceste valori. Verifică-le și încearcă din nou.",
   "botTalkErrorFailed": "Salvarea a eșuat. Verifică conexiunea și încearcă din nou.",
-  "botTalkLoadFailed": "Setarea nu a putut fi încărcată. Atinge pentru a încerca din nou."
+  "botTalkLoadFailed": "Setarea nu a putut fi încărcată. Atinge pentru a încerca din nou.",
+  "chatMessageEdit": "Editează",
+  "chatMessageEdited": "editat",
+  "chatEditTitle": "Editează mesajul",
+  "chatEditFailed": "Mesajul nu a putut fi editat. Verifică conexiunea și încearcă din nou.",
+  "chatCommandFromBot": "{description} ({bot})",
+  "botLinkFailed": "Acest bot nu a putut fi deschis. Verifică conexiunea și încearcă din nou."
 }

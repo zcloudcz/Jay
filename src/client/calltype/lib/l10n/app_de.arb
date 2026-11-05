@@ -524,5 +524,11 @@
   "botTalkErrorNotABot": "Einer der ausgewählten Bots ist nicht mehr in der Gruppe. Prüfe die Liste und speichere erneut.",
   "botTalkErrorInvalid": "Der Server hat diese Werte nicht akzeptiert. Prüfe sie und versuche es erneut.",
   "botTalkErrorFailed": "Speichern fehlgeschlagen. Prüfe die Verbindung und versuche es erneut.",
-  "botTalkLoadFailed": "Einstellung konnte nicht geladen werden. Tippen, um es erneut zu versuchen."
+  "botTalkLoadFailed": "Einstellung konnte nicht geladen werden. Tippen, um es erneut zu versuchen.",
+  "chatMessageEdit": "Bearbeiten",
+  "chatMessageEdited": "bearbeitet",
+  "chatEditTitle": "Nachricht bearbeiten",
+  "chatEditFailed": "Die Nachricht konnte nicht bearbeitet werden. Prüfe deine Verbindung und versuche es erneut.",
+  "chatCommandFromBot": "{description} ({bot})",
+  "botLinkFailed": "Dieser Bot konnte nicht geöffnet werden. Prüfe deine Verbindung und versuche es erneut."
 }

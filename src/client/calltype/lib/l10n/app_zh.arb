@@ -524,5 +524,11 @@
   "botTalkErrorNotABot": "选定的某个机器人已不在群组中。请检查列表后重新保存。",
   "botTalkErrorInvalid": "服务器未接受这些值。请检查后重试。",
   "botTalkErrorFailed": "无法保存。请检查网络连接后重试。",
-  "botTalkLoadFailed": "无法加载设置。点按重试。"
+  "botTalkLoadFailed": "无法加载设置。点按重试。",
+  "chatMessageEdit": "编辑",
+  "chatMessageEdited": "已编辑",
+  "chatEditTitle": "编辑消息",
+  "chatEditFailed": "无法编辑该消息。请检查网络连接后重试。",
+  "chatCommandFromBot": "{description}（{bot}）",
+  "botLinkFailed": "无法打开此机器人。请检查网络连接后重试。"
 }

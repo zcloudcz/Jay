@@ -1,5 +1,6 @@
 import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/devices/fanout_sender.dart';
+import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:calltype_core/network/signalr_client.dart' as core
     show SignalRClient;
 import 'dart:async';
@@ -17,6 +18,7 @@ import '../../core/network/signalr_client.dart';
 import '../../core/storage/database.dart';
 import 'message_inbox_service.dart';
 import 'attachment.dart';
+import 'bot_commands.dart';
 
 /// Handed to the chat route (`GoRouter` `extra`) by the forward dialog; the
 /// route's `create:` sends it once on the freshly created controller.
@@ -24,6 +26,17 @@ class ForwardDraft {
   const ForwardDraft({required this.body, required this.type});
   final String body;
   final String type;
+}
+
+/// Local `messages.type` values that are outbox control messages, never
+/// chat bubbles.
+const controlTypes = ['delete', 'edit'];
+
+/// Handed to the chat route (`GoRouter` `extra`) by the bot deep link: text
+/// put into the composer, NEVER sent on its own (the user presses send).
+class ComposerDraft {
+  const ComposerDraft(this.text);
+  final String text;
 }
 
 class ChatController extends ChangeNotifier {
@@ -37,7 +50,9 @@ class ChatController extends ChangeNotifier {
     required DeviceDirectory directory,
     void Function(Set<String> required)? onStale,
     void Function(String deviceId)? onMissingOwnDevice,
+    BotCommandsCache? commandsCache,
   }) : _db = database,
+       _commandsCache = commandsCache ?? BotCommandsCache.shared,
        _signalR = signalRClient,
        _sessions = sessionManager,
        _api = apiClient,
@@ -64,9 +79,10 @@ class ChatController extends ChangeNotifier {
     _subscription =
         (_db.select(_db.messages)
               ..where((m) => m.conversationId.equals(conversationId))
-              // 'delete' rows are hidden control messages (see
-              // deleteForEveryone); they ride the outbox but are not chat.
-              ..where((m) => m.type.equals('delete').not())
+              // 'delete' / 'edit' rows are hidden control messages (see
+              // deleteForEveryone, editMessage); they ride the outbox but
+              // are not chat.
+              ..where((m) => m.type.isIn(controlTypes).not())
               // rowId breaks ties: timestamps are stored with second
               // precision, so a quick answer could otherwise land ABOVE the
               // message it answers.
@@ -158,6 +174,26 @@ class ChatController extends ChangeNotifier {
   final ApiClient _api;
   final String conversationId;
   final DeviceDirectory _directory;
+  final BotCommandsCache _commandsCache;
+
+  /// The "/" menu for [bots] of this chat (the 1:1 bot, or the group's bot
+  /// members). Lists come from `GET /devices/{id}/bot-commands` through the
+  /// 10-minute cache, fetched in parallel; a bot whose list fails just
+  /// offers nothing.
+  Future<List<CommandSuggestion>> commandSuggestions(
+    List<CommandBot> bots, {
+    required bool group,
+  }) async {
+    final lists = await Future.wait([
+      for (final bot in bots)
+        _commandsCache.get(bot.deviceId, _api.getBotCommands),
+    ]);
+    return buildCommandSuggestions(
+      bots: bots,
+      commands: {for (final (i, bot) in bots.indexed) bot.deviceId: lists[i]},
+      group: group,
+    );
+  }
 
   /// "Me" in this conversation: the IDENTITY id (the primary device id),
   /// which `messages.senderId` stores for every device of this user. Equals
@@ -276,6 +312,10 @@ class ChatController extends ChangeNotifier {
         .write(const ConversationsCompanion(unreadCount: Value(0)));
   }
 
+  /// Text the composer starts with (bot deep link `/start <payload>`), set
+  /// once by the route; never sent without the user pressing send.
+  String? initialDraft;
+
   Message? _replyingTo;
 
   /// The message the next sent message will quote, or null.
@@ -309,7 +349,171 @@ class ChatController extends ChangeNotifier {
         : text;
   }
 
-  Future<void> sendMessage(String text) => _send(text, 'text');
+  /// Sends a text message. [mentions] are the identity ids of the members
+  /// the user picked from the @ suggestions whose `@token` is still in
+  /// [text] (MessageInput decides that); they travel as `mentions` so a bot
+  /// is addressed even when its handle or name is ambiguous in the text.
+  Future<void> sendMessage(String text, {List<String> mentions = const []}) =>
+      _send(
+        text,
+        'text',
+        extra: {
+          if (mentions.isNotEmpty)
+            'mentions': parseMentions(mentions),
+        },
+      );
+
+  /// A tap on [button] under the bot message [botMessage] (contract section
+  /// 1, `action`): a normal text message whose body is the label (an old bot
+  /// still understands it), quoting that bot message, plus the machine
+  /// readable `action`. Independent of the reply the user may be composing.
+  Future<void> sendAction(Message botMessage, MessageButton button) => _send(
+    button.label,
+    'text',
+    reply: botMessage,
+    extra: {
+      'action': ActionRef(messageId: botMessage.id, id: button.id).toJson(),
+    },
+  );
+
+  /// Whether [message] may be edited by this user here: an own, sent, plain
+  /// text message outside business conversations (same limits as
+  /// [deleteForEveryone], see there for why business is excluded).
+  bool canEdit(Message message, {required bool business}) =>
+      message.senderId == myIdentityId &&
+      message.type == 'text' &&
+      !message.deleted &&
+      !business &&
+      message.status != 'sending' &&
+      message.status != 'failed';
+
+  /// Replaces the text of an own message for every participant by sending a
+  /// `type: edit` control message (contract section 1) with the FULL new
+  /// body. Mirrors [deleteForEveryone]: a transient local control row rides
+  /// the normal outbox (so our other devices get the edit through the same
+  /// fan-out), and the local copy changes only after the send succeeded.
+  /// Returns false when not allowed, unchanged, or the send failed.
+  Future<bool> editMessage(String messageId, String newText) async {
+    final text = newText.trim();
+    if (text.isEmpty) return false;
+    final target = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(messageId))).getSingleOrNull();
+    if (target == null ||
+        target.conversationId != conversationId ||
+        !canEdit(target, business: false) ||
+        target.body == text) {
+      return false;
+    }
+    final conversation = await (_db.select(
+      _db.conversations,
+    )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
+    // WHY business is refused (fail closed, exactly like delete): business
+    // messages are archived for audit and the archiver does not accept an
+    // `edit` (it would stay queued for it until the TTL).
+    if (conversation == null || conversation.organizationId != null) {
+      return false;
+    }
+    if (conversation.type == 'group' && !await _confirmNotBusiness()) {
+      return false;
+    }
+    final controlId = _uuid.v4();
+    final now = DateTime.now();
+    await _db.transaction(() async {
+      await _db
+          .into(_db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: controlId,
+              conversationId: conversationId,
+              senderId: myIdentityId,
+              body: Value(text),
+              type: const Value('edit'),
+              status: const Value('sending'),
+              createdAt: now,
+            ),
+          );
+      await _storeExtra(controlId, {'editOf': messageId});
+    });
+    await retryMessage(controlId);
+    final control = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(controlId))).getSingleOrNull();
+    final sent = control?.status == 'sent';
+    await _db.transaction(() async {
+      if (sent) {
+        await (_db.update(
+          _db.messages,
+        )..where((m) => m.id.equals(messageId))).write(
+          MessagesCompanion(
+            body: Value(text),
+            // The same instant the payload carried as createdAt, so this
+            // device orders a later copy of its own edit like everybody else.
+            editedAt: Value(control!.createdAt),
+          ),
+        );
+      }
+      await _dropControl(controlId);
+    });
+    return sent;
+  }
+
+  /// Removes a transient control row with everything that belongs to it.
+  Future<void> _dropControl(String controlId) async {
+    await (_db.delete(
+      _db.messages,
+    )..where((m) => m.id.equals(controlId))).go();
+    await (_db.delete(_db.backupState)..where(
+          (s) => s.key.isIn(['outbox:$controlId', 'extra:$controlId']),
+        ))
+        .go();
+  }
+
+  /// Asks the server whether this group is a business group, failing CLOSED
+  /// (a network error counts as "business"). Shared by delete and edit.
+  Future<bool> _confirmNotBusiness() async {
+    // The cached organizationId may simply not be filled in yet. Asked
+    // directly instead of through getGroupBusinessInfo: that helper turns a
+    // network error into "not business", which here would mean failing OPEN.
+    try {
+      final response = await _api.transport.get<Map<String, dynamic>>(
+        '/groups/$conversationId',
+      );
+      return !GroupBusinessInfo.fromJson(response.data!).isBusiness;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Payload keys of [messageId] that have no `messages` column (mentions,
+  /// a button press, the target of an edit). WHY persisted next to the row
+  /// and not kept in memory: a first send can fail BEFORE the outbox (and
+  /// with it the exact payload) is written, and the retry may come from
+  /// another controller or after a restart. Deleted once the outbox holds
+  /// the payload.
+  Future<void> _storeExtra(String messageId, Map<String, Object?> extra) async {
+    if (extra.isEmpty) return;
+    await _db
+        .into(_db.backupState)
+        .insertOnConflictUpdate(
+          BackupStateCompanion.insert(
+            key: 'extra:$messageId',
+            value: jsonEncode(extra),
+          ),
+        );
+  }
+
+  Future<Map<String, dynamic>> _loadExtra(String messageId) async {
+    final row = await (_db.select(
+      _db.backupState,
+    )..where((s) => s.key.equals('extra:$messageId'))).getSingleOrNull();
+    if (row == null) return const {};
+    try {
+      return jsonDecode(row.value) as Map<String, dynamic>;
+    } catch (_) {
+      return const {};
+    }
+  }
 
   Future<void> sendAttachment(String name, Uint8List bytes) =>
       _send(Attachment(name: name, bytes: bytes).encode(), 'file');
@@ -324,9 +528,10 @@ class ChatController extends ChangeNotifier {
   /// including tombstones and failed sends (also drops its pending outbox).
   Future<void> deleteForMe(String messageId) => _db.transaction(() async {
     await (_db.delete(_db.messages)..where((m) => m.id.equals(messageId))).go();
-    await (_db.delete(
-      _db.backupState,
-    )..where((s) => s.key.equals('outbox:$messageId'))).go();
+    await (_db.delete(_db.backupState)..where(
+          (s) => s.key.isIn(['outbox:$messageId', 'extra:$messageId']),
+        ))
+        .go();
   });
 
   /// Deletes an own, already sent message for every participant by sending a
@@ -353,22 +558,10 @@ class ChatController extends ChangeNotifier {
     if (conversation == null || conversation.organizationId != null) {
       return false;
     }
-    if (conversation.type == 'group') {
-      // The cached organizationId may simply not be filled in yet. Fail
-      // CLOSED: business messages are archived and must never be retracted.
-      // Asked directly instead of through getGroupBusinessInfo: that helper
-      // turns a network error into "not business", which here would mean
-      // failing OPEN.
-      try {
-        final response = await _api.transport.get<Map<String, dynamic>>(
-          '/groups/$conversationId',
-        );
-        if (GroupBusinessInfo.fromJson(response.data!).isBusiness) {
-          return false;
-        }
-      } catch (_) {
-        return false;
-      }
+    // Fail CLOSED: business messages are archived and must never be
+    // retracted.
+    if (conversation.type == 'group' && !await _confirmNotBusiness()) {
+      return false;
     }
     // A local row of type 'delete' reuses the outbox, so a retry resends the
     // SAME ciphertext and the receiver's redelivery marker keeps it idempotent.
@@ -406,13 +599,22 @@ class ChatController extends ChangeNotifier {
     return sent;
   }
 
-  Future<void> _send(String text, String type, {bool forwarded = false}) async {
+  Future<void> _send(
+    String text,
+    String type, {
+    bool forwarded = false,
+    Message? reply,
+    Map<String, Object?> extra = const {},
+  }) async {
     if (text.trim().isEmpty) return;
     final id = _uuid.v4();
     final now = DateTime.now();
-    final reply = forwarded ? null : _replyingTo;
-    if (reply != null) cancelReply();
+    if (reply == null) {
+      reply = forwarded ? null : _replyingTo;
+      if (reply != null) cancelReply();
+    }
     await _db.transaction(() async {
+      await _storeExtra(id, extra);
       await _db
           .into(_db.messages)
           .insert(
@@ -495,6 +697,8 @@ class ChatController extends ChangeNotifier {
               'preview': message.replyPreview ?? '',
             },
           if (message.forwarded) 'forwarded': true,
+          // mentions / action / editOf (agent messaging contract section 1).
+          ...await _loadExtra(messageId),
         });
         await _db.transaction(() async {
           final Map<String, String> envelopes;
@@ -527,6 +731,10 @@ class ChatController extends ChangeNotifier {
                   }),
                 ),
               );
+          // The payload above now carries the extra keys for every retry.
+          await (_db.delete(
+            _db.backupState,
+          )..where((s) => s.key.equals('extra:$messageId'))).go();
         });
         stored = await (_db.select(
           _db.backupState,

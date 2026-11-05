@@ -11,7 +11,12 @@ class MentionCandidate {
     required this.token,
     this.detail,
     this.isBot = false,
+    this.id,
   });
+
+  /// The member's identity id, sent in the structured `mentions` list when
+  /// the candidate is picked (contract section 8). Null = text only.
+  final String? id;
 
   /// What the user sees (their own local name for the contact, if any).
   final String label;
@@ -70,6 +75,28 @@ MentionQuery? activeMentionQuery(String text, int cursor) {
   );
 }
 
+/// A suggestion the user picked: the inserted token and whom it means.
+typedef PickedMention = ({String token, String id});
+
+/// Identity ids of [picked] mentions whose `@token` is still in [text]
+/// (the user may have deleted or retyped it after picking), deduplicated.
+///
+/// WHY a boundary on both sides: the same rule as [activeMentionQuery] (an
+/// `@` opens the text or follows whitespace), and `@Hermes` must not count
+/// inside `@HermesBackup`, which may be another member.
+List<String> mentionedIds(String text, Iterable<PickedMention> picked) {
+  final result = <String>[];
+  for (final p in picked) {
+    if (result.contains(p.id)) continue;
+    final pattern = RegExp(
+      '(?:^|\\s)@${RegExp.escape(p.token)}(?![\\p{L}\\p{N}_-])',
+      unicode: true,
+    );
+    if (pattern.hasMatch(text)) result.add(p.id);
+  }
+  return result;
+}
+
 /// Case-insensitive "contains" on label, token and detail; empty = all.
 List<MentionCandidate> filterMentions(
   List<MentionCandidate> all,
@@ -121,10 +148,29 @@ List<MentionCandidate> buildMentionCandidates({
         label: contact?.displayName ?? serverName ?? handle,
         detail: handle,
         isBot: member.isBot || (contact?.isBot ?? false),
+        id: member.deviceId,
       ),
     );
   }
   return result;
+}
+
+/// Whether [senderId] is a bot, by the group's member profiles or the local
+/// contact flag. Decides whether a message's buttons are drawn: buttons from
+/// a human are never shown (agent messaging design, security: phishing).
+bool isBotSender(
+  String senderId, {
+  required List<GroupMemberInfo> members,
+  required List<Contact> contacts,
+}) {
+  final id = senderId.toLowerCase();
+  for (final m in members) {
+    if (m.deviceId.toLowerCase() == id && m.isBot) return true;
+  }
+  for (final c in contacts) {
+    if (c.deviceId.toLowerCase() == id && c.isBot) return true;
+  }
+  return false;
 }
 
 /// Name shown above another member's message in a group: the user's own name

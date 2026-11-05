@@ -524,5 +524,11 @@
   "botTalkErrorNotABot": "أحد الروبوتات المحددة لم يعد في المجموعة. راجع القائمة واحفظ مرة أخرى.",
   "botTalkErrorInvalid": "لم يقبل الخادم هذه القيم. راجعها وحاول مرة أخرى.",
   "botTalkErrorFailed": "تعذّر الحفظ. تحقق من اتصالك وحاول مرة أخرى.",
-  "botTalkLoadFailed": "تعذّر تحميل الإعداد. انقر للمحاولة مرة أخرى."
+  "botTalkLoadFailed": "تعذّر تحميل الإعداد. انقر للمحاولة مرة أخرى.",
+  "chatMessageEdit": "تعديل",
+  "chatMessageEdited": "معدّلة",
+  "chatEditTitle": "تعديل الرسالة",
+  "chatEditFailed": "تعذّر تعديل الرسالة. تحقّق من الاتصال وحاول مرة أخرى.",
+  "chatCommandFromBot": "{description} ({bot})",
+  "botLinkFailed": "تعذّر فتح هذا البوت. تحقّق من الاتصال وحاول مرة أخرى."
 }
