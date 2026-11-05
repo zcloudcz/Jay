@@ -1,20 +1,34 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:calltype_bot/calltype_bot.dart';
 
 import 'src/bot_talk.dart';
+import 'src/hermes_events.dart';
+import 'src/progress.dart';
 import 'src/send_endpoint.dart';
 
 export 'src/bot_talk.dart';
+export 'src/hermes_events.dart';
+export 'src/progress.dart';
 export 'src/send_endpoint.dart';
 
-/// Answers one user message within a conversation. The only thing the
-/// bridge needs from a backend, so swapping Hermes for something else (or a
-/// fake in tests) is one function.
+/// Answers one user message within a conversation in one go. Kept for
+/// backends without streaming (and simple fakes): the bridge wraps it into a
+/// [StreamingBackend] that yields only the final answer.
 typedef Backend =
     Future<String> Function(String text, {required String conversationId});
+
+/// Runs one turn and reports it as it happens (tools, approvals, answer).
+/// [HermesClient.chat] in production; tests feed scripted events.
+typedef StreamingBackend =
+    Stream<HermesEvent> Function(String text, {required String conversationId});
+
+/// Answers a pending approval: [choice] is `once`, `session` or `deny`.
+typedef ApprovalBackend =
+    Future<void> Function(String runId, String requestId, String choice);
 
 /// Replies are cut into chunks of this many characters. The hub's hard limit
 /// is far higher (768 KiB of base64 per envelope); this is about chat
@@ -39,7 +53,18 @@ class HermesClient {
     required this.apiKey,
     this.timeout = const Duration(minutes: 5),
     this.retryDelay = const Duration(seconds: 2),
-  }) : _base = Uri.parse(baseUrl.endsWith('/') ? baseUrl : '$baseUrl/');
+    this.stream = true,
+    void Function(String line)? log,
+  }) : _base = Uri.parse(baseUrl.endsWith('/') ? baseUrl : '$baseUrl/'),
+       _log = log ?? ((_) {});
+
+  /// Use the SSE route (env `HERMES_STREAM`, default true).
+  final bool stream;
+  final void Function(String) _log;
+
+  /// Set once the server proved it has no streaming route (an older Hermes):
+  /// from then on every turn goes to `/chat` directly.
+  bool _streamUnsupported = false;
 
   final Uri _base;
   final String apiKey;
@@ -73,6 +98,134 @@ class HermesClient {
       throw const FormatException('Hermes returned no assistant text.');
     }
     return content;
+  }
+
+  /// One turn as events: `POST /api/sessions/SESSION/chat/stream` (SSE).
+  ///
+  /// A 404 means either "unknown session" or "no such route" (an older
+  /// Hermes). The session is created and the stream tried once more; a
+  /// second 404 can then only mean the route is missing, and the turn (and
+  /// every later one) falls back to [ask]. While streaming, [timeout] is the
+  /// longest SILENCE allowed: Hermes sends keepalive comments, so a long
+  /// tool run is fine, a dead connection is not.
+  Stream<HermesEvent> chat(
+    String text, {
+    required String conversationId,
+  }) async* {
+    if (!stream || _streamUnsupported) {
+      yield HermesCompleted(await ask(text, conversationId: conversationId));
+      return;
+    }
+    final session = 'calltype-$conversationId';
+    final path = 'api/sessions/$session/chat/stream';
+    final body = {'message': text};
+    var response = await _openStream(path, body);
+    if (response.statusCode == 404) {
+      await response.drain<void>();
+      final created = await _post('api/sessions', {'id': session});
+      if (created.status != 201 && created.status != 409) {
+        throw HttpException('Hermes session create: HTTP ${created.status}');
+      }
+      response = await _openStream(path, body);
+    }
+    if (response.statusCode == 404 || response.statusCode == 405) {
+      await response.drain<void>();
+      _streamUnsupported = true;
+      _log('Hermes has no streaming chat route: using /chat from now on.');
+      yield HermesCompleted(await ask(text, conversationId: conversationId));
+      return;
+    }
+    if (response.statusCode != 200) {
+      await response.drain<void>();
+      throw HttpException('Hermes chat stream: HTTP ${response.statusCode}');
+    }
+    yield* _readSse(response);
+  }
+
+  /// Parses SSE frames (`event:` + `data:` lines, blank line = end of frame,
+  /// `:` lines = keepalive comments) until `done`.
+  Stream<HermesEvent> _readSse(HttpClientResponse response) async* {
+    String? name;
+    final data = StringBuffer();
+    final lines = response
+        .timeout(timeout)
+        .cast<List<int>>()
+        .transform(utf8.decoder)
+        .transform(const LineSplitter());
+    await for (final line in lines) {
+      if (line.isEmpty) {
+        final event = name ?? 'message';
+        final raw = data.toString();
+        name = null;
+        data.clear();
+        if (event == 'done') return;
+        if (raw.isEmpty) continue;
+        Object? decoded;
+        try {
+          decoded = jsonDecode(raw);
+        } on FormatException {
+          continue; // one unreadable frame must not end the turn
+        }
+        final parsed = hermesEventFromSse(event, decoded);
+        if (parsed != null) yield parsed;
+      } else if (line.startsWith(':')) {
+        continue;
+      } else if (line.startsWith('event:')) {
+        name = line.substring(6).trim();
+      } else if (line.startsWith('data:')) {
+        if (data.isNotEmpty) data.write('\n');
+        data.write(line.substring(5).trimLeft());
+      }
+    }
+  }
+
+  /// `POST /v1/runs/RUN/approval {"choice", "request_id"}` (Hermes
+  /// `api_server_runs.py`, `_handle_run_approval`). Not retried: a lost
+  /// answer is visible (the turn keeps waiting) and the owner can press again.
+  Future<void> approve(String runId, String requestId, String choice) async {
+    final result = await _postOnce('v1/runs/$runId/approval', {
+      'choice': choice,
+      'request_id': requestId,
+    }).timeout(const Duration(seconds: 30));
+    if (result.status != 200) {
+      final error = result.json?['error'];
+      throw HttpException(
+        'Hermes approval: HTTP ${result.status}'
+        '${error is Map && error['code'] is String ? ' ${error['code']}' : ''}',
+      );
+    }
+  }
+
+  /// Opens the SSE request with the same retry rule as [_post]. Retrying is
+  /// safe here: nothing ran until the server answered with its headers.
+  Future<HttpClientResponse> _openStream(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    for (var attempt = 1; ; attempt++) {
+      try {
+        final request = await _http.postUrl(_base.resolve(path));
+        request.headers.contentType = ContentType.json;
+        request.headers.set(HttpHeaders.acceptHeader, 'text/event-stream');
+        if (apiKey.isNotEmpty) {
+          request.headers.set(
+            HttpHeaders.authorizationHeader,
+            'Bearer $apiKey',
+          );
+        }
+        request.add(utf8.encode(jsonEncode(body)));
+        final response = await request.close().timeout(timeout);
+        final transient =
+            response.statusCode >= 500 || response.statusCode == 429;
+        if (!transient || attempt == 2) return response;
+        await response.drain<void>();
+      } on TimeoutException {
+        rethrow;
+      } on IOException {
+        if (attempt == 2) rethrow;
+      }
+      await Future<void>.delayed(retryDelay);
+    }
   }
 
   /// POST with ONE retry on connection errors and 5xx/429.
@@ -145,8 +298,72 @@ List<String> splitMessage(String text, {int limit = maxReplyChars}) {
   return chunks;
 }
 
+/// `BOT_COMMANDS` (`cmd:description;cmd2:description`) -> commands for
+/// [CallTypeBot.setCommands]. A leading `/` is tolerated. Throws
+/// [FormatException] naming the bad entry: a typo in the operator's config
+/// should stop the start, not silently publish half a menu.
+List<BotCommand> parseBotCommands(String? raw) {
+  final commands = <BotCommand>[];
+  final seen = <String>{};
+  for (final entry in (raw ?? '').split(';')) {
+    if (entry.trim().isEmpty) continue;
+    final colon = entry.indexOf(':');
+    if (colon < 0) {
+      throw FormatException('BOT_COMMANDS entry without ":": "$entry"');
+    }
+    var command = entry.substring(0, colon).trim();
+    if (command.startsWith('/')) command = command.substring(1);
+    final parsed = BotCommand(
+      command: command,
+      description: entry.substring(colon + 1).trim(),
+    );
+    if (!parsed.isValid) {
+      throw FormatException(
+        'BOT_COMMANDS entry "$entry": command must be [a-z0-9_]{1,32}, '
+        'description 1..100 characters',
+      );
+    }
+    if (!seen.add(command)) {
+      throw FormatException('BOT_COMMANDS lists /$command twice');
+    }
+    commands.add(parsed);
+  }
+  return commands;
+}
+
 /// The one notice a bot posts when a bot-only exchange hits its limit.
 const botLimitNotice = 'Bot limit reached, waiting for a human.';
+
+/// Answer to an approval button pressed by someone who is not an owner.
+const approvalOwnerOnlyNotice = 'Only the bot owner can approve.';
+
+/// Same text the runtime uses for a failed handler.
+const _apology = 'Sorry, something went wrong. Please try again.';
+
+/// Buttons of an approval request, in this order; filtered by what Hermes
+/// offers for the request. `always` is never offered: a permanent allowlist
+/// entry is an operator decision, not a chat button.
+const _approvalChoices = {
+  'once': 'Approve once',
+  'session': 'Approve for session',
+  'deny': 'Deny',
+};
+
+/// One approval request the bridge posted and still waits for.
+class _PendingApproval {
+  _PendingApproval(
+    this.runId,
+    this.requestId,
+    this.conversationId,
+    this.text,
+    this.message,
+  );
+  final String runId;
+  final String requestId;
+  final String conversationId;
+  final String text;
+  final BotSentMessage message;
+}
 
 /// The running bridge: the message handler and the local send path share its
 /// [policy], so a message started via /send counts as a bot turn too.
@@ -157,6 +374,8 @@ class HermesBridge {
     this._allowedIds,
     this._allowedHandles,
     this._backend,
+    this._approve,
+    this._progress,
     this._log,
   );
 
@@ -166,8 +385,14 @@ class HermesBridge {
   /// Owner device id (lower-case) -> handle.
   final Map<String, String> _allowedIds;
   final Set<String> _allowedHandles;
-  final Backend _backend;
+  final StreamingBackend _backend;
+  final ApprovalBackend? _approve;
+  final ProgressSettings _progress;
   final void Function(String) _log;
+
+  /// Approval requests still waiting, by token (see [_approvalButtonId]).
+  final _approvals = <String, _PendingApproval>{};
+  static final _random = Random.secure();
 
   static final _handlePattern = RegExp(r'^CT-[A-Z0-9]{4}-[A-Z0-9]{4}$');
 
@@ -199,7 +424,8 @@ class HermesBridge {
     String label;
     if (human != null) {
       // In groups the runtime only calls this handler for messages that
-      // mention the bot, so only a human message WITH a mention re-arms.
+      // address the bot (a mention or a reply to it), so only such a human
+      // message re-arms.
       if (groupId != null) policy.humanSpoke(groupId);
       label = '[from $human]';
     } else {
@@ -226,13 +452,182 @@ class HermesBridge {
           '[from ${peer?.handle ?? peer?.displayName ?? message.senderId} (bot)]';
     }
     // The prefix tells the agent who is speaking (and that it is a bot).
-    final reply = await _backend(
-      '$label: ${message.text}',
-      conversationId: message.conversationId,
-    );
-    for (final chunk in splitMessage(reply)) {
-      await message.reply(chunk);
+    await _runTurn(message, '$label: ${_withContext(message)}');
+  }
+
+  /// What the agent sees besides the text: the quoted message (people reply
+  /// to something specific; without it "yes, do that" is meaningless) or the
+  /// fact that a button was pressed.
+  static String _withContext(BotMessage message) {
+    if (message.action != null) return '[Button: ${message.text}]';
+    final quote = message.replyTo;
+    if (quote == null || quote.preview.trim().isEmpty) return message.text;
+    return '[Replying to: "${quote.preview}"]\n${message.text}';
+  }
+
+  /// One backend turn: progress message after a while, approvals as
+  /// buttons, the final answer replacing the progress message.
+  Future<void> _runTurn(BotMessage message, String prompt) async {
+    final progress = ProgressReporter(
+      settings: _progress,
+      post: message.reply,
+      log: _log,
+    )..start();
+    final issued = <String>[];
+    try {
+      final answer = StringBuffer();
+      String? completed;
+      await for (final event in _backend(
+        prompt,
+        conversationId: message.conversationId,
+      )) {
+        switch (event) {
+          case HermesDelta(:final text):
+            answer.write(text);
+          case HermesToolEvent():
+            progress.tool(event);
+          case HermesApprovalRequest():
+            issued.add(await _requestApproval(message, event));
+          case HermesCompleted(:final content):
+            completed = content;
+          case HermesError(message: final error):
+            throw HermesTurnException(error);
+        }
+      }
+      // The final event is authoritative; the deltas are only a fallback
+      // for a stream that ended without one.
+      final text = completed != null && completed.trim().isNotEmpty
+          ? completed
+          : answer.toString();
+      if (text.trim().isEmpty) {
+        throw const FormatException('Hermes returned no assistant text.');
+      }
+      final chunks = splitMessage(text);
+      final replaced = await progress.finish(chunks.first);
+      for (final chunk in replaced ? chunks.skip(1) : chunks) {
+        await message.reply(chunk);
+      }
+    } catch (e) {
+      // With a progress message on screen the apology replaces it; without
+      // one the runtime sends its usual apology.
+      if (await progress.finish(_apology)) {
+        _log('Turn failed for message ${message.id}: $e');
+        return;
+      }
+      rethrow;
+    } finally {
+      progress.cancel();
+      await _expire(issued);
     }
+  }
+
+  /// Posts the approval request with its buttons and remembers it.
+  Future<String> _requestApproval(
+    BotMessage message,
+    HermesApprovalRequest request,
+  ) async {
+    // A short local token instead of the Hermes ids in the button: run and
+    // request ids are 36 + 32 characters, over the 64-character button id
+    // limit. It also means only requests THIS bridge issued can be answered.
+    final token = [
+      for (var i = 0; i < 6; i++)
+        _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ].join();
+    final command = request.command.length > 500
+        ? '${request.command.substring(0, 497)}...'
+        : request.command;
+    final text = [
+      'Hermes asks for approval to run:',
+      command,
+      if (request.description.trim().isNotEmpty)
+        '(${request.description.trim()})',
+    ].join('\n');
+    final offered = request.choices.isEmpty
+        ? _approvalChoices.keys
+        : _approvalChoices.keys.where(request.choices.contains);
+    final sent = await message.reply(
+      text,
+      actions: [
+        for (final choice in offered)
+          MessageButton(
+            id: _approvalButtonId(token, choice),
+            label: _approvalChoices[choice]!,
+          ),
+      ],
+    );
+    _approvals[token] = _PendingApproval(
+      request.runId,
+      request.requestId,
+      message.conversationId,
+      text,
+      sent,
+    );
+    return token;
+  }
+
+  static String _approvalButtonId(String token, String choice) =>
+      'approve:$token:$choice';
+
+  /// Approvals still open when their turn ended: Hermes no longer waits for
+  /// them, so their buttons go away.
+  Future<void> _expire(List<String> tokens) async {
+    for (final token in tokens) {
+      final pending = _approvals.remove(token);
+      if (pending == null) continue;
+      try {
+        await pending.message.edit(
+          '${pending.text}\n\nNo longer pending.',
+          actions: const [],
+        );
+      } catch (e) {
+        _log('Could not close approval $token: $e');
+      }
+    }
+  }
+
+  /// A press on one of this bot's button messages. Runs OUTSIDE the
+  /// conversation queue (the turn that asked is blocked on this answer).
+  Future<void> _onAction(BotMessage press) async {
+    final parts = press.action!.id.split(':');
+    if (parts.length != 3 || parts[0] != 'approve') {
+      // Not an approval: an ordinary button of ours, handled like a message.
+      return _handle(press);
+    }
+    final human = _owner(press.senderId);
+    if (human == null) {
+      // WHY reply instead of silence: a group member who pressed sees why
+      // nothing happened. Allowlisted owners are the only humans that can
+      // reach the bot at all; this mostly answers admitted peer bots.
+      await press.reply(approvalOwnerOnlyNotice);
+      return;
+    }
+    final (token, choice) = (parts[1], parts[2]);
+    final pending = _approvals[token];
+    if (pending == null ||
+        pending.conversationId != press.conversationId ||
+        !_approvalChoices.containsKey(choice) ||
+        _approve == null) {
+      await press.reply('This approval is no longer pending.');
+      return;
+    }
+    // Claimed before the network call, so a double tap posts only once.
+    _approvals.remove(token);
+    String outcome;
+    try {
+      await _approve(pending.runId, pending.requestId, choice);
+      outcome = switch (choice) {
+        'once' => 'Approved once by $human.',
+        'session' => 'Approved for this session by $human.',
+        _ => 'Denied by $human.',
+      };
+    } catch (e) {
+      _log('Approval ${pending.runId}/${pending.requestId} failed: $e');
+      outcome = 'Could not answer: the request is no longer pending.';
+    }
+    await pending.message.edit(
+      '${pending.text}\n\n$outcome',
+      actions: const [],
+    );
   }
 
   /// The /send path: [to] is an owner's handle (1:1) or a group id the bot is
@@ -289,15 +684,33 @@ class HermesBridge {
 /// owner's setting, an owner of this bot as group admin, the turn limit
 /// capped at [peerTurnsCap], the pause). [peerHandles] (env PEER_BOT_HANDLES)
 /// optionally NARROWS that to the named bots; it can never widen it.
+///
+/// Give either [stream] (events: progress, approvals, answer) or the simple
+/// [backend]. [approve] answers approval buttons; without it a press is
+/// refused as no longer pending.
 Future<HermesBridge> runBridge(
   CallTypeBot bot, {
   required Set<String> allowedHandles,
   Set<String> peerHandles = const {},
   int peerTurnsCap = 50,
   DateTime Function()? now,
-  required Backend backend,
+  Backend? backend,
+  StreamingBackend? stream,
+  ApprovalBackend? approve,
+  ProgressSettings progress = const ProgressSettings(),
   required void Function(String) log,
 }) async {
+  if (stream == null && backend == null) {
+    throw ArgumentError('runBridge needs a backend or a stream');
+  }
+  final StreamingBackend turns =
+      stream ??
+      (text, {required conversationId}) => Stream.fromFuture(
+        backend!(
+          text,
+          conversationId: conversationId,
+        ).then<HermesEvent>(HermesCompleted.new),
+      );
   // Incoming messages carry device ids, not handles, so resolve once here.
   // ponytail: resolved at startup only; restart the bridge after changing
   // ALLOWED_HANDLES / PEER_BOT_HANDLES (or after someone re-installs and gets
@@ -337,9 +750,13 @@ Future<HermesBridge> runBridge(
     ),
     allowedIds,
     allowedHandles,
-    backend,
+    turns,
+    approve,
+    progress,
     log,
   );
+  // Before onMessage: that call connects, and queued presses arrive at once.
+  bot.onAction(bridge._onAction);
   await bot.onMessage(
     bridge._handle,
     allowSender: bridge._allowSender,

@@ -42,6 +42,11 @@ messages, therefore:
 | `PEER_MAX_TURNS_CAP` | no, default `50` | operator ceiling for a bot-only exchange; a group's "max messages" above it is cut down to it |
 | `BRIDGE_SEND_KEY` | no | enables `POST http://127.0.0.1:$BRIDGE_PORT/send`; the Bearer key callers must send. Unset = endpoint off |
 | `BRIDGE_PORT` | no, default `8650` | port of the local send endpoint (loopback only) |
+| `HERMES_STREAM` | no, default `true` | stream turns (`/api/sessions/{id}/chat/stream`, SSE): progress and approval buttons. `false` = plain `/chat`. A Hermes without the stream route is detected (404 after the session exists) and `/chat` is used from then on |
+| `PROGRESS_AFTER_SECONDS` | no, default `8` | post "Working on it..." when no answer came after this long; `0` = never |
+| `PROGRESS_EDIT_SECONDS` | no, default `5` | min seconds between progress edits (current tool) |
+| `PROGRESS_MAX_EDITS` | no, default `30` | progress edits per turn; then it stays until the answer replaces it |
+| `BOT_COMMANDS` | no | `cmd:description;cmd2:description` published as the bot's "/" menu at start (a bad entry stops the start; an old server without the endpoint is logged and ignored) |
 | `PEER_REPLY_LIMIT`, `PEER_REPLY_WINDOW_MINUTES` | obsolete | ignored with a log line; limits now come from the group setting |
 
 ## Run
@@ -104,6 +109,32 @@ the bridges. A bot answers another bot in group G only if all hold:
   the latest after 5 minutes).
 - Add to Hermes' instructions: "To ask the other agent, mention it as @<its handle>."
 
+## Replies, progress, approvals
+
+- **Addressing in groups:** `@<handle>`, a structured mention from the app, or a
+  reply to one of the bot's messages. Group answers quote the message they
+  answer.
+- **Quote context:** a message that replies to something reaches Hermes as
+  `[Replying to: "<preview>"]` + newline + text; a pressed button that is not an
+  approval as `[Button: <label>]`.
+- **Progress:** after `PROGRESS_AFTER_SECONDS` without an answer the bot posts
+  "Working on it...", edits it (throttled, capped) with the current tool, and
+  finally edits it into the answer (longer answers: the rest follows as
+  replies). A failed turn turns the progress message into the apology.
+- **Approvals:** Hermes' `approval.request` becomes a message with the command
+  and the buttons "Approve once" / "Approve for session" / "Deny" (only the
+  choices Hermes offers; never "always"). Only an `ALLOWED_HANDLES` owner may
+  press; anyone else that can reach the bot (an admitted peer bot) gets "Only
+  the bot owner can approve." A press posts `POST /v1/runs/{run_id}/approval
+  {"choice", "request_id"}` and edits the message to the outcome, without
+  buttons. Requests still open when the turn ends lose their buttons
+  ("No longer pending."). Presses are handled outside the conversation queue,
+  because the turn that asked is blocked waiting for them.
+- Button ids are `approve:<token>:<choice>` with a 12-hex local token, not the
+  Hermes ids: run id (36) + request id (32) do not fit the 64-character button
+  id limit, and only requests this bridge issued (and still waits for) can be
+  answered.
+
 ## Starting a message: local `/send`
 
 With `BRIDGE_SEND_KEY` set, Hermes tools and cron jobs can post into Jay:
@@ -127,7 +158,8 @@ Text only; reference artifacts by commit or path.
 
 ## Hermes contract: verified vs assumed
 
-Everything Hermes-specific lives in `HermesClient.ask` (`lib/hermes_bridge.dart`).
+Everything Hermes-specific lives in `HermesClient` (`lib/hermes_bridge.dart`)
+and `lib/src/hermes_events.dart`.
 
 **Verified by reading `gateway/platforms/api_server.py` (main branch, 2026-09-17):**
 
@@ -146,6 +178,20 @@ Everything Hermes-specific lives in `HermesClient.ask` (`lib/hermes_bridge.dart`
 **Why not `/v1/chat/completions`:** it is OpenAI-style, i.e. the client resends
 the history. The session API keeps memory in Hermes, keyed by our
 `calltype-<conversationId>` — the bridge stays stateless.
+
+**Streaming and approvals (read in `api_server.py` / `api_server_runs.py`, 2026-11-05):**
+
+- `POST /api/sessions/{id}/chat/stream` answers SSE frames `event: <name>` +
+  `data: <json>`: `run.started`, `message.started`, `assistant.delta
+  {message_id, delta}`, `tool.started` / `tool.completed` / `tool.failed
+  {tool_name, preview, args}`, `tool.progress` (thinking, ignored),
+  `approval.request {run_id, request_id, command, description, choices, ...}`,
+  **`assistant.completed {content}`** (the final answer), `run.completed` /
+  `run.failed`, `error {message}`, `done {}`; `: keepalive` comments in between.
+- `POST /v1/runs/{run_id}/approval {"choice": once|session|always|deny,
+  "request_id"}` -> 200, or 409 `approval_not_pending` / `approval_not_active`.
+- While streaming, `HERMES_TIMEOUT_SECONDS` is the longest silence allowed
+  (keepalives count), not the length of the turn.
 
 **Assumed (not verified against a running Hermes):**
 

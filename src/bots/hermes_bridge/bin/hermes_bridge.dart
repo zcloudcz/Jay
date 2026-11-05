@@ -15,6 +15,15 @@ import 'package:hermes_bridge/hermes_bridge.dart';
 ///                        (Bearer key); unset = endpoint off.
 /// - `BRIDGE_PORT`        port of that endpoint (default 8650).
 /// `PEER_REPLY_LIMIT` / `PEER_REPLY_WINDOW_MINUTES` are obsolete (logged, ignored).
+///
+/// Agent messaging (all optional):
+/// - `HERMES_STREAM`          `true` (default): stream turns over SSE; `false`
+///                            = plain `/chat` (no progress, no approvals).
+/// - `PROGRESS_AFTER_SECONDS` progress message after N s without an answer
+///                            (default 8, 0 = never).
+/// - `PROGRESS_EDIT_SECONDS`  min seconds between progress edits (default 5).
+/// - `PROGRESS_MAX_EDITS`     progress edits per turn (default 30).
+/// - `BOT_COMMANDS`           `cmd:description;cmd2:description` for the "/" menu.
 Future<void> main() async {
   final env = Platform.environment;
   String required(String name) {
@@ -40,6 +49,32 @@ Future<void> main() async {
     return value;
   }
 
+  int nonNegativeInt(String name, int fallback) {
+    final raw = env[name]?.trim() ?? '';
+    if (raw.isEmpty) return fallback;
+    final value = int.tryParse(raw);
+    if (value == null || value < 0) {
+      stderr.writeln('$name must be a non-negative integer, got "$raw".');
+      exit(78); // EX_CONFIG
+    }
+    return value;
+  }
+
+  final streamRaw = (env['HERMES_STREAM'] ?? '').trim().toLowerCase();
+  final useStream = !const {'false', '0', 'no', 'off'}.contains(streamRaw);
+  final progress = ProgressSettings(
+    after: Duration(seconds: nonNegativeInt('PROGRESS_AFTER_SECONDS', 8)),
+    editInterval: Duration(seconds: nonNegativeInt('PROGRESS_EDIT_SECONDS', 5)),
+    maxEdits: nonNegativeInt('PROGRESS_MAX_EDITS', 30),
+  );
+  final List<BotCommand> commands;
+  try {
+    commands = parseBotCommands(env['BOT_COMMANDS']);
+  } on FormatException catch (error) {
+    stderr.writeln(error.message);
+    exit(78); // EX_CONFIG
+  }
+
   // Bot-to-bot limits now come from each group's "Bot conversation" setting;
   // this is only the operator's ceiling over all of them.
   final peerTurnsCap = positiveInt('PEER_MAX_TURNS_CAP', 50);
@@ -53,6 +88,8 @@ Future<void> main() async {
     timeout: Duration(
       seconds: int.tryParse(env['HERMES_TIMEOUT_SECONDS'] ?? '') ?? 300,
     ),
+    stream: useStream,
+    log: log,
   );
 
   final CallTypeBot bot;
@@ -89,10 +126,22 @@ Future<void> main() async {
     allowedHandles: parseAllowedHandles(env['ALLOWED_HANDLES']),
     peerHandles: parseAllowedHandles(env['PEER_BOT_HANDLES']),
     peerTurnsCap: peerTurnsCap,
-    backend: hermes.ask,
+    stream: hermes.chat,
+    approve: hermes.approve,
+    progress: progress,
     log: log,
   );
   log('Connected. Waiting for messages.');
+  if (commands.isNotEmpty) {
+    try {
+      await bot.setCommands(commands);
+      log('Published ${commands.length} bot command(s).');
+    } catch (error) {
+      // An older server has no bot-commands endpoint: the "/" menu is a
+      // convenience, the bot works without it.
+      log('Could not publish BOT_COMMANDS: $error');
+    }
+  }
 
   final HttpServer? endpoint;
   try {
