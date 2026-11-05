@@ -43,7 +43,10 @@ public class RateLimitTests : IntegrationTestBase
         Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", firstToken);
         var path = $"/groups/{Guid.NewGuid()}/members";
         HttpStatusCode status = HttpStatusCode.OK;
-        for (var i = 0; i < 105 && status != HttpStatusCode.TooManyRequests; i++)
+        // Up to two full windows: the limiter uses fixed one-minute windows, so
+        // a slow runner whose loop crosses a window boundary gets a fresh
+        // budget mid-loop and 105 requests are then not enough to hit 429.
+        for (var i = 0; i < 205 && status != HttpStatusCode.TooManyRequests; i++)
         {
             using var response = await Client.GetAsync(path);
             status = response.StatusCode;

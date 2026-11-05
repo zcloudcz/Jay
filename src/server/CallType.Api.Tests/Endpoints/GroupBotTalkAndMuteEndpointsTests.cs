@@ -67,6 +67,19 @@ public class GroupBotTalkAndMuteEndpointsTests : IntegrationTestBase
         await db.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// StartAsync returns after the handshake, but the server registers the
+    /// device as online in OnConnectedAsync, which may still be running; a
+    /// hint sent in between is lost (seen on the slower CI runners). SignalR
+    /// runs OnConnectedAsync before it dispatches the connection's first
+    /// invocation, so a completed round trip proves the device is online.
+    /// </summary>
+    private static async Task ConnectedAsync(HubConnection hub)
+    {
+        await hub.StartAsync();
+        await hub.InvokeAsync("RequestPendingMessages");
+    }
+
     private static object Setting(string mode, Guid[]? ids = null, int turns = 5, int pause = 30) =>
         new { mode, allowedBotDeviceIds = ids ?? [], maxBotTurns = turns, pauseMinutes = pause };
 
@@ -254,7 +267,7 @@ public class GroupBotTalkAndMuteEndpointsTests : IntegrationTestBase
                 .Build();
             var hint = new TaskCompletionSource<JsonElement>();
             hub.On<JsonElement>("GroupChanged", e => hint.TrySetResult(e));
-            await hub.StartAsync();
+            await ConnectedAsync(hub);
             return (hub, hint);
         }
         var (botHub, botHint) = await ListenAsync(bot.Token);
@@ -281,7 +294,7 @@ public class GroupBotTalkAndMuteEndpointsTests : IntegrationTestBase
             .Build();
         var hint = new TaskCompletionSource<JsonElement>();
         hub.On<JsonElement>("GroupChanged", e => hint.TrySetResult(e));
-        await hub.StartAsync();
+        await ConnectedAsync(hub);
 
         (await admin.Http.DeleteAsync($"/groups/{group}/members/{bot.Id}")).StatusCode.Should().Be(HttpStatusCode.OK);
 
