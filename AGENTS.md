@@ -98,7 +98,7 @@ dotnet ef database update --project src/server/CallType.Api
 
 | Entity | Purpose | Key |
 |--------|---------|-----|
-| `Device` | Anonymous device identity + public keys | `DeviceId` (Guid) |
+| `Device` | Anonymous device identity + public keys; bots may publish a command menu (`BotCommandsJson`, public plaintext metadata like `DisplayName`) | `DeviceId` (Guid) |
 | `OneTimePreKey` | Single-use X3DH pre-keys | `Id` (auto), unique(DeviceId, KeyId) |
 | `Account` | Optional registered account | `AccountId` (Guid), unique Email |
 | `AccountDevice` | Links accounts to devices (multi-device) | Composite(AccountId, DeviceId) |
@@ -125,6 +125,7 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `GET /groups/{id}/members` | List members | ✅ Done |
 | `PUT /groups/{id}/members` | Add member | ✅ Done |
 | `DELETE /groups/{id}/members/{id}` | Remove member | ✅ Done |
+| `PUT` / `GET /devices/{id}/bot-commands` | Bot command menu `{"commands":[{"command","description"}]}`: PUT only by the bot itself (403, 403 `not_a_bot`, 400 `invalid_bot_commands`; empty list clears), GET by any device (empty for a non-bot, 404 unknown) | ✅ Done |
 | `PUT /groups/{id}/bot-talk` | Bot conversation setting (admin) | ✅ Done |
 | `PUT /groups/{id}/mute`, `PUT /mutes/direct/{id}`, `GET /mutes` | Per-device mute (push skip) | ✅ Done |
 | `POST /backups` | Upload backup metadata | ✅ Done |
