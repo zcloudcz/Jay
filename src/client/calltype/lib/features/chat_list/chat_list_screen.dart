@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:calltype_core/network/group_dtos.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -9,6 +12,8 @@ import '../../shared/widgets/bot_badge.dart';
 import '../../shared/widgets/main_navigation_bar.dart';
 import '../contacts/contacts_controller.dart';
 import '../devices/device_service.dart';
+import '../mute/mute_controller.dart';
+import '../mute/mute_dialog.dart';
 import '../organization/business_banner.dart';
 import 'chat_list_controller.dart';
 
@@ -29,6 +34,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
   }
 
   Future<void> _load() async {
+    // Mute icons are a nicety: a failed GET /mutes must not turn the whole
+    // list into an error, so it runs on the side and errors are dropped.
+    final mutes = context.read<MuteController?>();
+    if (mutes != null) unawaited(mutes.load().catchError((Object _) {}));
     try {
       await Future.wait([
         context.read<ChatListController>().loadConversations(),
@@ -69,6 +78,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final network = context.watch<SignalRClient>();
     final devices = context.watch<DeviceService>();
     final rows = controller.conversations;
+    // Optional so screens pumped without it (older tests) still build.
+    final mutes = context.watch<MuteController?>();
     final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(
@@ -155,6 +166,7 @@ class _ChatListScreenState extends State<ChatListScreen> {
                     itemCount: rows.length,
                     itemBuilder: (context, index) {
                       final row = rows[index];
+                      final muteMode = mutes?.modeOf(row.id) ?? MuteMode.off;
                       final matches = contacts.where(
                         (c) => c.deviceId == row.id,
                       );
@@ -197,11 +209,35 @@ class _ChatListScreenState extends State<ChatListScreen> {
                                   row.lastMessageAt!.toLocal(),
                                 ),
                               ),
+                            if (muteMode != MuteMode.off)
+                              Icon(
+                                muteIcon(muteMode),
+                                size: 16,
+                                semanticLabel: muteMode == MuteMode.bots
+                                    ? l10n.muteStateBots
+                                    : l10n.muteStateAll,
+                              ),
                             if (row.unreadCount > 0)
-                              Badge(label: Text('${row.unreadCount}')),
+                              Badge(
+                                label: Text('${row.unreadCount}'),
+                                // A muted chat keeps its count (the user
+                                // may still want to know) but greyed out,
+                                // like the app badge that ignores it.
+                                backgroundColor: muteMode == MuteMode.off
+                                    ? null
+                                    : Theme.of(context).disabledColor,
+                              ),
                           ],
                         ),
                         onTap: () => context.push('/chats/${row.id}'),
+                        // Same dialog as the bell in the chat header.
+                        onLongPress: mutes == null
+                            ? null
+                            : () => editMute(
+                                context,
+                                conversationId: row.id,
+                                group: row.type == 'group',
+                              ),
                       );
                     },
                   ),
