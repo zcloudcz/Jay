@@ -442,7 +442,11 @@ class HermesBridge {
         case PeerVerdict.drop:
           return;
         case PeerVerdict.notify:
-          await message.reply(botLimitNotice);
+          // WHY not message.reply: a group reply quotes the bot it answers,
+          // and a quote addresses that bot (contract section 5), so the
+          // other bot would count the notice as one more bot turn and post
+          // its own notice. Unquoted, the notice addresses nobody.
+          await bot.send(to: groupId, text: botLimitNotice);
           return;
         case PeerVerdict.allow:
           break;

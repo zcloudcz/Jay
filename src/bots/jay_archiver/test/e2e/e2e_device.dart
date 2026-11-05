@@ -217,11 +217,15 @@ class E2eDevice {
 
   /// Per-recipient fan-out exactly like the app: ONE hub call carrying every
   /// recipient's ciphertext, which is what KB2 inspects for the auditor.
+  ///
+  /// [extra] adds payload keys the app sends with some messages (`replyTo`,
+  /// `mentions`, `action`), so tests can act like a current app.
   Future<String> sendToGroup(
     String groupId,
     List<String> recipients,
-    String text,
-  ) async {
+    String text, {
+    Map<String, Object?> extra = const {},
+  }) async {
     final messageId = uuid();
     final payload = jsonEncode({
       'v': 1,
@@ -231,6 +235,7 @@ class E2eDevice {
       'groupId': groupId,
       'groupName': null,
       'createdAt': DateTime.now().toUtc().toIso8601String(),
+      ...extra,
     });
     final encrypted = await GroupCipher(
       sessionManager: sessions,
