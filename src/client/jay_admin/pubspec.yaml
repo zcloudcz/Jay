@@ -1,0 +1,40 @@
+name: jay_admin
+description: "Jay operator web: channel moderation (served at jay.zcloud.cz/admin/)."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+# WHY so few dependencies: this is an operator tool that handles a
+# passphrase-derived auth key and a moderation token. Every package is attack
+# surface, so it has its own tiny HTTP client instead of calltype_core (which
+# would drag drift, SignalR and the crypto stack into a web page that needs
+# none of it).
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  # Hash URL strategy (setUrlStrategy). Hash routes keep deep links working
+  # under /admin/ without any server rewrite beyond /admin -> index.html.
+  flutter_web_plugins:
+    sdk: flutter
+  go_router: ^17.2.3
+  http: ^1.6.0
+  # authKey = lower-case hex SHA-256 of the passphrase, identical to the app.
+  crypto: ^3.0.7
+  intl: ^0.20.2
+  # Blob + <a download> for the audit CSV export (web only, behind a
+  # conditional import so widget tests on the VM still compile).
+  web: ^1.1.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  # gen-l10n runs on `flutter pub get`; generated files are git-ignored.
+  generate: true
