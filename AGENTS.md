@@ -106,6 +106,7 @@ dotnet ef database update --project src/server/CallType.Api
 | `Group` | Group chat metadata | `GroupId` (Guid) |
 | `GroupMember` | Group membership + roles | Composite(GroupId, DeviceId) |
 | `Backup` | Backup metadata (blobs in Azure) | `Id` (auto) |
+| `ConversationMute` | Per-device mute of a group or 1:1 (push skip) | `Id` (auto), unique(DeviceId, GroupId), unique(DeviceId, PeerPrimaryDeviceId) |
 
 All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content.
 
@@ -124,6 +125,8 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `GET /groups/{id}/members` | List members | ✅ Done |
 | `PUT /groups/{id}/members` | Add member | ✅ Done |
 | `DELETE /groups/{id}/members/{id}` | Remove member | ✅ Done |
+| `PUT /groups/{id}/bot-talk` | Bot conversation setting (admin) | ✅ Done |
+| `PUT /groups/{id}/mute`, `PUT /mutes/direct/{id}`, `GET /mutes` | Per-device mute (push skip) | ✅ Done |
 | `POST /backups` | Upload backup metadata | ✅ Done |
 | `GET /backups/{accountId}` | List backups | ✅ Done |
 | `GET /turn/credentials` | Time-limited TURN credentials | ✅ Done |

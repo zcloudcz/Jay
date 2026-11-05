@@ -32,6 +32,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<QueuedMessage> QueuedMessages => Set<QueuedMessage>();
     public DbSet<Group> Groups => Set<Group>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+    public DbSet<ConversationMute> ConversationMutes => Set<ConversationMute>();
     public DbSet<Backup> Backups => Set<Backup>();
     public DbSet<Channel> Channels => Set<Channel>();
     public DbSet<ChannelAdmin> ChannelAdmins => Set<ChannelAdmin>();
@@ -196,6 +197,58 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // organization's groups) and admin listing. Sparse in practice —
             // most groups are anonymous and this column is null.
             entity.HasIndex(g => g.OrganizationId);
+
+            // Bot conversation setting as plain columns of Groups (owned type,
+            // table splitting): always read together with the group, one row
+            // per group, so a separate table would only add a join. Defaults
+            // live in the DB too so the migration fills existing groups with
+            // "off" without a data step. Sentinel -1 (never a valid value)
+            // makes EF always send the int: with the CLR default 0 as the
+            // sentinel, a legitimate PauseMinutes = 0 would be swapped for
+            // the DB default 30 on insert.
+            entity.OwnsOne(g => g.BotTalk, bt =>
+            {
+                bt.Property(b => b.Mode).HasColumnName("BotTalkMode").HasMaxLength(10)
+                  .HasDefaultValue(GroupBotTalk.ModeOff);
+                bt.Property(b => b.AllowedBotDeviceIds).HasColumnName("BotTalkAllowedBotDeviceIds")
+                  .HasDefaultValueSql("'{}'::uuid[]");
+                bt.Property(b => b.MaxBotTurns).HasColumnName("BotTalkMaxBotTurns")
+                  .HasDefaultValue(GroupBotTalk.DefaultMaxBotTurns).HasSentinel(-1);
+                bt.Property(b => b.PauseMinutes).HasColumnName("BotTalkPauseMinutes")
+                  .HasDefaultValue(GroupBotTalk.DefaultPauseMinutes).HasSentinel(-1);
+                bt.Property(b => b.UpdatedBy).HasColumnName("BotTalkUpdatedBy");
+                bt.Property(b => b.UpdatedAt).HasColumnName("BotTalkUpdatedAt");
+            });
+            // Required: without it EF treats an owned type whose columns all
+            // hold defaults as "maybe absent" and could materialize null.
+            entity.Navigation(g => g.BotTalk).IsRequired();
+        });
+
+        // -----------------------------------------------------------------
+        // ConversationMute - per-device mute of a group or 1:1 (push skip)
+        // -----------------------------------------------------------------
+        modelBuilder.Entity<ConversationMute>(entity =>
+        {
+            entity.HasKey(m => m.Id);
+            entity.Property(m => m.Id).ValueGeneratedOnAdd();
+            entity.Property(m => m.Mode).HasMaxLength(5);
+
+            // One mute per (device, conversation). Partial unique indexes
+            // because Postgres treats NULLs as distinct; they double as the
+            // lookup index of the push hot path (DeviceId IN (...) AND GroupId = x).
+            entity.HasIndex(m => new { m.DeviceId, m.GroupId }).IsUnique()
+                  .HasFilter("\"GroupId\" IS NOT NULL");
+            entity.HasIndex(m => new { m.DeviceId, m.PeerPrimaryDeviceId }).IsUnique()
+                  .HasFilter("\"PeerPrimaryDeviceId\" IS NOT NULL");
+            entity.ToTable(t => t.HasCheckConstraint("CK_ConversationMutes_OneTarget",
+                "(\"GroupId\" IS NULL) <> (\"PeerPrimaryDeviceId\" IS NULL)"));
+
+            // DB-level cascades (like DeviceList): PrivacyEndpoints deletes
+            // devices with raw SQL, and a deleted group or device must not
+            // leave mutes behind.
+            entity.HasOne<Device>().WithMany().HasForeignKey(m => m.DeviceId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Device>().WithMany().HasForeignKey(m => m.PeerPrimaryDeviceId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Group>().WithMany().HasForeignKey(m => m.GroupId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // -----------------------------------------------------------------

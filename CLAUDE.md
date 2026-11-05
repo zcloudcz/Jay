@@ -180,6 +180,7 @@ dotnet ef database update --project src/server/CallType.Api
 | `Group` | Group chat metadata | `GroupId` (Guid) |
 | `GroupMember` | Group membership + roles | Composite(GroupId, DeviceId) |
 | `Backup` | Backup metadata (blobs in Azure) | `Id` (auto) |
+| `ConversationMute` | Per-device mute of a group or 1:1 (push skip) | `Id` (auto), unique(DeviceId, GroupId), unique(DeviceId, PeerPrimaryDeviceId) |
 | `Channel` | Public one-way channel; owned by an account (`OwnerAccountId`), soft delete, denormalized `FollowerCount` | `ChannelId` (Guid), unique Handle (`CH-XXXX-XXXX`) |
 | `ChannelAdmin` | Delegated admins (owner rights come from the account, not from a row here) | Composite(ChannelId, DeviceId) |
 | `ChannelPost` | **Plaintext** post (`Kind` text/image/poll), soft delete, 90-day retention | `PostId` (Guid, client-generated), index(ChannelId, CreatedAt DESC) |
@@ -217,6 +218,8 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
 | `GET /groups/{id}/members` | List members (+ public profile: handle, display name, isBot); a companion reads the groups of its identity | ✅ Done |
 | `PUT /groups/{id}/members` | Add member | ✅ Done |
 | `DELETE /groups/{id}/members/{id}` | Remove member | ✅ Done |
+| `PUT /groups/{id}/bot-talk` | Bot conversation setting (admin) | ✅ Done |
+| `PUT /groups/{id}/mute`, `PUT /mutes/direct/{id}`, `GET /mutes` | Per-device mute (push skip) | ✅ Done |
 | `POST /backups` | Upload backup metadata | ✅ Done |
 | `GET /backups/{accountId}` | List backups | ✅ Done |
 | `DELETE /backups/{accountId}/{backupId}` | Free a backup slot (quota: 3 per account, 8 MiB each, 256 MiB total) | ✅ Done |

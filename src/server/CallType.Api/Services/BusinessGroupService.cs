@@ -100,6 +100,8 @@ public class BusinessGroupService(AppDbContext db, AuditDbContext auditDb, Audit
             .ToListAsync(cancellationToken);
         if (memberships.Count == 0) return;
         db.GroupMembers.RemoveRange(memberships);
+        // Bot conversations: a removed member leaves every bot talk allow list.
+        await GroupBotTalkPruning.PruneAsync(db, deviceId, memberships.Select(m => m.GroupId).ToList(), cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
     }
 }

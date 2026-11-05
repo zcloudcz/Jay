@@ -54,6 +54,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // because it depends on the scoped AppDbContext.
 builder.Services.AddScoped<MessageQueueService>();
 builder.Services.AddScoped<DeviceListService>();
+builder.Services.AddScoped<ConversationMuteService>();
 
 // PushNotificationService is a singleton — it is stateless (reads config once)
 // and uses IServiceScopeFactory to create short-lived DbContext scopes for
@@ -345,6 +346,7 @@ app.MapDeviceListEndpoints();
 app.MapAccountEndpoints();
 app.MapMfaEndpoints();
 app.MapGroupEndpoints();
+app.MapMuteEndpoints();
 app.MapBackupEndpoints();
 app.MapChannelEndpoints();
 app.MapTurnCredentialEndpoints();
