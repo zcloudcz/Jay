@@ -215,32 +215,51 @@ void main() {
       expect(logs.join('\n'), contains('Set ALLOWED_HANDLES='));
     });
 
-    group('peer bots', () {
+    group('peer bots (group bot-talk setting)', () {
       const groupId = '00000000-0000-4000-8000-0000000000c0';
       late FakeUser peer;
       late FakeUser stranger;
+      late FakeUser other;
+      var clock = DateTime.utc(2026, 11, 5, 12);
+
+      void setTalk(Map<String, dynamic>? botTalk) => botTalk == null
+          ? api.groupDetails.remove(groupId)
+          : api.groupDetails[groupId] = {'groupId': groupId, 'botTalk': botTalk};
 
       setUp(() async {
+        clock = DateTime.utc(2026, 11, 5, 12);
         peer = await FakeUser.create('00000000-0000-4000-8000-00000000000b');
         stranger = await FakeUser.create('00000000-0000-4000-8000-00000000000c');
+        other = await FakeUser.create('00000000-0000-4000-8000-00000000000d');
         api.handles['CT-PEER-0002'] = peer.id;
+        api.handles['CT-OTHR-0003'] = other.id;
+        api.handles['CT-STRA-0004'] = stranger.id;
         api.keyBundles[alice.id] = await alice.keyBundle();
         api.keyBundles[peer.id] = await peer.keyBundle();
-        api.groups[groupId] = [alice.id, peer.id, bot.deviceId];
+        api.keyBundles[stranger.id] = await stranger.keyBundle();
+        api.keyBundles[other.id] = await other.keyBundle();
+        api.groups[groupId] = [alice.id, peer.id, other.id, bot.deviceId];
+        api.memberFields[alice.id] = {'role': 'admin', 'userHandle': 'CT-AAAA-0001'};
+        api.memberFields[peer.id] = {'isBot': true, 'userHandle': 'CT-PEER-0002'};
+        api.memberFields[other.id] = {'isBot': true};
+        setTalk({'mode': 'all', 'maxBotTurns': 2, 'pauseMinutes': 30});
       });
       tearDown(() async {
         await peer.close();
         await stranger.close();
+        await other.close();
       });
 
-      Future<void> start({int limit = 2}) => runBridge(
-        bot,
-        allowedHandles: {'CT-AAAA-0001'},
-        peerHandles: {'CT-PEER-0002'},
-        peerReplyLimit: limit,
-        backend: backend,
-        log: logs.add,
-      );
+      Future<HermesBridge> start({Set<String> peers = const {}, int cap = 50}) =>
+          runBridge(
+            bot,
+            allowedHandles: {'CT-AAAA-0001'},
+            peerHandles: peers,
+            peerTurnsCap: cap,
+            now: () => clock,
+            backend: backend,
+            log: logs.add,
+          );
 
       // Sends [text] mentioning the bot and waits until it was acknowledged
       // (the handler, including its replies, has finished by then).
@@ -257,7 +276,7 @@ void main() {
         await until(() => hub.calls('AcknowledgeMessage').length == before + 1);
       }
 
-      test('peer in a group: backend gets the "(bot)" label', () async {
+      test('mode all, owner admin: backend gets the "(bot)" label', () async {
         await start();
         await say(peer, 'ping');
         expect(backendCalls, ['$groupId: [from CT-PEER-0002 (bot)]: @${bot.handle} ping']);
@@ -270,6 +289,46 @@ void main() {
         expect(backendCalls, ['$groupId: [from CT-AAAA-0001]: @${bot.handle} hi']);
       });
 
+      // Every refusal below is silent: no backend call, no notice.
+      final refusals = <String, (Map<String, dynamic>?, void Function(FakeApi), Set<String>)>{
+        'old server without botTalk (= off)': (null, (_) {}, {}),
+        'mode off': ({'mode': 'off'}, (_) {}, {}),
+        'owner is not an admin of the group': (
+          {'mode': 'all'},
+          (api) => api.memberFields['00000000-0000-4000-8000-00000000000a'] = {'role': 'member'},
+          {},
+        ),
+        'selected without this bot': (
+          {
+            'mode': 'selected',
+            'allowedBotDeviceIds': ['00000000-0000-4000-8000-00000000000b'],
+          },
+          (_) {},
+          {},
+        ),
+        'PEER_BOT_HANDLES names another bot (narrows)': ({'mode': 'all'}, (_) {}, {'CT-OTHR-0003'}),
+      };
+      refusals.forEach((name, c) {
+        test('refused: $name', () async {
+          setTalk(c.$1);
+          c.$2(api);
+          await start(peers: c.$3);
+          await say(peer, 'ping');
+          expect(backendCalls, isEmpty);
+          expect(hub.calls('SendReliableGroupFanout'), isEmpty);
+        });
+      });
+
+      test('selected with both bots listed is allowed', () async {
+        setTalk({
+          'mode': 'selected',
+          'allowedBotDeviceIds': [peer.id, bot.deviceId],
+        });
+        await start(peers: {'CT-PEER-0002'});
+        await say(peer, 'ping');
+        expect(backendCalls, hasLength(1));
+      });
+
       test('peer in a 1:1 chat is ignored', () async {
         await start();
         await say(peer, 'psst', group: null);
@@ -277,15 +336,15 @@ void main() {
         expect(hub.calls('SendReliableDirectFanout'), isEmpty);
       });
 
-      test('sender in neither list is still dropped', () async {
+      test('sender that is not a bot member is still dropped', () async {
         await start();
         await say(stranger, 'let me in');
         expect(backendCalls, isEmpty);
         expect(hub.calls('SendReliableGroupFanout'), isEmpty);
       });
 
-      test('limit: one notice, then silence; a human message resets', () async {
-        await start(limit: 2);
+      test('limit: one notice, then silence; pause; a human message resets', () async {
+        await start();
         await say(peer, 'one');
         await say(peer, 'two');
         expect(backendCalls, hasLength(2));
@@ -296,61 +355,92 @@ void main() {
         expect(hub.calls('SendReliableGroupFanout'), hasLength(answers + 1));
         final notice = hub.calls('SendReliableGroupFanout').last;
         final body = (notice[3] as Map<String, String>)[alice.id]!;
-        expect(
-          await alice.read(bot.deviceId, body),
-          'Bot-to-bot limit reached (2 per 30 min). Waiting for a human to mention me.',
-        );
+        expect(await alice.read(bot.deviceId, body), botLimitNotice);
+        expect(botLimitNotice, 'Bot limit reached, waiting for a human.');
 
         await say(peer, 'four'); // silent
+        clock = clock.add(const Duration(minutes: 29));
+        await say(peer, 'five'); // still in the pause: silent
         expect(backendCalls, hasLength(2));
         expect(hub.calls('SendReliableGroupFanout'), hasLength(answers + 1));
 
-        await say(alice, 'carry on'); // human resets
-        await say(peer, 'five');
-        expect(backendCalls, hasLength(4));
+        clock = clock.add(const Duration(minutes: 1));
+        await say(peer, 'six'); // pause over: a new exchange
+        expect(backendCalls, hasLength(3));
+
+        await say(peer, 'seven');
+        await say(peer, 'eight'); // limit again -> second exchange's notice
+        await say(alice, 'carry on'); // human resets at once
+        await say(peer, 'nine');
+        expect(backendCalls.last, contains('nine'));
       });
-    });
-  });
 
-  group('PeerRateLimiter', () {
-    var t = DateTime.utc(2026, 1, 1);
-    PeerRateLimiter make() => PeerRateLimiter(
-      limit: 2,
-      window: const Duration(minutes: 30),
-      now: () => t,
-    );
-    setUp(() => t = DateTime.utc(2026, 1, 1));
+      group('local send', () {
+        test('1:1 to an owner: sent, the owner can read it', () async {
+          final bridge = await start();
+          expect(await bridge.sendFromLocal('ct-aaaa-0001', 'nightly ok'), SendOutcome.sent);
+          final sent = hub.calls('SendReliableDirectFanout').single;
+          expect(
+            await alice.read(bot.deviceId, (sent[3] as Map<String, String>)[alice.id]!),
+            'nightly ok',
+          );
+        });
 
-    test('allows up to the limit, then notifies once, then drops', () {
-      final limiter = make();
-      expect(limiter.check('c'), PeerVerdict.allow);
-      expect(limiter.check('c'), PeerVerdict.allow);
-      expect(limiter.check('c'), PeerVerdict.notify);
-      expect(limiter.check('c'), PeerVerdict.drop);
-      expect(limiter.check('other'), PeerVerdict.allow); // per conversation
-    });
+        test('1:1 to anyone else (human or bot) is forbidden', () async {
+          final bridge = await start();
+          expect(await bridge.sendFromLocal('CT-STRA-0004', 'x'), SendOutcome.forbidden);
+          expect(await bridge.sendFromLocal('CT-PEER-0002', 'x'), SendOutcome.forbidden);
+          expect(hub.calls('SendReliableDirectFanout'), isEmpty);
+        });
 
-    test('window slides: allowed again after it passes', () {
-      final limiter = make();
-      limiter.check('c');
-      limiter.check('c');
-      expect(limiter.check('c'), PeerVerdict.notify);
-      t = t.add(const Duration(minutes: 30));
-      expect(limiter.check('c'), PeerVerdict.allow);
-      // The notice flag was re-armed by the new window.
-      limiter.check('c');
-      expect(limiter.check('c'), PeerVerdict.notify);
-    });
+        test('group: member -> sent; counts as bot turns; foreign group forbidden', () async {
+          final bridge = await start();
+          expect(await bridge.sendFromLocal(groupId, 'deploy 28f5070'), SendOutcome.sent);
+          expect(await bridge.sendFromLocal(groupId, 'done'), SendOutcome.sent);
+          expect(await bridge.sendFromLocal(groupId, 'again'), SendOutcome.forbidden);
+          expect(hub.calls('SendReliableGroupFanout'), hasLength(2));
+          // The exchange is used up by our own posts: a peer turn is dropped
+          // (the notice was the 403 to the caller).
+          await say(peer, 'reply');
+          expect(backendCalls, isEmpty);
 
-    test('reset clears the count and the notice flag', () {
-      final limiter = make();
-      limiter.check('c');
-      limiter.check('c');
-      limiter.check('c');
-      limiter.reset('c');
-      expect(limiter.check('c'), PeerVerdict.allow);
-      expect(limiter.check('c'), PeerVerdict.allow);
-      expect(limiter.check('c'), PeerVerdict.notify);
+          const foreign = '00000000-0000-4000-8000-0000000000c1';
+          api.groups[foreign] = [alice.id, peer.id];
+          expect(await bridge.sendFromLocal(foreign, 'x'), SendOutcome.forbidden);
+          expect(
+            await bridge.sendFromLocal('00000000-0000-4000-8000-0000000000c9', 'x'),
+            SendOutcome.forbidden,
+          );
+        });
+
+        test('long text is split, one turn per request', () async {
+          final bridge = await start();
+          final text = List.filled(3, 'x' * (maxReplyChars - 10)).join(' ');
+          expect(await bridge.sendFromLocal(groupId, text), SendOutcome.sent);
+          expect(hub.calls('SendReliableGroupFanout'), hasLength(3));
+          expect(await bridge.sendFromLocal(groupId, 'second turn'), SendOutcome.sent);
+        });
+
+        test('over HTTP: 202 and delivered', () async {
+          final bridge = await start();
+          final server = (await startSendEndpoint(
+            key: 'k3y',
+            port: 0,
+            send: bridge.sendFromLocal,
+            log: logs.add,
+          ))!;
+          addTearDown(() => server.close(force: true));
+          final client = HttpClient();
+          addTearDown(client.close);
+          final request = await client.post('127.0.0.1', server.port, '/send');
+          request.headers.set('authorization', 'Bearer k3y');
+          request.write(jsonEncode({'to': 'CT-AAAA-0001', 'text': 'hello from cron'}));
+          final response = await request.close();
+          await response.drain<void>();
+          expect(response.statusCode, 202);
+          expect(hub.calls('SendReliableDirectFanout'), hasLength(1));
+        });
+      });
     });
   });
 }

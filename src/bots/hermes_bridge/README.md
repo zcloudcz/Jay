@@ -18,9 +18,11 @@ messages, therefore:
   the list, or after an allowed user reinstalls Jay (new device id).
 - In a group, only allowed members can trigger the bot (by `@Hermes` / `@<handle>`),
   but the reply is visible to **every** member of that group.
-- `PEER_BOT_HANDLES` is a **second allowlist** (other bots), also fail-closed:
-  empty = no peers. Peers are served in groups only and rate-limited, see
-  "Two bots in one group".
+- Other bots are answered **only in groups**, only where the group's owner turned
+  on "Bot conversation" and one of your `ALLOWED_HANDLES` is a group **admin**; see
+  "Two bots in one group". `PEER_BOT_HANDLES` can only narrow that further.
+- The local `/send` endpoint is **off** unless `BRIDGE_SEND_KEY` is set, binds to
+  127.0.0.1 only, and sends 1:1 messages only to `ALLOWED_HANDLES`.
 - Keep Hermes' API on localhost. The bot's SQLite session DB is plaintext on disk
   (see `../calltype_bot/README.md`), so the host must be trusted.
 
@@ -36,9 +38,11 @@ messages, therefore:
 | `HERMES_API_KEY` | yes | Hermes' `API_SERVER_KEY` |
 | `HERMES_TIMEOUT_SECONDS` | no, default `300` | per-request timeout (agent turns with tools are slow) |
 | `ALLOWED_HANDLES` | effectively yes | comma-separated `CT-XXXX-XXXX` handles allowed to talk to Hermes |
-| `PEER_BOT_HANDLES` | no | comma-separated `CT-XXXX-XXXX` handles of other bots that may talk to this one (groups only) |
-| `PEER_REPLY_LIMIT` | no, default `5` | max peer-triggered turns per conversation within the window (positive int) |
-| `PEER_REPLY_WINDOW_MINUTES` | no, default `30` | sliding window for the limit (positive int) |
+| `PEER_BOT_HANDLES` | no | comma-separated handles of other bots; if set, ONLY these may talk to this one (narrows the group setting, never widens it; set but unresolvable = no bot) |
+| `PEER_MAX_TURNS_CAP` | no, default `50` | operator ceiling for a bot-only exchange; a group's "max messages" above it is cut down to it |
+| `BRIDGE_SEND_KEY` | no | enables `POST http://127.0.0.1:$BRIDGE_PORT/send`; the Bearer key callers must send. Unset = endpoint off |
+| `BRIDGE_PORT` | no, default `8650` | port of the local send endpoint (loopback only) |
+| `PEER_REPLY_LIMIT`, `PEER_REPLY_WINDOW_MINUTES` | obsolete | ignored with a log line; limits now come from the group setting |
 
 ## Run
 
@@ -68,7 +72,7 @@ Docker (context is `src/`, because of the path dependencies):
 ```bash
 docker build -f src/bots/hermes_bridge/Dockerfile -t hermes-bridge src
 docker run -d --restart unless-stopped --network host -v hermes-bridge:/data \
-  -e CALLTYPE_API_URL -e BOT_STORE_KEY -e HERMES_API_KEY -e ALLOWED_HANDLES hermes-bridge
+  -e CALLTYPE_API_URL -e BOT_STORE_KEY -e HERMES_API_KEY -e ALLOWED_HANDLES -e BRIDGE_SEND_KEY hermes-bridge
 ```
 
 Docker image (built by `.github/workflows/hermes-bridge-image.yml`):
@@ -76,21 +80,50 @@ Docker image (built by `.github/workflows/hermes-bridge-image.yml`):
 
 ## Two bots in one group
 
-Run two bridges, put both bots and yourself in one Jay group, and set each
-bridge's `PEER_BOT_HANDLES` to the **other** bot's handle.
+Run two bridges, put both bots and yourself in one Jay group (you as **admin**),
+and in the group detail turn on "Bot conversation" (All bots, or Selected bots
+with **both** bots ticked). The group decides; nothing has to be configured in
+the bridges. A bot answers another bot in group G only if all hold:
 
-- Bots address each other with `@<handle>` (in groups the bot is only called
-  when mentioned). A peer message in a 1:1 chat is ignored.
-- Per conversation at most `PEER_REPLY_LIMIT` peer-triggered turns per
-  `PEER_REPLY_WINDOW_MINUTES` (sliding window). At the limit the bot posts one
-  notice (`Bot-to-bot limit reached (5 per 30 min). Waiting for a human to mention me.`),
-  then stays silent. A message from an `ALLOWED_HANDLES` member that mentions
-  the bot resets it (unmentioned group messages never reach the bot).
+1. G's bot talk is `all`, or `selected` and both the sender and this bot are listed.
+   A server without the setting counts as `off`.
+2. One of this bridge's `ALLOWED_HANDLES` is an `admin` member of G.
+3. The current exchange (bot messages since the last human mention) is below
+   min(G's max messages, `PEER_MAX_TURNS_CAP`).
+4. After an exchange hit its limit, a new one starts only after G's pause.
+
+- At the limit the bot posts one notice (`Bot limit reached, waiting for a human.`)
+  and stays silent. A message from an `ALLOWED_HANDLES` member that mentions the
+  bot resets counter and pause (unmentioned group messages never reach the bot).
   Counters are in memory and reset on restart.
+- Bots address each other with `@<handle>`. Bot-to-bot 1:1 chats are always ignored.
 - Every text passed to Hermes is prefixed `[from CT-XXXX-XXXX]: ` (human) or
   `[from CT-XXXX-XXXX (bot)]: ` (peer).
 - In a group all replies, including bot-to-bot ones, are visible to every member.
+- Group settings are cached and re-read on the server's group-changed hint (and at
+  the latest after 5 minutes).
 - Add to Hermes' instructions: "To ask the other agent, mention it as @<its handle>."
+
+## Starting a message: local `/send`
+
+With `BRIDGE_SEND_KEY` set, Hermes tools and cron jobs can post into Jay:
+
+```bash
+curl -sS -X POST http://127.0.0.1:8650/send \
+  -H "Authorization: Bearer $BRIDGE_SEND_KEY" -H 'Content-Type: application/json' \
+  -d '{"to": "<group id or CT-XXXX-XXXX>", "text": "deploy 28f5070 done"}'
+```
+
+| Status | Meaning |
+| --- | --- |
+| 202 | sent (long text is split into several messages) |
+| 400 | body is not `{"to": string, "text": string}` (or over 256 KiB) |
+| 401 | missing or wrong key |
+| 403 | target not allowed: a handle not in `ALLOWED_HANDLES`, a group the bot is not in, or the group's bot exchange is used up (a post counts as one bot turn, rules 3 and 4) |
+| 404 / 405 | other path / method |
+| 502 | allowed, but the hub did not take it (retry later) |
+
+Text only; reference artifacts by commit or path.
 
 ## Hermes contract: verified vs assumed
 
