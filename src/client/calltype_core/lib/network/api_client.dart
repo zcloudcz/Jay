@@ -553,16 +553,46 @@ class ApiClient {
     return response.data!;
   }
 
-  /// POST /channels/{id}/report → 204. The reporter's identity is never
-  /// shown to the channel's admins.
-  Future<void> reportChannel(
-    String channelId,
-    String reason, {
+  /// POST /channels/{id}/report → 200 `{reportId, createdAt}`, the receipt
+  /// shown to the reporter (DSA Art. 16(4)); returns the report number, or
+  /// 0 from an older server that answered 204. The reporter's identity is
+  /// never shown to the channel's admins.
+  Future<int> reportChannel(
+    String channelId, {
     String? postId,
-  }) => _dio.post<void>(
-    '/channels/$channelId/report',
-    data: reportBody(reason, postId: postId),
-  );
+    required String reason,
+    String category = 'terms',
+    String? contactEmail,
+    bool goodFaith = false,
+  }) async {
+    final response = await _dio.post<dynamic>(
+      '/channels/$channelId/report',
+      data: reportBody(
+        reason,
+        postId: postId,
+        category: category,
+        contactEmail: contactEmail,
+        goodFaith: goodFaith,
+      ),
+    );
+    return parseReportReceipt(response.data);
+  }
+
+  /// GET /channels/reports/mine: this device's reports with their outcome,
+  /// newest first.
+  Future<List<MyReport>> getMyReports() async {
+    final response = await _dio.get<dynamic>('/channels/reports/mine');
+    return parseList(response.data).map(MyReport.fromJson).toList();
+  }
+
+  /// GET /channels/{id}/moderation (owner / admin / publisher, else 403):
+  /// statements of reasons for decisions taken on the channel.
+  Future<List<ModerationStatement>> getChannelModeration(
+    String channelId,
+  ) async {
+    final response = await _dio.get<dynamic>('/channels/$channelId/moderation');
+    return parseList(response.data).map(ModerationStatement.fromJson).toList();
+  }
 
   /// GET /channels/{id}/admins — owner only (403 otherwise).
   Future<List<ChannelAdminDto>> getChannelAdmins(String channelId) async {
@@ -570,14 +600,18 @@ class ApiClient {
     return parseList(response.data).map(ChannelAdminDto.fromJson).toList();
   }
 
-  /// PUT / DELETE /channels/{id}/admins/{deviceId} — owner only.
+  /// PUT / DELETE /channels/{id}/admins/{deviceId}, owner only. [role] is
+  /// 'admin' or 'publisher'; PUT on an existing member changes its role.
   Future<void> setChannelAdmin(
     String channelId,
     String deviceId, {
     required bool admin,
+    String role = channelRoleAdmin,
   }) {
     final path = '/channels/$channelId/admins/$deviceId';
-    return admin ? _dio.put<void>(path) : _dio.delete<void>(path);
+    return admin
+        ? _dio.put<void>(path, data: channelAdminRoleBody(role))
+        : _dio.delete<void>(path);
   }
 }
 

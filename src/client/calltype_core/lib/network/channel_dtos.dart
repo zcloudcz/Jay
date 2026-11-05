@@ -44,6 +44,56 @@ String? channelImageContentType(String fileName) {
 
 const channelLinkPrefix = 'calltype://channel/';
 
+// -- Moderation (contract 2026-11-05-channel-moderation) ----------------------
+
+/// Channel roles as the API spells them. `publisher` may only publish and
+/// delete its OWN posts; it may not edit the channel or manage admins.
+const channelRoleOwner = 'owner';
+const channelRoleAdmin = 'admin';
+const channelRolePublisher = 'publisher';
+
+/// Rule ids of the channel rules, exactly as decisions cite them.
+const channelRuleIds = [
+  'K1',
+  'K2',
+  'K3',
+  'K4',
+  'K5',
+  'K6',
+  'K7',
+  'K8',
+  'K9',
+  'K10',
+];
+
+/// Report categories the server accepts (anything else is 400
+/// `invalid_category`). `illegal` additionally needs `goodFaith: true`.
+const channelReportCategories = ['illegal', 'terms', 'spam'];
+
+/// Public channel rules page, optionally at one rule's anchor.
+///
+/// WHY only cs / en: the rules are a legal text published in Czech (binding)
+/// and English; every other app language links the English page rather
+/// than a machine translation of a legal document.
+String channelRulesUrl(String languageCode, {String? rule}) {
+  final lang = languageCode == 'cs' ? 'cs' : 'en';
+  final anchor = rule != null && channelRuleIds.contains(rule) ? '#$rule' : '';
+  return 'https://jay.zcloud.cz/legal/channels-$lang.html$anchor';
+}
+
+/// Machine codes of the moderation feature in `{error, code}` bodies.
+abstract final class ChannelErrorCodes {
+  /// 403 on feed / post / follow / react / vote of a suspended channel.
+  static const channelSuspended = 'channel_suspended';
+
+  /// 429 when a bot device exceeded its daily post budget in one channel.
+  static const botPostLimit = 'bot_post_limit';
+  static const goodFaithRequired = 'good_faith_required';
+  static const invalidContact = 'invalid_contact';
+  static const invalidCategory = 'invalid_category';
+  static const invalidRole = 'invalid_role';
+}
+
 /// Extracts the channel handle from `calltype://channel/<handle>`, or null
 /// when [raw] is not a channel link (e.g. a contact QR code).
 String? parseChannelLink(String raw) {
@@ -66,6 +116,8 @@ class ChannelInfo {
     this.isFollowing = false,
     this.role,
     this.unreadCount = 0,
+    this.status = 'active',
+    this.suspendedUntil,
   });
 
   final String channelId;
@@ -75,11 +127,27 @@ class ChannelInfo {
   final int followerCount;
   final bool isFollowing;
 
-  /// 'owner' / 'admin' when the calling device may publish, else null.
+  /// 'owner' / 'admin' / 'publisher' when the calling device may publish,
+  /// else null.
   final String? role;
   final int unreadCount;
 
+  /// 'active' | 'suspended'. Defaults to active so a server that predates
+  /// moderation (no field) never shows a channel as suspended.
+  final String status;
+  final DateTime? suspendedUntil;
+
   bool get canPublish => role != null;
+
+  /// Owner / admin: may edit the profile. A publisher may not.
+  bool get canEdit => role == channelRoleOwner || role == channelRoleAdmin;
+
+  /// The server's status is authoritative at fetch time, but a cached
+  /// profile whose suspension date has passed is no longer suspended
+  /// (the server computes `SuspendedUntil > now` the same way).
+  bool get isSuspended =>
+      status == 'suspended' &&
+      (suspendedUntil == null || suspendedUntil!.isAfter(DateTime.now()));
 
   factory ChannelInfo.fromJson(Map<String, dynamic> json) {
     // The server may express publishing rights as a role string or as a
@@ -94,6 +162,8 @@ class ChannelInfo {
       isFollowing: json['isFollowing'] as bool? ?? false,
       role: role ?? (json['isAdmin'] == true ? 'admin' : null),
       unreadCount: _int(json['unreadCount']) ?? 0,
+      status: json['status'] as String? ?? 'active',
+      suspendedUntil: _date(json['suspendedUntil']),
     );
   }
 }
@@ -112,6 +182,7 @@ class ChannelPostDto {
     this.myReaction,
     this.pollVotes = const [],
     this.myVote,
+    this.byBot = false,
   });
 
   final String channelId;
@@ -127,6 +198,9 @@ class ChannelPostDto {
   final String? myReaction;
   final List<int> pollVotes;
   final int? myVote;
+
+  /// Published by a bot device (server-side `IsBot`), labelled in the feed.
+  final bool byBot;
 
   /// [channelId] is the fallback for list responses whose items do not
   /// repeat the channel id already present in the URL.
@@ -155,6 +229,7 @@ class ChannelPostDto {
       myReaction: json['myReaction'] as String?,
       pollVotes: _votes(json['votes']),
       myVote: _int(json['myVote']),
+      byBot: json['byBot'] as bool? ?? false,
     );
   }
 }
@@ -192,15 +267,124 @@ class ChannelPostTotals {
 /// One row of `GET /channels/{id}/admins` (owner only) — the single place
 /// the channel API exposes a device id.
 class ChannelAdminDto {
-  const ChannelAdminDto({required this.deviceId, this.addedAt});
+  const ChannelAdminDto({
+    required this.deviceId,
+    this.addedAt,
+    this.role = channelRoleAdmin,
+    this.isBot = false,
+    this.handle,
+    this.displayName,
+  });
   final String deviceId;
   final DateTime? addedAt;
+
+  /// 'admin' | 'publisher'. Older servers only had admins, hence the default.
+  final String role;
+  final bool isBot;
+
+  /// Public user handle (CT-XXXX-XXXX) so the owner can tell members apart
+  /// even without a matching contact.
+  final String? handle;
+  final String? displayName;
+
+  bool get isPublisher => role == channelRolePublisher;
 
   factory ChannelAdminDto.fromJson(Map<String, dynamic> json) =>
       ChannelAdminDto(
         deviceId: json['deviceId'] as String,
-        addedAt: DateTime.tryParse(json['addedAt'] as String? ?? '')?.toUtc(),
+        addedAt: _date(json['addedAt']),
+        role: json['role'] as String? ?? channelRoleAdmin,
+        isBot: json['isBot'] as bool? ?? false,
+        handle: json['handle'] as String?,
+        displayName: json['displayName'] as String?,
       );
+}
+
+/// Statement of reasons (DSA Art. 17) from `GET /channels/{id}/moderation`,
+/// shown to the channel's owner / admins / publishers.
+class ModerationStatement {
+  const ModerationStatement({
+    required this.decisionId,
+    required this.action,
+    this.postId,
+    this.ground,
+    this.rule,
+    this.legalGround,
+    this.explanation = '',
+    this.suspendedUntil,
+    this.basedOnReports = false,
+    required this.createdAt,
+  });
+
+  final int decisionId;
+
+  /// remove_post | suspend_channel | terminate_channel | restore_channel
+  /// (`dismiss` is never sent to the owner).
+  final String action;
+  final String? postId;
+
+  /// 'terms' (then [rule] is K1..K10) or 'illegal' (then [legalGround]).
+  final String? ground;
+  final String? rule;
+  final String? legalGround;
+  final String explanation;
+  final DateTime? suspendedUntil;
+  final bool basedOnReports;
+  final DateTime createdAt;
+
+  factory ModerationStatement.fromJson(Map<String, dynamic> json) =>
+      ModerationStatement(
+        decisionId: _int(json['decisionId']) ?? 0,
+        action: json['action'] as String? ?? '',
+        postId: json['postId'] as String?,
+        ground: json['ground'] as String?,
+        rule: json['rule'] as String?,
+        legalGround: json['legalGround'] as String?,
+        explanation: json['explanation'] as String? ?? '',
+        suspendedUntil: _date(json['suspendedUntil']),
+        basedOnReports: json['basedOnReports'] as bool? ?? false,
+        createdAt: _date(json['createdAt']) ?? DateTime.now().toUtc(),
+      );
+}
+
+/// One row of `GET /channels/reports/mine`: a report this device filed and
+/// what became of it (DSA Art. 16(5)).
+class MyReport {
+  const MyReport({
+    required this.reportId,
+    required this.channelId,
+    this.channelName = '',
+    this.channelHandle = '',
+    this.postId,
+    this.category = 'terms',
+    required this.createdAt,
+    this.status = 'open',
+    this.resolvedAt,
+  });
+
+  final int reportId;
+  final String channelId;
+  final String channelName;
+  final String channelHandle;
+  final String? postId;
+  final String category;
+  final DateTime createdAt;
+
+  /// open | dismissed | actioned.
+  final String status;
+  final DateTime? resolvedAt;
+
+  factory MyReport.fromJson(Map<String, dynamic> json) => MyReport(
+    reportId: _int(json['reportId']) ?? 0,
+    channelId: json['channelId'] as String? ?? '',
+    channelName: json['channelName'] as String? ?? '',
+    channelHandle: json['channelHandle'] as String? ?? '',
+    postId: json['postId'] as String?,
+    category: json['category'] as String? ?? 'terms',
+    createdAt: _date(json['createdAt']) ?? DateTime.now().toUtc(),
+    status: json['status'] as String? ?? 'open',
+    resolvedAt: _date(json['resolvedAt']),
+  );
 }
 
 /// Body of a `kind: poll` post — a JSON string inside the post's `body`.
@@ -299,10 +483,27 @@ Map<String, dynamic> reactionBody(String emoji) => {'emoji': emoji};
 
 Map<String, dynamic> voteBody(int optionIndex) => {'optionIndex': optionIndex};
 
-Map<String, dynamic> reportBody(String reason, {String? postId}) => {
+Map<String, dynamic> reportBody(
+  String reason, {
+  String? postId,
+  String category = 'terms',
+  String? contactEmail,
+  bool goodFaith = false,
+}) => {
   'postId': ?postId,
   'reason': reason,
+  'category': category,
+  'contactEmail': ?contactEmail,
+  'goodFaith': goodFaith,
 };
+
+/// `POST /channels/{id}/report` answers 200 `{reportId, createdAt}`; a server
+/// that predates moderation answers 204 without a body, then 0 = "no number".
+int parseReportReceipt(Object? data) =>
+    data is Map ? _int(data['reportId']) ?? 0 : 0;
+
+/// `PUT /channels/{id}/admins/{deviceId}` body.
+Map<String, dynamic> channelAdminRoleBody(String role) => {'role': role};
 
 /// Query of `GET /channels/{id}/posts`. Cursors are UTC ISO-8601 strings.
 Map<String, dynamic> postsQuery({String? before, String? after, int? limit}) =>
@@ -326,6 +527,9 @@ List<int> _votes(Object? votes) {
   }
   return list;
 }
+
+DateTime? _date(Object? value) =>
+    value is String ? DateTime.tryParse(value)?.toUtc() : null;
 
 /// JSON sometimes delivers whole numbers as doubles (JS clients, SignalR).
 int? _int(Object? value) => value is num ? value.toInt() : null;

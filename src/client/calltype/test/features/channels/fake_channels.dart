@@ -4,6 +4,7 @@ import 'package:calltype/core/network/api_client.dart';
 import 'package:calltype/core/storage/database.dart';
 import 'package:calltype/features/channels/channels_controller.dart';
 import 'package:calltype_core/network/channel_dtos.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 
 /// In-memory stand-in for the channel endpoints (same subclassing style as
@@ -57,6 +58,17 @@ class FakeChannelApi extends ApiClient {
     int? limit,
   }) async {
     calls.add('posts $channelId after=$after');
+    if (suspendedFeeds.contains(channelId)) {
+      final options = RequestOptions(path: '/channels/$channelId/posts');
+      throw DioException(
+        requestOptions: options,
+        response: Response(
+          requestOptions: options,
+          statusCode: 403,
+          data: {'error': 'suspended', 'code': 'channel_suspended'},
+        ),
+      );
+    }
     // Same semantics as the server: `after` alone → the OLDEST `limit` posts
     // after the cursor; otherwise the newest `limit`. Always newest first.
     final all = [...?posts[channelId]]
@@ -113,14 +125,79 @@ class FakeChannelApi extends ApiClient {
     String channelId,
     String deviceId, {
     required bool admin,
+    String role = 'admin',
   }) async {
-    calls.add('admin $deviceId $admin');
+    calls.add(admin ? 'admin $deviceId $admin $role' : 'admin $deviceId false');
     admins = [
       for (final a in admins)
         if (a.deviceId != deviceId) a,
-      if (admin) ChannelAdminDto(deviceId: deviceId),
+      if (admin) ChannelAdminDto(deviceId: deviceId, role: role),
     ];
   }
+
+  /// Answer of `POST /channels/{id}/report` (the receipt number).
+  int reportId = 41;
+  Map<String, Object?>? lastReport;
+
+  @override
+  Future<int> reportChannel(
+    String channelId, {
+    String? postId,
+    required String reason,
+    String category = 'terms',
+    String? contactEmail,
+    bool goodFaith = false,
+  }) async {
+    calls.add('report $channelId');
+    lastReport = {
+      'postId': postId,
+      'reason': reason,
+      'category': category,
+      'contactEmail': contactEmail,
+      'goodFaith': goodFaith,
+    };
+    return reportId;
+  }
+
+  List<MyReport> myReports = [];
+
+  @override
+  Future<List<MyReport>> getMyReports() async {
+    calls.add('reports mine');
+    return myReports;
+  }
+
+  List<ModerationStatement> statements = [];
+  bool failModeration = false;
+
+  @override
+  Future<List<ModerationStatement>> getChannelModeration(
+    String channelId,
+  ) async {
+    calls.add('moderation $channelId');
+    if (failModeration) throw StateError('403');
+    return statements;
+  }
+
+  /// Devices findable by handle (`GET /devices/by-handle/{handle}`).
+  final devicesByHandle = <String, Map<String, dynamic>>{};
+
+  @override
+  Future<Map<String, dynamic>> findDeviceByHandle(String handle) async {
+    calls.add('by-handle $handle');
+    final device = devicesByHandle[handle];
+    if (device == null) {
+      final options = RequestOptions(path: '/devices/by-handle/$handle');
+      throw DioException(
+        requestOptions: options,
+        response: Response(requestOptions: options, statusCode: 404),
+      );
+    }
+    return device;
+  }
+
+  /// Simulates a suspended channel for followers (403 channel_suspended).
+  final suspendedFeeds = <String>{};
 
   @override
   Future<ChannelPostDto> createChannelPost(
@@ -209,8 +286,10 @@ Map<String, dynamic> postEvent(
   String postId, {
   String channelId = 'c1',
   bool deleted = false,
+  bool byBot = false,
   String createdAt = '2026-09-17T10:00:00.000Z',
 }) => {
+  'byBot': byBot,
   'channelId': channelId,
   'postId': postId,
   'kind': 'text',

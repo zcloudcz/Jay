@@ -39,7 +39,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   /// Schema history:
   ///   1 — contacts, conversations, messages, sessions, backup state
@@ -53,6 +53,8 @@ class AppDatabase extends _$AppDatabase {
   ///       verified signed device lists of contacts and of this identity)
   ///   6 - messages.edited_at / actions_json (agent messaging: edits and
   ///       bot buttons)
+  ///   7 - channels.status / suspended_until, channel_posts.by_bot /
+  ///       published_here (channel moderation and bot publishers)
   ///
   /// WHY explicit steps instead of destructive recreation: this database
   /// holds the user's only copy of their decrypted history and the ratchet
@@ -85,6 +87,15 @@ class AppDatabase extends _$AppDatabase {
       if (from < 6) {
         await m.addColumn(messages, messages.editedAt);
         await m.addColumn(messages, messages.actionsJson);
+      }
+      // WHY `from >= 2`: below v2 the channel tables were just created by
+      // the step above with today's columns, so adding them again would fail
+      // with "duplicate column".
+      if (from < 7 && from >= 2) {
+        await m.addColumn(channels, channels.status);
+        await m.addColumn(channels, channels.suspendedUntil);
+        await m.addColumn(channelPosts, channelPosts.byBot);
+        await m.addColumn(channelPosts, channelPosts.publishedHere);
       }
     },
   );

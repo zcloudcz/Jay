@@ -10,68 +10,16 @@ import 'package:provider/provider.dart';
 
 import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
+import '../../shared/widgets/bot_badge.dart';
+import 'channel_moderation.dart';
 import 'channel_notice.dart';
 import 'channels_controller.dart';
 
-/// Asks for a free-text reason and files a report. Shared by the feed (per
-/// post) and the profile (whole channel). The reporter stays anonymous to
-/// the channel's admins — only the operator sees the report.
-Future<void> reportChannelDialog(
-  BuildContext context,
-  String channelId, {
-  String? postId,
-}) async {
-  final controller = context.read<ChannelsController>();
-  final messenger = ScaffoldMessenger.of(context);
-  final l10n = context.l10n;
-  // Plain variable, not a TextEditingController: a controller would have to
-  // be disposed while the dialog's exit animation still uses it.
-  var typed = '';
-  final reason = await showDialog<String>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: Text(
-        postId == null ? l10n.channelReportChannel : l10n.channelReportPost,
-      ),
-      content: TextField(
-        onChanged: (v) => typed = v,
-        autofocus: true,
-        maxLength: 500,
-        decoration: InputDecoration(
-          labelText: l10n.channelReportReasonLabel,
-          helperText: l10n.channelReportReasonHelper,
-          // Translations are longer than the English line.
-          helperMaxLines: 3,
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(),
-          child: Text(l10n.commonCancel),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(dialogContext).pop(typed.trim()),
-          child: Text(l10n.channelReportSubmit),
-        ),
-      ],
-    ),
-  );
-  if (reason == null || reason.isEmpty) return;
-  try {
-    await controller.report(channelId, reason, postId: postId);
-    messenger.showSnackBar(SnackBar(content: Text(l10n.channelReportSent)));
-  } catch (error) {
-    // Notably the daily report budget (429 report_limit_reached).
-    messenger.showSnackBar(
-      SnackBar(content: Text(channelErrorMessage(l10n, error))),
-    );
-  }
-}
-
 /// Feed of one channel: newest post at the bottom (WhatsApp style).
 ///
-/// Followers get NO input field — a channel is one-way. Only an owner/admin
-/// sees the compose bar.
+/// Followers get NO input field: a channel is one-way. Only an owner /
+/// admin / publisher sees the compose bar, and nobody while the channel is
+/// suspended (the server refuses posting then).
 class ChannelScreen extends StatefulWidget {
   const ChannelScreen({super.key, required this.channelId});
   final String channelId;
@@ -130,7 +78,16 @@ class _ChannelScreenState extends State<ChannelScreen> {
         body: Center(child: Text(l10n.channelNotAvailable)),
       );
     }
-    final canPublish = channel.role != null;
+    final suspended = channelIsSuspended(channel);
+    final canPublish = channel.role != null && !suspended;
+    // A publisher may delete only its own posts (server-enforced); owner and
+    // admin may delete any.
+    final deleteAny =
+        channel.role == channelRoleOwner || channel.role == channelRoleAdmin;
+    final isPublisher = channel.role == channelRolePublisher;
+    // A follower of a suspended channel gets 403 channel_suspended for the
+    // feed: show that state instead of a stale cache or an error.
+    final feedHidden = suspended && channel.role == null;
     return Scaffold(
       appBar: AppBar(
         title: Text(channel.name, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -147,39 +104,54 @@ class _ChannelScreenState extends State<ChannelScreen> {
       body: Column(
         children: [
           const ChannelPublicNotice(),
-          Expanded(
-            child: StreamBuilder<List<ChannelPost>>(
-              stream: _posts,
-              builder: (context, snapshot) {
-                final posts = snapshot.data ?? const <ChannelPost>[];
-                if (posts.isEmpty) {
-                  return Center(child: Text(l10n.channelNoPosts));
-                }
-                // reverse + builder: opens scrolled to the newest post and
-                // only builds visible items; per-post keys keep widget state
-                // (loaded image, scroll position) stable when a post arrives.
-                return ListView.builder(
-                  reverse: true,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: posts.length + (_hasOlder ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (index == posts.length) {
-                      return TextButton(
-                        onPressed: _loadOlder,
-                        child: Text(l10n.channelLoadOlder),
+          if (suspended) ChannelSuspendedBanner(until: channel.suspendedUntil),
+          if (feedHidden)
+            Expanded(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    l10n.channelSuspendedFeed,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            )
+          else
+            Expanded(
+              child: StreamBuilder<List<ChannelPost>>(
+                stream: _posts,
+                builder: (context, snapshot) {
+                  final posts = snapshot.data ?? const <ChannelPost>[];
+                  if (posts.isEmpty) {
+                    return Center(child: Text(l10n.channelNoPosts));
+                  }
+                  // reverse + builder: opens scrolled to the newest post and
+                  // only builds visible items; per-post keys keep widget state
+                  // (loaded image, scroll position) stable when a post arrives.
+                  return ListView.builder(
+                    reverse: true,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: posts.length + (_hasOlder ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index == posts.length) {
+                        return TextButton(
+                          onPressed: _loadOlder,
+                          child: Text(l10n.channelLoadOlder),
+                        );
+                      }
+                      final post = posts[posts.length - 1 - index];
+                      return _PostCard(
+                        key: ValueKey(post.postId),
+                        post: post,
+                        canDelete:
+                            deleteAny || (isPublisher && post.publishedHere),
                       );
-                    }
-                    final post = posts[posts.length - 1 - index];
-                    return _PostCard(
-                      key: ValueKey(post.postId),
-                      post: post,
-                      canDelete: canPublish,
-                    );
-                  },
-                );
-              },
+                    },
+                  );
+                },
+              ),
             ),
-          ),
           if (canPublish) _ComposeBar(channelId: widget.channelId),
         ],
       ),
@@ -208,6 +180,12 @@ class _PostCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Posts by a bot device are labelled (rule K10, design D10).
+            if (post.byBot)
+              const Padding(
+                padding: EdgeInsetsDirectional.only(bottom: 4),
+                child: BotBadge(key: Key('post-bot-badge')),
+              ),
             if (post.kind == 'image' && post.attachmentBlobPath != null)
               _PostImage(
                 channelId: post.channelId,
@@ -450,7 +428,7 @@ class _PollResult extends StatelessWidget {
   );
 }
 
-/// Admin-only compose bar: text, image (≤ 2 MiB) or poll.
+/// Compose bar for owner / admin / publisher: text, image (≤ 2 MiB) or poll.
 class _ComposeBar extends StatefulWidget {
   const _ComposeBar({required this.channelId});
   final String channelId;
@@ -505,7 +483,8 @@ class _ComposeBarState extends State<_ComposeBar> {
   }
 
   Future<void> _sendPoll() async {
-    // Plain variables instead of controllers — see reportChannelDialog.
+    // Plain variables instead of controllers: a controller would have to be
+    // disposed while the dialog's exit animation still uses it.
     var question = '';
     var options = '';
     final l10n = context.l10n;

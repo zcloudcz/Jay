@@ -19,6 +19,7 @@ import 'package:calltype_core/network/channel_dtos.dart' show parseChannelLink;
 
 import '../features/calls/call_screen.dart';
 import '../features/channels/blocked_channels_screen.dart';
+import '../features/channels/channel_moderation.dart';
 import '../features/channels/channel_create_screen.dart';
 import '../features/channels/channel_profile_screen.dart';
 import '../features/channels/channel_screen.dart';
@@ -269,6 +270,10 @@ final router = GoRouter(
     GoRoute(
       path: '/channels/blocked',
       builder: (context, state) => const BlockedChannelsScreen(),
+    ),
+    GoRoute(
+      path: '/channels/reports',
+      builder: (context, state) => const MyReportsScreen(),
     ),
     GoRoute(
       path: '/channels/profile/:handle',

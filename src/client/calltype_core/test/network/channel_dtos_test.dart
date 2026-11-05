@@ -266,8 +266,19 @@ void main() {
       'kind': 'text',
       'body': 'hi',
     });
-    expect(reportBody('spam'), {'reason': 'spam'});
-    expect(reportBody('spam', postId: 'p'), {'postId': 'p', 'reason': 'spam'});
+    // category / goodFaith are always sent (contract defaults made explicit);
+    // the optional contact e-mail and post id are omitted when absent.
+    expect(reportBody('spam'), {
+      'reason': 'spam',
+      'category': 'terms',
+      'goodFaith': false,
+    });
+    expect(reportBody('spam', postId: 'p'), {
+      'postId': 'p',
+      'reason': 'spam',
+      'category': 'terms',
+      'goodFaith': false,
+    });
     expect(postsQuery(after: 'x'), {'after': 'x'});
     // PATCH: null = unchanged, so an untouched field is not sent at all.
     expect(updateChannelBody(name: 'New'), {'name': 'New'});

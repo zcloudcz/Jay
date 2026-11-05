@@ -49,12 +49,39 @@ String channelErrorMessage(AppLocalizations l10n, Object error) {
     'image_too_large' => l10n.channelErrorImageTooLarge,
     'unsupported_image_type' => l10n.channelErrorImageType,
     'post_id_conflict' => l10n.channelErrorPostConflict,
+    ChannelErrorCodes.channelSuspended => l10n.channelErrorSuspended,
+    ChannelErrorCodes.botPostLimit => l10n.channelErrorBotPostLimit,
+    ChannelErrorCodes.goodFaithRequired => l10n.channelErrorGoodFaithRequired,
+    ChannelErrorCodes.invalidContact => l10n.channelReportEmailInvalid,
     _ =>
       response?.statusCode == 403
           ? l10n.channelErrorForbidden
           : l10n.channelErrorGeneric,
   };
 }
+
+/// A device found by its user handle, to be appointed admin / publisher.
+class ChannelMemberCandidate {
+  const ChannelMemberCandidate({
+    required this.deviceId,
+    required this.handle,
+    this.displayName,
+    this.isBot = false,
+  });
+  final String deviceId;
+  final String handle;
+  final String? displayName;
+  final bool isBot;
+
+  String get name => displayName ?? handle;
+}
+
+/// Suspension as the UI needs it, from the cached channel row: still in
+/// force (a stored end date in the past no longer counts) and its end date.
+bool channelIsSuspended(Channel channel) =>
+    channel.status == 'suspended' &&
+    (channel.suspendedUntil == null ||
+        channel.suspendedUntil!.isAfter(DateTime.now()));
 
 /// App-wide state of public channels: followed/administered channels, the
 /// local post cache, unread counts, blocking.
@@ -165,7 +192,11 @@ class ChannelsController extends ChangeNotifier {
       if (isBlocked(channelId: info.channelId)) continue;
       keep.add(info.channelId);
       final local = channel(info.channelId);
-      final added = info.unreadCount > 0 ? await _catchUp(info.channelId) : 0;
+      // A follower of a suspended channel gets 403 channel_suspended on the
+      // feed; one such channel must not abort the sync of all the others.
+      final added = info.unreadCount > 0 && !_feedBlocked(info)
+          ? await _catchUp(info.channelId)
+          : 0;
       // WHY not simply the server's unreadCount: fetching posts is what the
       // server counts as "seen", so after one catch-up it reports 0 although
       // the user never opened the feed — the next sync would wipe the badge.
@@ -226,6 +257,10 @@ class ChannelsController extends ChangeNotifier {
       cursor = next;
     }
   }
+
+  /// True when the server would refuse the feed: suspended channel and this
+  /// device has no role in it (owner / admin / publisher still read it).
+  bool _feedBlocked(ChannelInfo info) => info.isSuspended && info.role == null;
 
   Future<String?> _newestCursor(String channelId) async {
     final newest =
@@ -323,8 +358,30 @@ class ChannelsController extends ChangeNotifier {
     await load();
   }
 
-  Future<void> report(String channelId, String reason, {String? postId}) =>
-      _api.reportChannel(channelId, reason, postId: postId);
+  /// Files a report and returns the server's report number (0 from a
+  /// server without receipts).
+  Future<int> report(
+    String channelId, {
+    String? postId,
+    required String reason,
+    String category = 'terms',
+    String? contactEmail,
+    bool goodFaith = false,
+  }) => _api.reportChannel(
+    channelId,
+    postId: postId,
+    reason: reason,
+    category: category,
+    contactEmail: contactEmail,
+    goodFaith: goodFaith,
+  );
+
+  /// Reports this device filed, with their outcome ("Reports I filed").
+  Future<List<MyReport>> myReports() => _api.getMyReports();
+
+  /// Statements of reasons for the channel (owner / admin / publisher).
+  Future<List<ModerationStatement>> moderation(String channelId) =>
+      _api.getChannelModeration(channelId);
 
   // -- Feed ------------------------------------------------------------------
 
@@ -347,10 +404,27 @@ class ChannelsController extends ChangeNotifier {
 
   /// One fetch of the newest page when a feed is opened: refreshes reaction
   /// and vote totals, which are not pushed over the hub.
-  Future<void> refresh(String channelId) async => _storePosts(
-    await _api.getChannelPosts(channelId, limit: pageSize),
-    overwrite: true,
-  );
+  ///
+  /// A 403 `channel_suspended` is not an error for the user but a state: it
+  /// is stored on the channel so the feed shows the suspension instead of a
+  /// stale cache (the next sync clears it once the channel is active again).
+  Future<void> refresh(String channelId) async {
+    final List<ChannelPostDto> page;
+    try {
+      page = await _api.getChannelPosts(channelId, limit: pageSize);
+    } on DioException catch (error) {
+      if (parseErrorCode(error.response?.data) !=
+          ChannelErrorCodes.channelSuspended) {
+        rethrow;
+      }
+      await (_db.update(_db.channels)
+            ..where((c) => c.channelId.equals(channelId)))
+          .write(const ChannelsCompanion(status: Value('suspended')));
+      await load();
+      return;
+    }
+    await _storePosts(page, overwrite: true);
+  }
 
   /// Loads one page of history above the oldest cached post.
   /// Returns false when there is nothing older.
@@ -404,18 +478,23 @@ class ChannelsController extends ChangeNotifier {
     // Store what the SERVER stored, not what was sent: its createdAt is the
     // paging cursor (a local clock would shift it) and a poll body comes back
     // normalised. overwrite: the hub echo may have landed first.
-    await _storePosts([
-      await _api.createChannelPost(
-        channelId,
-        postId: postId,
-        kind: kind,
-        body: body,
-        attachmentBlobPath: blobPath,
-      ),
-    ], overwrite: true);
+    await _storePosts(
+      [
+        await _api.createChannelPost(
+          channelId,
+          postId: postId,
+          kind: kind,
+          body: body,
+          attachmentBlobPath: blobPath,
+        ),
+      ],
+      overwrite: true,
+      publishedHere: true,
+    );
   }
 
-  /// Admin delete. Followers receive a tombstone event; locally the row is
+  /// Admin delete (a publisher: own posts only, the server enforces it).
+  /// Followers receive a tombstone event; locally the row is
   /// simply removed.
   Future<void> deletePost(String channelId, String postId) async {
     await _api.deleteChannelPost(channelId, postId);
@@ -505,8 +584,35 @@ class ChannelsController extends ChangeNotifier {
   Future<List<ChannelAdminDto>> admins(String channelId) =>
       _api.getChannelAdmins(channelId);
 
-  Future<void> setAdmin(String channelId, String deviceId, bool admin) =>
-      _api.setChannelAdmin(channelId, deviceId, admin: admin);
+  /// Appoints (or with [admin] false removes) a member; [role] is
+  /// 'admin' or 'publisher'. Calling it for an existing member changes
+  /// its role.
+  Future<void> setAdmin(
+    String channelId,
+    String deviceId,
+    bool admin, {
+    String role = channelRoleAdmin,
+  }) => _api.setChannelAdmin(channelId, deviceId, admin: admin, role: role);
+
+  /// Resolves a user handle to a device for "add by handle": a publisher
+  /// (typically a bot) need not be in the owner's contacts. Null when no
+  /// device has the handle (404).
+  Future<ChannelMemberCandidate?> lookupHandle(String handle) async {
+    try {
+      final json = await _api.findDeviceByHandle(handle.trim().toUpperCase());
+      final deviceId = json['deviceId'] as String?;
+      if (deviceId == null) return null;
+      return ChannelMemberCandidate(
+        deviceId: deviceId,
+        handle: json['userHandle'] as String? ?? handle.trim().toUpperCase(),
+        displayName: json['displayName'] as String?,
+        isBot: json['isBot'] as bool? ?? false,
+      );
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
 
   // -- Hub events ------------------------------------------------------------
 
@@ -546,9 +652,14 @@ class ChannelsController extends ChangeNotifier {
   /// Stores posts and returns how many were NEW. Tombstones delete.
   /// Without [overwrite] an existing row is left untouched (a bare hub event
   /// must not wipe cached reaction totals); with it, server truth wins.
+  ///
+  /// [publishedHere] marks this device's own posts. It is only ever WRITTEN
+  /// as true; otherwise the column is left absent so a later overwrite with
+  /// server data (which knows no author) keeps the mark.
   Future<int> _storePosts(
     List<ChannelPostDto> posts, {
     bool overwrite = false,
+    bool publishedHere = false,
   }) async {
     var added = 0;
     for (final post in posts) {
@@ -576,6 +687,10 @@ class ChannelsController extends ChangeNotifier {
               myReaction: Value(post.myReaction),
               pollVotes: Value(jsonEncode(post.pollVotes)),
               myVote: Value(post.myVote),
+              byBot: Value(post.byBot),
+              publishedHere: publishedHere
+                  ? const Value(true)
+                  : const Value.absent(),
             ),
           );
       if (!exists) added++;
@@ -603,6 +718,8 @@ class ChannelsController extends ChangeNotifier {
           role: Value(info.role),
           isFollowing: Value(isFollowing ?? info.isFollowing),
           unreadCount: Value(unreadCount ?? info.unreadCount),
+          status: Value(info.isSuspended ? 'suspended' : 'active'),
+          suspendedUntil: Value(info.isSuspended ? info.suspendedUntil : null),
         ),
       );
 
