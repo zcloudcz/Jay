@@ -1,0 +1,64 @@
+# ---------------------------------------------------------------------------
+# a2a_bridge Docker image -> ghcr.io (manual, SHA-pinned)
+# ---------------------------------------------------------------------------
+# Why: operators who want an A2A agent (Copilot Studio, Azure AI Foundry,
+# Google ADK, Hermes, ...) as a Jay contact pull a ready image instead of
+# copying the private sources and building the Dart bridge themselves.
+#
+# One-time: after the first push, make the package public in GitHub package
+# settings (ghcr.io/zcloudcz/jay-a2a-bridge), otherwise hosts need a login.
+#
+# Actions do not start on the private repo (billing): run this only in the
+# short public window described in CLAUDE.md (Deploy section, /gh-actions-public).
+# ---------------------------------------------------------------------------
+
+name: A2A bridge image
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Full commit SHA to build'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      # GitHub expressions have no substring function, so the short tag is
+      # computed in a step.
+      - id: tag
+        run: echo "short=${COMMIT_SHA::12}" >> "$GITHUB_OUTPUT"
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # driver: docker uses the runner's own engine instead of pulling the
+      # moby/buildkit image from Docker Hub, which timed out (run 37993841440).
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
+
+      # Context is src/ because the Dockerfile uses path dependencies.
+      - uses: docker/build-push-action@v6
+        with:
+          context: src
+          file: src/bots/a2a_bridge/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/zcloudcz/jay-a2a-bridge:latest
+            ghcr.io/zcloudcz/jay-a2a-bridge:${{ steps.tag.outputs.short }}
