@@ -114,6 +114,14 @@ jobs:
           dart run build_runner build --delete-conflicting-outputs
           flutter analyze
           flutter test
+      # Operator web ships in the same web artifact, so the same SHA gate
+      # covers it (contract section 8).
+      - name: jay_admin analyze + test
+        working-directory: src/client/jay_admin
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -142,6 +150,7 @@ jobs:
           scan-args: |-
             --lockfile=./src/client/calltype/pubspec.lock
             --lockfile=./src/client/calltype_core/pubspec.lock
+            --lockfile=./src/client/jay_admin/pubspec.lock
             --lockfile=./src/bots/calltype_bot/pubspec.lock
             --lockfile=./src/bots/hermes_bridge/pubspec.lock
             --lockfile=./src/bots/jay_archiver/pubspec.lock
@@ -281,6 +290,29 @@ jobs:
       - run: dart run build_runner build --delete-conflicting-outputs
       - name: Build release artifact
         run: ${{ matrix.command }} --dart-define=API_BASE_URL=${{ vars.CALLTYPE_API_BASE_URL }}
+      # Operator web (channel moderation, src/client/jay_admin) ships inside
+      # the same Static Web App under /admin/ (design D2: no new Azure
+      # resource, no DNS change). It is built here, after the app and before
+      # the manifest, so the manifest hash covers it and deploy-web uploads
+      # it with the app. Same API URL, already refused above when local or
+      # not HTTPS; the page refuses such a URL at runtime as well.
+      # web/staticwebapp.config.json (copied into build/web by the app build)
+      # keeps /admin/* out of the app's navigation fallback and sets
+      # X-Frame-Options DENY, noindex and no-store on the admin index.
+      - name: Build operator web into build/web/admin
+        if: matrix.platform == 'web'
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd ../jay_admin && flutter pub get && flutter build web --release --base-href /admin/ --dart-define=CALLTYPE_API_BASE_URL=${{ vars.CALLTYPE_API_BASE_URL }})
+          rm -rf build/web/admin
+          cp -r ../jay_admin/build/web build/web/admin
+          # Fail the release rather than ship an admin that loads the app's
+          # assets (wrong base href) or an app without its routing config.
+          grep -q '<base href="/admin/">' build/web/admin/index.html
+          grep -q '"/admin/\*"' build/web/staticwebapp.config.json
+          test -f build/web/legal/channels-cs.html
+          test -f build/web/legal/channels-en.html
       - name: Archive macOS bundle preserving executable permissions
         if: matrix.platform == 'macos'
         run: tar -czf build/calltype-macos.tar.gz -C build/macos/Build/Products/Release .

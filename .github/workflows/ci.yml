@@ -94,6 +94,14 @@ jobs:
       - run: dart run build_runner build --delete-conflicting-outputs
       - run: flutter analyze
       - run: flutter test
+      # Operator web (contract section 8). Independent of calltype_core, so
+      # it needs no codegen; widget tests run against a fake /admin API.
+      - name: jay_admin analyze + tests
+        working-directory: src/client/jay_admin
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
       # N06: OSV-Scanner over every pub lockfile. The action's own CLI fails
       # (non-zero exit) as soon as it finds a known vulnerability that isn't
       # in osv-scanner.toml's dated allow-list — that failure blocks this job.
@@ -106,6 +114,7 @@ jobs:
           scan-args: |-
             --lockfile=./src/client/calltype/pubspec.lock
             --lockfile=./src/client/calltype_core/pubspec.lock
+            --lockfile=./src/client/jay_admin/pubspec.lock
             --lockfile=./src/bots/calltype_bot/pubspec.lock
             --lockfile=./src/bots/hermes_bridge/pubspec.lock
             --lockfile=./src/bots/jay_archiver/pubspec.lock
@@ -194,6 +203,16 @@ jobs:
       - run: dart run build_runner build --delete-conflicting-outputs
       - name: Build sanity artifact (placeholder API URL, never distributed)
         run: ${{ matrix.command }} --dart-define=API_BASE_URL=https://ci-sanity-build.invalid
+      # Same layout as deploy.yml: the operator web under build/web/admin.
+      - name: Build operator web sanity artifact into build/web/admin
+        if: matrix.platform == 'web'
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd ../jay_admin && flutter pub get && flutter build web --release --base-href /admin/ --dart-define=CALLTYPE_API_BASE_URL=https://ci-sanity-build.invalid)
+          rm -rf build/web/admin
+          cp -r ../jay_admin/build/web build/web/admin
+          grep -q '<base href="/admin/">' build/web/admin/index.html
       - name: Archive macOS bundle preserving executable permissions
         if: matrix.platform == 'macos'
         run: tar -czf build/calltype-macos.tar.gz -C build/macos/Build/Products/Release .
