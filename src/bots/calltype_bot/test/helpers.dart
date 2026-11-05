@@ -193,6 +193,17 @@ class FakeApi {
   /// PUT /devices/{id}/bot-commands bodies, served back by GET.
   final botCommands = <String, Object?>{};
 
+  /// GET /channels/{idOrHandle} bodies, keyed by id AND handle (upper-case
+  /// handle; the lookup upper-cases like the server's case-insensitive one).
+  final channels = <String, Map<String, dynamic>>{};
+
+  /// POST /channels/{id}/posts bodies as received, with the channel id.
+  final channelPosts = <({String channelId, Map<String, dynamic> body})>[];
+
+  /// Scripted refusal of the next channel posts, one per POST:
+  /// (status, error body or null for the server's bodyless role 403).
+  final channelPostFailures = <(int, Map<String, dynamic>?)>[];
+
   String get url => 'http://127.0.0.1:${_server.port}';
 
   int _nextOneTimeKey = 0;
@@ -254,6 +265,31 @@ class FakeApi {
         );
       }
       body = botCommands[segments[1]] ?? {'commands': []};
+    } else if (segments.length == 2 &&
+        segments[0] == 'channels' &&
+        request.method == 'GET') {
+      body = channels[segments[1]] ?? channels[segments[1].toUpperCase()];
+    } else if (segments.length == 3 &&
+        segments[0] == 'channels' &&
+        segments[2] == 'posts' &&
+        request.method == 'POST') {
+      final sent =
+          jsonDecode(await utf8.decodeStream(request)) as Map<String, dynamic>;
+      if (channelPostFailures.isNotEmpty) {
+        final (status, error) = channelPostFailures.removeAt(0);
+        request.response.statusCode = status;
+        request.response.headers.contentType = ContentType.json;
+        if (error != null) request.response.write(jsonEncode(error));
+        await request.response.close();
+        return;
+      }
+      channelPosts.add((channelId: segments[1], body: sent));
+      body = {
+        ...sent,
+        'channelId': segments[1],
+        'createdAt': DateTime.now().toUtc().toIso8601String(),
+        'byBot': true,
+      };
     } else if (segments.length == 3 && segments[1] == 'by-handle') {
       final id = handles[segments[2]];
       body = id == null ? null : {'deviceId': id, 'userHandle': segments[2]};

@@ -440,6 +440,109 @@ void main() {
           expect(response.statusCode, 202);
           expect(hub.calls('SendReliableDirectFanout'), hasLength(1));
         });
+
+        group('to a channel', () {
+          const channelId = '00000000-0000-4000-8000-0000000000d0';
+          setUp(() {
+            final channel = {
+              'channelId': channelId,
+              'handle': 'CH-NEWS-0001',
+              'name': 'News',
+              'role': 'publisher',
+            };
+            api.channels[channelId] = channel;
+            api.channels['CH-NEWS-0001'] = channel;
+          });
+
+          test('handle or id: one post each; NOT a group bot turn', () async {
+            final bridge = await start();
+            expect(
+              await bridge.sendFromLocal('channel:ch-news-0001', 'Issue #1'),
+              SendOutcome.sent,
+            );
+            expect(
+              await bridge.sendFromLocal('CHANNEL: $channelId', 'Issue #2'),
+              SendOutcome.sent,
+            );
+            expect(api.channelPosts.map((p) => p.body['body']), ['Issue #1', 'Issue #2']);
+            expect(api.channelPosts.every((p) => p.channelId == channelId), isTrue);
+            expect(logs.where((l) => l.contains('posted')), hasLength(2));
+            // The group exchange (maxBotTurns 2) is untouched by the posts.
+            expect(await bridge.sendFromLocal(groupId, 'a'), SendOutcome.sent);
+            expect(await bridge.sendFromLocal(groupId, 'b'), SendOutcome.sent);
+            expect(await bridge.sendFromLocal(groupId, 'c'), SendOutcome.forbidden);
+          });
+
+          test('server refusals map to outcomes, with a log line', () async {
+            final bridge = await start();
+            api.channelPostFailures.addAll([
+              (403, {'error': 'Suspended.', 'code': 'channel_suspended'}),
+              (429, {'error': 'Limit.', 'code': 'bot_post_limit'}),
+              (403, null), // not a publisher: bodyless role 403
+              (503, null),
+            ]);
+            Future<SendOutcome> post() => bridge.sendFromLocal('channel:CH-NEWS-0001', 'x');
+            expect(await post(), SendOutcome.channelSuspended);
+            expect(await post(), SendOutcome.rateLimited);
+            expect(await post(), SendOutcome.forbidden);
+            expect(await post(), SendOutcome.failed);
+            expect(
+              await bridge.sendFromLocal('channel:CH-NOPE-0000', 'x'),
+              SendOutcome.badTarget,
+            );
+            expect(api.channelPosts, isEmpty);
+            final log = logs.join('\n');
+            expect(log, contains('channel_suspended'));
+            expect(log, contains('bot_post_limit'));
+          });
+
+          test('malformed target or too long text: refused without a request', () async {
+            final bridge = await start();
+            final before = api.requests.where((r) => r.contains('/channels')).length;
+            for (final to in ['channel:', 'channel:../groups', 'channel:CT-AAAA-0001']) {
+              expect(await bridge.sendFromLocal(to, 'x'), SendOutcome.badTarget, reason: to);
+            }
+            expect(
+              await bridge.sendFromLocal(
+                'channel:CH-NEWS-0001',
+                'x' * (channelPostMaxChars + 1),
+              ),
+              SendOutcome.textTooLong,
+            );
+            expect(api.requests.where((r) => r.contains('/channels')).length, before);
+          });
+
+          test('over HTTP: 202, 403, 429, 400', () async {
+            final bridge = await start();
+            final server = (await startSendEndpoint(
+              key: 'k3y',
+              port: 0,
+              send: bridge.sendFromLocal,
+              log: logs.add,
+            ))!;
+            addTearDown(() => server.close(force: true));
+            final client = HttpClient();
+            addTearDown(client.close);
+            // Status + body as one string: records compare maps by identity.
+            Future<String> call(String to) async {
+              final request = await client.post('127.0.0.1', server.port, '/send');
+              request.headers.set('authorization', 'Bearer k3y');
+              request.write(jsonEncode({'to': to, 'text': 'newsletter'}));
+              final response = await request.close();
+              return '${response.statusCode} ${await utf8.decodeStream(response)}';
+            }
+
+            api.channelPostFailures.addAll([
+              (403, {'error': 'Suspended.', 'code': 'channel_suspended'}),
+              (429, {'error': 'Limit.', 'code': 'bot_post_limit'}),
+            ]);
+            expect(await call('channel:CH-NEWS-0001'), '403 {"error":"channel_suspended"}');
+            expect(await call('channel:CH-NEWS-0001'), '429 {"error":"bot_post_limit"}');
+            expect(await call('channel:CH-NEWS-0001'), '202 {"status":"sent"}');
+            expect(await call('channel:nonsense'), '400 {"error":"bad_target"}');
+            expect(api.channelPosts, hasLength(1));
+          });
+        });
       });
     });
   });
