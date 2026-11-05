@@ -39,7 +39,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   /// Schema history:
   ///   1 — contacts, conversations, messages, sessions, backup state
@@ -51,6 +51,8 @@ class AppDatabase extends _$AppDatabase {
   ///       forwarded / deleted (reply, forward, delete for everyone)
   ///   5 - known_device_lists / known_device_list_members (multi-device:
   ///       verified signed device lists of contacts and of this identity)
+  ///   6 - messages.edited_at / actions_json (agent messaging: edits and
+  ///       bot buttons)
   ///
   /// WHY explicit steps instead of destructive recreation: this database
   /// holds the user's only copy of their decrypted history and the ratchet
@@ -79,6 +81,10 @@ class AppDatabase extends _$AppDatabase {
       if (from < 5) {
         await m.createTable(knownDeviceLists);
         await m.createTable(knownDeviceListMembers);
+      }
+      if (from < 6) {
+        await m.addColumn(messages, messages.editedAt);
+        await m.addColumn(messages, messages.actionsJson);
       }
     },
   );

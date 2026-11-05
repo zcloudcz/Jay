@@ -65,6 +65,7 @@ class FakeUser {
     String? groupId,
     String? messageId,
     String? to,
+    Map<String, dynamic> extra = const {},
   }) async {
     if (!await sessions.hasSession(botId)) {
       await sessions.initiateSession(botId, botBundle);
@@ -83,6 +84,8 @@ class FakeUser {
         // devices; absent in ordinary messages.
         'to': ?to,
         'createdAt': DateTime.now().toUtc().toIso8601String(),
+        // Agent-messaging keys (replyTo, mentions, action, type override).
+        ...extra,
       }),
     );
     return {
@@ -94,12 +97,19 @@ class FakeUser {
   }
 
   /// Decrypts a body the bot handed to the hub and returns the text.
-  Future<String> read(String botId, String encryptedBodyBase64) async {
+  Future<String> read(String botId, String encryptedBodyBase64) async =>
+      (await readPayload(botId, encryptedBodyBase64))['body'] as String;
+
+  /// Decrypts a body the bot handed to the hub and returns the whole payload.
+  Future<Map<String, dynamic>> readPayload(
+    String botId,
+    String encryptedBodyBase64,
+  ) async {
     final plaintext = await sessions.decryptMessage(
       botId,
       utf8.decode(base64Decode(encryptedBodyBase64)),
     );
-    return (jsonDecode(plaintext) as Map<String, dynamic>)['body'] as String;
+    return jsonDecode(plaintext) as Map<String, dynamic>;
   }
 
   Future<void> close() => _db.close();
@@ -180,6 +190,9 @@ class FakeApi {
   /// list (the real server answers for the primary and its companions).
   final deviceLists = <String, Map<String, dynamic>>{};
 
+  /// PUT /devices/{id}/bot-commands bodies, served back by GET.
+  final botCommands = <String, Object?>{};
+
   String get url => 'http://127.0.0.1:${_server.port}';
 
   int _nextOneTimeKey = 0;
@@ -234,6 +247,13 @@ class FakeApi {
         for (final id in groups[segments[1]] ?? <String>[])
           {'deviceId': id, 'role': 'member', ...?memberFields[id]},
       ];
+    } else if (segments.length == 3 && segments[2] == 'bot-commands') {
+      if (request.method == 'PUT') {
+        botCommands[segments[1]] = jsonDecode(
+          await utf8.decodeStream(request),
+        );
+      }
+      body = botCommands[segments[1]] ?? {'commands': []};
     } else if (segments.length == 3 && segments[1] == 'by-handle') {
       final id = handles[segments[2]];
       body = id == null ? null : {'deviceId': id, 'userHandle': segments[2]};

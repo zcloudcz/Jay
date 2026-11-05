@@ -10,7 +10,9 @@ import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/devices/fanout_sender.dart';
+import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/network/bot_dtos.dart';
 import 'package:calltype_core/network/hub_transport.dart';
 import 'package:calltype_core/network/signalr_client.dart';
 import 'package:calltype_core/storage/database.dart';
@@ -21,6 +23,9 @@ import 'src/encrypted_file_store.dart';
 import 'src/group_info.dart';
 import 'src/ws_hub_transport.dart';
 
+export 'package:calltype_core/messaging/agent_payload.dart'
+    show ActionRef, MessageButton, maxActionId, maxActionLabel, maxActions;
+export 'package:calltype_core/network/bot_dtos.dart' show BotCommand;
 export 'package:calltype_core/network/group_dtos.dart'
     show BotTalkMode, BotTalkSettings, MuteMode, MuteSetting;
 export 'src/encrypted_file_store.dart';
@@ -55,6 +60,53 @@ bool mentionsBot(String text, {required String handle, String? displayName}) {
   return false;
 }
 
+/// The message an incoming message replies to (payload `replyTo`).
+class BotReplyRef {
+  const BotReplyRef({
+    required this.id,
+    required this.senderId,
+    required this.preview,
+  });
+
+  final String id;
+
+  /// Identity id of the quoted message's author, as the SENDER claims it.
+  final String senderId;
+
+  /// The sender's copy of the quoted text (may be empty).
+  final String preview;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'senderId': senderId,
+    'preview': preview,
+  };
+
+  /// Same shape and leniency as the app: a malformed quote is dropped, never
+  /// the message.
+  static BotReplyRef? parse(Object? raw) {
+    if (raw is! Map) return null;
+    final id = raw['id'];
+    final senderId = raw['senderId'];
+    final preview = raw['preview'];
+    if (id is! String || senderId is! String || id.isEmpty) return null;
+    return BotReplyRef(
+      id: id,
+      senderId: senderId,
+      preview: preview is String ? preview : '',
+    );
+  }
+}
+
+/// Group replies quote this many characters of the message they answer.
+const replyPreviewChars = 100;
+
+/// First [replyPreviewChars] characters (runes, so an emoji is never cut in
+/// half) of [text].
+String _preview(String text) => text.runes.length <= replyPreviewChars
+    ? text
+    : String.fromCharCodes(text.runes.take(replyPreviewChars));
+
 /// One decrypted incoming text message, handed to the bot's handler.
 class BotMessage {
   BotMessage._(
@@ -64,15 +116,20 @@ class BotMessage {
     required this.senderId,
     required this.conversationId,
     required this.isGroup,
-    required this.mentionsBot,
+    required bool textMentionsBot,
     required String ackSenderId,
     this.groupId,
     String? groupName,
+    this.mentions = const [],
+    this.replyTo,
+    this.action,
   }) : _groupName = groupName,
+       _textMentionsBot = textMentionsBot,
        _ackSenderId = ackSenderId;
 
   final CallTypeBot _bot;
   final String? _groupName;
+  final bool _textMentionsBot;
 
   /// The device that actually sent it. The server queues per device, so the
   /// acknowledgement must name this one, not the identity in [senderId].
@@ -90,7 +147,30 @@ class BotMessage {
   /// Backends use it to keep separate memory per conversation.
   final String conversationId;
   final bool isGroup;
-  final bool mentionsBot;
+
+  /// Structured mentions (identity ids, lower-case) the sender attached.
+  final List<String> mentions;
+
+  /// The message this one replies to, if any.
+  final BotReplyRef? replyTo;
+
+  /// A button press, if any: [ActionRef.messageId] names the message that
+  /// carried the button (usually one of this bot's), [text] is its label.
+  final ActionRef? action;
+
+  /// The structured mentions name the bot, or the text says `@handle` /
+  /// `@display name` (fallback for clients without structured mentions).
+  bool get mentionsBot =>
+      mentions.contains(_bot.deviceId.toLowerCase()) || _textMentionsBot;
+
+  /// Replies to a message of this bot. WHY that addresses the bot: in a
+  /// group a reply is how people answer a specific participant (Telegram,
+  /// Matrix and XMPP do the same), and requiring an extra `@` there is noise.
+  bool get repliesToBot =>
+      replyTo?.senderId.toLowerCase() == _bot.deviceId.toLowerCase();
+
+  /// In a group the bot handles only addressed messages.
+  bool get addressed => mentionsBot || repliesToBot;
 
   /// The group this message was posted in; null for a 1:1 message.
   final String? groupId;
@@ -100,13 +180,51 @@ class BotMessage {
   bool? get senderIsBot => _senderIsBot;
   bool? _senderIsBot;
 
-  /// Sends [text] back into the conversation this message came from.
-  Future<void> reply(String text) => _bot._send(
+  /// Sends [text] (with optional buttons) back into the conversation this
+  /// message came from. In a group the reply quotes this message, so readers
+  /// see what the bot answers; a 1:1 chat has no ambiguity and no quote.
+  Future<BotSentMessage> reply(
+    String text, {
+    List<MessageButton> actions = const [],
+  }) => _bot._sendText(
     conversationId,
     text,
     groupId: isGroup ? conversationId : null,
     groupName: _groupName,
+    actions: actions,
+    replyTo: isGroup
+        ? BotReplyRef(id: id, senderId: senderId, preview: _preview(this.text))
+        : null,
   );
+}
+
+/// A message this bot sent; it can still be edited.
+class BotSentMessage {
+  BotSentMessage._(
+    this._bot, {
+    required this.id,
+    required this.conversationId,
+    required this.groupId,
+    required String? groupName,
+  }) : _groupName = groupName;
+
+  final CallTypeBot _bot;
+  final String? _groupName;
+
+  final String id;
+
+  /// Peer identity id (1:1) or group id, like [BotMessage.conversationId].
+  final String conversationId;
+  final String? groupId;
+
+  /// Replaces the text (`type: edit`). [actions]: null keeps the buttons,
+  /// an empty list removes them, a list replaces them.
+  ///
+  /// Every edit is a full message to every recipient device and an old app
+  /// keeps an unknown type queued until the server TTL, so callers should
+  /// throttle edits (the Hermes bridge does).
+  Future<void> edit(String text, {List<MessageButton>? actions}) =>
+      _bot._sendEdit(this, text, actions: actions);
 }
 
 /// A headless CallType device that answers messages through a handler.
@@ -153,6 +271,18 @@ class CallTypeBot {
   String get inviteLink => 'ct://$deviceId/$handle';
 
   BotMessageHandler? _handler;
+  BotMessageHandler? _actionHandler;
+
+  /// Ids of messages this bot sent WITH buttons (lower-case). Mirrored in
+  /// `backupState` as `sent-actions:<id>` so a press after a restart is still
+  /// recognised as a press on our own message.
+  // ponytail: never pruned; one tiny row per button message. Add a TTL if a
+  // bot ever sends buttons at volume.
+  final _sentWithActions = <String>{};
+
+  /// Button presses being handled outside the conversation queues, so
+  /// [close] can wait for them.
+  final _pendingActions = <Future<void>>{};
   bool Function(String senderId)? _allowSender;
   GroupSenderCheck? _allowGroupSender;
   StreamSubscription<Map<String, dynamic>>? _subscription;
@@ -322,6 +452,33 @@ class CallTypeBot {
     await _signalR.connect();
   }
 
+  /// Handles button presses on this bot's own messages (see [BotMessage.action]).
+  ///
+  /// WHY separate from [onMessage]: a press runs OUTSIDE the per-conversation
+  /// queue. The conversation's handler may be blocked waiting for exactly
+  /// this press (an approval), so queueing the press behind it would
+  /// deadlock. Without this handler presses go to the normal handler.
+  void onAction(BotMessageHandler handler) => _actionHandler = handler;
+
+  /// Publishes the "/" commands the app suggests for this bot (replaces the
+  /// whole list; empty = clear).
+  Future<void> setCommands(List<BotCommand> commands) async {
+    await _api.setBotCommands(deviceId, commands);
+  }
+
+  static final _startPattern = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
+
+  /// `calltype://bot/<HANDLE>[?start=<payload>]`: the app opens (or offers to
+  /// add) this bot and pre-fills `/start <payload>`; the user still presses
+  /// send. [start] must be 1..64 of `[A-Za-z0-9_-]`, so it needs no escaping
+  /// and cannot smuggle a second command into the composer.
+  String deepLink({String? start}) {
+    if (start != null && !_startPattern.hasMatch(start)) {
+      throw ArgumentError.value(start, 'start', 'must be 1..64 of [A-Za-z0-9_-]');
+    }
+    return 'calltype://bot/$handle${start == null ? '' : '?start=$start'}';
+  }
+
   // -- Groups -----------------------------------------------------------------
 
   /// The bot-talk setting and members of [groupId] (the bot must be a member,
@@ -389,7 +546,11 @@ class CallTypeBot {
   /// to is the caller's policy (the Hermes bridge allows only its owners);
   /// the runtime only refuses what it cannot address, with [BotSendException].
   /// Like a reply it needs the hub connection, so call [onMessage] first.
-  Future<void> send({required String to, required String text}) async {
+  Future<BotSentMessage> send({
+    required String to,
+    required String text,
+    List<MessageButton> actions = const [],
+  }) async {
     final target = to.trim();
     if (text.trim().isEmpty) {
       throw ArgumentError.value(text, 'text', 'must not be empty');
@@ -413,8 +574,7 @@ class CallTypeBot {
       if (identity == deviceId.toLowerCase()) {
         throw const BotSendException('A bot cannot message itself.');
       }
-      await _send(identity, text);
-      return;
+      return _sendText(identity, text, actions: actions);
     }
     var info = await group(target);
     if (!info.isMember(deviceId)) {
@@ -425,11 +585,12 @@ class CallTypeBot {
         throw BotSendException('The bot is not a member of group $target.');
       }
     }
-    await _send(
+    return _sendText(
       target,
       text,
       groupId: target,
       groupName: _groupNames[target.toLowerCase()],
+      actions: actions,
     );
   }
 
@@ -440,6 +601,9 @@ class CallTypeBot {
     }
     _signalR.close();
     await _crypto;
+    await Future.wait(
+      _pendingActions,
+    ).timeout(const Duration(seconds: 10), onTimeout: () => const []);
     // Bounded: a handler stuck on a dead backend must not block shutdown.
     await Future.wait(
       _conversations.values,
@@ -598,24 +762,14 @@ class CallTypeBot {
     }
     final payload = result.payload;
     final route = result.route;
-    final body = payload['body'] as String;
-    final mentioned = mentionsBot(
-      body,
-      handle: handle,
-      displayName: displayName,
-    );
-    // v1 is text only; in groups the bot speaks only when addressed
-    // (decision §7.1) — everything else is acknowledged and ignored.
-    if ((payload['type'] ?? 'text') != 'text' ||
-        (groupId != null && !mentioned)) {
+    // Text only. Other types (also `edit`: a bot keeps no history to edit,
+    // and `delete`) are acknowledged and ignored.
+    if ((payload['type'] ?? 'text') != 'text') {
       await _ack(senderId, messageId);
       return;
     }
-
+    final body = payload['body'] as String;
     final groupName = payload['groupName'] as String?;
-    if (groupId != null && groupName != null && groupName.isNotEmpty) {
-      _groupNames[groupId.toLowerCase()] = groupName;
-    }
     final message = BotMessage._(
       this,
       id: messageId,
@@ -623,14 +777,46 @@ class CallTypeBot {
       senderId: route.senderIdentityId,
       conversationId: route.conversationId,
       isGroup: groupId != null,
-      mentionsBot: mentioned,
+      textMentionsBot: mentionsBot(
+        body,
+        handle: handle,
+        displayName: displayName,
+      ),
       ackSenderId: senderId,
       groupId: groupId,
       groupName: groupName,
+      mentions: parseMentions(payload['mentions']),
+      replyTo: BotReplyRef.parse(payload['replyTo']),
+      action: parseActionRef(payload['action']),
     );
+    // In groups the bot speaks only when addressed: mentioned, or replied
+    // to (which a button press always is). Everything else is acknowledged
+    // and ignored.
+    if (groupId != null && !message.addressed) {
+      await _ack(senderId, messageId);
+      return;
+    }
+    if (groupId != null && groupName != null && groupName.isNotEmpty) {
+      _groupNames[groupId.toLowerCase()] = groupName;
+    }
+
+    final actionHandler = _actionHandler;
+    final action = message.action;
+    if (actionHandler != null &&
+        action != null &&
+        await _isOwnButtonMessage(action.messageId)) {
+      // Not chained to _conversations on purpose, see [onAction].
+      late final Future<void> pending;
+      pending = _handle(message, actionHandler, typing: false).whenComplete(
+        () => _pendingActions.remove(pending),
+      );
+      _pendingActions.add(pending);
+      return;
+    }
+
     final tail = _conversations[message.conversationId] ?? Future.value();
     late final Future<void> next;
-    next = tail.then((_) => _handle(message)).whenComplete(() {
+    next = tail.then((_) => _handle(message, _handler!)).whenComplete(() {
       // Drop finished chains so the map does not grow with every peer ever.
       if (_conversations[message.conversationId] == next) {
         _conversations.remove(message.conversationId);
@@ -639,14 +825,32 @@ class CallTypeBot {
     _conversations[message.conversationId] = next;
   }
 
-  Future<void> _handle(BotMessage message) async {
+  Future<bool> _isOwnButtonMessage(String messageId) async {
+    final id = messageId.toLowerCase();
+    if (_sentWithActions.contains(id)) return true;
+    final row = await (_db.select(
+      _db.backupState,
+    )..where((r) => r.key.equals('sent-actions:$id'))).getSingleOrNull();
+    if (row == null) return false;
+    _sentWithActions.add(id);
+    return true;
+  }
+
+  Future<void> _handle(
+    BotMessage message,
+    BotMessageHandler handler, {
+    bool typing = true,
+  }) async {
     // The app shows "typing…" for a few seconds per signal, so repeat it
-    // while a slow backend is thinking.
-    void typing() => unawaited(
+    // while a slow backend is thinking. A button press does not: its handler
+    // is usually quick, and the conversation's own handler already types.
+    void sendTyping() => unawaited(
       _signalR.sendTypingIndicator(message.conversationId).catchError((_) {}),
     );
-    typing();
-    final timer = Timer.periodic(const Duration(seconds: 4), (_) => typing());
+    if (typing) sendTyping();
+    final timer = typing
+        ? Timer.periodic(const Duration(seconds: 4), (_) => sendTyping())
+        : null;
     try {
       final groupId = message.groupId;
       if (groupId != null) {
@@ -664,7 +868,7 @@ class CallTypeBot {
           // Unknown stays null; the handler decides how to treat that.
         }
       }
-      await _handler!(message);
+      await handler(message);
     } catch (error, stack) {
       _log('Handler failed for message ${message.id}: $error\n$stack');
       try {
@@ -673,7 +877,7 @@ class CallTypeBot {
         _log('Could not send the apology either: $e');
       }
     } finally {
-      timer.cancel();
+      timer?.cancel();
     }
     // Ack only now: if the process dies mid-handler the server still holds
     // the message, re-delivers it, and the seen-row turns that into a plain
@@ -691,23 +895,107 @@ class CallTypeBot {
 
   // -- Sending ----------------------------------------------------------------
 
-  Future<void> _send(
+  /// Refuses buttons receivers would drop, so a bug shows up at the sender
+  /// instead of as silently missing buttons.
+  static void _checkActions(List<MessageButton> actions) {
+    if (actions.length > maxActions) {
+      throw ArgumentError.value(actions, 'actions', 'at most $maxActions');
+    }
+    final ids = <String>{};
+    for (final a in actions) {
+      if (!a.isValid || !ids.add(a.id)) {
+        throw ArgumentError.value(a, 'actions', 'invalid or duplicate button');
+      }
+    }
+  }
+
+  Future<BotSentMessage> _sendText(
     String conversationId,
     String text, {
     String? groupId,
     String? groupName,
+    List<MessageButton> actions = const [],
+    BotReplyRef? replyTo,
   }) async {
+    _checkActions(actions);
     final messageId = _uuidV4();
+    if (actions.isNotEmpty) {
+      // Recorded BEFORE sending: a fast press could otherwise arrive before
+      // the id is known and land in the (possibly blocked) conversation queue.
+      _sentWithActions.add(messageId);
+      await _db
+          .into(_db.backupState)
+          .insertOnConflictUpdate(
+            BackupStateCompanion.insert(
+              key: 'sent-actions:$messageId',
+              value: conversationId,
+            ),
+          );
+    }
+    await _send(
+      conversationId,
+      messageId,
+      {
+        'body': text,
+        'type': 'text',
+        if (replyTo != null) 'replyTo': replyTo.toJson(),
+        if (actions.isNotEmpty)
+          'actions': [for (final a in actions) a.toJson()],
+      },
+      groupId: groupId,
+      groupName: groupName,
+    );
+    return BotSentMessage._(
+      this,
+      id: messageId,
+      conversationId: conversationId,
+      groupId: groupId,
+      groupName: groupName,
+    );
+  }
+
+  Future<void> _sendEdit(
+    BotSentMessage target,
+    String text, {
+    List<MessageButton>? actions,
+  }) async {
+    if (actions != null) _checkActions(actions);
+    await _send(
+      target.conversationId,
+      // An edit is its own message on the wire (own id, own ack); `editOf`
+      // names the message it changes.
+      _uuidV4(),
+      {
+        'body': text,
+        'type': 'edit',
+        'editOf': target.id,
+        // Key present = replace the buttons (empty = remove), absent = keep.
+        if (actions != null) 'actions': [for (final a in actions) a.toJson()],
+      },
+      groupId: target.groupId,
+      groupName: target._groupName,
+    );
+  }
+
+  /// Encrypts and sends one payload; [content] holds the type-specific keys.
+  Future<void> _send(
+    String conversationId,
+    String messageId,
+    Map<String, dynamic> content, {
+    String? groupId,
+    String? groupName,
+  }) async {
     final payload = jsonEncode({
       'v': 1,
       'id': messageId,
-      'body': text,
-      'type': 'text',
+      ...content,
       'groupId': groupId,
       'groupName': groupName,
       // Multi-device: names the direct conversation for a sender's own other
       // devices; required in every direct payload.
       if (groupId == null) 'to': conversationId,
+      // Also the edit ordering key: receivers apply an edit only when its
+      // createdAt is newer than the last applied one.
       'createdAt': DateTime.now().toUtc().toIso8601String(),
     });
     Future<List<String>> groupIdentities() async => [

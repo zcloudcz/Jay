@@ -130,6 +130,17 @@ class Messages extends Table {
   /// row stays so the chat shows "This message was deleted".
   BoolColumn get deleted => boolean().withDefault(const Constant(false))();
 
+  /// Sender's `createdAt` of the newest applied `type: edit`; null = never
+  /// edited. Stored (not just a flag) because edits may arrive out of order:
+  /// only an edit newer than this one is applied, so the last edit wins.
+  DateTimeColumn get editedAt => dateTime().nullable()();
+
+  /// Buttons of a bot message: JSON list of `MessageButton`
+  /// (`messaging/agent_payload.dart`), null for none. JSON in one column
+  /// rather than a table: at most 8 tiny entries, always read and replaced
+  /// as a whole (an edit swaps the full set).
+  TextColumn get actionsJson => text().nullable()();
+
   @override
   Set<Column> get primaryKey => {id};
 }

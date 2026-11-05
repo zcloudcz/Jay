@@ -1,4 +1,5 @@
 import 'package:calltype_core/storage/database.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:test/test.dart';
 
@@ -119,7 +120,7 @@ void main() {
     expect(message.deleted, isFalse);
 
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 5);
+    expect(version.read<int>('user_version'), 6);
   });
 
   test('a fresh install creates the v2 schema directly', () async {
@@ -162,4 +163,63 @@ void main() {
     );
     expect(await db.select(db.knownDeviceListMembers).get(), hasLength(1));
   });
+
+  test(
+    'v5 -> v6 adds messages.edited_at + actions_json, rows survive',
+    () async {
+      // The v5 schema = today's DDL without the two v6 columns. Taken from a
+      // fresh database instead of hand-written, so it stays exactly what drift
+      // generated for v5 (the earlier columns are unchanged by v6).
+      final fresh = AppDatabase(NativeDatabase.memory());
+      final ddl = [
+        for (final row
+            in await fresh
+                .customSelect(
+                  "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL "
+                  "AND name NOT LIKE 'sqlite_%'",
+                )
+                .get())
+          row.read<String>('sql'),
+      ];
+      await fresh.close();
+
+      final db = AppDatabase(
+        NativeDatabase.memory(
+          setup: (raw) {
+            for (final statement in ddl) {
+              raw.execute(statement);
+            }
+            raw.execute('ALTER TABLE messages DROP COLUMN edited_at');
+            raw.execute('ALTER TABLE messages DROP COLUMN actions_json');
+            raw.execute(
+              "INSERT INTO messages (id, conversation_id, sender_id, body, "
+              "created_at, reply_to_id) VALUES ('m1', 'bob', 'bob', 'hello', "
+              "1700000001, 'm0')",
+            );
+            raw.execute('PRAGMA user_version = 5');
+          },
+        ),
+      );
+      addTearDown(db.close);
+
+      final message = await db.select(db.messages).getSingle();
+      expect(message.body, 'hello');
+      expect(message.replyToId, 'm0');
+      expect(message.editedAt, isNull);
+      expect(message.actionsJson, isNull);
+
+      final edited = DateTime.utc(2026, 11, 5, 12);
+      await (db.update(db.messages)..where((m) => m.id.equals('m1'))).write(
+        MessagesCompanion(
+          editedAt: Value(edited),
+          actionsJson: const Value('[{"id":"a","label":"A"}]'),
+        ),
+      );
+      final updated = await db.select(db.messages).getSingle();
+      expect(updated.editedAt!.toUtc(), edited);
+      expect(updated.actionsJson, '[{"id":"a","label":"A"}]');
+      final version = await db.customSelect('PRAGMA user_version').getSingle();
+      expect(version.read<int>('user_version'), 6);
+    },
+  );
 }
