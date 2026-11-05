@@ -101,6 +101,20 @@ void main() {
     expect(await call(), 502);
   });
 
+  test('channel outcomes: suspended 403, bot limit 429, bad target 400', () async {
+    for (final (o, status) in [
+      (SendOutcome.channelSuspended, 403),
+      (SendOutcome.rateLimited, 429),
+      (SendOutcome.badTarget, 400),
+      (SendOutcome.textTooLong, 400),
+    ]) {
+      outcome = o;
+      expect(await call(body: {'to': 'channel:CH-NEWS-0001', 'text': 'x'}), status, reason: '$o');
+    }
+    // The prefix is passed through untouched: routing is the bridge's job.
+    expect(sends.last.$1, 'channel:CH-NEWS-0001');
+  });
+
   test(
     'passes the trimmed target and the text unchanged; never logs the key',
     () async {

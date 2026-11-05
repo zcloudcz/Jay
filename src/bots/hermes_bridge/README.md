@@ -22,7 +22,8 @@ messages, therefore:
   on "Bot conversation" and one of your `ALLOWED_HANDLES` is a group **admin**; see
   "Two bots in one group". `PEER_BOT_HANDLES` can only narrow that further.
 - The local `/send` endpoint is **off** unless `BRIDGE_SEND_KEY` is set, binds to
-  127.0.0.1 only, and sends 1:1 messages only to `ALLOWED_HANDLES`.
+  127.0.0.1 only, and sends 1:1 messages only to `ALLOWED_HANDLES`. Channel posts
+  go only to channels whose owner made the bot a publisher (the server checks).
 - Keep Hermes' API on localhost. The bot's SQLite session DB is plaintext on disk
   (see `../calltype_bot/README.md`), so the host must be trusted.
 
@@ -142,19 +143,60 @@ With `BRIDGE_SEND_KEY` set, Hermes tools and cron jobs can post into Jay:
 ```bash
 curl -sS -X POST http://127.0.0.1:8650/send \
   -H "Authorization: Bearer $BRIDGE_SEND_KEY" -H 'Content-Type: application/json' \
-  -d '{"to": "<group id or CT-XXXX-XXXX>", "text": "deploy 28f5070 done"}'
+  -d '{"to": "<group id, CT-XXXX-XXXX or channel:CH-XXXX-XXXX>", "text": "deploy 28f5070 done"}'
 ```
 
 | Status | Meaning |
 | --- | --- |
 | 202 | sent (long text is split into several messages) |
-| 400 | body is not `{"to": string, "text": string}` (or over 256 KiB) |
+| 400 | body is not `{"to": string, "text": string}` (or over 256 KiB); `bad_target`: `channel:` without a `CH-XXXX-XXXX` handle or channel id, or an unknown channel; `text_too_long`: a channel post over 4096 characters |
 | 401 | missing or wrong key |
-| 403 | target not allowed: a handle not in `ALLOWED_HANDLES`, a group the bot is not in, or the group's bot exchange is used up (a post counts as one bot turn, rules 3 and 4) |
+| 403 | target not allowed: a handle not in `ALLOWED_HANDLES`, a group the bot is not in, the group's bot exchange is used up (a post counts as one bot turn, rules 3 and 4), or a channel where the bot is not owner/admin/publisher; `{"error": "channel_suspended"}` when moderation suspended the channel |
 | 404 / 405 | other path / method |
-| 502 | allowed, but the hub did not take it (retry later) |
+| 429 | `bot_post_limit`: the bot's daily post limit in that channel is used up (server `Channels:MaxBotPostsPerDay`, default 20 per 24 h); do not retry today |
+| 502 | allowed, but the hub (or the API, for a channel) did not take it (retry later) |
 
 Text only; reference artifacts by commit or path.
+
+### Posting to a channel (newsletter)
+
+`"to": "channel:CH-XXXX-XXXX"` (or `"channel:<channel id>"`) publishes ONE public
+text post as the bot, labelled BOT in the app. It is not split (every post counts
+against the daily limit) and it is not a group bot turn. The server alone decides
+whether the bot may post: role, suspension and the daily limit. Every attempt is
+logged (`/send: posted <postId> to channel ...` or the refusal with its code).
+
+**Make the bot a publisher** (channel owner, in the Jay app): open the channel
+profile -> **Admins** -> **Add by handle** -> type the bot's `CT-XXXX-XXXX` handle
+(printed by the bridge on first start) -> role **Publisher**. A publisher can post
+and delete its own posts only; it cannot edit the channel, manage admins or touch
+other posts. Remove it there to stop the bot at once.
+
+**Recipe: a weekly newsletter from a Hermes cron job.** Keep the key out of the
+prompt: a small script reads the text on stdin and posts it.
+
+```bash
+#!/usr/bin/env bash
+# ~/.hermes/scripts/jay-channel-post.sh  (chmod 700; key file chmod 600)
+set -euo pipefail
+key=$(cat ~/.config/jay/bridge-send-key)
+jq -Rs '{to: "channel:CH-XXXX-XXXX", text: .}' |
+  curl -sS -o /dev/stderr -w '%{http_code}\n' -X POST http://127.0.0.1:8650/send \
+    -H "Authorization: Bearer $key" -H 'Content-Type: application/json' --data-binary @-
+```
+
+```bash
+hermes cron create '0 8 * * 1' --name jay-newsletter --deliver local \
+  "Write this week's newsletter for our Jay channel: plain text, at most 4000
+   characters, no secrets or private data. Then pipe exactly that text into
+   ~/.hermes/scripts/jay-channel-post.sh. It prints the HTTP status: 202 = posted;
+   429 = daily bot limit, stop; 403 = not a publisher or channel suspended, stop
+   and report; 502 = try once more in a few minutes."
+```
+
+A job that only forwards existing text (no LLM) can run the same script with
+`--script ... --no-agent`. Follow the channel rules (K1..K10, `docs/legal/`): bot
+posts are moderated like any other.
 
 ## Hermes contract: verified vs assumed
 

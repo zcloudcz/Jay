@@ -634,12 +634,19 @@ class HermesBridge {
     );
   }
 
-  /// The /send path: [to] is an owner's handle (1:1) or a group id the bot is
-  /// in. A group post is a bot turn: refused (403) once the exchange limit or
-  /// the pause says so. Long text goes out in [splitMessage] chunks; the
-  /// chunks of one request are ONE turn.
+  /// The /send path: [to] is an owner's handle (1:1), a group id the bot is
+  /// in, or `channel:<CH-handle or channel id>`. A group post is a bot turn:
+  /// refused (403) once the exchange limit or the pause says so. Long text
+  /// goes out in [splitMessage] chunks; the chunks of one request are ONE
+  /// turn. A channel post is not, see [_sendToChannel].
   Future<SendOutcome> sendFromLocal(String to, String text) async {
     final target = to.trim();
+    if (target.toLowerCase().startsWith(channelTargetPrefix)) {
+      return _sendToChannel(
+        target.substring(channelTargetPrefix.length).trim(),
+        text,
+      );
+    }
     final handle = target.toUpperCase();
     if (_handlePattern.hasMatch(handle)) {
       // WHY owners only: the endpoint must not turn the bot into a way to
@@ -674,7 +681,63 @@ class HermesBridge {
       return SendOutcome.failed;
     }
   }
+
+  static final _channelHandlePattern = RegExp(
+    r'^CH-[A-Z0-9]{4}-[A-Z0-9]{4}$',
+    caseSensitive: false,
+  );
+  static final _guidPattern = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    caseSensitive: false,
+  );
+
+  /// `/send` to a channel (a newsletter): one post, published as the bot.
+  ///
+  /// WHY no owner or bot-talk check here, unlike groups: the channel OWNER
+  /// decided by making the bot a publisher, and the server enforces that
+  /// role, suspension and the daily bot limit on every post. A channel has
+  /// no bot exchange that a post could feed, so it is not a group bot turn.
+  /// WHY one post and no splitting: each post counts against the daily
+  /// limit, so too long text is refused (400) instead of burning it.
+  Future<SendOutcome> _sendToChannel(String channel, String text) async {
+    // Only the two shapes the server knows: anything else (a path segment,
+    // a typo'd prefix) is the caller's mistake, said as 400 without a
+    // round trip.
+    if (!_channelHandlePattern.hasMatch(channel) &&
+        !_guidPattern.hasMatch(channel)) {
+      _log('/send: bad channel target "$channel"');
+      return SendOutcome.badTarget;
+    }
+    if (text.length > channelPostMaxChars) {
+      _log(
+        '/send to channel $channel refused: ${text.length} characters, '
+        'a post takes at most $channelPostMaxChars',
+      );
+      return SendOutcome.textTooLong;
+    }
+    try {
+      final postId = await bot.postToChannel(channel, text);
+      _log('/send: posted $postId to channel $channel');
+      return SendOutcome.sent;
+    } on BotSendException catch (e) {
+      _log('/send to channel $channel refused by the server: $e');
+      return switch (e.statusCode) {
+        429 => SendOutcome.rateLimited,
+        404 => SendOutcome.badTarget,
+        _ when e.code == channelSuspendedCode => SendOutcome.channelSuspended,
+        _ => SendOutcome.forbidden,
+      };
+    } catch (e) {
+      _log('/send to channel $channel failed: $e');
+      return SendOutcome.failed;
+    }
+  }
 }
+
+/// `/send` target prefix for a channel post: `channel:CH-XXXX-XXXX` or
+/// `channel:<channel id>`. A prefix, because a channel id is a GUID just
+/// like a group id and the two must not be confused.
+const channelTargetPrefix = 'channel:';
 
 /// Wires [bot] to [backend], guarded by the handle allowlist and the groups'
 /// bot-talk settings.

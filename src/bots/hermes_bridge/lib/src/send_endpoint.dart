@@ -9,6 +9,21 @@ enum SendOutcome {
   /// The bridge's rules do not allow this target (or it cannot be verified).
   forbidden,
 
+  /// The target channel is suspended by moderation (server 403
+  /// `channel_suspended`). Its own value so a cron job can tell "stop
+  /// posting" apart from "the bot was never made a publisher".
+  channelSuspended,
+
+  /// The server's daily bot post limit for the channel is used up (429
+  /// `bot_post_limit`); retrying today is pointless.
+  rateLimited,
+
+  /// Malformed or unknown target (e.g. `channel:` without a valid handle).
+  badTarget,
+
+  /// Text longer than one channel post may be (4096 characters).
+  textTooLong,
+
   /// Allowed, but delivery to the hub failed.
   failed,
 }
@@ -25,8 +40,9 @@ const maxSendBodyBytes = 256 * 1024;
 /// bot speaks with its owner's trust. Without a [key] there is no endpoint at
 /// all (returns null), never an open one.
 ///
-/// Answers: 202 sent, 400 bad body, 401 bad key, 403 target not allowed,
-/// 404 unknown path, 405 wrong method, 502 hub delivery failed.
+/// Answers: 202 sent, 400 bad body or bad target, 401 bad key, 403 target
+/// not allowed (or channel suspended), 404 unknown path, 405 wrong method,
+/// 429 bot post limit of a channel, 502 delivery failed.
 Future<HttpServer?> startSendEndpoint({
   required String? key,
   required LocalSend send,
@@ -90,6 +106,10 @@ Future<(int, Object)> _serve(
   return switch (await send(to, text)) {
     SendOutcome.sent => (202, {'status': 'sent'}),
     SendOutcome.forbidden => (403, {'error': 'target_not_allowed'}),
+    SendOutcome.channelSuspended => (403, {'error': 'channel_suspended'}),
+    SendOutcome.rateLimited => (429, {'error': 'bot_post_limit'}),
+    SendOutcome.badTarget => (400, {'error': 'bad_target'}),
+    SendOutcome.textTooLong => (400, {'error': 'text_too_long'}),
     SendOutcome.failed => (502, {'error': 'delivery_failed'}),
   };
 }
