@@ -120,7 +120,7 @@ void main() {
     expect(message.deleted, isFalse);
 
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 6);
+    expect(version.read<int>('user_version'), 7);
   });
 
   test('a fresh install creates the v2 schema directly', () async {
@@ -191,6 +191,11 @@ void main() {
             }
             raw.execute('ALTER TABLE messages DROP COLUMN edited_at');
             raw.execute('ALTER TABLE messages DROP COLUMN actions_json');
+            // ...and without the later v7 columns.
+            raw.execute('ALTER TABLE channels DROP COLUMN status');
+            raw.execute('ALTER TABLE channels DROP COLUMN suspended_until');
+            raw.execute('ALTER TABLE channel_posts DROP COLUMN by_bot');
+            raw.execute('ALTER TABLE channel_posts DROP COLUMN published_here');
             raw.execute(
               "INSERT INTO messages (id, conversation_id, sender_id, body, "
               "created_at, reply_to_id) VALUES ('m1', 'bob', 'bob', 'hello', "
@@ -219,7 +224,59 @@ void main() {
       expect(updated.editedAt!.toUtc(), edited);
       expect(updated.actionsJson, '[{"id":"a","label":"A"}]');
       final version = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(version.read<int>('user_version'), 6);
+      expect(version.read<int>('user_version'), 7);
+    },
+  );
+
+  test(
+    'v6 -> v7 adds channel moderation columns with safe defaults',
+    () async {
+      final fresh = AppDatabase(NativeDatabase.memory());
+      final ddl = [
+        for (final row
+            in await fresh
+                .customSelect(
+                  "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL "
+                  "AND name NOT LIKE 'sqlite_%'",
+                )
+                .get())
+          row.read<String>('sql'),
+      ];
+      await fresh.close();
+
+      final db = AppDatabase(
+        NativeDatabase.memory(
+          setup: (raw) {
+            for (final statement in ddl) {
+              raw.execute(statement);
+            }
+            raw.execute('ALTER TABLE channels DROP COLUMN status');
+            raw.execute('ALTER TABLE channels DROP COLUMN suspended_until');
+            raw.execute('ALTER TABLE channel_posts DROP COLUMN by_bot');
+            raw.execute('ALTER TABLE channel_posts DROP COLUMN published_here');
+            raw.execute(
+              "INSERT INTO channels (channel_id, handle, name) "
+              "VALUES ('c1', 'CH-AAAA-BBBB', 'News')",
+            );
+            raw.execute(
+              "INSERT INTO channel_posts (post_id, channel_id, kind, "
+              "created_at) VALUES ('p1', 'c1', 'text', "
+              "'2026-11-05T10:00:00.000Z')",
+            );
+            raw.execute('PRAGMA user_version = 6');
+          },
+        ),
+      );
+      addTearDown(db.close);
+
+      final channel = await db.select(db.channels).getSingle();
+      expect(channel.status, 'active');
+      expect(channel.suspendedUntil, isNull);
+      final post = await db.select(db.channelPosts).getSingle();
+      expect(post.byBot, isFalse);
+      expect(post.publishedHere, isFalse);
+      final version = await db.customSelect('PRAGMA user_version').getSingle();
+      expect(version.read<int>('user_version'), 7);
     },
   );
 }

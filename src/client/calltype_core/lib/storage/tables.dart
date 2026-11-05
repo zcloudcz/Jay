@@ -193,7 +193,8 @@ class Channels extends Table {
   /// Aggregate only — the server never reveals who the followers are.
   IntColumn get followerCount => integer().withDefault(const Constant(0))();
 
-  /// 'owner' / 'admin' when this device may publish, null for a follower.
+  /// 'owner' / 'admin' / 'publisher' when this device may publish, null for
+  /// a follower.
   TextColumn get role => text().nullable()();
 
   /// An owner/admin may stop following yet still has to see the channel in
@@ -201,6 +202,15 @@ class Channels extends Table {
   BoolColumn get isFollowing => boolean().withDefault(const Constant(true))();
 
   IntColumn get unreadCount => integer().withDefault(const Constant(0))();
+
+  /// 'active' | 'suspended' (operator moderation). Stored, not only held in
+  /// memory, so a suspended feed shows its state also offline / after a
+  /// restart instead of a stale "no posts".
+  TextColumn get status => text().withDefault(const Constant('active'))();
+
+  /// UTC end of a suspension; null when active or unknown (a 403
+  /// `channel_suspended` carries no date).
+  DateTimeColumn get suspendedUntil => dateTime().nullable()();
 
   @override
   Set<Column> get primaryKey => {channelId};
@@ -234,6 +244,15 @@ class ChannelPosts extends Table {
   /// JSON array with the vote count per poll option.
   TextColumn get pollVotes => text().withDefault(const Constant('[]'))();
   IntColumn get myVote => integer().nullable()();
+
+  /// Published by a bot device: the feed labels it (rule K10, design D10).
+  BoolColumn get byBot => boolean().withDefault(const Constant(false))();
+
+  /// Published from THIS device. WHY: a publisher may delete only its own
+  /// posts, but the post DTO carries no author, so the app remembers what it
+  /// published itself to offer "delete" only where the server will allow it.
+  BoolColumn get publishedHere =>
+      boolean().withDefault(const Constant(false))();
 
   @override
   Set<Column> get primaryKey => {postId};
