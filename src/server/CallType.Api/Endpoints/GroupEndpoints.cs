@@ -26,10 +26,15 @@ public static class GroupEndpoints
         user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub"), out var id) ? id : Guid.Empty;
 
     private static async Task<IResult> CreateGroup(CreateGroupRequest request, ClaimsPrincipal user,
-        AppDbContext db, HttpContext http, CancellationToken ct)
+        AppDbContext db, HttpContext http, DeviceListService deviceLists, CancellationToken ct)
     {
         var creator = Caller(user);
         if (creator == Guid.Empty) return Results.Unauthorized();
+        // Multi-device: a companion would become a member on its own and the
+        // rest of its identity would never see the group (spec "Limits of v1").
+        // Groups are created and managed from the primary device.
+        if (await deviceLists.PrimaryOfAsync(creator, ct) != creator)
+            return Results.Json(new { error = "companion_cannot_manage_groups" }, statusCode: 403);
         var members = (request.MemberDeviceIds ?? []).Append(creator).Distinct().ToArray();
         if (members.Length > 100 || members.Contains(Guid.Empty))
             return Results.BadRequest(new { error = "Groups support up to 100 valid devices." });
@@ -80,11 +85,15 @@ public static class GroupEndpoints
         return Results.Created($"/groups/{result.GroupId}", new CreateGroupResponse(result.GroupId));
     }
 
-    private static async Task<IResult?> Authorize(Guid groupId, ClaimsPrincipal user,
+    /// <summary>
+    /// [caller] is the IDENTITY for the read-only endpoints (a companion reads
+    /// the groups of its primary; it is not a member itself) and the raw
+    /// device for membership changes, which stay with the member device.
+    /// </summary>
+    private static async Task<IResult?> Authorize(Guid groupId, Guid caller,
         AppDbContext db, bool admin, CancellationToken ct)
     {
         if (!await db.Groups.AnyAsync(g => g.GroupId == groupId, ct)) return Results.NotFound();
-        var caller = Caller(user);
         var role = await db.GroupMembers.Where(m => m.GroupId == groupId && m.DeviceId == caller)
             .Select(m => m.Role).SingleOrDefaultAsync(ct);
         return role == null || (admin && role != "admin") ? Results.Forbid() : null;
@@ -97,9 +106,9 @@ public static class GroupEndpoints
     /// audit DB) is resolved here once. Anonymous groups return nulls.
     /// </summary>
     private static async Task<IResult> GetGroup(Guid groupId, ClaimsPrincipal user,
-        AppDbContext db, HttpContext http, BusinessModeOptions businessMode, CancellationToken ct)
+        AppDbContext db, HttpContext http, BusinessModeOptions businessMode, DeviceListService deviceLists, CancellationToken ct)
     {
-        var denial = await Authorize(groupId, user, db, false, ct);
+        var denial = await Authorize(groupId, await deviceLists.PrimaryOfAsync(Caller(user), ct), db, false, ct);
         if (denial != null) return denial;
         var organizationId = await db.Groups.Where(g => g.GroupId == groupId)
             .Select(g => g.OrganizationId).SingleAsync(ct);
@@ -115,9 +124,9 @@ public static class GroupEndpoints
     }
 
     private static async Task<IResult> ListMembers(Guid groupId, ClaimsPrincipal user,
-        AppDbContext db, CancellationToken ct)
+        AppDbContext db, DeviceListService deviceLists, CancellationToken ct)
     {
-        var denial = await Authorize(groupId, user, db, false, ct);
+        var denial = await Authorize(groupId, await deviceLists.PrimaryOfAsync(Caller(user), ct), db, false, ct);
         if (denial != null) return denial;
         // One JOIN instead of a Devices lookup per member (no N+1). The profile
         // fields are the same ones GET /devices/by-handle/{handle} already shows to
@@ -132,7 +141,7 @@ public static class GroupEndpoints
     private static async Task<IResult> AddMember(Guid groupId, AddGroupMemberRequest request,
         ClaimsPrincipal user, AppDbContext db, HttpContext http, CancellationToken ct)
     {
-        var denial = await Authorize(groupId, user, db, true, ct);
+        var denial = await Authorize(groupId, Caller(user), db, true, ct);
         if (denial != null) return denial;
         if (!await db.Devices.AnyAsync(d => d.DeviceId == request.DeviceId, ct))
             return Results.BadRequest(new { error = "Device not found." });
@@ -172,7 +181,7 @@ public static class GroupEndpoints
     private static async Task<IResult> RemoveMember(Guid groupId, Guid deviceId, ClaimsPrincipal user,
         AppDbContext db, CancellationToken ct)
     {
-        var denial = await Authorize(groupId, user, db, true, ct);
+        var denial = await Authorize(groupId, Caller(user), db, true, ct);
         if (denial != null) return denial;
         var member = await db.GroupMembers.SingleOrDefaultAsync(m => m.GroupId == groupId && m.DeviceId == deviceId, ct);
         if (member == null) return Results.NotFound();

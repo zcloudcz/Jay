@@ -125,6 +125,28 @@ class _CallEventLine extends StatelessWidget {
   }
 }
 
+/// "This contact added a device" (spec Part A, "What a peer sees"). Written
+/// locally by DeviceService when a contact's verified list changes; never
+/// sent over the wire.
+class _DeviceChangeLine extends StatelessWidget {
+  const _DeviceChangeLine({required this.body});
+  final String body;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 6),
+    child: Center(
+      child: Text(
+        body == 'removed'
+            ? context.l10n.chatDeviceRemoved
+            : context.l10n.chatDeviceAdded,
+        style: Theme.of(context).textTheme.labelSmall,
+        textAlign: TextAlign.center,
+      ),
+    ),
+  );
+}
+
 class ChatScreen extends StatelessWidget {
   const ChatScreen({super.key, required this.contactId});
   final String contactId;
@@ -191,7 +213,7 @@ class ChatScreen extends StatelessWidget {
     ChatController controller,
     String senderId,
     List<Contact> contacts,
-  ) => senderId == controller.myDeviceId
+  ) => senderId == controller.myIdentityId
       ? context.l10n.chatYou
       : senderLabel(
           senderId,
@@ -437,16 +459,20 @@ class ChatScreen extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(l10n.hubErrorBusinessConversationRequired),
-            action: SnackBarAction(
-              label: l10n.hubErrorBusinessConversationRequiredAction,
-              onPressed: () async {
-                final groupId = await controller
-                    .createBusinessConversationWithPeer();
-                if (groupId != null && context.mounted) {
-                  context.go('/chats/$groupId');
-                }
-              },
-            ),
+            // A companion never takes part in business conversations, so it
+            // gets the explanation only; the primary does the redirect.
+            action: controller.isCompanion
+                ? null
+                : SnackBarAction(
+                    label: l10n.hubErrorBusinessConversationRequiredAction,
+                    onPressed: () async {
+                      final groupId = await controller
+                          .createBusinessConversationWithPeer();
+                      if (groupId != null && context.mounted) {
+                        context.go('/chats/$groupId');
+                      }
+                    },
+                  ),
           ),
         );
       });
@@ -457,7 +483,9 @@ class ChatScreen extends StatelessWidget {
         actions: [
           // A bot is a headless program with no WebRTC stack — a call could
           // only ever ring out, so the buttons are not offered at all.
-          if (!group && !isBot) ...[
+          // v1: calls ring the primary only, so a companion offers none
+          // (spec "Limits of v1").
+          if (!group && !isBot && !controller.isCompanion) ...[
             IconButton(
               icon: const Icon(Icons.call_rounded),
               tooltip: l10n.chatVoiceCall,
@@ -472,7 +500,7 @@ class ChatScreen extends StatelessWidget {
           // A business "1:1" is a GROUP (the two members plus the visible
           // auditor) — offer call buttons only when there is exactly one
           // other non-auditor member; a larger group has no group calls.
-          if (group && organizationName != null)
+          if (group && organizationName != null && !controller.isCompanion)
             FutureBuilder<String?>(
               future: controller.businessCallTarget(),
               builder: (context, snapshot) {
@@ -536,9 +564,12 @@ class ChatScreen extends StatelessWidget {
                     itemCount: controller.messages.length,
                     itemBuilder: (context, index) {
                       final message = controller.messages[index];
-                      final mine = message.senderId == controller.myDeviceId;
+                      final mine = message.senderId == controller.myIdentityId;
                       if (message.type == 'call-event') {
                         return _CallEventLine(body: message.body ?? '');
+                      }
+                      if (message.type == 'device-change') {
+                        return _DeviceChangeLine(body: message.body ?? '');
                       }
                       Attachment? attachment;
                       if (message.type == 'file') {
@@ -633,29 +664,41 @@ class ChatScreen extends StatelessWidget {
                     },
                   ),
           ),
-          MessageInput(
-            onSend: controller.sendMessage,
-            onAttachment: () => _attach(context),
-            replyAuthor: controller.replyingTo == null
-                ? null
-                : _authorLabel(
-                    context,
-                    controller,
-                    controller.replyingTo!.senderId,
-                    allContacts,
-                  ),
-            replyText: controller.replyingTo == null
-                ? null
-                : ChatController.replyPreviewOf(controller.replyingTo!),
-            onCancelReply: controller.cancelReply,
-            mentionCandidates: group
-                ? buildMentionCandidates(
-                    members: controller.groupMembers,
-                    contacts: allContacts,
-                    myDeviceId: controller.myDeviceId,
-                  )
-                : const [],
-          ),
+          // v1: business conversations stay on the primary (KB2 auditor rules
+          // are defined over member devices). A companion says why it cannot
+          // write here instead of failing on send.
+          if (organizationName != null && controller.isCompanion)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                l10n.chatCompanionBusinessReadOnly,
+                textAlign: TextAlign.center,
+              ),
+            )
+          else
+            MessageInput(
+              onSend: controller.sendMessage,
+              onAttachment: () => _attach(context),
+              replyAuthor: controller.replyingTo == null
+                  ? null
+                  : _authorLabel(
+                      context,
+                      controller,
+                      controller.replyingTo!.senderId,
+                      allContacts,
+                    ),
+              replyText: controller.replyingTo == null
+                  ? null
+                  : ChatController.replyPreviewOf(controller.replyingTo!),
+              onCancelReply: controller.cancelReply,
+              mentionCandidates: group
+                  ? buildMentionCandidates(
+                      members: controller.groupMembers,
+                      contacts: allContacts,
+                      myIdentityId: controller.myIdentityId,
+                    )
+                  : const [],
+            ),
         ],
       ),
     );

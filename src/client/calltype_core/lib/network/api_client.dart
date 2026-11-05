@@ -194,6 +194,38 @@ class ApiClient {
     return response.data!;
   }
 
+  // -- Multi-device ----------------------------------------------------------
+
+  /// The signed device list [deviceId] belongs to (as primary or companion),
+  /// or null when it is in none. The result is UNVERIFIED server data: pass
+  /// it through DeviceDirectory.refresh, never use it directly.
+  ///
+  /// GET /devices/{deviceId}/device-list
+  Future<Map<String, dynamic>?> getDeviceList(String deviceId) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/devices/$deviceId/device-list',
+      );
+      return response.data;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// Uploads a new version of this device's own list. 409 means the version
+  /// did not grow or a listed device already belongs to another identity.
+  ///
+  /// PUT /devices/{primaryDeviceId}/device-list
+  Future<void> putDeviceList(
+    String primaryDeviceId, {
+    required String payload,
+    required String signature,
+  }) => _dio.put<void>(
+    '/devices/$primaryDeviceId/device-list',
+    data: {'payload': payload, 'signature': signature},
+  );
+
   // -- TURN credentials ------------------------------------------------------
 
   /// Fetches time-limited TURN relay credentials for WebRTC calls.

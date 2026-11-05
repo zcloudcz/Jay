@@ -54,6 +54,28 @@ class Transport extends SignalRClient {
     ids.add(messageId);
     if (fail) throw StateError(failMessage);
   }
+
+  @override
+  Future<void> sendDirectFanout(
+    String recipientIdentityId,
+    Map<String, String> encryptedPayloads, {
+    required String messageId,
+  }) async {
+    envelopes.add(Map.of(encryptedPayloads));
+    ids.add(messageId);
+    if (fail) throw StateError(failMessage);
+  }
+
+  @override
+  Future<void> sendGroupFanout(
+    String groupId,
+    Map<String, String> encryptedPayloads, {
+    required String messageId,
+  }) async {
+    envelopes.add(Map.of(encryptedPayloads));
+    ids.add(messageId);
+    if (fail) throw StateError(failMessage);
+  }
 }
 
 void main() {
@@ -68,6 +90,7 @@ void main() {
       final inbox = MessageInboxService(
         database: alice.db,
         sessionManager: alice.sessions,
+        directory: () => alice.directory,
         incomingMessages: const Stream.empty(),
       );
       await alice.db
@@ -86,7 +109,7 @@ void main() {
         inbox: inbox,
         apiClient: ChatApi([bob, carol]),
         conversationId: 'group',
-        myDeviceId: alice.id,
+        directory: alice.directory,
       );
       final first = controller();
       await first.sendMessage('hello team');
@@ -168,6 +191,7 @@ void main() {
       final inbox = MessageInboxService(
         database: alice.db,
         sessionManager: alice.sessions,
+        directory: () => alice.directory,
         incomingMessages: const Stream.empty(),
       );
       await alice.db
@@ -188,7 +212,7 @@ void main() {
         inbox: inbox,
         apiClient: ChatApi([auditor]),
         conversationId: 'biz-group',
-        myDeviceId: alice.id,
+        directory: alice.directory,
       );
 
       await controller.sendMessage('deal terms attached');
@@ -221,6 +245,7 @@ void main() {
       final inbox = MessageInboxService(
         database: alice.db,
         sessionManager: alice.sessions,
+        directory: () => alice.directory,
         incomingMessages: const Stream.empty(),
       );
       await alice.db
@@ -241,7 +266,7 @@ void main() {
         inbox: inbox,
         apiClient: ChatApi([auditor]),
         conversationId: 'biz-group',
-        myDeviceId: alice.id,
+        directory: alice.directory,
       );
 
       await controller.sendMessage('deal terms attached');
@@ -276,6 +301,7 @@ void main() {
       final inbox = MessageInboxService(
         database: alice.db,
         sessionManager: alice.sessions,
+        directory: () => alice.directory,
         incomingMessages: const Stream.empty(),
       );
       await alice.db
@@ -290,7 +316,7 @@ void main() {
         inbox: inbox,
         apiClient: ChatApi([bob]),
         conversationId: bob.id,
-        myDeviceId: alice.id,
+        directory: alice.directory,
       );
 
       await controller.sendMessage('hey');
@@ -310,4 +336,101 @@ void main() {
       await bob.close();
     },
   );
+
+  test('on a companion, own messages are stored under the identity id', () async {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    final web = await TestDevice.create('web');
+    final bob = await TestDevice.create('bob');
+    // What a verified list leaves behind: 'web' belongs to identity 'phone'.
+    await web.db
+        .into(web.db.knownDeviceListMembers)
+        .insert(
+          KnownDeviceListMembersCompanion.insert(
+            deviceId: 'web',
+            primaryDeviceId: 'phone',
+          ),
+        );
+    await web.directory.load();
+    await web.db
+        .into(web.db.conversations)
+        .insert(ConversationsCompanion.insert(id: bob.id, type: 'direct'));
+    final transport = Transport()..fail = true;
+    final inbox = MessageInboxService(
+      database: web.db,
+      sessionManager: web.sessions,
+      directory: () => web.directory,
+      incomingMessages: const Stream.empty(),
+    );
+    final controller = ChatController(
+      database: web.db,
+      signalRClient: transport,
+      sessionManager: web.sessions,
+      inbox: inbox,
+      apiClient: ChatApi([bob]),
+      conversationId: bob.id,
+      directory: web.directory,
+    );
+
+    expect(controller.myIdentityId, 'phone');
+    expect(controller.isCompanion, isTrue);
+    await controller.sendMessage('hi');
+    expect((await web.db.select(web.db.messages).getSingle()).senderId, 'phone');
+
+    controller.dispose();
+    await inbox.dispose();
+    transport.dispose();
+    await web.close();
+    await bob.close();
+  });
+
+  test('a companion never sends into a business conversation', () async {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    final web = await TestDevice.create('web');
+    final auditor = await TestDevice.create('auditor-device');
+    await web.db
+        .into(web.db.knownDeviceListMembers)
+        .insert(
+          KnownDeviceListMembersCompanion.insert(
+            deviceId: 'web',
+            primaryDeviceId: 'alice',
+          ),
+        );
+    await web.directory.load();
+    await web.db
+        .into(web.db.conversations)
+        .insert(
+          ConversationsCompanion.insert(
+            id: 'biz-group',
+            type: 'group',
+            organizationId: const Value('org1'),
+            organizationName: const Value('Acme'),
+          ),
+        );
+    final transport = Transport()..fail = false;
+    final inbox = MessageInboxService(
+      database: web.db,
+      sessionManager: web.sessions,
+      directory: () => web.directory,
+      incomingMessages: const Stream.empty(),
+    );
+    final controller = ChatController(
+      database: web.db,
+      signalRClient: transport,
+      sessionManager: web.sessions,
+      inbox: inbox,
+      apiClient: ChatApi([auditor]),
+      conversationId: 'biz-group',
+      directory: web.directory,
+    );
+
+    await controller.sendMessage('terms');
+
+    expect(transport.envelopes, isEmpty);
+    expect((await web.db.select(web.db.messages).getSingle()).status, 'failed');
+    controller.dispose();
+    await inbox.dispose();
+    transport.dispose();
+    await web.close();
+    await auditor.close();
+  });
 }

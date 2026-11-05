@@ -273,6 +273,14 @@ public static class PrivacyEndpoints
             .Select(r => new { channelId = r.ChannelId, postId = r.PostId, reason = r.Reason, createdAt = r.CreatedAt })
             .ToListAsync(ct);
 
+        // Multi-device: the signed lists these devices are part of, as a
+        // primary or as a companion. The payload is the subject's own data
+        // (their device IDs and public keys).
+        var deviceLists = await db.DeviceLists
+            .Where(l => deviceIds.Contains(l.PrimaryDeviceId) || l.Members.Any(m => deviceIds.Contains(m.DeviceId)))
+            .Select(l => new { primaryDeviceId = l.PrimaryDeviceId, version = l.Version, payload = l.Payload, updatedAt = l.UpdatedAt })
+            .ToListAsync(ct);
+
         // Queued message bodies are never exported — they also belong to the
         // conversation peer(s), who have not consented to this export. Only
         // a per-device count, matching the "note" field below.
@@ -306,6 +314,7 @@ public static class PrivacyEndpoints
             channelsAdministered = administeredChannels,
             channelsFollowed = follows,
             channelReportsFiled = reportsFiled,
+            deviceLists = deviceLists.Select(l => new { l.primaryDeviceId, l.version, payload = Convert.ToBase64String(l.payload), l.updatedAt }),
             queuedMessages = new
             {
                 note = "Counts only — message bodies are opaque, end-to-end encrypted and also belong to the sender/recipient peer, so they are never included in an export.",

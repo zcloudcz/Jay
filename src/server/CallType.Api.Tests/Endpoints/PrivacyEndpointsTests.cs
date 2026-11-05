@@ -18,6 +18,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using CallType.Api.Data;
+using CallType.Api.Models;
 using CallType.Api.Tests.TestFixtures;
 using CallType.Audit.Domain;
 using CallType.Audit.Infrastructure;
@@ -336,5 +337,30 @@ public class PrivacyEndpointsTests : IntegrationTestBase
         // Never leaked: the raw auth key hash and the actual push token value.
         raw.Should().NotContain("authKeyHash");
         raw.Should().NotContain("super-secret-fcm-token");
+    }
+
+    [Fact]
+    public async Task Export_includes_the_device_lists_the_accounts_devices_are_in()
+    {
+        var device = await NewOwnerAsync();
+        Guid accountId;
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            accountId = await db.AccountDevices.Where(ad => ad.DeviceId == device.DeviceId).Select(ad => ad.AccountId).SingleAsync();
+            db.DeviceLists.Add(new DeviceList
+            {
+                PrimaryDeviceId = device.DeviceId, Version = 4, Payload = [9, 9], Signature = new byte[64],
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var export = await device.Http.GetFromJsonAsync<JsonElement>($"/accounts/{accountId}/export");
+
+        var list = export.GetProperty("deviceLists").EnumerateArray().Single();
+        list.GetProperty("primaryDeviceId").GetGuid().Should().Be(device.DeviceId);
+        list.GetProperty("version").GetInt32().Should().Be(4);
+        list.GetProperty("payload").GetString().Should().Be(Convert.ToBase64String([9, 9]));
     }
 }

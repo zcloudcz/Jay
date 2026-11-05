@@ -84,6 +84,24 @@ class SignalRClient {
   final _onChannelPost = StreamController<Map<String, dynamic>>.broadcast();
   final _onChannelDeleted = StreamController<Map<String, dynamic>>.broadcast();
   final _onEmergencyDrill = StreamController<Map<String, dynamic>>.broadcast();
+  final _onDeviceListChanged =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _onLinkOffer = StreamController<Map<String, dynamic>>.broadcast();
+  final _onLinkConsent = StreamController<Map<String, dynamic>>.broadcast();
+
+  /// Multi-device: an identity this device belongs to changed its device
+  /// list. Payload: `primaryDeviceId`, `version`. A hint to refetch and
+  /// VERIFY; the event itself proves nothing.
+  Stream<Map<String, dynamic>> get onDeviceListChanged =>
+      _onDeviceListChanged.stream;
+
+  /// Multi-device linking: a primary offers to link this device
+  /// (`primaryDeviceId`). Only meaningful while the link screen is open.
+  Stream<Map<String, dynamic>> get onLinkOffer => _onLinkOffer.stream;
+
+  /// Multi-device linking: the new device's signed consent (`deviceId`,
+  /// `consentSig`), delivered to the primary.
+  Stream<Map<String, dynamic>> get onLinkConsent => _onLinkConsent.stream;
 
   /// Fires when a new encrypted message arrives from the server.
   /// Payload: {senderId, encryptedBody, createdAt, groupId?}
@@ -170,6 +188,18 @@ class SignalRClient {
       'EmergencyDrill',
       (arguments) => _forward(arguments, _onEmergencyDrill),
     );
+    _hubConnection!.on(
+      'DeviceListChanged',
+      (arguments) => _forward(arguments, _onDeviceListChanged),
+    );
+    _hubConnection!.on(
+      'LinkOffer',
+      (arguments) => _forward(arguments, _onLinkOffer),
+    );
+    _hubConnection!.on(
+      'LinkConsent',
+      (arguments) => _forward(arguments, _onLinkConsent),
+    );
 
     // Notify UI when connection state changes (e.g. for offline banner).
     _hubConnection!.onClose(_notify);
@@ -250,6 +280,80 @@ class SignalRClient {
       );
     }
   }
+
+  /// Multi-device direct send: one envelope per device of the peer identity
+  /// and of our own identity. [recipientIdentityId] is the peer's PRIMARY id.
+  Future<void> sendDirectFanout(
+    String recipientIdentityId,
+    Map<String, String> encryptedPayloads, {
+    required String messageId,
+  }) => _fanout(
+    'SendReliableDirectFanout',
+    recipientIdentityId,
+    messageId,
+    encryptedPayloads,
+  );
+
+  /// Multi-device group send (non-business groups only; the hub rejects it
+  /// for business groups, which stay on [sendGroupMessage]).
+  Future<void> sendGroupFanout(
+    String groupId,
+    Map<String, String> encryptedPayloads, {
+    required String messageId,
+  }) => _fanout(
+    'SendReliableGroupFanout',
+    groupId,
+    messageId,
+    encryptedPayloads,
+  );
+
+  Future<void> _fanout(
+    String method,
+    String target,
+    String messageId,
+    Map<String, String> encryptedPayloads,
+  ) async {
+    final connection = _requireConnection();
+    // Every call declares the FULL device set: the hub checks completeness
+    // on it, so a send that has to be split (attachment copies do not fit
+    // one 1 MiB frame) still cannot silently skip a device.
+    final all = encryptedPayloads.keys.toList();
+    final size = encryptedPayloads.values.fold(0, (n, v) => n + v.length);
+    final calls = size <= _maxFanOutChars
+        ? [encryptedPayloads]
+        : [for (final e in encryptedPayloads.entries) {e.key: e.value}];
+    for (final payloads in calls) {
+      await connection.invoke(method, <Object>[target, messageId, all, payloads]);
+    }
+  }
+
+  /// The device ids the hub demanded in a `device_list_stale:<ids>` error,
+  /// or null when [error] is something else.
+  static Set<String>? staleRequired(Object error) {
+    final match = RegExp(
+      r'device_list_stale:([0-9a-fA-F,\-]*)',
+    ).firstMatch(error.toString());
+    if (match == null) return null;
+    // Lowercased: the directory and the envelope keys are lowercase, and
+    // reconcile compares them as plain strings.
+    return match
+        .group(1)!
+        .split(',')
+        .where((id) => id.isNotEmpty)
+        .map((id) => id.toLowerCase())
+        .toSet();
+  }
+
+  /// Linking, primary side: ask the scanned device to consent.
+  Future<void> sendLinkOffer(String targetDeviceId) =>
+      _requireConnection().invoke('LinkOffer', <Object>[targetDeviceId]);
+
+  /// Linking, new-device side: answer with the signed consent.
+  Future<void> sendLinkConsent(String primaryDeviceId, String consentSig) =>
+      _requireConnection().invoke('LinkConsent', <Object>[
+        primaryDeviceId,
+        consentSig,
+      ]);
 
   /// Headroom under the hub's 1 MiB frame limit for JSON framing and ids.
   static const _maxFanOutChars = 900 * 1024;
@@ -393,6 +497,9 @@ class SignalRClient {
     _onChannelPost.close();
     _onChannelDeleted.close();
     _onEmergencyDrill.close();
+    _onDeviceListChanged.close();
+    _onLinkOffer.close();
+    _onLinkConsent.close();
   }
 
   void dispose() => close();

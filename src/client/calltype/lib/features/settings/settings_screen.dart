@@ -64,6 +64,13 @@ class SettingsScreen extends StatelessWidget {
             subtitle: l10n.settingsIdentitySubtitle,
             onTap: () => context.push('/settings/identity'),
           ),
+          _SettingsTile(
+            icon: Icons.phonelink_rounded,
+            iconColor: colorScheme.primary,
+            title: l10n.settingsDevices,
+            subtitle: l10n.settingsDevicesSubtitle,
+            onTap: () => context.push('/settings/devices'),
+          ),
 
           // -- Channels section -----------------------------------------------
           // Blocking a channel is local to this device, so the only place

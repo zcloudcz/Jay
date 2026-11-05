@@ -31,7 +31,10 @@ class KeyManager {
 
   final SecretStore _secureStorage;
 
-  Future<Map<String, String>> getSignedIdentityBundle() async {
+  /// The device's Ed25519 signing key pair. Besides the signed identity
+  /// bundle it signs the device list (multi-device) and a companion's link
+  /// consent. Peers pin its public half as part of `peer_identity:<id>`.
+  Future<SimpleKeyPair> getSigningKeyPair() async {
     final algorithm = Ed25519();
     var seed = await _secureStorage.read('ct_signing_seed');
     if (seed == null) {
@@ -39,11 +42,15 @@ class KeyManager {
       seed = base64Encode(await generated.extractPrivateKeyBytes());
       await _secureStorage.write('ct_signing_seed', seed);
     }
-    final signing = await algorithm.newKeyPairFromSeed(base64Decode(seed));
+    return algorithm.newKeyPairFromSeed(base64Decode(seed));
+  }
+
+  Future<Map<String, String>> getSignedIdentityBundle() async {
+    final signing = await getSigningKeyPair();
     final identityKey = await getPublicIdentityKey();
     final signedPreKey =
         (await getOrCreateSignedPreKey())['publicKey'] as String;
-    final signature = await algorithm.sign(
+    final signature = await Ed25519().sign(
       signedIdentityPayload(identityKey, signedPreKey),
       keyPair: signing,
     );

@@ -182,9 +182,9 @@ void main() {
       await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
 
       expect(backendCalls, ['${alice.id}: [from CT-AAAA-0001]: hi']);
-      final sent = hub.calls('SendReliableMessage').single;
+      final sent = hub.calls('SendReliableDirectFanout').single;
       expect(
-        await alice.read(bot.deviceId, sent[2] as String),
+        await alice.read(bot.deviceId, (sent[3] as Map<String, String>)[alice.id]!),
         'answer to [from CT-AAAA-0001]: hi',
       );
     });
@@ -200,7 +200,7 @@ void main() {
       await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
 
       expect(backendCalls, isEmpty);
-      expect(hub.calls('SendReliableMessage'), isEmpty);
+      expect(hub.calls('SendReliableDirectFanout'), isEmpty);
       expect(hub.calls('TypingIndicator'), isEmpty);
       expect(logs.join('\n'), contains('CT-SOME-BODY is unknown'));
     });
@@ -211,7 +211,7 @@ void main() {
       await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
 
       expect(backendCalls, isEmpty);
-      expect(hub.calls('SendReliableMessage'), isEmpty);
+      expect(hub.calls('SendReliableDirectFanout'), isEmpty);
       expect(logs.join('\n'), contains('Set ALLOWED_HANDLES='));
     });
 
@@ -261,7 +261,7 @@ void main() {
         await start();
         await say(peer, 'ping');
         expect(backendCalls, ['$groupId: [from CT-PEER-0002 (bot)]: @${bot.handle} ping']);
-        expect(hub.calls('SendReliableGroupMessage'), hasLength(1));
+        expect(hub.calls('SendReliableGroupFanout'), hasLength(1));
       });
 
       test('human message gets the plain handle label', () async {
@@ -274,14 +274,14 @@ void main() {
         await start();
         await say(peer, 'psst', group: null);
         expect(backendCalls, isEmpty);
-        expect(hub.calls('SendReliableMessage'), isEmpty);
+        expect(hub.calls('SendReliableDirectFanout'), isEmpty);
       });
 
       test('sender in neither list is still dropped', () async {
         await start();
         await say(stranger, 'let me in');
         expect(backendCalls, isEmpty);
-        expect(hub.calls('SendReliableGroupMessage'), isEmpty);
+        expect(hub.calls('SendReliableGroupFanout'), isEmpty);
       });
 
       test('limit: one notice, then silence; a human message resets', () async {
@@ -289,13 +289,13 @@ void main() {
         await say(peer, 'one');
         await say(peer, 'two');
         expect(backendCalls, hasLength(2));
-        final answers = hub.calls('SendReliableGroupMessage').length;
+        final answers = hub.calls('SendReliableGroupFanout').length;
 
         await say(peer, 'three'); // over the limit -> notice, no backend
         expect(backendCalls, hasLength(2));
-        expect(hub.calls('SendReliableGroupMessage'), hasLength(answers + 1));
-        final notice = hub.calls('SendReliableGroupMessage').last;
-        final body = (notice[2] as Map<String, String>)[alice.id]!;
+        expect(hub.calls('SendReliableGroupFanout'), hasLength(answers + 1));
+        final notice = hub.calls('SendReliableGroupFanout').last;
+        final body = (notice[3] as Map<String, String>)[alice.id]!;
         expect(
           await alice.read(bot.deviceId, body),
           'Bot-to-bot limit reached (2 per 30 min). Waiting for a human to mention me.',
@@ -303,7 +303,7 @@ void main() {
 
         await say(peer, 'four'); // silent
         expect(backendCalls, hasLength(2));
-        expect(hub.calls('SendReliableGroupMessage'), hasLength(answers + 1));
+        expect(hub.calls('SendReliableGroupFanout'), hasLength(answers + 1));
 
         await say(alice, 'carry on'); // human resets
         await say(peer, 'five');

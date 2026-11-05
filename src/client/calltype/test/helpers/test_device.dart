@@ -1,4 +1,6 @@
 import 'package:drift/native.dart';
+import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype/core/crypto/key_manager.dart';
 import 'package:calltype/core/crypto/session_manager.dart';
 import 'package:calltype/core/storage/database.dart';
@@ -17,6 +19,19 @@ class TestDevice {
   final SecureStorage secureStorage;
   final KeyManager keys;
   final SessionManager sessions;
+
+  /// This device's view of device lists. Its API answers "no list" for
+  /// everybody, which is the single-device world most tests live in (and
+  /// avoids a DNS lookup of the dummy base URL); tests that need lists build
+  /// a directory against FakeMultiDeviceServer instead.
+  late final DeviceDirectory directory = DeviceDirectory(
+    database: db,
+    apiClient: NoDeviceListsApi(),
+    selfDeviceId: id,
+    selfSigningKey: () async =>
+        (await keys.getSignedIdentityBundle())['signingKey']!,
+    selfIdentityKey: keys.getPublicIdentityKey,
+  );
 
   static Future<TestDevice> create(String id) =>
       createWithSecureStorage(id, InMemorySecureStorage());
@@ -38,6 +53,8 @@ class TestDevice {
     return device;
   }
 
+  var _servedOneTimeKeys = 0;
+
   /// Builds the key bundle the server would serve for this device,
   /// consuming one one-time pre-key like the real endpoint does.
   Future<Map<String, dynamic>> keyBundle({bool includeOneTime = true}) async {
@@ -47,8 +64,11 @@ class TestDevice {
     Map<String, dynamic>? oneTime;
     if (includeOneTime) {
       final all = await keys.getOrCreateOneTimePreKeys();
-      final first = all.first;
-      oneTime = {'keyId': first['keyId'], 'publicKey': first['publicKey']};
+      // A different key per fetch, like the server: two initiators that got
+      // the same one would break the second one's first message, because the
+      // receiver deletes the private half when the first one arrives.
+      final next = all[_servedOneTimeKeys++ % all.length];
+      oneTime = {'keyId': next['keyId'], 'publicKey': next['publicKey']};
     }
 
     return {
@@ -78,4 +98,11 @@ class InMemorySecureStorage extends SecureStorage {
 
   @override
   Future<void> delete(String key) async => _values.remove(key);
+}
+
+/// An API with no device lists at all.
+class NoDeviceListsApi extends ApiClient {
+  NoDeviceListsApi() : super(baseUrl: 'http://unused');
+  @override
+  Future<Map<String, dynamic>?> getDeviceList(String deviceId) async => null;
 }

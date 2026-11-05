@@ -189,6 +189,7 @@ void main() {
     final inbox = MessageInboxService(
       database: alice.db,
       sessionManager: alice.sessions,
+      directory: () => alice.directory,
       incomingMessages: incoming.stream,
     );
     inbox.start();

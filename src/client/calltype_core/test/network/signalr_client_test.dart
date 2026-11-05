@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 void main() {
   _groupFanOutTests();
   _callSignalTests();
+  _multiDeviceTests();
 
   test('offline send fails instead of claiming successful delivery', () async {
     final client = SignalRClient(
@@ -54,6 +55,9 @@ void main() {
       'ReceiveChannelPost',
       'ChannelDeleted',
       'EmergencyDrill',
+      'DeviceListChanged',
+      'LinkOffer',
+      'LinkConsent',
     });
 
     await client.sendMessage('bob', 'cipher', messageId: 'm1');
@@ -119,6 +123,82 @@ void _groupFanOutTests() {
     await client.sendGroupMessage('g', {'bob': big, 'carol': big}, messageId: 'm1');
 
     expect(transport.invocations.map((i) => (i[3] as Map).keys.single), ['bob', 'carol']);
+  });
+}
+
+void _multiDeviceTests() {
+  test('direct fan-out sends ids, declared recipients and payloads', () async {
+    final (client, transport) = await _connected();
+    await client.sendDirectFanout(
+      'peer',
+      {'peer': 'YQ==', 'peer-web': 'Yg=='},
+      messageId: 'm1',
+    );
+    expect(transport.invocations, [
+      [
+        'SendReliableDirectFanout',
+        'peer',
+        'm1',
+        ['peer', 'peer-web'],
+        {'peer': 'YQ==', 'peer-web': 'Yg=='},
+      ],
+    ]);
+  });
+
+  test('an oversized fan-out is split per device but declares the full set', () async {
+    final (client, transport) = await _connected();
+    final big = 'x' * (500 * 1024);
+    await client.sendGroupFanout('g', {'a': big, 'b': big}, messageId: 'm2');
+    expect(transport.invocations, hasLength(2));
+    for (final call in transport.invocations) {
+      expect(call[0], 'SendReliableGroupFanout');
+      expect(call[3], ['a', 'b']);
+      expect((call[4] as Map).length, 1);
+    }
+  });
+
+  test('link offer and consent use the hub contract', () async {
+    final (client, transport) = await _connected();
+    await client.sendLinkOffer('t');
+    await client.sendLinkConsent('p', 'sig');
+    expect(transport.invocations, [
+      ['LinkOffer', 't'],
+      ['LinkConsent', 'p', 'sig'],
+    ]);
+  });
+
+  test('staleRequired extracts the device ids the server demands', () {
+    expect(
+      SignalRClient.staleRequired(
+        Exception('HubException: device_list_stale:aa-1,bb-2'),
+      ),
+      {'aa-1', 'bb-2'},
+    );
+    expect(
+      SignalRClient.staleRequired(Exception('device_list_stale:AA-1,Bb-2')),
+      {'aa-1', 'bb-2'},
+    );
+    expect(SignalRClient.staleRequired(Exception('device_list_stale:')), <String>{});
+    expect(SignalRClient.staleRequired(Exception('auditor_unavailable')), isNull);
+  });
+
+  test('device list and link events are forwarded', () async {
+    final (client, transport) = await _connected();
+    final changed = client.onDeviceListChanged.first;
+    final offer = client.onLinkOffer.first;
+    final consent = client.onLinkConsent.first;
+    transport.handlers['DeviceListChanged']!([
+      {'primaryDeviceId': 'p', 'version': 2},
+    ]);
+    transport.handlers['LinkOffer']!([
+      {'primaryDeviceId': 'p'},
+    ]);
+    transport.handlers['LinkConsent']!([
+      {'deviceId': 'd', 'consentSig': 's'},
+    ]);
+    expect((await changed)['version'], 2);
+    expect((await offer)['primaryDeviceId'], 'p');
+    expect((await consent)['consentSig'], 's');
   });
 }
 

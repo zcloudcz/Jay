@@ -8,6 +8,7 @@ import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
 import '../../shared/widgets/main_navigation_bar.dart';
 import '../contacts/contacts_controller.dart';
+import '../devices/device_service.dart';
 import '../organization/business_banner.dart';
 import 'chat_list_controller.dart';
 
@@ -66,17 +67,21 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final controller = context.watch<ChatListController>();
     final contacts = context.watch<ContactsController>().contacts;
     final network = context.watch<SignalRClient>();
+    final devices = context.watch<DeviceService>();
     final rows = controller.conversations;
     final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Jay'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.group_add_outlined),
-            tooltip: l10n.chatListNewGroup,
-            onPressed: () => context.push('/groups/create'),
-          ),
+          // A companion would become a group member on its own; groups are
+          // created from the primary (the server refuses it too).
+          if (!devices.isCompanion)
+            IconButton(
+              icon: const Icon(Icons.group_add_outlined),
+              tooltip: l10n.chatListNewGroup,
+              onPressed: () => context.push('/groups/create'),
+            ),
           IconButton(
             icon: const Icon(Icons.qr_code),
             tooltip: l10n.chatListMyIdentity,
@@ -97,6 +102,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
               actions: [
                 TextButton(onPressed: _connect, child: Text(l10n.chatListReconnect)),
               ],
+            ),
+          // Decision 7: "cannot verify" deletes nothing and says so; a
+          // verified removal says that the chats were deleted.
+          if (devices.status != CompanionStatus.ok)
+            ListTile(
+              leading: const Icon(Icons.warning_amber_rounded),
+              title: Text(
+                devices.status == CompanionStatus.removed
+                    ? l10n.devicesRemovedNotice
+                    : l10n.devicesCannotVerify,
+              ),
             ),
           Expanded(
             child: _loading

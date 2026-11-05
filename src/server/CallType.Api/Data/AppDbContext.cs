@@ -27,6 +27,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<OneTimePreKey> OneTimePreKeys => Set<OneTimePreKey>();
     public DbSet<Account> Accounts => Set<Account>();
     public DbSet<AccountDevice> AccountDevices => Set<AccountDevice>();
+    public DbSet<DeviceList> DeviceLists => Set<DeviceList>();
+    public DbSet<DeviceListMember> DeviceListMembers => Set<DeviceListMember>();
     public DbSet<QueuedMessage> QueuedMessages => Set<QueuedMessage>();
     public DbSet<Group> Groups => Set<Group>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
@@ -134,6 +136,36 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasOne(ad => ad.Device)
                   .WithMany(d => d.AccountDevices)
                   .HasForeignKey(ad => ad.DeviceId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // -----------------------------------------------------------------
+        // DeviceList / DeviceListMember - multi-device routing
+        // -----------------------------------------------------------------
+        // Cascades are DB-level on purpose: PrivacyEndpoints deletes a Device
+        // with raw SQL, and a deleted companion must disappear from routing
+        // (a deleted primary takes the whole list with it).
+        modelBuilder.Entity<DeviceList>(entity =>
+        {
+            entity.HasKey(l => l.PrimaryDeviceId);
+            entity.Property(l => l.Version).IsConcurrencyToken();
+            entity.HasOne<Device>()
+                  .WithOne()
+                  .HasForeignKey<DeviceList>(l => l.PrimaryDeviceId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DeviceListMember>(entity =>
+        {
+            entity.HasKey(m => m.DeviceId);
+            entity.HasIndex(m => m.PrimaryDeviceId);
+            entity.HasOne<Device>()
+                  .WithOne()
+                  .HasForeignKey<DeviceListMember>(m => m.DeviceId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<DeviceList>()
+                  .WithMany(l => l.Members)
+                  .HasForeignKey(m => m.PrimaryDeviceId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
 

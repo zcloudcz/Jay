@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../l10n/l10n.dart';
+import '../devices/link_code.dart';
 
 /// Full-screen QR code scanner for adding contacts.
 ///
@@ -21,7 +22,13 @@ import '../../l10n/l10n.dart';
 /// automatically paused when a valid code is found to prevent duplicate
 /// processing of the same QR code.
 class QrScannerScreen extends StatefulWidget {
-  const QrScannerScreen({super.key});
+  const QrScannerScreen({super.key, this.deviceLink = false});
+
+  /// Multi-device "Link a device": accept ONLY `jaylink://` codes, returned
+  /// as {'link': raw}. The contact mode never accepts them (and this mode
+  /// accepts no contact invites), so neither scan can be mistaken for the
+  /// other.
+  final bool deviceLink;
 
   @override
   State<QrScannerScreen> createState() => _QrScannerScreenState();
@@ -63,7 +70,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                   borderRadius: BorderRadius.circular(24),
                 ),
                 child: Text(
-                  context.l10n.qrScanHint,
+                  widget.deviceLink
+                      ? context.l10n.devicesScanHint
+                      : context.l10n.qrScanHint,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: Colors.white,
                   ),
@@ -88,7 +97,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       final raw = barcode.rawValue;
       if (raw == null) continue;
 
-      final result = _parseContactUri(raw);
+      final result = widget.deviceLink
+          ? (LinkCode.parse(raw) == null ? null : {'link': raw})
+          : _parseContactUri(raw);
       if (result != null) {
         _handled = true;
         _controller.stop();
