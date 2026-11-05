@@ -4,6 +4,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../l10n/l10n.dart';
 import '../devices/link_code.dart';
+import 'bot_link.dart';
 
 /// Full-screen QR code scanner for adding contacts.
 ///
@@ -120,6 +121,10 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
     // so the caller opens the channel profile instead of adding a contact.
     final channel = parseChannelLink(raw);
     if (channel != null) return {'channel': channel};
+
+    // Bot QR (`CallTypeBot.deepLink`): handed back as the raw link so the
+    // caller runs the deep-link flow (confirmation + pre-filled /start).
+    if (parseBotLink(raw) != null) return {'bot': raw.trim()};
 
     // Format: calltype://contact/{handle}
     final contactUri = Uri.tryParse(raw);

@@ -45,6 +45,15 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="calltype" android:host="channel"/>
             </intent-filter>
+            <!-- calltype://bot/<HANDLE>?start=<payload> adds/opens a bot and
+                 pre-fills "/start <payload>" (never sent automatically); the
+                 go_router redirect maps it to /bot/<HANDLE>. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="calltype" android:host="bot"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

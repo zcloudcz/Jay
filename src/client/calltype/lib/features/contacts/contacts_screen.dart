@@ -9,6 +9,7 @@ import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
 import '../chat_list/chat_list_controller.dart';
+import 'bot_link.dart';
 import 'contacts_controller.dart';
 import 'rename_contact_dialog.dart';
 import 'qr_scanner_screen.dart';
@@ -162,6 +163,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
       return;
     }
 
+    // A bot QR goes through the deep-link screen (same confirmation, then
+    // the chat with `/start <payload>` pre-filled).
+    final bot = result?['bot'] == null ? null : parseBotLink(result!['bot']!);
+    if (bot != null) {
+      if (context.mounted) context.push(botLinkRoute(bot));
+      return;
+    }
+
     if (result != null && context.mounted) {
       try {
         final added = await _previewAndAdd(
@@ -190,52 +199,19 @@ class _ContactsScreenState extends State<ContactsScreen> {
     }
   }
 
-  /// Resolves the contact, shows who it is and adds it only after the user
-  /// confirms. Returns whether the contact was added.
-  ///
-  /// WHY a preview step: whether the peer is a bot must be visible BEFORE
-  /// the contact is added (bots plan §6) — once added, the user may already
-  /// have started typing to what they believed was a person.
   Future<bool> _previewAndAdd(
     BuildContext context,
     ContactsController controller,
     String handle, {
     String? deviceId,
-  }) async {
-    final preview = await controller.resolveContact(handle, deviceId: deviceId);
-    if (!context.mounted) return false;
-    final l10n = context.l10n;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(l10n.contactsConfirmAddTitle),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            NameWithBotBadge(name: preview.handle, isBot: preview.isBot),
-            if (preview.isBot) ...[
-              const SizedBox(height: 12),
-              Text(l10n.botNotice),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(l10n.commonCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(l10n.commonAdd),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return false;
-    await controller.addContact(preview);
-    return true;
-  }
+  }) async =>
+      await previewAndAddContact(
+        context,
+        controller,
+        handle,
+        deviceId: deviceId,
+      ) !=
+      null;
 
   /// Shows a dialog to manually enter a contact handle.
   Future<void> _showAddDialog(
@@ -286,6 +262,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
     final channel = handle == null ? null : parseChannelLink(handle);
     if (channel != null) {
       if (context.mounted) context.push('/channels/profile/$channel');
+      return;
+    }
+    // A pasted bot link runs the deep-link flow, payload included.
+    final bot = handle == null ? null : parseBotLink(handle);
+    if (bot != null) {
+      if (context.mounted) context.push(botLinkRoute(bot));
       return;
     }
 
@@ -364,4 +346,53 @@ class _ContactTile extends StatelessWidget {
       },
     );
   }
+}
+
+/// Resolves the contact, shows who it is and adds it only after the user
+/// confirms. Returns the added contact, or null when the user declined.
+/// Shared by the contacts screen and the bot deep link
+/// (`calltype://bot/<HANDLE>`), so a link can never add a contact silently.
+///
+/// WHY a preview step: whether the peer is a bot must be visible BEFORE
+/// the contact is added (bots plan §6): once added, the user may already
+/// have started typing to what they believed was a person.
+Future<ContactPreview?> previewAndAddContact(
+  BuildContext context,
+  ContactsController controller,
+  String handle, {
+  String? deviceId,
+}) async {
+  final preview = await controller.resolveContact(handle, deviceId: deviceId);
+  if (!context.mounted) return null;
+  final l10n = context.l10n;
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(l10n.contactsConfirmAddTitle),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          NameWithBotBadge(name: preview.handle, isBot: preview.isBot),
+          if (preview.isBot) ...[
+            const SizedBox(height: 12),
+            Text(l10n.botNotice),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: Text(l10n.commonCancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: Text(l10n.commonAdd),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true) return null;
+  await controller.addContact(preview);
+  return preview;
 }
