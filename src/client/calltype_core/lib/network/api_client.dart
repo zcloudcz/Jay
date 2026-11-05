@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../auth/auth_service.dart';
+import 'bot_dtos.dart';
 import 'channel_dtos.dart';
 import 'group_dtos.dart';
 import 'mfa_api.dart' show MfaRequiredException;
@@ -172,6 +173,33 @@ class ApiClient {
       for (final row in response.data ?? const [])
         if (row is Map) MuteEntry.fromJson(row),
     ];
+  }
+
+  // -- Bot commands (2026-11-05 agent messaging contract) ---------------------
+
+  /// GET /devices/{id}/bot-commands: the "/" commands a bot published. Empty
+  /// for a non-bot or a bot without a list; 404 (DioException) for an unknown
+  /// device.
+  Future<List<BotCommand>> getBotCommands(String deviceId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/devices/$deviceId/bot-commands',
+    );
+    return BotCommand.listFromJson(response.data);
+  }
+
+  /// PUT /devices/{id}/bot-commands: replaces this bot's list (empty = clear).
+  /// Only the bot device itself may call it. Returns the list as stored.
+  Future<List<BotCommand>> setBotCommands(
+    String deviceId,
+    List<BotCommand> commands,
+  ) async {
+    final response = await _dio.put<Map<String, dynamic>>(
+      '/devices/$deviceId/bot-commands',
+      data: {
+        'commands': [for (final c in commands) c.toJson()],
+      },
+    );
+    return BotCommand.listFromJson(response.data);
   }
 
   // -- Device registration ---------------------------------------------------
