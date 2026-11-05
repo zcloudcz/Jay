@@ -12,6 +12,8 @@
 
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using CallType.Api.Data;
@@ -42,6 +44,10 @@ public static class DeviceEndpoints
         // the authenticated caller matching {id} may change it (see Caller check
         // in UpdateProfile), unlike push-token above which trusts the route id alone.
         app.MapPut("/devices/{id:guid}/profile", UpdateProfile).RequireAuthorization().RequireRateLimiting("api");
+        // Bot commands: written only by the bot device itself, readable by any
+        // authenticated device (the "/" menu of whoever chats with the bot).
+        app.MapPut("/devices/{id:guid}/bot-commands", PutBotCommands).RequireAuthorization().RequireRateLimiting("api");
+        app.MapGet("/devices/{id:guid}/bot-commands", GetBotCommands).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 
@@ -293,6 +299,99 @@ public static class DeviceEndpoints
     }
 
     // -----------------------------------------------------------------------
+    // PUT/GET /devices/{id}/bot-commands - Bot command menu
+    // -----------------------------------------------------------------------
+    internal const int MaxBotCommands = 50;
+    internal const int MaxBotCommandDescription = 100;
+
+    // Same alphabet as Telegram's setMyCommands minus upper case: clients
+    // insert "/cmd@HANDLE" into the composer, so the token must survive being
+    // typed and matched without case folding or escaping.
+    private static readonly Regex BotCommandPattern = new("^[a-z0-9_]{1,32}$", RegexOptions.CultureInvariant);
+
+    // Stored JSON uses the exact wire names, so GET can return it verbatim
+    // through the same DTO and the column stays readable in psql.
+    private static readonly JsonSerializerOptions BotCommandsJson = new(JsonSerializerDefaults.Web);
+
+    private static async Task<IResult> PutBotCommands(
+        Guid id,
+        BotCommandsRequest request,
+        ClaimsPrincipal user,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        // Commands are shown to everybody who chats with the bot, so only the
+        // bot device itself may publish them (like UpdateProfile).
+        if (Caller(user) != id)
+            return Results.Forbid();
+
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == id, ct);
+        if (device is null)
+            return Results.NotFound(new { error = "Device not found." });
+        // A human device with a command menu would look like a bot to other
+        // clients; IsBot is immutable, so this cannot be bypassed later.
+        if (!device.IsBot)
+            return Results.Problem(title: "Not a bot", detail: "Only a bot device can publish commands.",
+                statusCode: StatusCodes.Status403Forbidden,
+                extensions: new Dictionary<string, object?> { ["error"] = "not_a_bot" });
+
+        var (commands, problem) = ValidateBotCommands(request.Commands);
+        if (problem is not null)
+            return Results.Problem(title: "Invalid bot commands", detail: problem,
+                statusCode: StatusCodes.Status400BadRequest,
+                extensions: new Dictionary<string, object?> { ["error"] = "invalid_bot_commands" });
+
+        // Empty list clears: store null so "never published" and "cleared"
+        // look the same to readers and the column carries no empty JSON.
+        device.BotCommandsJson = commands.Count == 0 ? null : JsonSerializer.Serialize(commands, BotCommandsJson);
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new BotCommandsResponse(commands));
+    }
+
+    private static async Task<IResult> GetBotCommands(Guid id, AppDbContext db, CancellationToken ct)
+    {
+        var device = await db.Devices.AsNoTracking().Where(d => d.DeviceId == id)
+            .Select(d => new { d.IsBot, d.BotCommandsJson }).SingleOrDefaultAsync(ct);
+        if (device is null)
+            return Results.NotFound(new { error = "Device not found." });
+        // A non-bot is answered with an empty list instead of an error: the
+        // client asks for every chat partner it suspects is a bot and only
+        // needs "no menu", not a reason.
+        var commands = device.IsBot && device.BotCommandsJson is not null
+            ? JsonSerializer.Deserialize<List<BotCommandDto>>(device.BotCommandsJson, BotCommandsJson) ?? []
+            : [];
+        return Results.Ok(new BotCommandsResponse(commands));
+    }
+
+    /// <summary>
+    /// Returns the normalized list (descriptions trimmed) or a human-readable
+    /// reason. The whole request is rejected on the first bad entry instead
+    /// of silently dropping it, so a bot learns about its mistake at startup.
+    /// </summary>
+    private static (List<BotCommandDto> Commands, string? Problem) ValidateBotCommands(List<BotCommandDto?>? input)
+    {
+        if (input is null)
+            return ([], "commands is required (an empty list clears).");
+        if (input.Count > MaxBotCommands)
+            return ([], $"At most {MaxBotCommands} commands are allowed.");
+
+        var result = new List<BotCommandDto>(input.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in input)
+        {
+            if (entry?.Command is null || !BotCommandPattern.IsMatch(entry.Command))
+                return ([], "command must match ^[a-z0-9_]{1,32}$.");
+            if (!seen.Add(entry.Command))
+                return ([], $"Duplicate command '{entry.Command}'.");
+            var description = entry.Description?.Trim() ?? "";
+            if (description.Length is 0 or > MaxBotCommandDescription)
+                return ([], $"description must be 1 to {MaxBotCommandDescription} characters after trimming.");
+            result.Add(new BotCommandDto(entry.Command, description));
+        }
+        return (result, null);
+    }
+
+    // -----------------------------------------------------------------------
     // PUT /devices/{id}/push-token — Register or update push notification token
     // -----------------------------------------------------------------------
     private static async Task<IResult> UpdatePushToken(
@@ -408,3 +507,11 @@ public record OneTimePreKeyDto(int KeyId, string PublicKey);
 public record UpdatePushTokenRequest(string Token, string Platform);
 
 public record UpdateProfileRequest(string? DisplayName);
+
+// Entries are nullable so a JSON null inside the list is a 400
+// invalid_bot_commands from our validator, not a binder failure.
+public record BotCommandsRequest(List<BotCommandDto?>? Commands);
+
+public record BotCommandDto(string Command, string Description);
+
+public record BotCommandsResponse(List<BotCommandDto> Commands);

@@ -70,6 +70,16 @@ public class Device
     /// </summary>
     public bool IsBot { get; set; }
 
+    /// <summary>
+    /// The bot's published command list ("/help - Show help") as JSON
+    /// (<c>[{"command","description"}]</c>), set only by the bot itself via
+    /// PUT /devices/{id}/bot-commands. Public plaintext metadata like
+    /// DisplayName, never message content. Stored as one text column rather
+    /// than a child table because it is always read and replaced as a whole
+    /// and is small (max 50 entries). Null means "no list published".
+    /// </summary>
+    public string? BotCommandsJson { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>
