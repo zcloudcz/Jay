@@ -21,6 +21,11 @@
 // Status codes: 403 not a follower / not an admin, 404 unknown or deleted
 // channel/post, 409 owned-channel limit (and closed poll), 413 image too
 // large, 422 emoji not whitelisted / bad poll option index.
+//
+// MODERATION (docs/superpowers/specs/2026-11-05-channel-moderation-contract.md
+// section 3): roles owner/admin/publisher, 403 channel_suspended while an
+// operator suspension runs, report categories + receipt, the reporter's
+// "Reports I filed" list and the owner's statements of reasons.
 // ---------------------------------------------------------------------------
 
 using System.Security.Claims;
@@ -43,11 +48,11 @@ public static partial class ChannelEndpoints
     // WITH the container prefix, the same convention Backup.BlobPath uses.
     // ChannelPostCleanupService accepts both forms; the API only ever emits and
     // accepts this one so clients can compare paths as plain strings.
-    private const string ContainerName = ChannelPostCleanupService.ContainerName;
+    internal const string ContainerName = ChannelPostCleanupService.ContainerName;
 
     // Whitelist of image types -> file extension. SVG is deliberately missing:
     // it can carry script, and these files are served back unencrypted.
-    private static readonly Dictionary<string, string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly Dictionary<string, string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ["image/jpeg"] = "jpg", ["image/png"] = "png", ["image/webp"] = "webp", ["image/gif"] = "gif"
     };
@@ -55,7 +60,7 @@ public static partial class ChannelEndpoints
     // Server-generated names only ("{guid:N}.{ext}") — a strict pattern means a
     // name from the URL can never traverse out of the channel's blob folder.
     [GeneratedRegex("^[0-9a-f]{32}\\.(jpg|png|webp|gif)$")]
-    private static partial Regex AttachmentName();
+    internal static partial Regex AttachmentName();
 
     public static WebApplication MapChannelEndpoints(this WebApplication app)
     {
@@ -64,6 +69,7 @@ public static partial class ChannelEndpoints
         group.MapPost("", CreateChannel);
         // Literal "mine" outranks the {idOrHandle} parameter in route precedence.
         group.MapGet("/mine", ListMine);
+        group.MapGet("/reports/mine", MyReports);
         group.MapGet("/{idOrHandle}", GetChannel);
         group.MapPatch("/{id:guid}", UpdateChannel);
         group.MapDelete("/{id:guid}", DeleteChannel);
@@ -84,6 +90,7 @@ public static partial class ChannelEndpoints
         group.MapPut("/{id:guid}/posts/{postId:guid}/vote", Vote);
 
         group.MapPost("/{id:guid}/report", Report);
+        group.MapGet("/{id:guid}/moderation", ModerationStatements);
 
         // Multipart from non-browser clients carries no antiforgery token
         // (same reason as the backup upload).
@@ -102,28 +109,40 @@ public static partial class ChannelEndpoints
 
     private static IResult ChannelNotFound() => Error(StatusCodes.Status404NotFound, "Channel not found.");
 
+    private static IResult Suspended() =>
+        Error(403, "This channel is suspended by the operator.", "channel_suspended");
+
     private static string? RoleToApi(ChannelRole role) => role switch
     {
         ChannelRole.Owner => "owner",
         ChannelRole.Admin => "admin",
+        ChannelRole.Publisher => ChannelService.PublisherRole,
         _ => null
     };
 
     /// <summary>Public profile. OwnerDeviceId / OwnerAccountId are intentionally not part of it.</summary>
-    private static object ChannelDto(Channel c, bool isFollowing, ChannelRole role, int unreadCount = 0) => new
+    private static object ChannelDto(Channel c, bool isFollowing, ChannelRole role, int unreadCount = 0)
     {
-        channelId = c.ChannelId,
-        handle = c.Handle,
-        name = c.Name,
-        description = c.Description,
-        followerCount = c.FollowerCount,
-        createdAt = c.CreatedAt,
-        isFollowing,
-        role = RoleToApi(role),
-        unreadCount
-    };
+        // The profile stays visible while suspended (it carries the status),
+        // so followers learn why the feed is gone instead of seeing an error.
+        var suspended = c.IsSuspended(DateTimeOffset.UtcNow);
+        return new
+        {
+            channelId = c.ChannelId,
+            handle = c.Handle,
+            name = c.Name,
+            description = c.Description,
+            followerCount = c.FollowerCount,
+            createdAt = c.CreatedAt,
+            isFollowing,
+            role = RoleToApi(role),
+            unreadCount,
+            status = suspended ? "suspended" : "active",
+            suspendedUntil = suspended ? c.SuspendedUntil : null
+        };
+    }
 
-    private static object PostDto(ChannelPost post, PostTotals totals)
+    private static object PostDto(ChannelPost post, PostTotals totals, bool byBot)
     {
         var deleted = post.DeletedAt is not null;
         return new
@@ -139,7 +158,8 @@ public static partial class ChannelEndpoints
             reactions = totals.Reactions,
             myReaction = totals.MyReaction,
             votes = totals.Votes,
-            myVote = totals.MyVote
+            myVote = totals.MyVote,
+            byBot
         };
     }
 
@@ -204,12 +224,14 @@ public static partial class ChannelEndpoints
             .Select(c => new
             {
                 Channel = c,
-                IsOwner = db.AccountDevices.Any(ad => ad.DeviceId == me && ad.AccountId == c.OwnerAccountId)
+                IsOwner = db.AccountDevices.Any(ad => ad.DeviceId == me && ad.AccountId == c.OwnerAccountId),
+                AdminRole = c.Admins.Where(a => a.DeviceId == me).Select(a => a.Role).FirstOrDefault()
             })
             .ToListAsync(ct);
 
         var roles = managed.ToDictionary(
-            m => m.Channel.ChannelId, m => m.IsOwner ? ChannelRole.Owner : ChannelRole.Admin);
+            m => m.Channel.ChannelId,
+            m => m.IsOwner ? ChannelRole.Owner : ChannelService.ParseAdminRole(m.AdminRole));
         var followedIds = followed.Select(f => f.Channel.ChannelId).ToHashSet();
 
         var result = followed
@@ -251,8 +273,9 @@ public static partial class ChannelEndpoints
         if (AccountEndpoints.CallerDeviceId(user) is not { } me) return Results.Unauthorized();
         if (await channels.FindAsync(id, ct) is not { } channel) return ChannelNotFound();
 
+        // Publishers only publish (design D9): the profile is owner/admin business.
         var role = await channels.GetRoleAsync(channel, me, ct);
-        if (role == ChannelRole.None) return Results.Forbid();
+        if (role is not (ChannelRole.Owner or ChannelRole.Admin)) return Results.Forbid();
         if (ValidateProfile(request.Name, request.Description) is { } invalid) return Error(400, invalid);
 
         // PATCH semantics: a property that is absent (null) stays unchanged.
@@ -289,33 +312,66 @@ public static partial class ChannelEndpoints
 
         // The only place a device id leaves the channel API: the owner sees the
         // admins they appointed themselves (needed to be able to remove them).
+        // Handle / display name / bot flag are the device's public metadata
+        // (same as a contact lookup) so the owner can tell members apart.
         var admins = await db.ChannelAdmins.AsNoTracking()
             .Where(a => a.ChannelId == id)
             .OrderBy(a => a.AddedAt)
-            .Select(a => new { deviceId = a.DeviceId, addedAt = a.AddedAt })
+            .Join(db.Devices, a => a.DeviceId, d => d.DeviceId, (a, d) => new
+            {
+                deviceId = a.DeviceId,
+                addedAt = a.AddedAt,
+                role = a.Role,
+                isBot = d.IsBot,
+                handle = d.UserHandle,
+                displayName = d.DisplayName
+            })
             .ToListAsync(ct);
         return Results.Ok(admins);
     }
 
     private static async Task<IResult> AddAdmin(
-        Guid id, Guid deviceId, ClaimsPrincipal user, ChannelService channels, AppDbContext db, CancellationToken ct)
+        Guid id, Guid deviceId, HttpRequest http, ClaimsPrincipal user,
+        ChannelService channels, AppDbContext db, CancellationToken ct)
     {
         if (AccountEndpoints.CallerDeviceId(user) is not { } me) return Results.Unauthorized();
         if (await channels.FindAsync(id, ct) is not { } channel) return ChannelNotFound();
         if (await channels.GetRoleAsync(channel, me, ct) != ChannelRole.Owner) return Results.Forbid();
 
+        // The body is optional (old clients send none = "admin"), so it is
+        // read by hand: a bound body parameter would 415 a body-less PUT.
+        var role = ChannelService.AdminRole;
+        if (http.ContentLength is > 0 || http.Headers.TransferEncoding.Count > 0)
+        {
+            AddAdminRequest? request;
+            try { request = await http.ReadFromJsonAsync<AddAdminRequest>(ct); }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                return Error(400, "Body must be JSON {\"role\": \"admin\"|\"publisher\"}.", "invalid_role");
+            }
+            if (request?.Role is { } requested) role = requested;
+        }
+        if (role is not (ChannelService.AdminRole or ChannelService.PublisherRole))
+            return Error(400, "role must be admin or publisher.", "invalid_role");
+
         if (!await db.Devices.AnyAsync(d => d.DeviceId == deviceId, ct))
             return Error(404, "Device not found.");
 
-        // Idempotent PUT: appointing an existing admin again changes nothing.
-        if (!await db.ChannelAdmins.AnyAsync(a => a.ChannelId == id && a.DeviceId == deviceId, ct))
+        // Idempotent PUT: the same role again changes nothing; another role
+        // replaces the old one (promote a publisher to admin and back).
+        var existing = await db.ChannelAdmins.FirstOrDefaultAsync(a => a.ChannelId == id && a.DeviceId == deviceId, ct);
+        if (existing is null)
         {
             db.ChannelAdmins.Add(new ChannelAdmin
             {
-                ChannelId = id, DeviceId = deviceId, Role = "admin", AddedAt = DateTimeOffset.UtcNow
+                ChannelId = id, DeviceId = deviceId, Role = role, AddedAt = DateTimeOffset.UtcNow
             });
-            await db.SaveChangesAsync(ct);
         }
+        else
+        {
+            existing.Role = role;
+        }
+        await db.SaveChangesAsync(ct);
         return Results.NoContent();
     }
 
@@ -337,7 +393,9 @@ public static partial class ChannelEndpoints
         Guid id, ClaimsPrincipal user, ChannelService channels, CancellationToken ct)
     {
         if (AccountEndpoints.CallerDeviceId(user) is not { } me) return Results.Unauthorized();
-        if (await channels.FindAsync(id, ct) is null) return ChannelNotFound();
+        if (await channels.FindAsync(id, ct) is not { } channel) return ChannelNotFound();
+        // No new audience while suspended (design D8). Unfollow stays allowed.
+        if (channel.IsSuspended(DateTimeOffset.UtcNow)) return Suspended();
 
         await channels.FollowAsync(id, me, ct);
         return Results.NoContent();
@@ -354,7 +412,7 @@ public static partial class ChannelEndpoints
     }
 
     // -----------------------------------------------------------------------
-    // POST /channels/{id}/posts — publish (owner/admin), idempotent on postId
+    // POST /channels/{id}/posts - publish (owner/admin/publisher), idempotent on postId
     // -----------------------------------------------------------------------
     private static async Task<IResult> CreatePost(
         Guid id, CreatePostRequest request, ClaimsPrincipal user,
@@ -363,6 +421,9 @@ public static partial class ChannelEndpoints
         if (AccountEndpoints.CallerDeviceId(user) is not { } me) return Results.Unauthorized();
         if (await channels.FindAsync(id, ct) is not { } channel) return ChannelNotFound();
         if (await channels.GetRoleAsync(channel, me, ct) == ChannelRole.None) return Results.Forbid();
+        // Nobody publishes into a suspended channel, the owner included:
+        // that is the point of the suspension (contract 3).
+        if (channel.IsSuspended(DateTimeOffset.UtcNow)) return Suspended();
 
         if (request.PostId == Guid.Empty) return Error(400, "postId (client-generated GUID) is required.");
         if (ChannelService.ParseKind(request.Kind) is not { } kind)
@@ -405,15 +466,18 @@ public static partial class ChannelEndpoints
                 break;
         }
 
-        var outcome = await channels.PublishAsync(channel, me, request.PostId, kind, body, request.AttachmentBlobPath, ct);
-        if (outcome is not { } published)
+        var (status, post, byBot) = await channels.PublishAsync(
+            channel, me, request.PostId, kind, body, request.AttachmentBlobPath, ct);
+        if (status == PublishStatus.PostIdConflict)
             return Error(409, "postId is already used in another channel.", "post_id_conflict");
+        if (status == PublishStatus.BotLimitReached)
+            return Error(429, "This bot reached its daily post limit for this channel.", "bot_post_limit");
 
         // A retry of an already stored postId answers 200 with the stored post
         // (not the retried payload) and triggers no second hub event or push.
-        var dto = PostDto(published.Post, NoTotals);
-        return published.Created
-            ? Results.Created($"/channels/{id}/posts/{published.Post.PostId}", dto)
+        var dto = PostDto(post!, NoTotals, byBot);
+        return status == PublishStatus.Created
+            ? Results.Created($"/channels/{id}/posts/{post!.PostId}", dto)
             : Results.Ok(dto);
     }
 
@@ -428,8 +492,12 @@ public static partial class ChannelEndpoints
         if (await channels.FindAsync(id, ct) is not { } channel) return ChannelNotFound();
 
         var isFollower = await channels.IsFollowingAsync(id, me, ct);
-        if (!isFollower && await channels.GetRoleAsync(channel, me, ct) == ChannelRole.None)
+        var role = await channels.GetRoleAsync(channel, me, ct);
+        if (!isFollower && role == ChannelRole.None)
             return Results.Forbid();
+        // Suspended: hidden from followers, but the channel's own team still
+        // reads it (they need to see what the statement of reasons is about).
+        if (role == ChannelRole.None && channel.IsSuspended(DateTimeOffset.UtcNow)) return Suspended();
 
         var take = Math.Clamp(limit ?? 50, 1, 100);
 
@@ -461,18 +529,27 @@ public static partial class ChannelEndpoints
                 .ExecuteUpdateAsync(s => s.SetProperty(f => f.LastSeenPostAt, (DateTimeOffset?)newest), ct);
         }
 
-        return Results.Ok(posts.Select(p => PostDto(p, totals[p.PostId])));
+        var bots = await channels.BotAuthorsAsync(posts.Select(p => p.AuthorDeviceId), ct);
+        return Results.Ok(posts.Select(p => PostDto(p, totals[p.PostId], bots.Contains(p.AuthorDeviceId))));
     }
 
     // -----------------------------------------------------------------------
-    // DELETE /channels/{id}/posts/{postId} — soft delete (owner/admin) + tombstone
+    // DELETE /channels/{id}/posts/{postId} - soft delete (owner/admin, publisher
+    // own posts only) + tombstone
     // -----------------------------------------------------------------------
     private static async Task<IResult> DeletePost(
-        Guid id, Guid postId, ClaimsPrincipal user, ChannelService channels, CancellationToken ct)
+        Guid id, Guid postId, ClaimsPrincipal user, ChannelService channels, AppDbContext db, CancellationToken ct)
     {
         if (AccountEndpoints.CallerDeviceId(user) is not { } me) return Results.Unauthorized();
         if (await channels.FindAsync(id, ct) is not { } channel) return ChannelNotFound();
-        if (await channels.GetRoleAsync(channel, me, ct) == ChannelRole.None) return Results.Forbid();
+        var role = await channels.GetRoleAsync(channel, me, ct);
+        if (role == ChannelRole.None) return Results.Forbid();
+
+        // A publisher (e.g. a newsletter bot) may retract what it wrote, never
+        // someone else's post. Unknown post falls through to the 404 below.
+        if (role == ChannelRole.Publisher &&
+            await db.ChannelPosts.AnyAsync(p => p.PostId == postId && p.ChannelId == id && p.AuthorDeviceId != me, ct))
+            return Results.Forbid();
 
         return await channels.DeletePostAsync(id, postId, ct)
             ? Results.NoContent()
@@ -490,8 +567,9 @@ public static partial class ChannelEndpoints
     private static async Task<(ChannelPost? Post, IResult? Error)> FollowerPostAsync(
         Guid id, Guid postId, Guid me, ChannelService channels, AppDbContext db, CancellationToken ct)
     {
-        if (await channels.FindAsync(id, ct) is null) return (null, ChannelNotFound());
+        if (await channels.FindAsync(id, ct) is not { } channel) return (null, ChannelNotFound());
         if (!await channels.IsFollowingAsync(id, me, ct)) return (null, Results.Forbid());
+        if (channel.IsSuspended(DateTimeOffset.UtcNow)) return (null, Suspended());
 
         var post = await db.ChannelPosts.AsNoTracking().FirstOrDefaultAsync(
             p => p.PostId == postId && p.ChannelId == id && p.DeletedAt == null, ct);
@@ -562,7 +640,7 @@ public static partial class ChannelEndpoints
     }
 
     // -----------------------------------------------------------------------
-    // POST /channels/{id}/report — abuse report (follower), 204
+    // POST /channels/{id}/report - abuse report (follower), 200 with a receipt
     // -----------------------------------------------------------------------
     private static async Task<IResult> Report(
         Guid id, ReportRequest request, ClaimsPrincipal user,
@@ -575,6 +653,21 @@ public static partial class ChannelEndpoints
         var reason = request.Reason?.Trim() ?? "";
         if (reason.Length is 0 or > 512) return Error(400, "reason must be 1-512 characters.");
 
+        // Old clients send no category: they keep working as a "terms" report.
+        var category = request.Category?.Trim().ToLowerInvariant() ?? "terms";
+        if (category is not ("illegal" or "terms" or "spam"))
+            return Error(400, "category must be illegal, terms or spam.", "invalid_category");
+
+        var contactEmail = string.IsNullOrWhiteSpace(request.ContactEmail) ? null : request.ContactEmail.Trim();
+        if (contactEmail is not null && (contactEmail.Length > 254 || !contactEmail.Contains('@')))
+            return Error(400, "contactEmail must be an e-mail address of at most 254 characters.", "invalid_contact");
+
+        // DSA Art. 16(2)(d): a notice of illegal content carries the notifier's
+        // statement that it is made in good faith.
+        var goodFaith = request.GoodFaith ?? false;
+        if (category == "illegal" && !goodFaith)
+            return Error(400, "An illegal-content report requires the good-faith confirmation.", "good_faith_required");
+
         // A deleted post may still be reported (the admin may have removed it
         // to hide evidence) — it only has to belong to this channel.
         if (request.PostId is { } postId &&
@@ -583,9 +676,70 @@ public static partial class ChannelEndpoints
 
         // On top of the general "api" limiter: reports create operator work, so
         // they get their own small daily budget per device.
-        return await channels.ReportAsync(id, request.PostId, me, reason, ct)
-            ? Results.NoContent()
-            : Error(429, "Too many reports, try again later.", "report_limit_reached");
+        var report = await channels.ReportAsync(id, request.PostId, me, reason, category, contactEmail, goodFaith, ct);
+        if (report is null) return Error(429, "Too many reports, try again later.", "report_limit_reached");
+
+        // The receipt (DSA Art. 16(4)): the number lets the reporter follow the
+        // outcome under GET /channels/reports/mine.
+        return Results.Ok(new { reportId = report.Id, createdAt = report.CreatedAt });
+    }
+
+    // -----------------------------------------------------------------------
+    // GET /channels/reports/mine - the outcome of this device's own reports
+    // -----------------------------------------------------------------------
+    private static async Task<IResult> MyReports(ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
+    {
+        if (AccountEndpoints.CallerDeviceId(user) is not { } me) return Results.Unauthorized();
+
+        // Per DEVICE, not per account: reports are filed anonymously by a
+        // device and an anonymous device has no account to group by.
+        // Deleted channels are included on purpose: "the channel was
+        // terminated" is exactly the outcome a reporter wants to see.
+        var reports = await db.ChannelReports.AsNoTracking()
+            .Where(r => r.ReporterDeviceId == me)
+            .OrderByDescending(r => r.CreatedAt)
+            .Take(100)
+            .Select(r => new
+            {
+                reportId = r.Id,
+                channelId = r.ChannelId,
+                channelName = r.Channel.Name,
+                channelHandle = r.Channel.Handle,
+                postId = r.PostId,
+                category = r.Category,
+                createdAt = r.CreatedAt,
+                status = r.Status,
+                resolvedAt = r.ResolvedAt
+            })
+            .ToListAsync(ct);
+        return Results.Ok(reports);
+    }
+
+    // -----------------------------------------------------------------------
+    // GET /channels/{id}/moderation - statements of reasons (owner/admin/publisher)
+    // -----------------------------------------------------------------------
+    private static async Task<IResult> ModerationStatements(
+        Guid id, ClaimsPrincipal user, ChannelService channels, AppDbContext db, CancellationToken ct)
+    {
+        if (AccountEndpoints.CallerDeviceId(user) is not { } me) return Results.Unauthorized();
+
+        // A terminated channel is a soft-deleted one, invisible to everybody
+        // else; its OWNER must still be able to read why (DSA Art. 17), so
+        // the owner check goes by account and ignores DeletedAt.
+        var channel = await db.Channels.AsNoTracking().FirstOrDefaultAsync(c => c.ChannelId == id, ct);
+        if (channel is null) return ChannelNotFound();
+        var role = await channels.GetRoleAsync(channel, me, ct);
+        if (channel.DeletedAt is not null && role != ChannelRole.Owner) return ChannelNotFound();
+        if (role == ChannelRole.None) return Results.Forbid();
+
+        // dismiss is left out: nothing happened to the channel, and listing it
+        // would tell the owner that somebody reported them.
+        var statements = await db.ModerationDecisions.AsNoTracking()
+            .Where(d => d.ChannelId == id && d.Action != ModerationService.Dismiss)
+            .OrderByDescending(d => d.CreatedAt)
+            .Take(50)
+            .ToListAsync(ct);
+        return Results.Ok(statements.Select(ModerationService.StatementDto));
     }
 
     // -----------------------------------------------------------------------
@@ -631,9 +785,11 @@ public static partial class ChannelEndpoints
     {
         if (AccountEndpoints.CallerDeviceId(user) is not { } me) return Results.Unauthorized();
         if (await channels.FindAsync(id, ct) is not { } channel) return ChannelNotFound();
-        if (!await channels.IsFollowingAsync(id, me, ct) &&
-            await channels.GetRoleAsync(channel, me, ct) == ChannelRole.None)
+        var role = await channels.GetRoleAsync(channel, me, ct);
+        if (!await channels.IsFollowingAsync(id, me, ct) && role == ChannelRole.None)
             return Results.Forbid();
+        // Same visibility as the feed: images of a suspended channel are hidden too.
+        if (role == ChannelRole.None && channel.IsSuspended(DateTimeOffset.UtcNow)) return Suspended();
 
         if (!AttachmentName().IsMatch(name)) return Error(404, "Attachment not found.");
 
@@ -660,4 +816,5 @@ public record UpdateChannelRequest(string? Name, string? Description);
 public record CreatePostRequest(Guid PostId, string? Kind, JsonElement Body, string? AttachmentBlobPath);
 public record ReactionRequest(string? Emoji);
 public record VoteRequest(int? OptionIndex);
-public record ReportRequest(Guid? PostId, string? Reason);
+public record ReportRequest(Guid? PostId, string? Reason, string? Category = null, string? ContactEmail = null, bool? GoodFaith = null);
+public record AddAdminRequest(string? Role);

@@ -270,7 +270,16 @@ public static class PrivacyEndpoints
         // here (GDPR export scope), so it is the one place ReporterDeviceId leaks.
         var reportsFiled = await db.ChannelReports
             .Where(r => deviceIds.Contains(r.ReporterDeviceId))
-            .Select(r => new { channelId = r.ChannelId, postId = r.PostId, reason = r.Reason, createdAt = r.CreatedAt })
+            .Select(r => new
+            {
+                reportId = r.Id, channelId = r.ChannelId, postId = r.PostId, reason = r.Reason, createdAt = r.CreatedAt,
+                // Moderation fields: what the subject told us (category, contact
+                // e-mail, good-faith statement) and the outcome of their report.
+                // The operator's decision itself is an operator record, not
+                // the reporter's personal data, so only its result is included.
+                category = r.Category, contactEmail = r.ContactEmail, goodFaith = r.GoodFaith,
+                status = r.Status, resolvedAt = r.ResolvedAt
+            })
             .ToListAsync(ct);
 
         // Multi-device: the signed lists these devices are part of, as a

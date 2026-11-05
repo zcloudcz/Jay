@@ -610,8 +610,9 @@ public class ChannelEndpointsTests : IntegrationTestBase
         (await SendAsync(reporter, HttpMethod.Post, $"/channels/{channelId}/report", new { postId = Guid.NewGuid(), reason = "spam" }))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
 
+        // Moderation contract 3: the answer is now a 200 receipt, not 204.
         var response = await SendAsync(reporter, HttpMethod.Post, $"/channels/{channelId}/report", new { postId, reason = "spam" });
-        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var report = await DbAsync(db => db.ChannelReports.SingleAsync());
         report.ChannelId.Should().Be(channelId);
@@ -622,7 +623,7 @@ public class ChannelEndpointsTests : IntegrationTestBase
         // Whole-channel report (no postId) works too; then the daily budget runs out.
         for (var i = 2; i <= 5; i++)
             (await SendAsync(reporter, HttpMethod.Post, $"/channels/{channelId}/report", new { reason = $"spam {i}" }))
-                .StatusCode.Should().Be(HttpStatusCode.NoContent);
+                .StatusCode.Should().Be(HttpStatusCode.OK);
         (await SendAsync(reporter, HttpMethod.Post, $"/channels/{channelId}/report", new { reason = "one too many" }))
             .StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
         (await DbAsync(db => db.ChannelReports.CountAsync())).Should().Be(5);

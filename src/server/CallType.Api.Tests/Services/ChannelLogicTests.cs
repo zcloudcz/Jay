@@ -174,12 +174,12 @@ public class ChannelLogicTests
             CreatedAt = Now
         };
 
-        var live = JsonSerializer.Serialize(ChannelService.PostEvent(post));
+        var live = JsonSerializer.Serialize(ChannelService.PostEvent(post, false));
         live.Should().NotContain(author.ToString());
         live.Should().Contain("secret caption").And.Contain("\"kind\":\"image\"").And.Contain("\"deleted\":false");
 
         post.DeletedAt = Now;
-        var tombstone = JsonSerializer.Serialize(ChannelService.PostEvent(post));
+        var tombstone = JsonSerializer.Serialize(ChannelService.PostEvent(post, false));
         tombstone.Should().Contain("\"deleted\":true");
         tombstone.Should().NotContain("secret caption").And.NotContain("channel-media");
     }

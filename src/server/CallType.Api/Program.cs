@@ -113,6 +113,15 @@ builder.Services.AddHostedService<ChannelPostCleanupService>();
 // Scoped for the same reason as MessageQueueService: it uses the scoped AppDbContext.
 builder.Services.AddScoped<ChannelService>();
 
+// Channel moderation (operator web, /admin/*). Bound through the DI-resolved
+// IConfiguration for the same reason as BusinessOptions below: tests set
+// Moderation:OperatorAccountIds via WebApplicationFactory, which applies its
+// configuration after these top-level statements run.
+builder.Services.AddOptions<ModerationOptions>()
+    .Configure<IConfiguration>((options, config) =>
+        config.GetSection(ModerationOptions.SectionName).Bind(options));
+builder.Services.AddScoped<ModerationService>();
+
 // BlobServiceClient for Azure Blob Storage — used by backup endpoints to upload
 // and download encrypted backup files. Registered as singleton because the client
 // is thread-safe and maintains an internal connection pool.
@@ -303,6 +312,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 }
 
                 return Task.CompletedTask;
+            },
+
+            // Token separation (moderation contract 4): an operator token
+            // (scope=moderation, sub = ACCOUNT id) is valid only under /admin.
+            // Everywhere else its sub would be read as a DEVICE id, so it is
+            // rejected outright (401) instead of relying on every handler to
+            // notice. The opposite direction (device token on /admin -> 403
+            // operator_token_required) is ModerationEndpoints' group filter,
+            // because it needs a JSON body with a code.
+            OnTokenValidated = context =>
+            {
+                var isOperatorToken = context.Principal?.HasClaim(
+                    JwtService.ScopeClaim, JwtService.ModerationScope) == true;
+                if (isOperatorToken && !context.HttpContext.Request.Path.StartsWithSegments("/admin"))
+                    context.Fail("Operator token is only valid on /admin.");
+                return Task.CompletedTask;
             }
         };
     });
@@ -327,6 +352,22 @@ ProductionConfigurationValidator.Validate(app.Configuration, app.Environment);
 // 3. Rate limiter and authorization.
 if (IPAddress.TryParse(app.Configuration["Proxy:KnownProxy"], out _)) app.UseForwardedHeaders();
 app.UseCors();
+
+// The operator API does not exist until an operator is configured: every
+// /admin route answers 404 (before authentication, so not even a 401 hints
+// at it). Read per request so a config change needs no code path change.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/admin") &&
+        context.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<ModerationOptions>>()
+            .Value.OperatorAccountIds.Count == 0)
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+    await next();
+});
+
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
@@ -349,6 +390,7 @@ app.MapGroupEndpoints();
 app.MapMuteEndpoints();
 app.MapBackupEndpoints();
 app.MapChannelEndpoints();
+app.MapModerationEndpoints(); // operator web: /admin/* (channel moderation)
 app.MapTurnCredentialEndpoints();
 app.MapOrganizationEndpoints();
 app.MapAuditArchiveEndpoints();

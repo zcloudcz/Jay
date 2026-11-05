@@ -1,8 +1,10 @@
 // ---------------------------------------------------------------------------
 // ChannelReport.cs — Abuse report filed by a follower
 // ---------------------------------------------------------------------------
-// Read by the operator only (DB / notification to Channels:ReportNotifyEmail).
-// ReporterDeviceId must never be returned to the channel's admins.
+// Read by the operator only (operator web /admin, see ModerationEndpoints).
+// ReporterDeviceId must never be returned to the channel's admins NOR to the
+// operator: the operator sees category, reason and the contact e-mail the
+// reporter chose to give, never who reported (moderation design, Security).
 // ---------------------------------------------------------------------------
 
 namespace CallType.Api.Models;
@@ -28,6 +30,32 @@ public class ChannelReport
 
     public DateTimeOffset CreatedAt { get; set; }
 
+    /// <summary>
+    /// "illegal" | "terms" | "spam" (DSA Art. 16(2): the notice says what
+    /// kind of problem it is). Old clients send no category, so the column
+    /// defaults to "terms".
+    /// </summary>
+    public string Category { get; set; } = "terms";
+
+    /// <summary>
+    /// Optional reporter e-mail (max 254) for a manual reply by the operator.
+    /// There is no mail sender in this API, so this is the only way an
+    /// outcome can reach a reporter outside the app.
+    /// </summary>
+    public string? ContactEmail { get; set; }
+
+    /// <summary>Good-faith statement (DSA Art. 16(2)(d)); required for "illegal".</summary>
+    public bool GoodFaith { get; set; }
+
+    /// <summary>"open" | "dismissed" | "actioned". Set by a ModerationDecision.</summary>
+    public string Status { get; set; } = "open";
+
+    public DateTimeOffset? ResolvedAt { get; set; }
+
+    /// <summary>The decision that resolved this report (null while open).</summary>
+    public long? DecisionId { get; set; }
+
     // Navigation properties
     public Channel Channel { get; set; } = null!;
+    public ModerationDecision? Decision { get; set; }
 }

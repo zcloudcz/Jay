@@ -181,13 +181,14 @@ dotnet ef database update --project src/server/CallType.Api
 | `GroupMember` | Group membership + roles | Composite(GroupId, DeviceId) |
 | `Backup` | Backup metadata (blobs in Azure) | `Id` (auto) |
 | `ConversationMute` | Per-device mute of a group or 1:1 (push skip) | `Id` (auto), unique(DeviceId, GroupId), unique(DeviceId, PeerPrimaryDeviceId) |
-| `Channel` | Public one-way channel; owned by an account (`OwnerAccountId`), soft delete, denormalized `FollowerCount` | `ChannelId` (Guid), unique Handle (`CH-XXXX-XXXX`) |
-| `ChannelAdmin` | Delegated admins (owner rights come from the account, not from a row here) | Composite(ChannelId, DeviceId) |
+| `Channel` | Public one-way channel; owned by an account (`OwnerAccountId`), soft delete (= operator termination too), denormalized `FollowerCount`, operator suspension `SuspendedUntil` (suspended while > now) | `ChannelId` (Guid), unique Handle (`CH-XXXX-XXXX`) |
+| `ChannelAdmin` | Delegated members, `Role` `admin` or `publisher` (publish + delete own posts only); owner rights come from the account, not from a row here | Composite(ChannelId, DeviceId) |
 | `ChannelPost` | **Plaintext** post (`Kind` text/image/poll), soft delete, 90-day retention | `PostId` (Guid, client-generated), index(ChannelId, CreatedAt DESC) |
 | `ChannelFollower` | Follow link + `LastSeenPostAt`; never exposed by the API | Composite(ChannelId, DeviceId) |
 | `ChannelReaction` | One whitelisted emoji per device per post; API returns totals only | Composite(PostId, DeviceId) |
 | `ChannelPollVote` | One vote per device per poll; API returns totals only | Composite(PostId, DeviceId) |
-| `ChannelReport` | Abuse report for the operator; reporter never exposed | `Id` (auto) |
+| `ChannelReport` | Abuse report for the operator (`Category` illegal/terms/spam, optional `ContactEmail`, `GoodFaith`, `Status` open/dismissed/actioned, `ResolvedAt`, `DecisionId`); reporter never exposed, not even to the operator | `Id` (auto), index(Status, CreatedAt) |
+| `ModerationDecision` | Append-only operator decision = statement of reasons (action, ground terms+rule K1..K10 or illegal+legal ground, explanation, `OperatorAccountId`, `ReportCount`) | `Id` (auto), index(ChannelId, CreatedAt) |
 | `DeviceList` | Signed list of an identity's companion devices; opaque to the server (it never verifies the signature) | `PrimaryDeviceId` |
 | `DeviceListMember` | Device to identity routing row, derived from the list on every PUT | `DeviceId` |
 
@@ -227,15 +228,21 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
 | `GET /turn/credentials` | Time-limited TURN credentials | ✅ Done |
 | `POST /channels` | Create channel (device must be linked to an account, else 403; 409 over `Channels:MaxOwnedPerDevice` per account) | ✅ Done |
 | `GET /channels/mine` | Followed + owned + administered channels with `unreadCount` | ✅ Done |
-| `GET /channels/{idOrHandle}` | Public profile (`followerCount`, `isFollowing`, `role`) — never a follower list | ✅ Done |
+| `GET /channels/{idOrHandle}` | Public profile (`followerCount`, `isFollowing`, `role` owner/admin/publisher, `status` active/suspended, `suspendedUntil`), never a follower list | ✅ Done |
 | `PATCH` / `DELETE /channels/{id}` | Edit (owner/admin) / soft delete (owner, hub `ChannelDeleted`) | ✅ Done |
-| `GET /channels/{id}/admins`, `PUT` / `DELETE /channels/{id}/admins/{deviceId}` | Admin management (owner only) | ✅ Done |
-| `POST` / `DELETE /channels/{id}/follow` | Follow / unfollow, idempotent, 204 | ✅ Done |
-| `POST /channels/{id}/posts` | Publish text/image/poll (owner/admin); same `postId` again = 200, no second event | ✅ Done |
-| `GET /channels/{id}/posts?before=&after=&limit=` | Feed with reaction/vote totals (follower or admin); marks posts as seen | ✅ Done |
-| `DELETE /channels/{id}/posts/{postId}` | Soft delete + tombstone event | ✅ Done |
+| `GET /channels/{id}/admins`, `PUT` / `DELETE /channels/{id}/admins/{deviceId}` | Member management (owner only); PUT body `{"role":"admin"\|"publisher"}` optional (none = admin, 400 `invalid_role`); list items carry `role`, `isBot`, `handle`, `displayName` | ✅ Done |
+| `POST` / `DELETE /channels/{id}/follow` | Follow / unfollow, idempotent, 204; 403 `channel_suspended` on follow | ✅ Done |
+| `POST /channels/{id}/posts` | Publish text/image/poll (owner/admin/publisher); same `postId` again = 200, no second event; 403 `channel_suspended`; bot author over `Channels:MaxBotPostsPerDay` (20) per channel per 24 h -> 429 `bot_post_limit`; post DTO + hub event carry `byBot` | ✅ Done |
+| `GET /channels/{id}/posts?before=&after=&limit=` | Feed with reaction/vote totals (follower or member); marks posts as seen; suspended -> 403 `channel_suspended` except for owner/admin/publisher | ✅ Done |
+| `DELETE /channels/{id}/posts/{postId}` | Soft delete + tombstone event (publisher: own posts only) | ✅ Done |
 | `PUT` / `DELETE /channels/{id}/posts/{postId}/reaction`, `PUT …/vote` | One reaction / vote per device (follower); 422 bad emoji / option index | ✅ Done |
-| `POST /channels/{id}/report` | Abuse report (follower, 5 per device per day), 204 | ✅ Done |
+| `POST /channels/{id}/report` | Abuse report (follower, 5 per device per day) `{postId?, reason, category?, contactEmail?, goodFaith?}`, 200 receipt `{reportId, createdAt}`; 400 `invalid_category` / `invalid_contact` / `good_faith_required` | ✅ Done |
+| `GET /channels/reports/mine` | This device's reports with outcome (`status` open/dismissed/actioned), newest first, max 100 | ✅ Done |
+| `GET /channels/{id}/moderation` | Statements of reasons for owner/admin/publisher (no `dismiss`); owner still reads them after termination | ✅ Done |
+| `POST /admin/session` | Operator login (allowlist `Moderation:OperatorAccountIds` + TOTP/backup code) -> 30 min token `scope=moderation`, valid ONLY on `/admin/*` (device token there = 403 `operator_token_required`, operator token elsewhere = 401); whole `/admin` is 404 with an empty allowlist | ✅ Done |
+| `GET /admin/summary`, `GET /admin/reports`, `GET /admin/subjects/{channelId}?postId=` | Operator queue grouped by subject (open oldest first, `cursor`/`nextCursor`), case detail with reports and decisions (never reporter ids) | ✅ Done |
+| `POST` / `GET /admin/decisions` | Decide (dismiss, remove_post, suspend_channel, terminate_channel, restore_channel) / decision log (`format=csv`) | ✅ Done |
+| `GET /admin/channels?q=`, `GET /admin/channels/{id}/attachments/{name}` | Operator channel search (incl. suspended/deleted) and image access | ✅ Done |
 | `POST /channels/{id}/attachments`, `GET /channels/{id}/attachments/{name}` | Unencrypted image ≤ `Channels:MaxImageBytes` in Blob container `channel-media` (413 over limit) | ✅ Done |
 | `PUT /devices/{primaryId}/device-list` | Primary uploads a new signed device list (version grows; a new companion needs its own `LinkConsent` first, else 409 `device_list_consent_missing`; max 5 companions) | ✅ Done |
 | `GET /devices/{id}/device-list` | Signed list `id` is in, as primary or companion; 404 when none | ✅ Done |

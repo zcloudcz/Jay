@@ -14,8 +14,12 @@
 //
 // OWNERSHIP: owner rights come from Channel.OwnerAccountId — every device
 // linked to that account is an owner, so the channel survives the loss of the
-// creating device. ChannelAdmin rows are delegated admins only (publish, edit,
-// delete posts); there is deliberately no "owner" row to keep in sync.
+// creating device. ChannelAdmin rows are delegated admins (publish, edit,
+// delete posts) or publishers (publish, delete own posts); there is
+// deliberately no "owner" row to keep in sync.
+//
+// MODERATION: a suspended channel (Channel.SuspendedUntil > now) is checked by
+// the endpoints, not here, because the answer differs per route (contract 3).
 // ---------------------------------------------------------------------------
 
 using System.Text.Json;
@@ -30,7 +34,13 @@ using Npgsql;
 
 namespace CallType.Api.Services;
 
-public enum ChannelRole { None, Admin, Owner }
+// Publisher (moderation design D9): may publish and delete its OWN posts only.
+// Ordered by rights on purpose, but callers compare explicitly rather than
+// with < / > so adding a role cannot silently widen a check.
+public enum ChannelRole { None, Publisher, Admin, Owner }
+
+/// <summary>Outcome of PublishAsync.</summary>
+public enum PublishStatus { Created, Duplicate, PostIdConflict, BotLimitReached }
 
 public enum CreateChannelResult { Created, NoAccount, LimitReached }
 
@@ -153,10 +163,32 @@ public class ChannelService(
                 ad => ad.DeviceId == deviceId && ad.AccountId == channel.OwnerAccountId, ct))
             return ChannelRole.Owner;
 
-        return await db.ChannelAdmins.AnyAsync(
-            a => a.ChannelId == channel.ChannelId && a.DeviceId == deviceId, ct)
-            ? ChannelRole.Admin
-            : ChannelRole.None;
+        var role = await db.ChannelAdmins
+            .Where(a => a.ChannelId == channel.ChannelId && a.DeviceId == deviceId)
+            .Select(a => a.Role)
+            .FirstOrDefaultAsync(ct);
+        return ParseAdminRole(role);
+    }
+
+    /// <summary>ChannelAdmin.Role -> enum. Anything unknown counts as admin, the pre-moderation meaning of a row.</summary>
+    public static ChannelRole ParseAdminRole(string? role) => role switch
+    {
+        null => ChannelRole.None,
+        PublisherRole => ChannelRole.Publisher,
+        _ => ChannelRole.Admin
+    };
+
+    public const string AdminRole = "admin";
+    public const string PublisherRole = "publisher";
+
+    /// <summary>Whether the author of a post is a bot device (the byBot label, contract 3).</summary>
+    public async Task<HashSet<Guid>> BotAuthorsAsync(IEnumerable<Guid> authorIds, CancellationToken ct)
+    {
+        var ids = authorIds.Distinct().ToList();
+        return (await db.Devices.AsNoTracking()
+            .Where(d => ids.Contains(d.DeviceId) && d.IsBot)
+            .Select(d => d.DeviceId)
+            .ToListAsync(ct)).ToHashSet();
     }
 
     public Task<bool> IsFollowingAsync(Guid channelId, Guid deviceId, CancellationToken ct) =>
@@ -283,13 +315,28 @@ public class ChannelService(
     /// is stored or sent again. Returns null when the PostId belongs to a
     /// DIFFERENT channel (a real conflict, not a retry).
     /// </summary>
-    public async Task<(bool Created, ChannelPost Post)?> PublishAsync(
+    public async Task<(PublishStatus Status, ChannelPost? Post, bool ByBot)> PublishAsync(
         Channel channel, Guid authorDeviceId, Guid postId, ChannelPostKind kind,
         string body, string? attachmentBlobPath, CancellationToken ct)
     {
+        var byBot = await db.Devices.AnyAsync(d => d.DeviceId == authorDeviceId && d.IsBot, ct);
         var existing = await db.ChannelPosts.AsNoTracking().FirstOrDefaultAsync(p => p.PostId == postId, ct);
         if (existing is null)
         {
+            // Bot daily limit (rule K10). Checked only for a NEW postId, so a
+            // retry of an already stored post is never refused or counted.
+            // Deleted posts count too: deleting and re-posting must not reset
+            // the budget. Two exactly parallel bot posts may both pass the
+            // check (no lock); the limit is a spam brake, one extra post is
+            // acceptable and not worth serialising every bot publish.
+            if (byBot)
+            {
+                var since = DateTimeOffset.UtcNow.AddDays(-1);
+                var recent = await db.ChannelPosts.CountAsync(p =>
+                    p.ChannelId == channel.ChannelId && p.AuthorDeviceId == authorDeviceId && p.CreatedAt > since, ct);
+                if (recent >= _options.MaxBotPostsPerDay) return (PublishStatus.BotLimitReached, null, true);
+            }
+
             var now = DateTimeOffset.UtcNow;
             var post = new ChannelPost
             {
@@ -311,7 +358,7 @@ public class ChannelService(
                 await db.SaveChangesAsync(ct);
                 try
                 {
-                    await BroadcastPostAsync(post);
+                    await BroadcastPostAsync(post, byBot);
                 }
                 catch (Exception ex)
                 {
@@ -322,7 +369,7 @@ public class ChannelService(
                     logger.LogError(ex, "Channel post {PostId} saved but live broadcast failed", post.PostId);
                 }
                 NotifyOfflineFollowers(channel.ChannelId);
-                return (true, post);
+                return (PublishStatus.Created, post, byBot);
             }
             catch (DbUpdateException ex) when (IsUniqueViolation(ex))
             {
@@ -333,10 +380,18 @@ public class ChannelService(
             }
         }
 
-        return existing.ChannelId == channel.ChannelId ? (false, existing) : null;
+        if (existing.ChannelId != channel.ChannelId) return (PublishStatus.PostIdConflict, null, false);
+        // The stored post's own author decides the label, not the retrying caller.
+        var existingByBot = existing.AuthorDeviceId == authorDeviceId
+            ? byBot
+            : await db.Devices.AnyAsync(d => d.DeviceId == existing.AuthorDeviceId && d.IsBot, ct);
+        return (PublishStatus.Duplicate, existing, existingByBot);
     }
 
-    /// <summary>Soft-deletes a post and sends the tombstone. False = no such live post.</summary>
+    /// <summary>
+    /// Soft-deletes a post and sends the tombstone. False = no such live post.
+    /// The publisher "own posts only" rule is checked by the endpoint first.
+    /// </summary>
     public async Task<bool> DeletePostAsync(Guid channelId, Guid postId, CancellationToken ct)
     {
         var post = await db.ChannelPosts.FirstOrDefaultAsync(
@@ -345,25 +400,37 @@ public class ChannelService(
 
         post.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-        await BroadcastPostAsync(post);
+        await BroadcastTombstoneAsync(post, ct);
         return true;
+    }
+
+    /// <summary>Sends the tombstone of an already soft-deleted post (also used by operator removal).</summary>
+    public async Task BroadcastTombstoneAsync(ChannelPost post, CancellationToken ct)
+    {
+        var byBot = await db.Devices.AnyAsync(d => d.DeviceId == post.AuthorDeviceId && d.IsBot, ct);
+        await BroadcastPostAsync(post, byBot);
     }
 
     public async Task DeleteChannelAsync(Channel channel, CancellationToken ct)
     {
         channel.DeletedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
-        await hub.Clients.Group(MessengerHub.ChannelGroup(channel.ChannelId))
-            .SendAsync("ChannelDeleted", new { channelId = channel.ChannelId }, CancellationToken.None);
+        await BroadcastChannelDeletedAsync(channel.ChannelId);
     }
+
+    /// <summary>The ChannelDeleted hub event (owner delete, account deletion, operator termination).</summary>
+    public Task BroadcastChannelDeletedAsync(Guid channelId) =>
+        hub.Clients.Group(MessengerHub.ChannelGroup(channelId))
+            .SendAsync("ChannelDeleted", new { channelId }, CancellationToken.None);
 
     /// <summary>
     /// The wire shape of a post, shared by the REST responses and the hub event
     /// so clients parse one format. A deleted post is a tombstone: content is
     /// blanked so a soft delete really removes the text from every client.
-    /// NOTE: AuthorDeviceId is intentionally absent (anonymity of admins too).
+    /// NOTE: AuthorDeviceId is intentionally absent (anonymity of admins too);
+    /// byBot only says "a bot wrote this" (rule K10 label), not which device.
     /// </summary>
-    public static object PostEvent(ChannelPost post)
+    public static object PostEvent(ChannelPost post, bool byBot)
     {
         var deleted = post.DeletedAt is not null;
         return new
@@ -374,15 +441,16 @@ public class ChannelService(
             body = deleted ? "" : post.Body,
             attachmentBlobPath = deleted ? null : post.AttachmentBlobPath,
             createdAt = post.CreatedAt,
-            deleted
+            deleted,
+            byBot
         };
     }
 
     // CancellationToken.None on purpose: the row is already committed, so a
     // client that hung up right after must not cancel the fan-out to others.
-    private Task BroadcastPostAsync(ChannelPost post) =>
+    private Task BroadcastPostAsync(ChannelPost post, bool byBot) =>
         hub.Clients.Group(MessengerHub.ChannelGroup(post.ChannelId))
-            .SendAsync("ReceiveChannelPost", PostEvent(post), CancellationToken.None);
+            .SendAsync("ReceiveChannelPost", PostEvent(post, byBot), CancellationToken.None);
 
     private void NotifyOfflineFollowers(Guid channelId)
     {
@@ -448,35 +516,43 @@ public class ChannelService(
              ON CONFLICT ("PostId", "DeviceId") DO UPDATE SET "OptionIndex" = EXCLUDED."OptionIndex"
              """, ct);
 
-    /// <summary>Stores a report. False = the device used up its daily report budget (429).</summary>
-    public async Task<bool> ReportAsync(
-        Guid channelId, Guid? postId, Guid reporterDeviceId, string reason, CancellationToken ct)
+    /// <summary>Stores a report. Null = the device used up its daily report budget (429).</summary>
+    public async Task<ChannelReport?> ReportAsync(
+        Guid channelId, Guid? postId, Guid reporterDeviceId, string reason,
+        string category, string? contactEmail, bool goodFaith, CancellationToken ct)
     {
         var since = DateTimeOffset.UtcNow.AddDays(-1);
         var recent = await db.ChannelReports.CountAsync(
             r => r.ReporterDeviceId == reporterDeviceId && r.CreatedAt > since, ct);
-        if (recent >= MaxReportsPerDay) return false;
+        if (recent >= MaxReportsPerDay) return null;
 
+        var now = DateTimeOffset.UtcNow;
         var report = new ChannelReport
         {
             ChannelId = channelId,
             PostId = postId,
             ReporterDeviceId = reporterDeviceId,
             Reason = reason,
-            CreatedAt = DateTimeOffset.UtcNow
+            Category = category,
+            ContactEmail = contactEmail,
+            GoodFaith = goodFaith,
+            Status = "open",
+            // Truncated to microseconds like posts: the createdAt in the
+            // receipt must equal the stored value the reporter later sees.
+            CreatedAt = new DateTimeOffset(now.Ticks - now.Ticks % 10, TimeSpan.Zero)
         };
         db.ChannelReports.Add(report);
         await db.SaveChangesAsync(ct);
 
         // There is NO e-mail infrastructure in this API (no SMTP client, no mail
-        // provider) and adding one just for this was ruled out. The operator is
-        // therefore notified through a structured Warning log — alert on
-        // "Channel report" in App Service logs. ReportNotifyEmail is logged so
-        // the alert rule can route it; wire real mail here once a sender exists.
-        // The reporter's id and free-text reason stay in the DB row only.
+        // provider) and adding one just for this was ruled out. The operator
+        // works the queue in the operator web (/admin) and is additionally
+        // notified through a structured Warning log: alert on "Channel report"
+        // in App Service logs. The reporter's id, reason and contact e-mail
+        // stay in the DB row only.
         logger.LogWarning(
-            "Channel report {ReportId} filed: channel {ChannelId}, post {PostId}, notify {NotifyEmail}",
-            report.Id, channelId, postId, _options.ReportNotifyEmail);
-        return true;
+            "Channel report {ReportId} filed: channel {ChannelId}, post {PostId}, category {Category}, notify {NotifyEmail}",
+            report.Id, channelId, postId, category, _options.ReportNotifyEmail);
+        return report;
     }
 }

@@ -130,6 +130,43 @@ public class JwtService
         return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
     }
 
+    /// <summary>Claim + value that marks an operator (moderation) token.</summary>
+    public const string ScopeClaim = "scope";
+    public const string ModerationScope = "moderation";
+
+    /// <summary>
+    /// Creates an operator token for the moderation web (POST /admin/session).
+    /// sub = the operator's ACCOUNT id (not a device: the web registers no
+    /// device). scope=moderation is what Program.cs uses to keep the two token
+    /// kinds apart: this token is accepted only on /admin/*, a device token is
+    /// refused there. Without that separation a sub that is an account id
+    /// would be misread as a device id by every device endpoint.
+    /// </summary>
+    public (string Token, DateTimeOffset ExpiresAt) GenerateOperatorToken(Guid accountId, TimeSpan lifetime)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var expiresAt = now.Add(lifetime);
+
+        var claims = new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, accountId.ToString()),
+            new Claim(JwtRegisteredClaimNames.Iat, now.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim(ScopeClaim, ModerationScope),
+            new Claim("amr", "totp")
+        };
+
+        var token = new JwtSecurityToken(
+            issuer: _issuer,
+            audience: null,
+            claims: claims,
+            notBefore: now.UtcDateTime,
+            expires: expiresAt.UtcDateTime,
+            signingCredentials: new SigningCredentials(_signingKey, SecurityAlgorithms.HmacSha256));
+
+        return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+    }
+
     /// <summary>
     /// Validates a token for the refresh flow. Accepts tokens that have expired
     /// within the grace period — the caller can exchange an expired-but-recent
@@ -159,7 +196,15 @@ public class JwtService
 
         try
         {
-            return handler.ValidateToken(token, parameters, out _);
+            var principal = handler.ValidateToken(token, parameters, out _);
+            // An operator token is never refreshable: its sub is an ACCOUNT id
+            // and refresh would mint a device token from it. The operator
+            // proves TOTP again instead (moderation contract 4.1).
+            // Type checked by suffix too: this handler maps inbound claim names.
+            return principal.HasClaim(c => c.Value == ModerationScope &&
+                                           (c.Type == ScopeClaim || c.Type.EndsWith("/scope", StringComparison.Ordinal)))
+                ? null
+                : principal;
         }
         catch (SecurityTokenException)
         {
