@@ -7,8 +7,8 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../l10n/l10n.dart';
+import 'channel_moderation.dart';
 import 'channel_notice.dart';
-import 'channel_screen.dart' show reportChannelDialog;
 import 'channels_controller.dart';
 
 /// Public profile of a channel — the landing page of
@@ -101,6 +101,13 @@ class _ChannelProfileScreenState extends State<ChannelProfileScreen> {
     final local = controller.channel(info.channelId);
     final following = local?.isFollowing ?? false;
     final role = local?.role ?? info.role;
+    // The fetched profile is the fresher source for the status: the local
+    // row only learns it on sync or from a refused feed.
+    final suspended =
+        info.isSuspended || (local != null && channelIsSuspended(local));
+    final suspendedUntil = info.isSuspended
+        ? info.suspendedUntil
+        : local?.suspendedUntil;
     // Edited here a moment ago → the local row is newer than the snapshot.
     final name = local?.name ?? info.name;
     final description = local?.description ?? info.description;
@@ -108,6 +115,10 @@ class _ChannelProfileScreenState extends State<ChannelProfileScreen> {
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
+        if (suspended) ...[
+          ChannelSuspendedBanner(until: suspendedUntil),
+          const SizedBox(height: 16),
+        ],
         Text(name, style: theme.textTheme.headlineSmall),
         const SizedBox(height: 4),
         SelectableText(info.handle, style: theme.textTheme.bodySmall),
@@ -120,7 +131,9 @@ class _ChannelProfileScreenState extends State<ChannelProfileScreen> {
         ),
         const SizedBox(height: 16),
         FilledButton(
-          onPressed: _busy
+          // No new follows while suspended (server: 403 channel_suspended);
+          // unfollowing stays possible.
+          onPressed: _busy || (suspended && !following)
               ? null
               : () => _run(
                   () => following
@@ -135,15 +148,16 @@ class _ChannelProfileScreenState extends State<ChannelProfileScreen> {
             child: Text(l10n.channelOpenPosts),
           ),
         // The server lets owner AND admin edit the profile; managing admins
-        // and deleting the channel are owner-only.
-        if (role != null)
+        // and deleting the channel are owner-only. A publisher may only
+        // publish, so it gets none of these.
+        if (role == channelRoleOwner || role == channelRoleAdmin)
           TextButton(
             onPressed: _busy
                 ? null
                 : () => _edit(context, controller, info, name, description),
             child: Text(l10n.channelEdit),
           ),
-        if (role == 'owner') ...[
+        if (role == channelRoleOwner) ...[
           TextButton(
             onPressed: () => context.push('/channels/admins/${info.channelId}'),
             child: Text(l10n.channelManageAdmins),
@@ -156,6 +170,9 @@ class _ChannelProfileScreenState extends State<ChannelProfileScreen> {
             ),
           ),
         ],
+        // Statements of reasons are for the channel team only (the server
+        // answers 403 to anyone else).
+        if (role != null) ChannelModerationSection(channelId: info.channelId),
         const Divider(height: 32),
         Center(
           child: Container(
@@ -209,7 +226,8 @@ class _ChannelProfileScreenState extends State<ChannelProfileScreen> {
     String name,
     String description,
   ) async {
-    // Plain variables instead of controllers — see reportChannelDialog.
+    // Plain variables instead of controllers: a controller would have to be
+    // disposed while the dialog's exit animation still uses it.
     var newName = name;
     var newDescription = description;
     final l10n = context.l10n;

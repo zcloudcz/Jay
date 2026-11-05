@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/main_navigation_bar.dart';
+import 'channel_moderation.dart';
 import 'channel_notice.dart';
 import 'channels_controller.dart';
 
@@ -66,6 +67,20 @@ class UpdatesScreen extends StatelessWidget {
             tooltip: l10n.channelOpenTooltip,
             onPressed: () => _openByHandle(context),
           ),
+          PopupMenuButton<String>(
+            key: const Key('updates-menu'),
+            onSelected: (route) => context.push(route),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: '/channels/reports',
+                child: Text(l10n.channelMyReportsTitle),
+              ),
+              PopupMenuItem(
+                value: '/channels/blocked',
+                child: Text(l10n.channelProfileBlockedChannels),
+              ),
+            ],
+          ),
         ],
       ),
       body: Column(
@@ -110,7 +125,7 @@ class UpdatesScreen extends StatelessWidget {
                           // roles are shown as "admin" rather than raw.
                           channel.role == null
                               ? channel.handle
-                              : '${channel.handle} · ${channel.role == 'owner' ? l10n.channelRoleOwner : l10n.channelRoleAdmin}',
+                              : '${channel.handle} · ${channelRoleLabel(l10n, channel.role!)}',
                         ),
                         trailing: channel.unreadCount > 0
                             ? Badge(label: Text('${channel.unreadCount}'))

@@ -954,5 +954,121 @@
   "botLinkFailed": "Could not open this bot. Check your connection and try again.",
   "@botLinkFailed": {
     "description": "Shown when a bot link (calltype://bot/...) could not be resolved."
+  },
+  "channelRules": "Channel rules",
+  "channelReportCategoryLabel": "Category",
+  "channelReportCategoryIllegal": "Illegal content",
+  "channelReportCategoryTerms": "Breaks the channel rules",
+  "channelReportCategorySpam": "Spam or scam",
+  "channelReportGoodFaith": "I confirm in good faith that this report is accurate and complete.",
+  "@channelReportGoodFaith": {
+    "description": "Checkbox required for an illegal-content report (DSA Art. 16(2)(d)). Keep the legal meaning."
+  },
+  "channelReportEmailLabel": "Your e-mail (optional)",
+  "channelReportEmailHelper": "Only the operator sees it, to reply to you.",
+  "channelReportEmailInvalid": "Enter a valid e-mail address.",
+  "channelReportReceipt": "Report no. {number} received. Follow it under Reports I filed.",
+  "@channelReportReceipt": {
+    "description": "Report number from the server receipt.",
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
+  "channelMyReportsTitle": "Reports I filed",
+  "channelMyReportsEmpty": "You have not filed any reports yet.",
+  "channelMyReportsFailed": "Reports could not be loaded. Check your connection.",
+  "channelMyReportNumber": "Report no. {number}",
+  "@channelMyReportNumber": {
+    "description": "Report number.",
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
+  "channelReportStatusOpen": "Pending",
+  "channelReportStatusDismissed": "No action taken",
+  "channelReportStatusActioned": "Action taken",
+  "channelSuspendedUntil": "Suspended by the operator until {date}.",
+  "@channelSuspendedUntil": {
+    "description": "Formatted end date of the suspension.",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "channelSuspended": "Suspended by the operator.",
+  "channelSuspendedFeed": "This channel is suspended. Its posts are not available until the suspension ends.",
+  "@channelSuspendedFeed": {
+    "description": "Shown instead of the feed of a channel suspended by the operator."
+  },
+  "channelModerationTitle": "Moderation",
+  "channelModerationEmpty": "No moderation decisions.",
+  "channelModerationRemovePost": "A post was removed",
+  "channelModerationSuspend": "Channel suspended",
+  "channelModerationTerminate": "Channel terminated",
+  "channelModerationRestore": "Channel restored",
+  "channelModerationOther": "Decision",
+  "channelModerationRule": "Rule {rule}",
+  "@channelModerationRule": {
+    "description": "Rule id K1..K10 (not translated).",
+    "placeholders": {
+      "rule": {
+        "type": "String"
+      }
+    }
+  },
+  "channelModerationLegalGround": "Illegal content: {ground}",
+  "@channelModerationLegalGround": {
+    "description": "Legal ground written by the operator.",
+    "placeholders": {
+      "ground": {
+        "type": "String"
+      }
+    }
+  },
+  "channelModerationBasedOnReports": "Based on user reports.",
+  "channelModerationOwnInitiative": "On the operator's own initiative.",
+  "channelModerationRedress": "Disagree? Write to martin@zcloud.cz within 6 months.",
+  "@channelModerationRedress": {
+    "description": "Redress information under every statement of reasons. Keep the e-mail address and the 6-month limit."
+  },
+  "channelRolePublisher": "publisher",
+  "channelAdminsMakePublisher": "Make publisher",
+  "channelAdminsAddByHandle": "Add by handle",
+  "channelAdminsHandleLabel": "User handle",
+  "channelAdminsHandleNotFound": "No user with this handle.",
+  "channelAdminsRoleAdminHelp": "Admin: publishes, deletes any post and edits the channel.",
+  "channelAdminsRolePublisherHelp": "Publisher: publishes and deletes only own posts. Recommended for bots.",
+  "@channelAdminsRolePublisherHelp": {
+    "description": "Explains the publisher channel role."
+  },
+  "channelAdminsChangeRole": "Change role",
+  "channelAdminsAddTitle": "Add {name}",
+  "@channelAdminsAddTitle": {
+    "description": "Display name or handle of the device to add.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "channelAdminsAdd": "Add",
+  "channelAdminsRoleChanged": "Role changed.",
+  "channelCreateRulesAgree": "By creating a channel you agree to the channel rules.",
+  "channelErrorSuspended": "This channel is suspended by the operator.",
+  "channelErrorBotPostLimit": "This bot reached its daily post limit in this channel.",
+  "channelErrorGoodFaithRequired": "Confirm the good-faith statement to report illegal content.",
+  "channelLinkOpenFailed": "Could not open {url}",
+  "@channelLinkOpenFailed": {
+    "description": "The web address that could not be opened.",
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
   }
 }
