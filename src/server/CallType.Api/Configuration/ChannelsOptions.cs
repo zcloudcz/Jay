@@ -38,4 +38,11 @@ public class ChannelsOptions
     /// channel cannot spam followers' lock screens. 10 minutes default.
     /// </summary>
     public int PushThrottleMinutes { get; set; } = 10;
+
+    /// <summary>
+    /// Max posts one BOT device may publish to one channel per 24 h (rule K10,
+    /// moderation design D10). Humans are not limited: a runaway bot loop is
+    /// the realistic flood, a human is not. 20 default.
+    /// </summary>
+    public int MaxBotPostsPerDay { get; set; } = 20;
 }

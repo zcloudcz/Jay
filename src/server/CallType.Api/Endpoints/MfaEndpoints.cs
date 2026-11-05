@@ -238,7 +238,9 @@ public static class MfaEndpoints
     // this method only issues its own atomic UPDATEs, it never calls
     // SaveChanges on the passed entity.
     // -----------------------------------------------------------------------
-    private static async Task<(IResult? Failure, long? Step)> TryConsumeCodeAsync(
+    // Internal: POST /admin/session (ModerationEndpoints) checks the operator's
+    // second factor with exactly these replay and lockout rules.
+    internal static async Task<(IResult? Failure, long? Step)> TryConsumeCodeAsync(
         AppDbContext db, MfaEncryptionService encryption, TotpService totp, AccountMfa mfa,
         string? code, string? backupCode, TimeProvider clock, CancellationToken ct)
     {
@@ -295,7 +297,7 @@ public static class MfaEndpoints
         db.AccountMfas.Where(m => m.AccountId == accountId)
             .ExecuteUpdateAsync(s => s.SetProperty(m => m.FailedAttempts, 0).SetProperty(m => m.LockedUntil, (DateTimeOffset?)null), ct);
 
-    private static IResult NotConfigured() => Results.Json(
+    internal static IResult NotConfigured() => Results.Json(
         new { error = "MFA is not configured on this server.", code = "mfa_not_configured" },
         statusCode: StatusCodes.Status503ServiceUnavailable);
 
@@ -309,7 +311,7 @@ public static class MfaEndpoints
     private static IResult ConfirmInvalidCode() =>
         Results.BadRequest(new { error = "Invalid MFA code.", code = "mfa_invalid_code" });
 
-    private static IResult Locked() => Results.Json(
+    internal static IResult Locked() => Results.Json(
         new { error = "Too many failed MFA attempts. Try again later.", code = "mfa_locked" },
         statusCode: StatusCodes.Status429TooManyRequests);
 }

@@ -193,6 +193,9 @@ namespace CallType.Api.Migrations
                     b.Property<Guid>("OwnerDeviceId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("SuspendedUntil")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("ChannelId");
 
                     b.HasIndex("Handle")
@@ -339,11 +342,28 @@ namespace CallType.Api.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasDefaultValue("terms");
+
                     b.Property<Guid>("ChannelId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ContactEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("DecisionId")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("GoodFaith")
+                        .HasColumnType("boolean");
 
                     b.Property<Guid?>("PostId")
                         .HasColumnType("uuid");
@@ -356,9 +376,23 @@ namespace CallType.Api.Migrations
                     b.Property<Guid>("ReporterDeviceId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasDefaultValue("open");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ChannelId");
+
+                    b.HasIndex("DecisionId");
+
+                    b.HasIndex("Status", "CreatedAt");
 
                     b.ToTable("ChannelReports");
                 });
@@ -562,6 +596,61 @@ namespace CallType.Api.Migrations
                     b.HasIndex("DeviceId");
 
                     b.ToTable("GroupMembers");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ModerationDecision", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Explanation")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Ground")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("LegalGround")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.Property<Guid>("OperatorAccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PostId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ReportCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Rule")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<DateTimeOffset?>("SuspendedUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChannelId", "CreatedAt");
+
+                    b.ToTable("ModerationDecisions");
                 });
 
             modelBuilder.Entity("CallType.Api.Models.OneTimePreKey", b =>
@@ -783,7 +872,14 @@ namespace CallType.Api.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("CallType.Api.Models.ModerationDecision", "Decision")
+                        .WithMany()
+                        .HasForeignKey("DecisionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.Navigation("Channel");
+
+                    b.Navigation("Decision");
                 });
 
             modelBuilder.Entity("CallType.Api.Models.ConversationMute", b =>
@@ -900,6 +996,17 @@ namespace CallType.Api.Migrations
                     b.Navigation("Device");
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.ModerationDecision", b =>
+                {
+                    b.HasOne("CallType.Api.Models.Channel", "Channel")
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Channel");
                 });
 
             modelBuilder.Entity("CallType.Api.Models.OneTimePreKey", b =>

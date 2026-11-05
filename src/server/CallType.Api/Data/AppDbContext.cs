@@ -41,6 +41,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ChannelReaction> ChannelReactions => Set<ChannelReaction>();
     public DbSet<ChannelPollVote> ChannelPollVotes => Set<ChannelPollVote>();
     public DbSet<ChannelReport> ChannelReports => Set<ChannelReport>();
+    public DbSet<ModerationDecision> ModerationDecisions => Set<ModerationDecision>();
     public DbSet<AccountMfa> AccountMfas => Set<AccountMfa>();
     public DbSet<AccountMfaBackupCode> AccountMfaBackupCodes => Set<AccountMfaBackupCode>();
 
@@ -433,9 +434,44 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // are plain columns (no FK) so a report survives post retention.
             entity.HasIndex(r => r.ChannelId);
 
+            // DB defaults matter for the rows that exist before the migration
+            // (they become open "terms" reports, which is what they were).
+            entity.Property(r => r.Category).HasMaxLength(10).HasDefaultValue("terms");
+            entity.Property(r => r.Status).HasMaxLength(10).HasDefaultValue("open");
+            entity.Property(r => r.ContactEmail).HasMaxLength(254);
+
+            // The operator queue: "open reports, oldest first" and the summary counts.
+            entity.HasIndex(r => new { r.Status, r.CreatedAt });
+
             entity.HasOne(r => r.Channel)
                   .WithMany()
                   .HasForeignKey(r => r.ChannelId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            // SetNull, not Cascade: removing a decision (never done by the API)
+            // must not take the reports with it.
+            entity.HasOne(r => r.Decision)
+                  .WithMany()
+                  .HasForeignKey(r => r.DecisionId)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ModerationDecision>(entity =>
+        {
+            entity.HasKey(d => d.Id);
+            entity.Property(d => d.Id).ValueGeneratedOnAdd();
+            entity.Property(d => d.Action).HasMaxLength(20);
+            entity.Property(d => d.Ground).HasMaxLength(10);
+            entity.Property(d => d.Rule).HasMaxLength(3);
+            entity.Property(d => d.LegalGround).HasMaxLength(300);
+            entity.Property(d => d.Explanation).HasMaxLength(2000);
+
+            // Statements of one channel, newest first (owner view + case detail).
+            entity.HasIndex(d => new { d.ChannelId, d.CreatedAt });
+
+            entity.HasOne(d => d.Channel)
+                  .WithMany()
+                  .HasForeignKey(d => d.ChannelId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
     }

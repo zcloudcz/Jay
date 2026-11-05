@@ -415,7 +415,8 @@ public static class OrganizationEndpoints
         return sb.ToString();
     }
 
-    private static string EscapeCsv(string value)
+    // Internal: the moderation decision export (ModerationEndpoints) reuses it.
+    internal static string EscapeCsv(string value)
     {
         if (value.Length > 0 && (value[0] == '=' || value[0] == '+' || value[0] == '-' || value[0] == '@'))
             value = "'" + value;

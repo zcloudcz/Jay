@@ -36,6 +36,8 @@ public class ChannelRoutesTests
     [InlineData("DELETE", "/channels/6f9619ff-8b86-d011-b42d-00cf4fc964ff/posts/6f9619ff-8b86-d011-b42d-00cf4fc964fe/reaction")]
     [InlineData("PUT", "/channels/6f9619ff-8b86-d011-b42d-00cf4fc964ff/posts/6f9619ff-8b86-d011-b42d-00cf4fc964fe/vote")]
     [InlineData("POST", "/channels/6f9619ff-8b86-d011-b42d-00cf4fc964ff/report")]
+    [InlineData("GET", "/channels/reports/mine")]
+    [InlineData("GET", "/channels/6f9619ff-8b86-d011-b42d-00cf4fc964ff/moderation")]
     [InlineData("POST", "/channels/6f9619ff-8b86-d011-b42d-00cf4fc964ff/attachments")]
     [InlineData("GET", "/channels/6f9619ff-8b86-d011-b42d-00cf4fc964ff/attachments/0123456789abcdef0123456789abcdef.png")]
     public async Task Channel_route_exists_and_requires_a_token(string method, string url)
@@ -49,5 +51,32 @@ public class ChannelRoutesTests
 
         // 401 (not 404/405) = the route matched; (not 500) = its delegate could be built.
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    // Operator API (channel moderation): same smoke test once an operator is
+    // configured; without one the whole /admin tree is 404 (contract 4).
+    [Theory]
+    [InlineData("GET", "/admin/summary")]
+    [InlineData("GET", "/admin/reports?status=open&limit=10")]
+    [InlineData("GET", "/admin/subjects/6f9619ff-8b86-d011-b42d-00cf4fc964ff?postId=6f9619ff-8b86-d011-b42d-00cf4fc964fe")]
+    [InlineData("GET", "/admin/channels/6f9619ff-8b86-d011-b42d-00cf4fc964ff/attachments/0123456789abcdef0123456789abcdef.png")]
+    [InlineData("POST", "/admin/decisions")]
+    [InlineData("GET", "/admin/decisions?format=csv")]
+    [InlineData("GET", "/admin/channels?q=CH")]
+    public async Task Admin_route_exists_requires_a_token_and_is_hidden_without_operators(string method, string url)
+    {
+        async Task<HttpStatusCode> StatusAsync(string? operatorId)
+        {
+            var settings = new Dictionary<string, string?> { ["Jwt:Secret"] = "test-jwt-secret-at-least-32-characters-long!!" };
+            if (operatorId is not null) settings["Moderation:OperatorAccountIds:0"] = operatorId;
+            await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+                builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(settings)));
+            using var client = factory.CreateClient();
+            using var response = await client.SendAsync(new HttpRequestMessage(new HttpMethod(method), url));
+            return response.StatusCode;
+        }
+
+        (await StatusAsync("6f9619ff-8b86-d011-b42d-00cf4fc964aa")).Should().Be(HttpStatusCode.Unauthorized);
+        (await StatusAsync(null)).Should().Be(HttpStatusCode.NotFound);
     }
 }

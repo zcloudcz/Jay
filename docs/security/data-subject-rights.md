@@ -70,7 +70,11 @@ Vrací JSON se vším, co server o účtu drží:
 - `channelsOwned` / `channelsAdministered` / `channelsFollowed`.
 - `channelReportsFiled` — hlášení, která podala zařízení tohoto účtu
   (jinak se identita nahlašovatele nikde nevrací — tady je to vlastní údaj
-  subjektu).
+  subjektu). Od moderace kanálů navíc `reportId`, `category`, `contactEmail`,
+  `goodFaith` a výsledek `status` (open / dismissed / actioned) s `resolvedAt`.
+  Samotné rozhodnutí operátora (`ModerationDecision`) je záznam operátora, ne
+  osobní údaj nahlašovatele, proto se neexportuje; vlastník kanálu ho vidí
+  v aplikaci (`GET /channels/{id}/moderation`).
 - `deviceLists` - podepsané seznamy zařízení (multi-device), jejichž součástí
   je některé zařízení účtu, jako primární i jako companion: `primaryDeviceId`,
   `version`, `payload` (base64; ID a veřejné klíče zařízení), `updatedAt`.

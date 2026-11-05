@@ -54,6 +54,15 @@ public class Channel
     /// </summary>
     public int FollowerCount { get; set; }
 
+    /// <summary>
+    /// Operator suspension (moderation). Suspended = SuspendedUntil &gt; now;
+    /// expiry needs no background job because every check compares with the
+    /// clock. Termination is NOT a status here: it is the existing soft delete.
+    /// </summary>
+    public DateTimeOffset? SuspendedUntil { get; set; }
+
+    public bool IsSuspended(DateTimeOffset now) => SuspendedUntil is { } until && until > now;
+
     // Navigation properties
     public Account OwnerAccount { get; set; } = null!;
     public List<ChannelAdmin> Admins { get; set; } = [];

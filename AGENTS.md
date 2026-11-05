@@ -107,6 +107,10 @@ dotnet ef database update --project src/server/CallType.Api
 | `GroupMember` | Group membership + roles | Composite(GroupId, DeviceId) |
 | `Backup` | Backup metadata (blobs in Azure) | `Id` (auto) |
 | `ConversationMute` | Per-device mute of a group or 1:1 (push skip) | `Id` (auto), unique(DeviceId, GroupId), unique(DeviceId, PeerPrimaryDeviceId) |
+| `Channel` | Public one-way channel (plaintext), soft delete, operator suspension `SuspendedUntil` | `ChannelId` (Guid), unique Handle |
+| `ChannelAdmin` | Delegated members, `Role` `admin` or `publisher` (publish + delete own posts only) | Composite(ChannelId, DeviceId) |
+| `ChannelReport` | Abuse report (`Category`, optional `ContactEmail`, `GoodFaith`, `Status` open/dismissed/actioned, `DecisionId`); reporter never exposed | `Id` (auto), index(Status, CreatedAt) |
+| `ModerationDecision` | Append-only operator decision = statement of reasons | `Id` (auto), index(ChannelId, CreatedAt) |
 
 All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content.
 
@@ -131,6 +135,10 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `POST /backups` | Upload backup metadata | ✅ Done |
 | `GET /backups/{accountId}` | List backups | ✅ Done |
 | `GET /turn/credentials` | Time-limited TURN credentials | ✅ Done |
+| `POST /channels/{id}/report` | Abuse report with `category`/`contactEmail`/`goodFaith`, 200 receipt `{reportId, createdAt}` | ✅ Done |
+| `GET /channels/reports/mine`, `GET /channels/{id}/moderation` | Reporter outcome / statements of reasons for owner, admin, publisher | ✅ Done |
+| `PUT /channels/{id}/admins/{deviceId}` | Owner appoints `admin` or `publisher` (body `{"role"}` optional); bot posts labelled `byBot`, limited by `Channels:MaxBotPostsPerDay` (429 `bot_post_limit`); suspended channel -> 403 `channel_suspended` | ✅ Done |
+| `POST /admin/session`, `/admin/*` | Operator moderation API (allowlist `Moderation:OperatorAccountIds` + TOTP, token `scope=moderation` valid only on `/admin/*`): summary, report queue, case detail, decisions (+ CSV log), channel search, attachments | ✅ Done |
 | `SignalR /hub` | Message relay, typing, call signaling | ✅ Done |
 
 ## Conventions
