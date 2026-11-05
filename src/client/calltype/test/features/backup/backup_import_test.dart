@@ -127,6 +127,30 @@ void main() {
     final ids = (await db.select(db.messages).get()).map((m) => m.id);
     expect(ids, unorderedEquals(['message', 'call', 'device']));
   });
+  test('editedAt and bot buttons are restored, edit control rows skipped', () async {
+    final data = fixture();
+    final base = (data['messages'] as List).single as Map<String, dynamic>;
+    data['messages'] = [
+      {
+        ...base,
+        'editedAt': '2026-01-01T00:05:00Z',
+        'actionsJson': '[{"id":"ok","label":"OK"},{"id":"bad id","label":"x"}]',
+      },
+      {...base, 'id': 'odd', 'editedAt': 42, 'actionsJson': 'not json'},
+      {...base, 'id': 'control', 'type': 'edit', 'body': 'x', 'status': 'sending'},
+    ];
+    await importBackup(db, data);
+    final rows = {for (final m in await db.select(db.messages).get()) m.id: m};
+    expect(rows.keys, unorderedEquals(['message', 'odd']));
+    expect(
+      rows['message']!.editedAt!.isAtSameMomentAs(DateTime.utc(2026, 1, 1, 0, 5)),
+      isTrue,
+    );
+    // Re-validated on the way in: the invalid button is dropped.
+    expect(rows['message']!.actionsJson, '[{"id":"ok","label":"OK"}]');
+    expect(rows['odd']!.editedAt, isNull);
+    expect(rows['odd']!.actionsJson, isNull);
+  });
   test('an unknown message type still rejects the whole backup', () async {
     final data = fixture();
     (data['messages'] as List).single['type'] = 'sticker';

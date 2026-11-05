@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:calltype_core/crypto/device_list.dart' show DeviceListException;
 import 'package:calltype_core/devices/device_directory.dart';
+import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:drift/drift.dart';
 
 import '../../core/crypto/session_manager.dart';
@@ -36,6 +37,8 @@ Future<void> tombstoneMessage(AppDatabase db, String messageId) =>
         body: Value(null),
         type: Value('text'),
         attachmentPath: Value(null),
+        // A deleted bot message must not keep pressable buttons.
+        actionsJson: Value(null),
         replyToId: Value(null),
         replySenderId: Value(null),
         replyPreview: Value(null),
@@ -201,13 +204,15 @@ class MessageInboxService {
           );
         }
         final type = payload['type'] as String? ?? 'text';
-        // 'delete' is a control message added after the first release. An OLD
-        // client throws here, so the message stays queued on the server for
-        // it (accepted: that client keeps showing the original message).
+        // 'delete' and 'edit' are control messages added after the first
+        // release. An OLD client throws here, so the message stays queued on
+        // the server for it (accepted: that client keeps showing the original
+        // message).
         if (type != 'text' &&
             type != 'file' &&
             type != 'call-event' &&
-            type != 'delete') {
+            type != 'delete' &&
+            type != 'edit') {
           throw const FormatException('Unsupported message type');
         }
         // Who sent it and where it belongs. `to` is honoured only for copies
@@ -231,6 +236,25 @@ class MessageInboxService {
         if (type == 'delete') {
           await _applyDelete(
             targetId: payload['body'] as String,
+            senderId: route.senderIdentityId,
+            conversationId: conversationId,
+          );
+          await _db
+              .into(_db.backupState)
+              .insert(
+                BackupStateCompanion.insert(
+                  key: 'control:$messageId',
+                  value: '1',
+                ),
+              );
+          return;
+        }
+        if (type == 'edit') {
+          // Contract section 1: an edit never creates a row and never touches
+          // unreadCount; legitimate or not it is acked and remembered by the
+          // same `control:` marker as a delete, so a redelivery is a no-op.
+          await _applyEdit(
+            payload: payload,
             senderId: route.senderIdentityId,
             conversationId: conversationId,
           );
@@ -302,6 +326,14 @@ class MessageInboxService {
                 replySenderId: Value(replySenderId),
                 replyPreview: Value(replyPreview),
                 forwarded: Value(payload['forwarded'] == true),
+                // Stored for every sender; the chat renders them only under
+                // a BOT's message (a human's buttons could phish). Invalid
+                // entries are dropped by parseActions, never the message.
+                actionsJson: Value(
+                  type == 'text'
+                      ? encodeActionsJson(parseActions(payload['actions']))
+                      : null,
+                ),
               ),
             );
         await (_db.update(
@@ -368,6 +400,60 @@ class MessageInboxService {
     // deleting for everyone (the client does not send it either).
     if (conversation == null || conversation.organizationId != null) return;
     await tombstoneMessage(_db, targetId);
+  }
+
+  /// Applies a `type: edit` (contract section 1) if, and only if, it is
+  /// legitimate; anything else is dropped silently (the caller still acks).
+  Future<void> _applyEdit({
+    required Map<String, dynamic> payload,
+    required String senderId,
+    required String conversationId,
+  }) async {
+    final targetId = parseEditOf(payload['editOf']);
+    if (targetId == null) return;
+    final target = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(targetId))).getSingleOrNull();
+    if (target == null) return;
+    // SECURITY: same reasoning as _applyDelete. The relay authenticates only
+    // the sender of THIS message, so the target must be that sender's own
+    // message in this very conversation. Only plain text is editable: a file
+    // body is an encoded attachment and a tombstone stays deleted.
+    if (target.conversationId != conversationId ||
+        target.senderId != senderId ||
+        target.type != 'text' ||
+        target.deleted) {
+      return;
+    }
+    // A missing / unparsable createdAt falls back to "now", like a normal
+    // message does; it still loses against a later, correctly dated edit.
+    final editedAt =
+        DateTime.tryParse(payload['createdAt'] as String? ?? '') ??
+        DateTime.now();
+    // Out-of-order delivery: progress edits of a bot arrive in any order,
+    // the newest one must win. WHY compared at whole seconds and ties
+    // applied: drift stores DateTime with second precision, and a bot's final
+    // answer can follow its last progress edit within the same second. Both
+    // come from one sender over one ordered ratchet, so within a second the
+    // arrival order is the sending order; a true duplicate never gets here
+    // (the `control:` marker acks it before decrypting).
+    final previous = target.editedAt;
+    final seconds = DateTime.fromMillisecondsSinceEpoch(
+      editedAt.millisecondsSinceEpoch ~/ 1000 * 1000,
+      isUtc: true,
+    );
+    if (previous != null && seconds.isBefore(previous)) return;
+    await (_db.update(_db.messages)..where((m) => m.id.equals(targetId))).write(
+      MessagesCompanion(
+        body: Value(payload['body'] as String),
+        editedAt: Value(editedAt),
+        // Key present = replace the buttons (an empty list removes them,
+        // e.g. after an approval was answered); key absent = keep them.
+        actionsJson: payload.containsKey('actions')
+            ? Value(encodeActionsJson(parseActions(payload['actions'])))
+            : const Value.absent(),
+      ),
+    );
   }
 
   Future<void> dispose() async {

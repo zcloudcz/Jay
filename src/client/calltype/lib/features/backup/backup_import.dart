@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:drift/drift.dart';
 import '../../core/storage/database.dart';
 
@@ -51,11 +52,13 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
     );
   }).toList();
   final conversationIds = conversations.map((c) => c.id.value).toSet();
-  // 'delete' rows are transient outbox control messages (deleteForEveryone).
-  // A backup taken while one was pending must not resurrect it: it has no
-  // bubble and would be resent. Skipped, not rejected, so one such row cannot
-  // fail a whole restore.
-  final messages = rows('messages').where((m) => m['type'] != 'delete').map((m) {
+  // 'delete' / 'edit' rows are transient outbox control messages
+  // (deleteForEveryone, editMessage). A backup taken while one was pending
+  // must not resurrect it: it has no bubble and would be resent. Skipped, not
+  // rejected, so one such row cannot fail a whole restore.
+  final messages = rows('messages')
+      .where((m) => m['type'] != 'delete' && m['type'] != 'edit')
+      .map((m) {
     final conversationId = requiredText(m, 'conversationId');
     if (!conversationIds.contains(conversationId)) {
       throw const FormatException('Missing conversation');
@@ -92,6 +95,18 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
       ),
       forwarded: Value(m['forwarded'] == true),
       deleted: Value(m['deleted'] == true),
+      editedAt: Value(
+        m['editedAt'] is String
+            ? DateTime.tryParse(m['editedAt'] as String)
+            : null,
+      ),
+      // Re-validated like a received payload: a corrupt value means no
+      // buttons, never a failed restore.
+      actionsJson: Value(
+        m['actionsJson'] is String
+            ? encodeActionsJson(decodeActionsJson(m['actionsJson'] as String))
+            : null,
+      ),
     );
   }).toList();
   await db.transaction(() async {
