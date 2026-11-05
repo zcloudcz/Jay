@@ -312,7 +312,17 @@ public class FanoutHubTests : IntegrationTestBase
             .Should().ThrowAsync<HubException>().WithMessage("*link_target_offline*");
 
         await webHub.StartAsync();
-        await phoneHub.InvokeAsync("LinkOffer", web.DeviceId);
+        // StartAsync returns when the handshake is done, but the server runs
+        // OnConnectedAsync (which puts the device into the online map) after
+        // the handshake. Under full-suite load the phone's call can overtake
+        // it, so retry the offline answer briefly instead of racing; a device
+        // that never comes online still fails after 5 s.
+        for (var attempt = 1; ; attempt++)
+        {
+            try { await phoneHub.InvokeAsync("LinkOffer", web.DeviceId); break; }
+            catch (HubException e) when (e.Message.Contains("link_target_offline") && attempt < 50)
+            { await Task.Delay(100); }
+        }
         var offered = await offer.Task.WaitAsync(TimeSpan.FromSeconds(5));
         offered.GetProperty("primaryDeviceId").GetGuid().Should().Be(phone.DeviceId);
         // Looked up by the server, so the new device can show whose phone asks.

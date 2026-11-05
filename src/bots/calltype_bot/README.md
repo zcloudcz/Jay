@@ -21,6 +21,31 @@ await bot.onMessage(
 `onMessage` connects. It is deliberately the step that goes online: the server
 pushes everything queued the moment a device connects.
 
+### Starting a message and reading group settings
+
+```dart
+await bot.send(to: 'CT-XXXX-XXXX', text: 'nightly build is green'); // 1:1, all the user's devices
+await bot.send(to: groupId, text: 'deploy 28f5070');               // group the bot is in
+
+final info = await bot.group(groupId);
+info.botTalk.mode;            // BotTalkMode.off / all / selected (old server: off)
+info.botTalk.maxBotTurns;     // + allowedBotDeviceIds, pauseMinutes
+info.member(id)?.isAdmin;     // members: deviceId, role, handle, isBot
+```
+
+- `send` uses the same encryption and fan-out as `reply`; it needs the hub
+  connection (call `onMessage` first). Unknown handle or a group the bot is not
+  in throws `BotSendException`. WHO may be messaged is the caller's policy.
+- `group` is cached and re-read on the hub's `GroupChanged` hint, on
+  `DeviceListChanged`, when a group message comes from a sender the cached list
+  does not know, and at the latest after `groupCacheTtl` (default 5 minutes).
+- `BotMessage.groupId` (null for 1:1) and `BotMessage.senderIsBot` (from the
+  group's member list; null when unknown, e.g. 1:1).
+- `onMessage(..., allowGroupSender: (senderId, groupId) async => ...)` is a
+  second pre-decrypt chance for a sender `allowSender` refused when the server
+  routes the message to a group, so a bot can admit other bots of a group by
+  its settings (one cached group lookup) instead of a static list.
+
 ## What the runtime guarantees
 
 - **Registration** with `isBot: true` on first start; identity is reused afterwards.

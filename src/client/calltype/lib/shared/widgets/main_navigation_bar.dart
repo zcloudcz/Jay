@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/storage/database.dart';
 import '../../features/channels/channels_controller.dart';
+import '../../features/chat_list/chat_list_controller.dart';
+import '../../features/mute/mute_controller.dart';
 import '../../l10n/l10n.dart';
 
 enum MainTab { chats, updates }
@@ -32,6 +35,20 @@ class MainNavigationBar extends StatelessWidget {
       label: Text('$unread'),
       child: Icon(icon),
     );
+    // Unread private messages, without muted conversations (spec D6: a
+    // muted chat must not keep pulling the user back). Nullable lookups:
+    // screens pumped alone in tests have no chat list / mute controller.
+    final chats = context.watch<ChatListController?>();
+    final mutes = context.watch<MuteController?>();
+    final rows = chats?.conversations ?? const <Conversation>[];
+    final chatUnread =
+        mutes?.unreadTotal(rows) ??
+        rows.fold<int>(0, (sum, c) => sum + c.unreadCount);
+    Widget chatBadge(IconData icon) => Badge(
+      isLabelVisible: chatUnread > 0,
+      label: Text('$chatUnread'),
+      child: Icon(icon),
+    );
     return NavigationBar(
       selectedIndex: current.index,
       onDestinationSelected: (index) {
@@ -40,8 +57,8 @@ class MainNavigationBar extends StatelessWidget {
       },
       destinations: [
         NavigationDestination(
-          icon: const Icon(Icons.chat_bubble_outline_rounded),
-          selectedIcon: const Icon(Icons.chat_bubble_rounded),
+          icon: chatBadge(Icons.chat_bubble_outline_rounded),
+          selectedIcon: chatBadge(Icons.chat_bubble_rounded),
           label: context.l10n.navChats,
         ),
         NavigationDestination(

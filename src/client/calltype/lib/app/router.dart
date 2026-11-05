@@ -33,6 +33,8 @@ import '../features/devices/device_service.dart';
 import '../features/devices/devices_screen.dart';
 import '../features/devices/link_controllers.dart';
 import '../features/devices/link_device_screen.dart';
+import '../features/groups/bot_talk_controller.dart';
+import '../features/groups/bot_talk_screen.dart';
 import '../features/groups/group_create_screen.dart';
 import '../features/organization/emergency/emergency_controller.dart';
 import '../features/organization/emergency/emergency_enroll_screen.dart';
@@ -177,6 +179,30 @@ final router = GoRouter(
               child: ChatScreen(contactId: id),
             );
           },
+          routes: [
+            // Group "Bot conversation" setting. Its own route-scoped
+            // controller: it listens to GroupChanged hints only while open.
+            GoRoute(
+              path: 'bot-talk',
+              builder: (context, state) {
+                final id = state.pathParameters['id']!;
+                return ChangeNotifierProvider(
+                  create: (ctx) => BotTalkController(
+                    apiClient: ctx.read<ApiClient>(),
+                    groupId: id,
+                    // THIS device (not the identity): admin rights belong
+                    // to member rows, and a companion has none.
+                    selfDeviceId: ctx
+                        .read<DeviceService>()
+                        .directory
+                        .selfDeviceId,
+                    groupChanged: ctx.read<SignalRClient>().onGroupChanged,
+                  ),
+                  child: const BotTalkScreen(),
+                );
+              },
+            ),
+          ],
         ),
       ],
     ),

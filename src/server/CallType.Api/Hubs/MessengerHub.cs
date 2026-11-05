@@ -38,7 +38,7 @@ namespace CallType.Api.Hubs;
 [Authorize]
 public class MessengerHub(MessageQueueService queueService, PushNotificationService pushService, AppDbContext db,
     AuditorLivenessService auditorLiveness, OrgCommunicationPolicy communicationPolicy, IMemoryCache cache,
-    DeviceListService deviceLists) : Hub
+    DeviceListService deviceLists, ConversationMuteService mutes) : Hub
 {
     // Maps DeviceId -> ConnectionId for all currently connected devices.
     // Static because SignalR creates a new Hub instance per invocation,
@@ -115,7 +115,9 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         var body = DecodePayload(encryptedBodyBase64);
         var message = await queueService.EnqueueReliableAsync(recipientDeviceId, sender, messageId,
             body, cancellationToken: Context.ConnectionAborted);
-        await DeliverAsync(message, await deviceLists.PrimaryOfAsync(sender, Context.ConnectionAborted));
+        var senderPrimary = await deviceLists.PrimaryOfAsync(sender, Context.ConnectionAborted);
+        var silenced = await SilencedAsync([message], sender, senderPrimary, null);
+        await DeliverAsync(message, senderPrimary, push: !silenced.Contains(message.RecipientId));
     }
 
     public Task SendGroupMessage(Guid groupId, Dictionary<Guid, string> encryptedPayloads)
@@ -178,8 +180,9 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
             await transaction.CommitAsync(Context.ConnectionAborted);
         }
         var senderPrimary = await deviceLists.PrimaryOfAsync(sender, Context.ConnectionAborted);
+        var silenced = await SilencedAsync(messages, sender, senderPrimary, groupId);
         foreach (var message in messages)
-            await DeliverAsync(message, senderPrimary);
+            await DeliverAsync(message, senderPrimary, push: !silenced.Contains(message.RecipientId));
     }
 
     // -----------------------------------------------------------------------
@@ -263,8 +266,28 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         // other devices, they stay queued and arrive on connect. Pushing would
         // make the phone buzz for every message typed on the web.
         var own = await deviceLists.DevicesOfAsync([senderPrimary], Context.ConnectionAborted);
+        var silenced = await SilencedAsync(messages.Where(m => !own.Contains(m.RecipientId)), sender, senderPrimary, groupId);
         foreach (var message in messages)
-            await DeliverAsync(message, senderPrimary, push: !own.Contains(message.RecipientId));
+            await DeliverAsync(message, senderPrimary,
+                push: !own.Contains(message.RecipientId) && !silenced.Contains(message.RecipientId));
+    }
+
+    /// <summary>
+    /// Recipients of this send whose mute (bot conversations D6) suppresses
+    /// the push. Only offline recipients are asked about, because only they
+    /// would be pushed; when everybody is online (the common case for an
+    /// active chat) no query runs at all. Otherwise ONE query for the whole
+    /// batch, never one per member. The message itself is unaffected: it is
+    /// already queued and arrives on the next connect.
+    /// </summary>
+    private async Task<HashSet<Guid>> SilencedAsync(IEnumerable<QueuedMessage> messages,
+        Guid sender, Guid senderPrimary, Guid? groupId)
+    {
+        var offline = messages
+            .Where(m => m.AcknowledgedAt == null && !OnlineDevices.ContainsKey(m.RecipientId))
+            .Select(m => m.RecipientId).Distinct().ToList();
+        if (offline.Count == 0) return [];
+        return await mutes.SilencedAsync(offline, sender, senderPrimary, groupId, Context.ConnectionAborted);
     }
 
     // -----------------------------------------------------------------------

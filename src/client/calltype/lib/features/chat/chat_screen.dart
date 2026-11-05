@@ -20,6 +20,7 @@ import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
+import '../mute/mute_dialog.dart';
 import '../organization/business_banner.dart';
 
 /// One-time notice shown the first time a chat with a bot is opened: the
@@ -529,6 +530,18 @@ class ChatScreen extends StatelessWidget {
                   ),
                 ]);
               },
+            ),
+          // Group ids and 1:1 ids (the peer's identity) are both the
+          // conversation id, so one button serves both kinds of chat.
+          MuteButton(conversationId: contactId, group: group),
+          if (group)
+            PopupMenuButton<void>(
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  onTap: () => context.push('/chats/$contactId/bot-talk'),
+                  child: Text(l10n.botTalkTitle),
+                ),
+              ],
             ),
           if (!group && contact != null)
             PopupMenuButton<void>(

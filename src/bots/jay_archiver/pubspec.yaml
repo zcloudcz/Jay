@@ -16,5 +16,9 @@ dependencies:
   drift: ^2.33.0
 
 dev_dependencies:
+  # Live bot conversations E2E (test/e2e/bot_talk_e2e_test.dart) runs the
+  # real bridge rules against the local API.
+  hermes_bridge:
+    path: ../hermes_bridge
   test: ^1.25.0
   lints: ^6.0.0

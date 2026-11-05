@@ -123,6 +123,10 @@ class FakeHub implements HubTransport {
   void deliver(Map<String, dynamic> message) =>
       _handlers['ReceiveMessage']!([message]);
 
+  /// Any other server-to-client call, e.g. the `GroupChanged` hint.
+  void push(String method, Map<String, dynamic> data) =>
+      _handlers[method]?.call([data]);
+
   @override
   bool get isConnected => _connected;
   @override
@@ -161,6 +165,17 @@ class FakeApi {
   final groups = <String, List<String>>{};
   final handles = <String, String>{};
 
+  /// GET /groups/{id} bodies. A group in [groups] without an entry here
+  /// answers like a server from before bot conversations (no `botTalk`).
+  final groupDetails = <String, Map<String, dynamic>>{};
+
+  /// Extra member fields (role, isBot, userHandle) per device id, merged into
+  /// every GET /groups/{id}/members row of that device.
+  final memberFields = <String, Map<String, dynamic>>{};
+
+  /// Every request as `METHOD /path`, for cache assertions.
+  final requests = <String>[];
+
   /// GET /devices/{id}/device-list bodies, keyed by EVERY device id of the
   /// list (the real server answers for the primary and its companions).
   final deviceLists = <String, Map<String, dynamic>>{};
@@ -191,6 +206,7 @@ class FakeApi {
   Future<void> _serve(HttpRequest request) async {
     final path = request.uri.path;
     final segments = request.uri.pathSegments;
+    requests.add('${request.method} $path');
     Object? body;
     if (request.method == 'POST' && path == '/devices') {
       registrations.add(
@@ -209,9 +225,14 @@ class FakeApi {
       body = keyBundles[segments[1]];
     } else if (segments.length == 3 && segments[2] == 'device-list') {
       body = deviceLists[segments[1]];
+    } else if (segments.length == 2 && segments[0] == 'groups') {
+      final id = segments[1];
+      body = groupDetails[id] ??
+          (groups.containsKey(id) ? {'groupId': id, 'organizationId': null} : null);
     } else if (segments.length == 3 && segments[0] == 'groups') {
       body = [
-        for (final id in groups[segments[1]] ?? <String>[]) {'deviceId': id},
+        for (final id in groups[segments[1]] ?? <String>[])
+          {'deviceId': id, 'role': 'member', ...?memberFields[id]},
       ];
     } else if (segments.length == 3 && segments[1] == 'by-handle') {
       final id = handles[segments[2]];

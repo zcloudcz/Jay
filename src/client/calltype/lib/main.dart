@@ -19,6 +19,7 @@ import 'features/chat/message_inbox_service.dart';
 import 'features/chat_list/chat_list_controller.dart';
 import 'features/contacts/contacts_controller.dart';
 import 'features/devices/device_service.dart';
+import 'features/mute/mute_controller.dart';
 
 /// Application entry point with full dependency injection wiring.
 ///
@@ -132,6 +133,9 @@ void main() async {
     leaveChannel: signalRClient.leaveChannel,
   );
   await channels.load();
+  // Conversation mutes (spec D6) live on the server per device; this is
+  // only the cache behind the list icons and the Chats badge.
+  final mutes = MuteController(apiClient: apiClient);
   // The server keeps no offline queue for channels, so every transition to
   // "connected" (app start, reconnect, first connect after onboarding) pulls
   // what was missed and re-joins the hub groups. One sync per transition —
@@ -144,6 +148,10 @@ void main() async {
       // A DeviceListChanged hint sent while this device was offline is lost,
       // so a (re)connect re-checks the own list (cheap no-op when unlinked).
       if (devices.isOpen) unawaited(devices.checkOwnList());
+      // A connect is the first moment the device is surely registered (also
+      // right after onboarding), and after an outage the chat list may have
+      // loaded while GET /mutes failed; one cheap re-read per transition.
+      unawaited(mutes.load().catchError((Object _) {}));
     }
     wasConnected = connected;
   });
@@ -199,6 +207,7 @@ void main() async {
           create: (_) => ContactsController(database: db, apiClient: apiClient),
         ),
         ChangeNotifierProvider.value(value: channels),
+        ChangeNotifierProvider.value(value: mutes),
 
         // -- Auth / security ------------------------------------------------
         Provider(create: (_) => AppLock(secureStorage: secureStorage)),
