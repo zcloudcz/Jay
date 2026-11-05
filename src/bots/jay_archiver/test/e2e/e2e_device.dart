@@ -45,7 +45,10 @@ String uuid() {
 /// One registered device with everything the app has: keys, sessions, REST
 /// and hub. State lives in memory — each run is a set of brand-new identities.
 class E2eDevice {
-  E2eDevice._(this.id, this.api, this.keys, this.sessions, this.signalR, this._db);
+  E2eDevice._(this.id, this.api, this.keys, this.sessions, this.signalR, this._db, {this.handle = ''});
+
+  /// The server-assigned CT-XXXX-XXXX handle (bots' allowlists use it).
+  final String handle;
 
   final KeyManager keys;
 
@@ -96,6 +99,7 @@ class E2eDevice {
         transportFactory: WebSocketHubTransport.new,
       ),
       db,
+      handle: result['userHandle'] as String,
     );
   }
 
