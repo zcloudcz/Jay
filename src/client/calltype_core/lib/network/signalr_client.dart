@@ -86,6 +86,7 @@ class SignalRClient {
   final _onEmergencyDrill = StreamController<Map<String, dynamic>>.broadcast();
   final _onDeviceListChanged =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _onGroupChanged = StreamController<Map<String, dynamic>>.broadcast();
   final _onLinkOffer = StreamController<Map<String, dynamic>>.broadcast();
   final _onLinkConsent = StreamController<Map<String, dynamic>>.broadcast();
 
@@ -97,6 +98,11 @@ class SignalRClient {
 
   /// Multi-device linking: a primary offers to link this device
   /// (`primaryDeviceId`). Only meaningful while the link screen is open.
+  /// The hub's "group changed" hint (membership or bot-talk setting).
+  /// Payload: `groupId`. Like [onDeviceListChanged] only a hint to re-read
+  /// `GET /groups/{id}`; the REST answer is the truth.
+  Stream<Map<String, dynamic>> get onGroupChanged => _onGroupChanged.stream;
+
   Stream<Map<String, dynamic>> get onLinkOffer => _onLinkOffer.stream;
 
   /// Multi-device linking: the new device's signed consent (`deviceId`,
@@ -191,6 +197,10 @@ class SignalRClient {
     _hubConnection!.on(
       'DeviceListChanged',
       (arguments) => _forward(arguments, _onDeviceListChanged),
+    );
+    _hubConnection!.on(
+      'GroupChanged',
+      (arguments) => _forward(arguments, _onGroupChanged),
     );
     _hubConnection!.on(
       'LinkOffer',
@@ -498,6 +508,7 @@ class SignalRClient {
     _onChannelDeleted.close();
     _onEmergencyDrill.close();
     _onDeviceListChanged.close();
+    _onGroupChanged.close();
     _onLinkOffer.close();
     _onLinkConsent.close();
   }

@@ -56,6 +56,7 @@ void main() {
       'ChannelDeleted',
       'EmergencyDrill',
       'DeviceListChanged',
+      'GroupChanged',
       'LinkOffer',
       'LinkConsent',
     });

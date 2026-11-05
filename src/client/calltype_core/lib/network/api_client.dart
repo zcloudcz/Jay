@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 
 import '../auth/auth_service.dart';
 import 'channel_dtos.dart';
+import 'group_dtos.dart';
 import 'mfa_api.dart' show MfaRequiredException;
 
 /// REST client for the CallType backend API.
@@ -129,8 +130,48 @@ class ApiClient {
         userHandle: m['userHandle'] as String?,
         displayName: m['displayName'] as String?,
         isBot: m['isBot'] == true,
+        role: (m['role'] as String?) ?? 'member',
       );
     }).toList();
+  }
+
+  // -- Bot conversations + mutes (2026-11-05 contract) ------------------------
+
+  /// GET /groups/{id}: the bot-talk setting and the caller's mute of the
+  /// group. An old server omits both fields; they then read as "off".
+  Future<GroupDetails> getGroup(String groupId) async {
+    final response = await _dio.get<Map<String, dynamic>>('/groups/$groupId');
+    return GroupDetails.fromJson(groupId, response.data ?? const {});
+  }
+
+  /// PUT /groups/{id}/bot-talk (admin only). Returns the stored setting.
+  Future<BotTalkSettings> setGroupBotTalk(
+    String groupId,
+    BotTalkSettings settings,
+  ) async {
+    final response = await _dio.put<Map<String, dynamic>>(
+      '/groups/$groupId/bot-talk',
+      data: settings.toJson(),
+    );
+    return BotTalkSettings.fromJson(response.data);
+  }
+
+  /// PUT /groups/{id}/mute -> 204. Mutes this device's pushes for the group.
+  Future<void> setGroupMute(String groupId, MuteSetting mute) =>
+      _dio.put<void>('/groups/$groupId/mute', data: mute.toJson());
+
+  /// PUT /mutes/direct/{peerDeviceId} -> 204. Mutes the 1:1 conversation with
+  /// the peer's whole identity (the server resolves its primary device).
+  Future<void> setDirectMute(String peerDeviceId, MuteSetting mute) =>
+      _dio.put<void>('/mutes/direct/$peerDeviceId', data: mute.toJson());
+
+  /// GET /mutes: every mute of the calling device.
+  Future<List<MuteEntry>> getMutes() async {
+    final response = await _dio.get<List<dynamic>>('/mutes');
+    return [
+      for (final row in response.data ?? const [])
+        if (row is Map) MuteEntry.fromJson(row),
+    ];
   }
 
   // -- Device registration ---------------------------------------------------
@@ -640,9 +681,14 @@ class GroupMemberInfo {
     this.userHandle,
     this.displayName,
     this.isBot = false,
+    this.role = 'member',
   });
 
   final String deviceId;
+
+  /// `admin`, `member` or `auditor` (business groups). Old servers already
+  /// sent it; `member` is only the fallback for a malformed row.
+  final String role;
 
   /// `CT-XXXX-XXXX`; null when talking to an older server.
   final String? userHandle;
