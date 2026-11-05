@@ -13,9 +13,11 @@ import 'package:calltype_core/devices/fanout_sender.dart';
 import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/network/bot_dtos.dart';
+import 'package:calltype_core/network/channel_dtos.dart' show parseErrorCode;
 import 'package:calltype_core/network/hub_transport.dart';
 import 'package:calltype_core/network/signalr_client.dart';
 import 'package:calltype_core/storage/database.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
@@ -39,13 +41,34 @@ typedef BotMessageHandler = Future<void> Function(BotMessage message);
 typedef GroupSenderCheck =
     Future<bool> Function(String senderId, String groupId);
 
-/// [CallTypeBot.send] could not address [to] (unknown handle, not a member).
+/// [CallTypeBot.send] could not address [to] (unknown handle, not a member),
+/// or the server refused a [CallTypeBot.postToChannel].
 class BotSendException implements Exception {
-  const BotSendException(this.message);
+  const BotSendException(this.message, {this.code, this.statusCode});
   final String message;
+
+  /// The server's machine code when it gave one, e.g. [channelSuspendedCode]
+  /// or [botPostLimitCode]. Null for refusals the runtime decides itself and
+  /// for the server's bodyless role 403.
+  final String? code;
+
+  /// HTTP status of a server refusal (403, 404, 429); null otherwise.
+  final int? statusCode;
+
   @override
-  String toString() => 'BotSendException: $message';
+  String toString() =>
+      'BotSendException: $message${code == null ? '' : ' ($code)'}';
 }
+
+/// Server code: the channel is suspended by moderation (403).
+const channelSuspendedCode = 'channel_suspended';
+
+/// Server code: this bot's daily post limit in the channel is used up (429).
+const botPostLimitCode = 'bot_post_limit';
+
+/// The server's limit for a channel post body (UTF-16 code units, which is
+/// what both Dart's and C#'s `String.length` count).
+const channelPostMaxChars = 4096;
 
 /// True when [text] addresses the bot: `@<handle>` or `@<display name>`,
 /// case-insensitive, not followed by another word character (so `@Hermes`
@@ -594,6 +617,75 @@ class CallTypeBot {
     );
   }
 
+  // -- Channels ---------------------------------------------------------------
+
+  /// Publishes [text] as a `text` post in [channel] (a channel id or a
+  /// `CH-XXXX-XXXX` handle) and returns the post id.
+  ///
+  /// The bot must be the channel's owner, admin or publisher; WHO adds it is
+  /// the channel owner's decision in the app, and the server is the only
+  /// authority on it (role, suspension, daily bot limit). Refusals throw
+  /// [BotSendException] carrying the server's code: 403 (not allowed, or
+  /// [channelSuspendedCode]), 404 (unknown channel), 429
+  /// ([botPostLimitCode]). Network and 5xx errors are rethrown unchanged:
+  /// they mean "try again later", not "never".
+  ///
+  /// Channel posts are public plaintext (no E2E fan-out), so unlike [send]
+  /// this needs no hub connection.
+  Future<String> postToChannel(String channel, String text) async {
+    final target = channel.trim();
+    if (target.isEmpty) {
+      throw ArgumentError.value(channel, 'channel', 'must not be empty');
+    }
+    if (text.trim().isEmpty) {
+      throw ArgumentError.value(text, 'text', 'must not be empty');
+    }
+    if (text.length > channelPostMaxChars) {
+      // Refused here rather than split: every post counts against the
+      // server's daily bot limit, so silently turning one call into several
+      // posts would burn it.
+      throw ArgumentError.value(
+        text.length,
+        'text',
+        'at most $channelPostMaxChars characters',
+      );
+    }
+    try {
+      // Always resolved, also for an id: one GET normalises a handle or an
+      // id in any case to the canonical id the post route expects, and a
+      // typo fails as a clean 404 before anything is written.
+      final info = await _api.getChannel(target);
+      // Client-generated: the server treats a repeated postId as the same
+      // post (idempotent, not counted twice against the bot limit), so a
+      // caller may safely retry after a lost response.
+      final postId = _uuidV4();
+      await _api.createChannelPost(
+        info.channelId,
+        postId: postId,
+        kind: 'text',
+        body: text,
+      );
+      return postId;
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      if (status == 403 || status == 404 || status == 429) {
+        final code = parseErrorCode(e.response?.data);
+        throw BotSendException(
+          switch (status) {
+            404 => 'Unknown channel $target.',
+            429 => 'Bot post limit reached in channel $target.',
+            _ when code == channelSuspendedCode =>
+              'Channel $target is suspended.',
+            _ => 'The bot may not post in channel $target.',
+          },
+          code: code,
+          statusCode: status,
+        );
+      }
+      rethrow;
+    }
+  }
+
   Future<void> close() async {
     await _subscription?.cancel();
     for (final s in _hintSubscriptions) {
@@ -733,7 +825,8 @@ class CallTypeBot {
                   .insert(
                     MessagesCompanion.insert(
                       id: messageId,
-                      conversationId: route?.conversationId ?? groupId ?? identity,
+                      conversationId:
+                          route?.conversationId ?? groupId ?? identity,
                       senderId: route?.senderIdentityId ?? identity,
                       // Body deliberately NOT stored: only the id is needed for
                       // idempotence, and less plaintext on disk is better.
@@ -807,9 +900,11 @@ class CallTypeBot {
         await _isOwnButtonMessage(action.messageId)) {
       // Not chained to _conversations on purpose, see [onAction].
       late final Future<void> pending;
-      pending = _handle(message, actionHandler, typing: false).whenComplete(
-        () => _pendingActions.remove(pending),
-      );
+      pending = _handle(
+        message,
+        actionHandler,
+        typing: false,
+      ).whenComplete(() => _pendingActions.remove(pending));
       _pendingActions.add(pending);
       return;
     }
