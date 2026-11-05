@@ -1,7 +1,42 @@
 {
+  "routes": [
+    {
+      "route": "/admin",
+      "rewrite": "/admin/index.html",
+      "headers": {
+        "X-Frame-Options": "DENY",
+        "X-Robots-Tag": "noindex, nofollow",
+        "Cache-Control": "no-store"
+      }
+    },
+    {
+      "route": "/admin/",
+      "rewrite": "/admin/index.html",
+      "headers": {
+        "X-Frame-Options": "DENY",
+        "X-Robots-Tag": "noindex, nofollow",
+        "Cache-Control": "no-store"
+      }
+    },
+    {
+      "route": "/admin/index.html",
+      "headers": {
+        "X-Frame-Options": "DENY",
+        "X-Robots-Tag": "noindex, nofollow",
+        "Cache-Control": "no-store"
+      }
+    },
+    {
+      "route": "/admin/*",
+      "headers": {
+        "X-Frame-Options": "DENY",
+        "X-Robots-Tag": "noindex, nofollow"
+      }
+    }
+  ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/assets/*", "/icons/*", "/canvaskit/*", "/*.js", "/*.wasm", "/*.json", "/*.png", "/*.ico"]
+    "exclude": ["/admin", "/admin/*", "/legal/*", "/assets/*", "/icons/*", "/canvaskit/*", "/*.js", "/*.wasm", "/*.json", "/*.png", "/*.ico"]
   },
   "mimeTypes": {
     ".wasm": "application/wasm"

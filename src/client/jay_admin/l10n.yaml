@@ -1,0 +1,12 @@
+# Flutter gen_l10n configuration (same layout as the app). The generated Dart
+# lands next to the ARBs and is git-ignored.
+arb-dir: lib/l10n
+template-arb-file: app_en.arb
+output-localization-file: app_localizations.dart
+output-class: AppLocalizations
+nullable-getter: false
+# Fallback for browsers that ask for neither cs nor en. A browser that prefers
+# cs still gets cs: locale resolution matches before it falls back.
+preferred-supported-locales: [en]
+# Must stay `{}`; test/l10n_test.dart checks key parity of both ARBs.
+untranslated-messages-file: build/l10n_untranslated.json
