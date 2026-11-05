@@ -853,5 +853,74 @@
   "chatCompanionBusinessReadOnly": "Business chats can only be used on your main device.",
   "@chatCompanionBusinessReadOnly": {
     "description": "Shown instead of the message input in a business chat on a linked device."
-  }
+  },
+  "muteTitle": "Mute notifications",
+  "@muteTitle": {
+    "description": "Title of the mute dialog and tooltip of the bell icon in a chat header (not muted state)."
+  },
+  "muteModeOff": "Not muted",
+  "@muteModeOff": {
+    "description": "Mute dialog option: notifications are on."
+  },
+  "muteModeBots": "Bots only",
+  "@muteModeBots": {
+    "description": "Mute dialog option: mute only messages sent by bots."
+  },
+  "muteModeBotsHint": "No notifications for messages from bots",
+  "muteModeAll": "All messages",
+  "@muteModeAll": {
+    "description": "Mute dialog option: mute every message of the conversation."
+  },
+  "muteModeAllHint": "No notifications from this conversation",
+  "muteDurationLabel": "For how long",
+  "@muteDurationLabel": {
+    "description": "Heading above the mute duration options."
+  },
+  "muteDurationHour": "1 hour",
+  "muteDurationEightHours": "8 hours",
+  "muteDurationWeek": "1 week",
+  "muteDurationForever": "Until I turn it off",
+  "@muteDurationForever": {
+    "description": "Mute duration option without an end time."
+  },
+  "muteFailed": "Could not change notifications. Try again.",
+  "muteStateBots": "Bots muted",
+  "@muteStateBots": {
+    "description": "Tooltip / screen-reader label of the icon when bot messages are muted."
+  },
+  "muteStateAll": "Muted",
+  "@muteStateAll": {
+    "description": "Tooltip / screen-reader label of the icon when the conversation is muted."
+  },
+  "botTalkTitle": "Bot conversation",
+  "@botTalkTitle": {
+    "description": "Group menu item and screen title: setting whether bots in a group may talk to each other."
+  },
+  "botTalkIntro": "Decide whether the bots in this group may talk to each other without a person in between. Each bot also keeps the limits set by its operator.",
+  "botTalkModeOff": "Off",
+  "botTalkModeOffHint": "Bots answer only people.",
+  "botTalkModeAll": "All bots",
+  "botTalkModeAllHint": "Every bot in the group, including bots added later.",
+  "botTalkModeSelected": "Selected bots",
+  "botTalkModeSelectedHint": "Only the bots checked below.",
+  "botTalkBotsHeader": "Bots in this group",
+  "botTalkNoBots": "There are no bots in this group.",
+  "botTalkMaxTurnsLabel": "Max bot messages in a row",
+  "@botTalkMaxTurnsLabel": {
+    "description": "Number field: how many bot messages may follow each other without a human message (1..50)."
+  },
+  "botTalkMaxTurnsHelp": "After that the bots wait for a person.",
+  "botTalkMaxTurnsInvalid": "Enter a whole number from 1 to 50.",
+  "botTalkPauseLabel": "Pause between bot exchanges (minutes)",
+  "@botTalkPauseLabel": {
+    "description": "Number field: minimum pause in minutes before bots may start a new bot-only exchange (0..1440)."
+  },
+  "botTalkPauseHelp": "0 to 1440 minutes (24 hours).",
+  "botTalkPauseInvalid": "Enter a whole number from 0 to 1440.",
+  "botTalkReadOnly": "Only group admins can change this setting.",
+  "botTalkSaved": "Bot conversation setting saved.",
+  "botTalkErrorNotABot": "One of the selected bots is no longer in the group. Check the list and save again.",
+  "botTalkErrorInvalid": "The server did not accept these values. Check them and try again.",
+  "botTalkErrorFailed": "Could not save. Check your connection and try again.",
+  "botTalkLoadFailed": "Could not load the setting. Tap to try again."
 }
