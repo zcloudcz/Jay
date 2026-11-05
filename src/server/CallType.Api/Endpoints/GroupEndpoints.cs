@@ -1,8 +1,10 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using CallType.Api.Configuration;
 using CallType.Api.Data;
+using CallType.Api.Hubs;
 using CallType.Api.Models;
 using CallType.Api.Services;
 using CallType.Audit.Infrastructure;
@@ -19,6 +21,7 @@ public static class GroupEndpoints
         app.MapGet("/groups/{groupId:guid}/members", ListMembers).RequireAuthorization().RequireRateLimiting("api");
         app.MapPut("/groups/{groupId:guid}/members", AddMember).RequireAuthorization().RequireRateLimiting("api");
         app.MapDelete("/groups/{groupId:guid}/members/{deviceId:guid}", RemoveMember).RequireAuthorization().RequireRateLimiting("api");
+        app.MapPut("/groups/{groupId:guid}/bot-talk", PutBotTalk).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 
@@ -90,7 +93,7 @@ public static class GroupEndpoints
     /// the groups of its primary; it is not a member itself) and the raw
     /// device for membership changes, which stay with the member device.
     /// </summary>
-    private static async Task<IResult?> Authorize(Guid groupId, Guid caller,
+    internal static async Task<IResult?> Authorize(Guid groupId, Guid caller,
         AppDbContext db, bool admin, CancellationToken ct)
     {
         if (!await db.Groups.AnyAsync(g => g.GroupId == groupId, ct)) return Results.NotFound();
@@ -106,21 +109,131 @@ public static class GroupEndpoints
     /// audit DB) is resolved here once. Anonymous groups return nulls.
     /// </summary>
     private static async Task<IResult> GetGroup(Guid groupId, ClaimsPrincipal user,
-        AppDbContext db, HttpContext http, BusinessModeOptions businessMode, DeviceListService deviceLists, CancellationToken ct)
+        AppDbContext db, HttpContext http, BusinessModeOptions businessMode, DeviceListService deviceLists,
+        ConversationMuteService mutes, CancellationToken ct)
     {
-        var denial = await Authorize(groupId, await deviceLists.PrimaryOfAsync(Caller(user), ct), db, false, ct);
+        var caller = Caller(user);
+        var denial = await Authorize(groupId, await deviceLists.PrimaryOfAsync(caller, ct), db, false, ct);
         if (denial != null) return denial;
-        var organizationId = await db.Groups.Where(g => g.GroupId == groupId)
-            .Select(g => g.OrganizationId).SingleAsync(ct);
+        var group = await db.Groups.AsNoTracking().Where(g => g.GroupId == groupId)
+            .Select(g => new { g.OrganizationId, g.BotTalk }).SingleAsync(ct);
+        var organizationId = group.OrganizationId;
+        var botTalk = await BotTalkDtoAsync(groupId, group.BotTalk, db, ct);
+        // Mutes are per DEVICE: a companion reading its identity's group gets
+        // its own mute, not the primary's.
+        var myMute = await mutes.GetAsync(caller, groupId, null, ct);
         if (organizationId is null || !businessMode.Enabled)
-            return Results.Ok(new GroupInfoDto(groupId, null, null, null));
+            return Results.Ok(new GroupInfoDto(groupId, null, null, null, botTalk, myMute));
         var auditorDeviceId = await db.GroupMembers
             .Where(m => m.GroupId == groupId && m.Role == "auditor")
             .Select(m => (Guid?)m.DeviceId).SingleOrDefaultAsync(ct);
         var auditDb = http.RequestServices.GetRequiredService<AuditDbContext>();
         var organizationName = await auditDb.Organizations.AsNoTracking()
             .Where(o => o.OrganizationId == organizationId).Select(o => o.Name).SingleOrDefaultAsync(ct);
-        return Results.Ok(new GroupInfoDto(groupId, organizationId, organizationName, auditorDeviceId));
+        return Results.Ok(new GroupInfoDto(groupId, organizationId, organizationName, auditorDeviceId, botTalk, myMute));
+    }
+
+    /// <summary>
+    /// Contract shape of the setting. The allowed list is intersected with
+    /// the current bot members on read: RemoveMember prunes it, but a device
+    /// deleted through PrivacyEndpoints (raw SQL, cascade) or an enrollment
+    /// revocation path may leave a stale id behind, and bots must never see
+    /// a non-member as allowed. One query, and only when the list is non-empty.
+    /// </summary>
+    private static async Task<BotTalkDto> BotTalkDtoAsync(Guid groupId, GroupBotTalk botTalk,
+        AppDbContext db, CancellationToken ct)
+    {
+        var allowed = botTalk.AllowedBotDeviceIds;
+        if (allowed.Count > 0)
+        {
+            var current = await db.GroupMembers
+                .Where(m => m.GroupId == groupId && allowed.Contains(m.DeviceId) && m.Device.IsBot)
+                .Select(m => m.DeviceId).ToListAsync(ct);
+            allowed = allowed.Where(current.Contains).ToList();
+        }
+        return new BotTalkDto(botTalk.Mode, allowed, botTalk.MaxBotTurns, botTalk.PauseMinutes, botTalk.UpdatedAt);
+    }
+
+    private static IResult InvalidBotTalk(string error, string detail) => Results.Problem(
+        title: "Invalid bot talk setting", detail: detail, statusCode: StatusCodes.Status400BadRequest,
+        // "error" mirrors the {error} field of the other group endpoints so
+        // clients can branch on one machine-readable code everywhere.
+        extensions: new Dictionary<string, object?> { ["error"] = error });
+
+    /// <summary>
+    /// PUT /groups/{id}/bot-talk - admin only, the exact gate AddMember and
+    /// RemoveMember use (404 unknown group, 403 non-member, non-admin or
+    /// companion device). Omitted numbers keep their current value, so a
+    /// client that only flips the mode cannot reset the limits by accident.
+    /// </summary>
+    private static async Task<IResult> PutBotTalk(Guid groupId, BotTalkRequest request, ClaimsPrincipal user,
+        AppDbContext db, DeviceListService deviceLists, IHubContext<MessengerHub> hub, TimeProvider clock,
+        CancellationToken ct)
+    {
+        var caller = Caller(user);
+        var denial = await Authorize(groupId, caller, db, true, ct);
+        if (denial != null) return denial;
+
+        if (request.Mode is null || !GroupBotTalk.Modes.Contains(request.Mode))
+            return InvalidBotTalk("invalid_mode", "mode must be one of: off, all, selected.");
+        if (request.MaxBotTurns is { } turns && (turns < GroupBotTalk.MinMaxBotTurns || turns > GroupBotTalk.MaxMaxBotTurns))
+            return InvalidBotTalk("invalid_max_bot_turns",
+                $"maxBotTurns must be between {GroupBotTalk.MinMaxBotTurns} and {GroupBotTalk.MaxMaxBotTurns}.");
+        if (request.PauseMinutes is { } pause && (pause < GroupBotTalk.MinPauseMinutes || pause > GroupBotTalk.MaxPauseMinutes))
+            return InvalidBotTalk("invalid_pause_minutes",
+                $"pauseMinutes must be between {GroupBotTalk.MinPauseMinutes} and {GroupBotTalk.MaxPauseMinutes}.");
+
+        var ids = (request.AllowedBotDeviceIds ?? []).Distinct().ToList();
+        if (ids.Count > 0)
+        {
+            // ONE query for the whole list. The auditor is excluded explicitly
+            // (design: "the auditor member is never a bot participant") even if
+            // its device happens to be registered as a bot.
+            var validBots = await db.GroupMembers
+                .Where(m => m.GroupId == groupId && ids.Contains(m.DeviceId) && m.Role != "auditor" && m.Device.IsBot)
+                .Select(m => m.DeviceId).ToListAsync(ct);
+            var invalid = ids.Except(validBots).ToList();
+            if (invalid.Count > 0)
+                return InvalidBotTalk("not_a_bot_member",
+                    "allowedBotDeviceIds must be current bot members of the group: " + string.Join(",", invalid));
+        }
+
+        var group = await db.Groups.SingleAsync(g => g.GroupId == groupId, ct);
+        group.BotTalk.Mode = request.Mode;
+        group.BotTalk.AllowedBotDeviceIds = ids;
+        group.BotTalk.MaxBotTurns = request.MaxBotTurns ?? group.BotTalk.MaxBotTurns;
+        group.BotTalk.PauseMinutes = request.PauseMinutes ?? group.BotTalk.PauseMinutes;
+        group.BotTalk.UpdatedBy = caller;
+        group.BotTalk.UpdatedAt = clock.GetUtcNow();
+        await db.SaveChangesAsync(ct);
+
+        await NotifyGroupChangedAsync(groupId, [], db, deviceLists, hub);
+        return Results.Ok(new BotTalkDto(group.BotTalk.Mode, ids, group.BotTalk.MaxBotTurns,
+            group.BotTalk.PauseMinutes, group.BotTalk.UpdatedAt));
+    }
+
+    /// <summary>
+    /// "GroupChanged" hub hint: { groupId }. Carries nothing but the id, so
+    /// clients and bots re-read GET /groups/{id} (+ /members) themselves.
+    /// There was no such hint before bot conversations; it reuses the
+    /// mechanism of the multi-device "DeviceListChanged" event (direct send
+    /// to each online device via MessengerHub's connection map; offline
+    /// devices re-read on their next start anyway). Sent to every member
+    /// device AND their companions, because companions read the groups of
+    /// their identity. <paramref name="extra"/> lets RemoveMember reach the
+    /// device that was just removed.
+    /// </summary>
+    internal static async Task NotifyGroupChangedAsync(Guid groupId, IEnumerable<Guid> extra,
+        AppDbContext db, DeviceListService deviceLists, IHubContext<MessengerHub> hub)
+    {
+        // CancellationToken.None: the change is already saved, a client that
+        // hung up must not stop the others from hearing about it.
+        var members = await db.GroupMembers.Where(m => m.GroupId == groupId)
+            .Select(m => m.DeviceId).ToListAsync(CancellationToken.None);
+        var devices = await deviceLists.DevicesOfAsync(members.Concat(extra).Distinct().ToList(), CancellationToken.None);
+        foreach (var deviceId in devices)
+            if (MessengerHub.TryGetConnection(deviceId, out var connectionId))
+                await hub.Clients.Client(connectionId).SendAsync("GroupChanged", new { groupId }, CancellationToken.None);
     }
 
     private static async Task<IResult> ListMembers(Guid groupId, ClaimsPrincipal user,
@@ -139,7 +252,8 @@ public static class GroupEndpoints
     }
 
     private static async Task<IResult> AddMember(Guid groupId, AddGroupMemberRequest request,
-        ClaimsPrincipal user, AppDbContext db, HttpContext http, CancellationToken ct)
+        ClaimsPrincipal user, AppDbContext db, HttpContext http, DeviceListService deviceLists,
+        IHubContext<MessengerHub> hub, CancellationToken ct)
     {
         var denial = await Authorize(groupId, Caller(user), db, true, ct);
         if (denial != null) return denial;
@@ -175,11 +289,14 @@ public static class GroupEndpoints
         db.GroupMembers.Add(new GroupMember { GroupId = groupId, DeviceId = request.DeviceId,
             Role = "member", JoinedAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(ct);
+        // "All bots" includes bots added later (D2): bots must learn about
+        // the new member, so membership changes send the same hint.
+        await NotifyGroupChangedAsync(groupId, [], db, deviceLists, hub);
         return Results.Ok(new { message = "Member added." });
     }
 
     private static async Task<IResult> RemoveMember(Guid groupId, Guid deviceId, ClaimsPrincipal user,
-        AppDbContext db, CancellationToken ct)
+        AppDbContext db, DeviceListService deviceLists, IHubContext<MessengerHub> hub, CancellationToken ct)
     {
         var denial = await Authorize(groupId, Caller(user), db, true, ct);
         if (denial != null) return denial;
@@ -192,7 +309,12 @@ public static class GroupEndpoints
         if (member.Role == "admin" && await db.GroupMembers.CountAsync(m => m.GroupId == groupId && m.Role == "admin", ct) <= 1)
             return Results.Conflict(new { error = "The last administrator cannot be removed." });
         db.GroupMembers.Remove(member);
+        // A removed bot must not stay "allowed": if it were re-added later it
+        // would silently regain bot talk without the admin ticking it again.
+        // Same SaveChanges as the removal, so the two never disagree.
+        await GroupBotTalkPruning.PruneAsync(db, deviceId, [groupId], ct);
         await db.SaveChangesAsync(ct);
+        await NotifyGroupChangedAsync(groupId, [deviceId], db, deviceLists, hub);
         return Results.Ok(new { message = "Member removed." });
     }
 }
@@ -205,4 +327,9 @@ public record AddGroupMemberRequest(Guid DeviceId);
 // clients offer @mentions and show sender names in groups.
 public record GroupMemberDto(Guid DeviceId, string Role, DateTimeOffset JoinedAt,
     string UserHandle, string? DisplayName, bool IsBot);
-public record GroupInfoDto(Guid GroupId, Guid? OrganizationId, string? OrganizationName, Guid? AuditorDeviceId);
+// BotTalk and MyMute are additive (bot conversations contract); old clients ignore them.
+public record GroupInfoDto(Guid GroupId, Guid? OrganizationId, string? OrganizationName, Guid? AuditorDeviceId,
+    BotTalkDto BotTalk, MuteDto MyMute);
+public record BotTalkDto(string Mode, List<Guid> AllowedBotDeviceIds, int MaxBotTurns, int PauseMinutes,
+    DateTimeOffset? UpdatedAt);
+public record BotTalkRequest(string? Mode, Guid[]? AllowedBotDeviceIds, int? MaxBotTurns, int? PauseMinutes);

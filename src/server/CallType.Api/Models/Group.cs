@@ -44,6 +44,15 @@ public class Group
     /// </summary>
     public bool IsEmergencyChannel { get; set; }
 
+    /// <summary>
+    /// Whether and how bots in this group may talk to each other
+    /// (bot conversations design D1-D4). Plaintext metadata on purpose, like
+    /// membership and roles: the bots enforce the rules client-side and must
+    /// be able to read them; message content stays E2E. Stored as columns of
+    /// the Groups table (owned type), never null.
+    /// </summary>
+    public GroupBotTalk BotTalk { get; set; } = new();
+
     // Navigation property
     public List<GroupMember> Members { get; set; } = [];
 }
