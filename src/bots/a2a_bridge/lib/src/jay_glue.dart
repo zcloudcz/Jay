@@ -3,9 +3,7 @@
 // It is written against the runtime API of contract section 5
 // (docs/superpowers/specs/2026-11-05-agent-messaging-contract.md):
 // `BotMessage.reply` returning `BotSentMessage`, `BotSentMessage.edit`,
-// `CallTypeBot.setCommands` and calltype_core's `BotCommand`. Until that
-// runtime is merged this file does not analyze and is excluded in
-// analysis_options.yaml (remove the exclude after the merge).
+// `CallTypeBot.setCommands` and calltype_core's `BotCommand`.
 import 'package:a2a_bridge/a2a_bridge.dart';
 import 'package:calltype_bot/calltype_bot.dart';
 
