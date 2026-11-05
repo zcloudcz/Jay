@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -16,6 +17,7 @@ import 'mentions.dart';
 import '../contacts/rename_contact_dialog.dart';
 import 'package:flutter/services.dart';
 import 'attachment.dart';
+import 'bot_commands.dart';
 import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
@@ -288,6 +290,48 @@ class ChatScreen extends StatelessWidget {
     }
   }
 
+  /// Edit dialog for an own text message; sends `type: edit` on save.
+  Future<void> _edit(
+    BuildContext context,
+    ChatController controller,
+    Message message,
+  ) async {
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    // A plain variable, not a TextEditingController: same reason as the
+    // add-contact dialog (the controller would be disposed while the exit
+    // animation still rebuilds the field).
+    var typed = message.body ?? '';
+    final text = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l10n.chatEditTitle),
+        content: TextFormField(
+          initialValue: typed,
+          autofocus: true,
+          minLines: 1,
+          maxLines: 6,
+          onChanged: (value) => typed = value,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.commonCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(typed.trim()),
+            child: Text(l10n.commonSave),
+          ),
+        ],
+      ),
+    );
+    // Cancel, an empty text or no change: nothing to send.
+    if (text == null || text.isEmpty || text == message.body) return;
+    if (!await controller.editMessage(message.id, text)) {
+      messenger.showSnackBar(SnackBar(content: Text(l10n.chatEditFailed)));
+    }
+  }
+
   /// Lists the other chats; picking one opens it and the route sends the
   /// message there (see `ForwardDraft`).
   Future<void> _forward(
@@ -380,6 +424,12 @@ class ChatScreen extends StatelessWidget {
     );
     if (pending) return [if (!isFile) copy, delete];
     return [
+      if (controller.canEdit(message, business: business))
+        MessageAction(
+          icon: Icons.edit_outlined,
+          label: l10n.chatMessageEdit,
+          onSelected: () => _edit(context, controller, message),
+        ),
       MessageAction(
         icon: Icons.reply_rounded,
         label: l10n.chatMessageReply,
@@ -433,6 +483,29 @@ class ChatScreen extends StatelessWidget {
         contact?.userHandle ??
         contactId;
     final isBot = contact?.isBot ?? false;
+    // Bots whose "/" commands this chat offers: the 1:1 bot, or the group's
+    // bot members (by profile or by the local contact flag).
+    final commandBots = <CommandBot>[
+      if (!group && isBot)
+        CommandBot(
+          deviceId: contactId,
+          handle: contact?.userHandle,
+          name: contact?.displayName,
+        ),
+      if (group)
+        for (final m in controller.groupMembers)
+          if (m.deviceId != controller.myIdentityId &&
+              isBotSender(
+                m.deviceId,
+                members: controller.groupMembers,
+                contacts: allContacts,
+              ))
+            CommandBot(
+              deviceId: m.deviceId,
+              handle: m.userHandle,
+              name: m.displayName,
+            ),
+    ];
     final organizationName = conversation?.organizationName;
     final l10n = context.l10n;
     if (controller.consumeAuditRecipientMissing()) {
@@ -618,6 +691,19 @@ class ChatScreen extends StatelessWidget {
                             isMine: mine,
                             deleted: message.deleted,
                             forwarded: message.forwarded,
+                            edited: message.editedAt != null,
+                            // Only under a RECEIVED message of a bot: a human
+                            // (or this user's own copy) never gets buttons.
+                            buttons: !mine &&
+                                    isBotSender(
+                                      message.senderId,
+                                      members: controller.groupMembers,
+                                      contacts: allContacts,
+                                    )
+                                ? decodeActionsJson(message.actionsJson)
+                                : const [],
+                            onButton: (button) =>
+                                controller.sendAction(message, button),
                             quoteAuthor: message.replySenderId == null
                                 ? null
                                 : _authorLabel(
@@ -691,6 +777,15 @@ class ChatScreen extends StatelessWidget {
           else
             MessageInput(
               onSend: controller.sendMessage,
+              onSendWithMentions: (text, mentions) =>
+                  controller.sendMessage(text, mentions: mentions),
+              commandSuggestions: commandBots.isEmpty
+                  ? null
+                  : () => controller.commandSuggestions(
+                      commandBots,
+                      group: group,
+                    ),
+              initialText: controller.initialDraft,
               onAttachment: () => _attach(context),
               replyAuthor: controller.replyingTo == null
                   ? null

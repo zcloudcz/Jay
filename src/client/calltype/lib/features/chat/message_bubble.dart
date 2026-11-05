@@ -1,3 +1,4 @@
+import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -40,7 +41,20 @@ class MessageBubble extends StatelessWidget {
     this.quoteText,
     this.forwarded = false,
     this.deleted = false,
+    this.edited = false,
+    this.buttons = const [],
+    this.onButton,
   });
+
+  /// Shows the small "edited" label next to the time.
+  final bool edited;
+
+  /// Bot buttons under the text. The CALLER decides whether they may show
+  /// (only for a received message of a bot); this widget just draws them.
+  final List<MessageButton> buttons;
+
+  /// Tap on one of [buttons]; null draws them disabled.
+  final void Function(MessageButton button)? onButton;
 
   /// Message body text (ignored when [content] or [deleted] is set).
   final String text;
@@ -254,12 +268,44 @@ class MessageBubble extends StatelessWidget {
                                 color: textColor,
                               ),
                             ),
-                      const SizedBox(height: 4),
-                      Text(
-                        time,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: textColor.withAlpha(150),
+                      if (buttons.isNotEmpty && !deleted)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              for (final button in buttons)
+                                OutlinedButton(
+                                  onPressed: onButton == null
+                                      ? null
+                                      : () => onButton!(button),
+                                  child: Text(button.label),
+                                ),
+                            ],
+                          ),
                         ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (edited && !deleted) ...[
+                            Text(
+                              context.l10n.chatMessageEdited,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: textColor.withAlpha(150),
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Text(
+                            time,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: textColor.withAlpha(150),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

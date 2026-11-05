@@ -922,5 +922,37 @@
   "botTalkErrorNotABot": "One of the selected bots is no longer in the group. Check the list and save again.",
   "botTalkErrorInvalid": "The server did not accept these values. Check them and try again.",
   "botTalkErrorFailed": "Could not save. Check your connection and try again.",
-  "botTalkLoadFailed": "Could not load the setting. Tap to try again."
+  "botTalkLoadFailed": "Could not load the setting. Tap to try again.",
+  "chatMessageEdit": "Edit",
+  "@chatMessageEdit": {
+    "description": "Message menu action: edit the text of one of your own messages."
+  },
+  "chatMessageEdited": "edited",
+  "@chatMessageEdited": {
+    "description": "Small label next to the time of a message whose text was changed after sending."
+  },
+  "chatEditTitle": "Edit message",
+  "@chatEditTitle": {
+    "description": "Title of the dialog for changing the text of an own message."
+  },
+  "chatEditFailed": "The message could not be edited. Check your connection and try again.",
+  "@chatEditFailed": {
+    "description": "Snackbar when editing a message failed."
+  },
+  "chatCommandFromBot": "{description} ({bot})",
+  "@chatCommandFromBot": {
+    "description": "Subtitle of a bot command suggestion in a group: the command description and the name of the bot that offers it.",
+    "placeholders": {
+      "description": {
+        "type": "String"
+      },
+      "bot": {
+        "type": "String"
+      }
+    }
+  },
+  "botLinkFailed": "Could not open this bot. Check your connection and try again.",
+  "@botLinkFailed": {
+    "description": "Shown when a bot link (calltype://bot/...) could not be resolved."
+  }
 }

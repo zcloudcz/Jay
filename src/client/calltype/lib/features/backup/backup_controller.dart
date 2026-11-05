@@ -229,6 +229,11 @@ class BackupController extends ChangeNotifier {
                 'replyPreview': m.replyPreview,
                 'forwarded': m.forwarded,
                 'deleted': m.deleted,
+                // Agent messaging (contract section 3): carried like the
+                // reply fields so a restored bot message keeps its buttons
+                // and an edited one its label.
+                'editedAt': m.editedAt?.toIso8601String(),
+                'actionsJson': m.actionsJson,
               },
             )
             .toList(),

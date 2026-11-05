@@ -99,8 +99,10 @@
 <array>
 	<string>remote-notification</string>
 </array>
-<!-- calltype://channel/<handle> opens a channel profile (go_router redirect
-     in lib/app/router.dart). -->
+<!-- calltype://channel/<handle> opens a channel profile and
+     calltype://bot/<HANDLE>?start=<payload> adds/opens a bot (go_router
+     redirect in lib/app/router.dart). iOS registers the whole scheme, so both
+     hosts need no entry of their own. -->
 <key>CFBundleURLTypes</key>
 <array>
 	<dict>

@@ -524,5 +524,11 @@
   "botTalkErrorNotABot": "Seçilen botlardan biri artık grupta değil. Listeyi kontrol edip tekrar kaydedin.",
   "botTalkErrorInvalid": "Sunucu bu değerleri kabul etmedi. Kontrol edip tekrar deneyin.",
   "botTalkErrorFailed": "Kaydedilemedi. Bağlantınızı kontrol edip tekrar deneyin.",
-  "botTalkLoadFailed": "Ayar yüklenemedi. Tekrar denemek için dokunun."
+  "botTalkLoadFailed": "Ayar yüklenemedi. Tekrar denemek için dokunun.",
+  "chatMessageEdit": "Düzenle",
+  "chatMessageEdited": "düzenlendi",
+  "chatEditTitle": "Mesajı düzenle",
+  "chatEditFailed": "Mesaj düzenlenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
+  "chatCommandFromBot": "{description} ({bot})",
+  "botLinkFailed": "Bu bot açılamadı. Bağlantınızı kontrol edip tekrar deneyin."
 }

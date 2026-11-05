@@ -27,6 +27,7 @@ import '../features/chat/chat_controller.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/chat/message_inbox_service.dart';
 import '../features/chat_list/chat_list_screen.dart';
+import '../features/contacts/bot_link.dart';
 import '../features/contacts/contacts_screen.dart';
 import '../features/contacts/qr_scanner_screen.dart';
 import '../features/devices/device_service.dart';
@@ -78,6 +79,12 @@ final router = GoRouter(
     final channelHandle = parseChannelLink(state.uri.toString());
     if (channelHandle != null) {
       return '/channels/profile/${Uri.encodeComponent(channelHandle)}';
+    }
+    // calltype://bot/<HANDLE>?start=<payload>: same mapping, to the screen
+    // that adds (with confirmation) / opens the bot and pre-fills the chat.
+    final botLink = parseBotLink(state.uri.toString());
+    if (botLink != null) {
+      return botLinkRoute(botLink);
     }
     final storage = context.read<SecureStorage>();
     final id = await storage.getDeviceId();
@@ -174,6 +181,10 @@ final router = GoRouter(
                       .sendForwarded(body: draft.body, type: draft.type)
                       .catchError((_) {});
                 }
+                // Bot deep link: only pre-filled, the user sends it.
+                if (draft is ComposerDraft) {
+                  controller.initialDraft = draft.text;
+                }
                 return controller;
               },
               child: ChatScreen(contactId: id),
@@ -205,6 +216,26 @@ final router = GoRouter(
           ],
         ),
       ],
+    ),
+    GoRoute(
+      path: '/bot/:handle',
+      builder: (context, state) {
+        // Re-validated here: the route can also be reached directly (web URL
+        // bar), not only through the redirect above.
+        final link = parseBotLink(
+          Uri(
+            scheme: 'calltype',
+            host: 'bot',
+            path: '/${state.pathParameters['handle']}',
+            queryParameters: state.uri.queryParameters.isEmpty
+                ? null
+                : state.uri.queryParameters,
+          ).toString(),
+        );
+        return link == null
+            ? const ChatListScreen()
+            : BotLinkScreen(link: link);
+      },
     ),
     GoRoute(
       path: '/contacts',

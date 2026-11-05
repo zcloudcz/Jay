@@ -524,5 +524,11 @@
   "botTalkErrorNotABot": "選択したボットの一部がグループにいません。リストを確認して、もう一度保存してください。",
   "botTalkErrorInvalid": "サーバーがこの値を受け付けませんでした。確認してもう一度お試しください。",
   "botTalkErrorFailed": "保存できませんでした。接続を確認して、もう一度お試しください。",
-  "botTalkLoadFailed": "設定を読み込めませんでした。タップして再試行してください。"
+  "botTalkLoadFailed": "設定を読み込めませんでした。タップして再試行してください。",
+  "chatMessageEdit": "編集",
+  "chatMessageEdited": "編集済み",
+  "chatEditTitle": "メッセージを編集",
+  "chatEditFailed": "メッセージを編集できませんでした。接続を確認して、もう一度お試しください。",
+  "chatCommandFromBot": "{description}（{bot}）",
+  "botLinkFailed": "このボットを開けませんでした。接続を確認して、もう一度お試しください。"
 }

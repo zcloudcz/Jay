@@ -40,6 +40,8 @@ void main() {
               replySenderId: const Value('peer'),
               replyPreview: const Value('quoted'),
               forwarded: const Value(true),
+              editedAt: Value(DateTime.utc(2026, 1, 2)),
+              actionsJson: const Value('[{"id":"ok","label":"OK"}]'),
             ),
           );
       await source
@@ -108,6 +110,12 @@ void main() {
       expect(restored['m1']!.replyPreview, 'quoted');
       expect(restored['m1']!.forwarded, isTrue);
       expect(restored['m2']!.deleted, isTrue);
+      // Agent messaging fields too (contract section 3).
+      expect(
+        restored['m1']!.editedAt!.isAtSameMomentAs(DateTime.utc(2026, 1, 2)),
+        isTrue,
+      );
+      expect(restored['m1']!.actionsJson, '[{"id":"ok","label":"OK"}]');
     },
   );
   test(

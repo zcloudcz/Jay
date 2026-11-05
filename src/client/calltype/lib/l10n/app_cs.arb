@@ -524,5 +524,11 @@
   "botTalkErrorNotABot": "Jeden z vybraných botů už ve skupině není. Zkontrolujte seznam a uložte znovu.",
   "botTalkErrorInvalid": "Server tyto hodnoty nepřijal. Zkontrolujte je a zkuste to znovu.",
   "botTalkErrorFailed": "Uložení se nezdařilo. Zkontrolujte připojení a zkuste to znovu.",
-  "botTalkLoadFailed": "Nastavení se nepodařilo načíst. Klepnutím to zkusíte znovu."
+  "botTalkLoadFailed": "Nastavení se nepodařilo načíst. Klepnutím to zkusíte znovu.",
+  "chatMessageEdit": "Upravit",
+  "chatMessageEdited": "upraveno",
+  "chatEditTitle": "Upravit zprávu",
+  "chatEditFailed": "Zprávu se nepodařilo upravit. Zkontrolujte připojení a zkuste to znovu.",
+  "chatCommandFromBot": "{description} ({bot})",
+  "botLinkFailed": "Tohoto bota se nepodařilo otevřít. Zkontrolujte připojení a zkuste to znovu."
 }
