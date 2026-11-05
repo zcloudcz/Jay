@@ -8,7 +8,6 @@
 // analysis_options.yaml (remove the exclude after the merge).
 import 'package:a2a_bridge/a2a_bridge.dart';
 import 'package:calltype_bot/calltype_bot.dart';
-import 'package:calltype_core/network/bot_dtos.dart';
 
 /// [ChatSink] over one incoming Jay message: replies go back into the
 /// conversation it came from (the runtime quotes it in groups).

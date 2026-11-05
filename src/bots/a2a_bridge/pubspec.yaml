@@ -9,7 +9,7 @@ environment:
 dependencies:
   calltype_bot:
     path: ../calltype_bot
-  # Direct dependency for BotCommand (lib/network/bot_dtos.dart) in the glue.
+  # Direct dependency: the glue builds calltype_core BotCommand values (re-exported by calltype_bot).
   calltype_core:
     path: ../../client/calltype_core
 
