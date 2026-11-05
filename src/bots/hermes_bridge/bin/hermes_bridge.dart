@@ -6,6 +6,15 @@ import 'package:hermes_bridge/hermes_bridge.dart';
 /// Entry point: a Jay contact whose replies come from a Hermes Agent.
 /// Configuration is environment-only (see README) so the same image runs
 /// anywhere and no secret ever lands in a file or an argument list.
+///
+/// Bot conversations and the local send endpoint:
+/// - `PEER_BOT_HANDLES`   optional; only these bots may talk to this one
+///                        (narrows the group setting, never widens it).
+/// - `PEER_MAX_TURNS_CAP` ceiling for any group's bot-only exchange (default 50).
+/// - `BRIDGE_SEND_KEY`    enables `POST http://127.0.0.1:$BRIDGE_PORT/send`
+///                        (Bearer key); unset = endpoint off.
+/// - `BRIDGE_PORT`        port of that endpoint (default 8650).
+/// `PEER_REPLY_LIMIT` / `PEER_REPLY_WINDOW_MINUTES` are obsolete (logged, ignored).
 Future<void> main() async {
   final env = Platform.environment;
   String required(String name) {
@@ -31,8 +40,12 @@ Future<void> main() async {
     return value;
   }
 
-  final peerReplyLimit = positiveInt('PEER_REPLY_LIMIT', 5);
-  final peerReplyWindowMinutes = positiveInt('PEER_REPLY_WINDOW_MINUTES', 30);
+  // Bot-to-bot limits now come from each group's "Bot conversation" setting;
+  // this is only the operator's ceiling over all of them.
+  final peerTurnsCap = positiveInt('PEER_MAX_TURNS_CAP', 50);
+  // The local POST /send endpoint (see README). No key = no endpoint.
+  final sendKey = env['BRIDGE_SEND_KEY']?.trim() ?? '';
+  final sendPort = positiveInt('BRIDGE_PORT', 8650);
 
   final hermes = HermesClient(
     baseUrl: env['HERMES_URL'] ?? 'http://127.0.0.1:8642',
@@ -62,20 +75,43 @@ Future<void> main() async {
   }
   log('Bot ${bot.handle} starting — invite: ${bot.inviteLink}');
 
-  await runBridge(
+  for (final old in ['PEER_REPLY_LIMIT', 'PEER_REPLY_WINDOW_MINUTES']) {
+    if ((env[old] ?? '').trim().isNotEmpty) {
+      log(
+        '$old is no longer used: limits come from the group setting '
+        '"Bot conversation"; PEER_MAX_TURNS_CAP is the operator ceiling.',
+      );
+    }
+  }
+
+  final bridge = await runBridge(
     bot,
     allowedHandles: parseAllowedHandles(env['ALLOWED_HANDLES']),
     peerHandles: parseAllowedHandles(env['PEER_BOT_HANDLES']),
-    peerReplyLimit: peerReplyLimit,
-    peerReplyWindow: Duration(minutes: peerReplyWindowMinutes),
+    peerTurnsCap: peerTurnsCap,
     backend: hermes.ask,
     log: log,
   );
   log('Connected. Waiting for messages.');
 
+  final HttpServer? endpoint;
+  try {
+    endpoint = await startSendEndpoint(
+      key: sendKey,
+      port: sendPort,
+      send: bridge.sendFromLocal,
+      log: log,
+    );
+  } on SocketException catch (error) {
+    stderr.writeln('Cannot listen on 127.0.0.1:$sendPort: $error');
+    exit(78); // EX_CONFIG
+  }
+  if (endpoint == null) log('BRIDGE_SEND_KEY not set: local /send is off.');
+
   // Let `docker stop` flush the DB instead of killing mid-write.
   Future<void> shutdown(ProcessSignal _) async {
     log('Shutting down.');
+    await endpoint?.close(force: true);
     await bot.close();
     hermes.close();
     exit(0);
