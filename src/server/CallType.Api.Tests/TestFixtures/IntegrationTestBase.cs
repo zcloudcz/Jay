@@ -72,6 +72,22 @@ public abstract class IntegrationTestBase : IAsyncLifetime
     private static readonly string DefaultIdentityKey = Convert.ToBase64String([0x01, 0x02, 0x03]);
     private static readonly string DefaultSignedPreKey = Convert.ToBase64String([0x04, 0x05, 0x06]);
 
+    /// <summary>
+    /// The container's connection string with generous timeouts. WHY: every
+    /// test starts its own Postgres + Azurite (IAsyncLifetime runs per test),
+    /// and on the hosted CI runner several of them start at once. A container
+    /// that reports ready could then take longer than Npgsql's default 15 s to
+    /// accept or answer a connection, which failed whole tests in their setup
+    /// (deploy run 42294418106: "Timeout during reading attempt" in
+    /// CreateAuditDatabaseAsync). Only the timeouts change, never a result.
+    /// </summary>
+    private string PostgresConnectionString =>
+        new NpgsqlConnectionStringBuilder(_postgres.GetConnectionString())
+        {
+            Timeout = 60,
+            CommandTimeout = 120,
+        }.ConnectionString;
+
     public async Task InitializeAsync()
     {
         // Start both containers in parallel — they are independent services.
@@ -126,7 +142,7 @@ public abstract class IntegrationTestBase : IAsyncLifetime
                         services.Remove(descriptor);
 
                     services.AddDbContext<AppDbContext>(options =>
-                        options.UseNpgsql(_postgres.GetConnectionString()));
+                        options.UseNpgsql(PostgresConnectionString));
 
                     // Replace the BlobServiceClient singleton with one pointing
                     // at the Azurite container instead of real Azure.
@@ -163,13 +179,31 @@ public abstract class IntegrationTestBase : IAsyncLifetime
     /// </summary>
     private async Task<string> CreateAuditDatabaseAsync()
     {
-        var mainConnectionString = _postgres.GetConnectionString();
+        var mainConnectionString = PostgresConnectionString;
 
-        await using (var conn = new NpgsqlConnection(mainConnectionString))
+        // Retried: this is the first connection to a container that has just
+        // started, the one that timed out on a loaded CI runner (see
+        // PostgresConnectionString). A CREATE that reached the server before
+        // the client gave up shows up as 42P04 on the retry and is success.
+        for (var attempt = 1; ; attempt++)
         {
-            await conn.OpenAsync();
-            await using var cmd = new NpgsqlCommand("CREATE DATABASE calltype_audit;", conn);
-            await cmd.ExecuteNonQueryAsync();
+            try
+            {
+                await using var conn = new NpgsqlConnection(mainConnectionString);
+                await conn.OpenAsync();
+                await using var cmd = new NpgsqlCommand("CREATE DATABASE calltype_audit;", conn);
+                await cmd.ExecuteNonQueryAsync();
+                break;
+            }
+            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.DuplicateDatabase && attempt > 1)
+            {
+                break;
+            }
+            catch (Exception e) when (attempt < 5 && e is NpgsqlException or TimeoutException)
+            {
+                NpgsqlConnection.ClearAllPools();
+                await Task.Delay(TimeSpan.FromSeconds(2 * attempt));
+            }
         }
 
         var auditBuilder = new NpgsqlConnectionStringBuilder(mainConnectionString) { Database = "calltype_audit" };
