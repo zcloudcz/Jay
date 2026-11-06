@@ -17,9 +17,11 @@
 # One-time setup by the account owner (names only — never commit values):
 #   App Store Connect > Users and Access > Integrations > App Store Connect API:
 #     create a Team key (Admin), download AuthKey_XXXXXXXXXX.p8 once.
-#   Certificates, IDs & Profiles: App ID cz.zcloud.jay; Profiles > App Store
-#     Connect profile "Jay App Store" for that App ID and the team's
-#     Apple Distribution certificate (no devices needed).
+#   Certificates, IDs & Profiles: App ID cz.zcloud.jay with the Push
+#     Notifications capability; Profiles > App Store Connect profile
+#     "Jay App Store" for that App ID and the team's Apple Distribution
+#     certificate (no devices needed). Regenerate the profile after enabling
+#     Push: Runner.entitlements needs aps-environment=production in it.
 #   GitHub environment "apple-testflight":
 #     secrets   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_BASE64 (base64 of the .p8),
 #               IOS_CERTIFICATE_BASE64 + IOS_CERTIFICATE_PASSWORD (the .p12),
@@ -148,6 +150,11 @@ jobs:
           PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$WORK/profile.plist")"
           PROFILE_APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$WORK/profile.plist")"
           [ "$PROFILE_APP_ID" = "$TEAM_ID.$BUNDLE_ID" ] || { echo "::error::Profile is for $PROFILE_APP_ID, expected $TEAM_ID.$BUNDLE_ID"; exit 1; }
+          # Runner.entitlements declares aps-environment=production (APNs push,
+          # notifications spec 2026-11-06). A profile generated before Push was
+          # enabled on the App ID lacks it and the archive would fail late.
+          PROFILE_APS="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' "$WORK/profile.plist" 2>/dev/null || true)"
+          [ "$PROFILE_APS" = "production" ] || { echo "::error::Profile has no aps-environment=production (got '$PROFILE_APS'). Enable Push Notifications on the App ID, regenerate the \"Jay App Store\" profile and update IOS_PROVISION_PROFILE_BASE64."; exit 1; }
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
           INSTALLED_PROFILE="$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
           cp "$WORK/profile.mobileprovision" "$INSTALLED_PROFILE"

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Debug builds only. A debug build on a device is signed with a DEVELOPMENT
+  profile, whose aps-environment is "development"; declaring "production"
+  here would fail code signing. Tokens from such a build are sandbox tokens:
+  they need a server with Push:Apns:UseSandbox=true. The simulator ignores
+  entitlements and simply gets no token (the app then reports push as not
+  configured and keeps local notifications).
+-->
+<plist version="1.0">
+<dict>
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>
