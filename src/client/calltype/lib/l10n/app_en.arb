@@ -127,6 +127,55 @@
   },
   "chatAttachmentFailed": "Unable to send attachment.",
   "chatAttachmentSaveFailed": "Unable to save attachment.",
+  "chatAttachPhotoLibrary": "Photo library",
+  "@chatAttachPhotoLibrary": {
+    "description": "Attachment sheet entry on iOS/Android: pick photos from the system photo library."
+  },
+  "chatAttachCamera": "Camera",
+  "@chatAttachCamera": {
+    "description": "Attachment sheet entry: take a photo with the camera."
+  },
+  "chatAttachPhoto": "Photo",
+  "@chatAttachPhoto": {
+    "description": "Attachment sheet entry on web/desktop: choose an image file."
+  },
+  "chatAttachFile": "File",
+  "@chatAttachFile": {
+    "description": "Attachment sheet entry: choose any file."
+  },
+  "chatPhotoPreparing": "Preparing photo {current} of {total}…",
+  "@chatPhotoPreparing": {
+    "description": "Progress dialog while picked photos are shrunk to fit the attachment limit.",
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chatImageSaved": "Photo saved.",
+  "@chatImageSaved": {
+    "description": "Snackbar after a photo was saved to the phone's photo library."
+  },
+  "chatImageSaveDenied": "Jay may not add photos. Allow it in Settings.",
+  "@chatImageSaveDenied": {
+    "description": "Snackbar when the user refused the permission to add photos to the photo library."
+  },
+  "chatImageShareFailed": "Unable to share the photo.",
+  "@chatImageShareFailed": {
+    "description": "Snackbar when the system share sheet could not be opened for a photo."
+  },
+  "chatImageSemantics": "Photo {name}",
+  "@chatImageSemantics": {
+    "description": "Screen reader label of an image attachment thumbnail.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "chatAttachmentLabel": "{name} ({size})",
   "@chatAttachmentLabel": {
     "description": "Download button of a received file: file name and formatted size, e.g. 'notes.txt (12 KB)'.",

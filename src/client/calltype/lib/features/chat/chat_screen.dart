@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:file_picker/file_picker.dart';
 import '../../core/network/webrtc_manager.dart';
 import '../../core/network/signalr_client.dart';
 import '../contacts/contacts_controller.dart';
@@ -17,6 +16,10 @@ import 'mentions.dart';
 import '../contacts/rename_contact_dialog.dart';
 import 'package:flutter/services.dart';
 import 'attachment.dart';
+import 'attachment_media.dart';
+import 'attachment_sheet.dart';
+import 'image_attachment.dart';
+import 'image_compression.dart';
 import 'bot_commands.dart';
 import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
@@ -183,13 +186,89 @@ class ChatScreen extends StatelessWidget {
   }
 
   Future<void> _attach(BuildContext context) async {
+    final source = await showAttachSourceSheet(context);
+    if (source == null || !context.mounted) return;
+    final media = AttachmentMedia.instance;
+    if (source == AttachSource.file) return _attachFile(context);
+    final List<PickedMedia> photos;
+    try {
+      photos = switch (source) {
+        AttachSource.photoLibrary => await media.pickGalleryImages(),
+        AttachSource.camera => [?await media.pickCameraImage()],
+        _ => await media.pickImageFiles(),
+      };
+    } catch (_) {
+      // Picker refused (permission denied, no camera): nothing was chosen.
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.chatAttachmentFailed)),
+        );
+      }
+      return;
+    }
+    if (photos.isEmpty || !context.mounted) return;
+    await _sendPhotos(context, photos);
+  }
+
+  /// Photos are re-encoded to fit the inline attachment limit instead of
+  /// being rejected: a phone photo (2-6 MB) is ten times the limit, and the
+  /// wire format (`type: file`, name + base64 data) stays what old clients
+  /// already read.
+  Future<void> _sendPhotos(
+    BuildContext context,
+    List<PickedMedia> photos,
+  ) async {
+    final controller = context.read<ChatController>();
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    final prepared = await preparePhotos(
+      context,
+      photos,
+      maxBytes: Attachment.maxBytes,
+    );
+    var tooLarge = false;
+    var failed = false;
+    for (final photo in prepared) {
+      final bytes = photo.bytes;
+      if (bytes == null) {
+        if (photo.decoded) {
+          tooLarge = true;
+        } else {
+          failed = true;
+        }
+        continue;
+      }
+      try {
+        await controller.sendAttachment(photo.name, bytes);
+      } catch (_) {
+        failed = true;
+      }
+    }
+    // One message per kind of problem, not one per photo.
+    if (tooLarge) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            l10n.chatAttachmentTooLarge(Attachment.maxBytes ~/ 1024),
+          ),
+        ),
+      );
+    }
+    if (failed) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.chatAttachmentFailed)),
+      );
+    }
+  }
+
+  Future<void> _attachFile(BuildContext context) async {
     final controller = context.read<ChatController>();
     // Captured before the awaits; the raw exception text is for developers
     // and is not shown — the user gets one of two localized messages.
     final l10n = context.l10n;
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final file = await FilePicker.pickFile();
+      final file = await AttachmentMedia.instance.pickFile();
       if (file == null) return;
       if (await file.length() > Attachment.maxBytes) {
         messenger.showSnackBar(
@@ -450,19 +529,43 @@ class ChatScreen extends StatelessWidget {
     ];
   }
 
-  Future<void> _save(BuildContext context, Attachment attachment) async {
+  /// Decoded attachments by message id. Decoding base64 on every rebuild
+  /// would also hand Image.memory a new byte list each time, which restarts
+  /// the image decode and makes thumbnails flicker while the list scrolls.
+  static final _attachments = <String, (int, Attachment?)>{};
+  static const _attachmentCacheSize = 64;
+
+  static Attachment? _attachmentOf(Message message) {
+    final body = message.body ?? '';
+    final cached = _attachments[message.id];
+    if (cached != null && cached.$1 == body.length) return cached.$2;
+    Attachment? attachment;
     try {
-      await FilePicker.saveFile(
-        fileName: attachment.name,
-        bytes: attachment.bytes,
-      );
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.chatAttachmentSaveFailed)),
-        );
-      }
+      attachment = Attachment.decode(body);
+    } catch (_) {}
+    if (_attachments.length >= _attachmentCacheSize) {
+      _attachments.remove(_attachments.keys.first);
     }
+    _attachments[message.id] = (body.length, attachment);
+    return attachment;
+  }
+
+  Widget _attachmentContent(BuildContext context, Attachment file) {
+    final download = OutlinedButton.icon(
+      onPressed: () => saveAttachment(context, file),
+      icon: const Icon(Icons.download),
+      label: Text(
+        context.l10n.chatAttachmentLabel(
+          file.name,
+          context.l10n.sizeBytes(file.bytes.length),
+        ),
+      ),
+    );
+    // Only names that claim to be an image are tried; the thumbnail itself
+    // falls back to the download button when the bytes do not decode.
+    return isImageAttachmentName(file.name)
+        ? ImageAttachmentThumbnail(attachment: file, fallback: download)
+        : download;
   }
 
   @override
@@ -657,13 +760,9 @@ class ChatScreen extends StatelessWidget {
                       if (message.type == 'device-change') {
                         return _DeviceChangeLine(body: message.body ?? '');
                       }
-                      Attachment? attachment;
-                      if (message.type == 'file') {
-                        try {
-                          attachment = Attachment.decode(message.body ?? '');
-                        } catch (_) {}
-                      }
-                      final file = attachment;
+                      final file = message.type == 'file' && !message.deleted
+                          ? _attachmentOf(message)
+                          : null;
                       return Column(
                         crossAxisAlignment: mine
                             ? CrossAxisAlignment.end
@@ -715,16 +814,7 @@ class ChatScreen extends StatelessWidget {
                             quoteText: message.replyPreview,
                             content: file == null
                                 ? null
-                                : OutlinedButton.icon(
-                                    onPressed: () => _save(context, file),
-                                    icon: const Icon(Icons.download),
-                                    label: Text(
-                                      l10n.chatAttachmentLabel(
-                                        file.name,
-                                        l10n.sizeBytes(file.bytes.length),
-                                      ),
-                                    ),
-                                  ),
+                                : _attachmentContent(context, file),
                             actions: _actions(
                               context,
                               controller,

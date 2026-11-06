@@ -9,6 +9,10 @@
      FCM; the app asks for it once after onboarding (notifications spec
      2026-11-06). See also K04 in docs/superpowers/plans/2026-09-16-beta-kontrakty.md. -->
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<!-- gal (save a received photo to the gallery) needs storage access only up
+     to Android 10; newer versions write through MediaStore without it. The
+     photo picker (image_picker) needs no permission at all. -->
+<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 <uses-feature android:name="android.hardware.camera" android:required="false" />
 <application
         android:label="Jay"
