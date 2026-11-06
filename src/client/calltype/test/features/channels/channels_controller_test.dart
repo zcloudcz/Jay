@@ -376,11 +376,10 @@ void main() {
         data: data,
       ),
     );
-    String message(int status, String code) =>
-        channelErrorMessage(
-          l10nEn,
-          failure(status, {'error': 'x', 'code': code}),
-        );
+    String message(int status, String code) => channelErrorMessage(
+      l10nEn,
+      failure(status, {'error': 'x', 'code': code}),
+    );
 
     expect(message(403, 'account_required'), contains('registered account'));
     expect(message(409, 'channel_limit_reached'), contains('limit'));
@@ -445,5 +444,70 @@ void main() {
       throwsA(isA<ChannelValidationException>()),
     );
     expect(h.api.calls.where((c) => c.startsWith('post ')), isEmpty);
+  });
+
+  group('newPosts (local notifications)', () {
+    ChannelPostDto dto(String id, int hour) => ChannelPostDto(
+      channelId: 'c1',
+      postId: id,
+      body: 'body $id',
+      createdAt: DateTime.utc(2026, 9, 17, hour),
+    );
+
+    test('a new live post is announced once, a duplicate never', () async {
+      await followNews();
+      final seen = <String>[];
+      final sub = h.controller.newPosts.listen((p) => seen.add(p.postId));
+
+      await h.emitPost(postEvent('p1'));
+      await h.emitPost(postEvent('p1'));
+      await sub.cancel();
+
+      expect(seen, ['p1']);
+    });
+
+    test('a catch-up announces only its newest post', () async {
+      h.api.posts['c1'] = [dto('a', 9)];
+      await followNews(); // stores "a" (history, not announced)
+      final seen = <String>[];
+      final sub = h.controller.newPosts.listen((p) => seen.add(p.postId));
+
+      h.api.posts['c1'] = [dto('a', 9), dto('b', 10), dto('c', 11)];
+      h.api.mine = [
+        const ChannelInfo(
+          channelId: 'c1',
+          handle: 'CH-NEWS-0001',
+          name: 'News',
+          isFollowing: true,
+          unreadCount: 2,
+        ),
+      ];
+      await h.controller.sync();
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(seen, ['c']);
+    });
+
+    test('the first fetch of a feed is history: nothing announced', () async {
+      final seen = <String>[];
+      final sub = h.controller.newPosts.listen((p) => seen.add(p.postId));
+      h.api.posts['c1'] = [dto('a', 9), dto('b', 10)];
+      h.api.mine = [
+        const ChannelInfo(
+          channelId: 'c1',
+          handle: 'CH-NEWS-0001',
+          name: 'News',
+          isFollowing: true,
+          unreadCount: 2,
+        ),
+      ];
+      await h.controller.load();
+      await h.controller.sync();
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(seen, isEmpty);
+    });
   });
 }

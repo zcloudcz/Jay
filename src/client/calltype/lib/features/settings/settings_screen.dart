@@ -38,6 +38,15 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => context.push('/settings/lock'),
           ),
 
+          // -- Notifications ----------------------------------------------------
+          _SettingsTile(
+            icon: Icons.notifications_rounded,
+            iconColor: colorScheme.primary,
+            title: l10n.settingsNotifications,
+            subtitle: l10n.settingsNotificationsSubtitle,
+            onTap: () => context.push('/settings/notifications'),
+          ),
+
           // -- Account section ------------------------------------------------
           _SettingsTile(
             icon: Icons.person_rounded,

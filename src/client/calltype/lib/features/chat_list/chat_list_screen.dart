@@ -14,6 +14,7 @@ import '../contacts/contacts_controller.dart';
 import '../devices/device_service.dart';
 import '../mute/mute_controller.dart';
 import '../mute/mute_dialog.dart';
+import '../notifications/notifications_screen.dart';
 import '../organization/business_banner.dart';
 import 'chat_list_controller.dart';
 
@@ -114,6 +115,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
                 TextButton(onPressed: _connect, child: Text(l10n.chatListReconnect)),
               ],
             ),
+          // Web only, until answered or dismissed: the browser allows the
+          // permission prompt only from a click (spec section 2).
+          const NotificationPermissionBanner(),
           // Decision 7: "cannot verify" deletes nothing and says so; a
           // verified removal says that the chats were deleted.
           if (devices.status != CompanionStatus.ok)

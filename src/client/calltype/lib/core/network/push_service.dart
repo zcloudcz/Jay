@@ -1,217 +1,369 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/services.dart';
 
 import 'api_client.dart';
 
 /// Observable state of the push subsystem, distinguished per K04 so the UI
-/// (and Q01 acceptance) can tell "the user said no" apart from "this build
-/// has no Firebase config" apart from "it's working".
+/// can tell "the user said no" apart from "this build has no push config"
+/// apart from "it's working".
 enum PushStatus {
-  /// Platform has no Firebase Messaging support (Windows/Linux desktop).
+  /// Not registered yet (or unregistered because notifications are off).
+  idle,
+
+  /// The platform has no server push channel (Windows/Linux/macOS desktop:
+  /// local notifications only, spec section 2).
   unsupported,
 
-  /// Firebase.initializeApp() or requestPermission() failed — no config
-  /// files bundled, or the platform channel is unavailable.
+  /// The push provider is missing: no google-services.json in the Android
+  /// build, no aps-environment entitlement (simulator), Web Push not
+  /// configured on the server, or the browser lacks Push.
   notConfigured,
 
-  /// The user explicitly denied the notification permission prompt.
+  /// The user denied the notification permission.
   permissionDenied,
 
-  /// Token obtained and (attempted to be) registered with the backend.
+  /// Token obtained and registered with the backend.
   registered,
 }
 
+/// Thrown by a [PushProvider] that cannot produce a token.
+class PushUnavailable implements Exception {
+  const PushUnavailable(this.status, [this.detail]);
+  final PushStatus status;
+  final Object? detail;
+  @override
+  String toString() => 'PushUnavailable($status, $detail)';
+}
+
+/// One server push channel (contract 1.1 `platform`). The data maps carry
+/// the contract 1.3 keys `type`, `conversationId`, `v`.
+abstract class PushProvider {
+  /// `fcm`, `apns` or `webpush`.
+  String get platform;
+
+  /// The token for `PUT /devices/{id}/push-token`. Throws [PushUnavailable].
+  /// The notification permission is already granted when this is called.
+  Future<String> obtainToken();
+
+  /// New tokens the platform issued on its own (FCM rotation, APNs change).
+  Stream<String> get tokenRefresh;
+
+  /// A server push the user tapped while the app was running.
+  Stream<Map<String, String>> get opened;
+
+  /// The server push whose tap launched the app, once.
+  Future<Map<String, String>?> takeInitialOpened();
+
+  /// Pushes delivered while the app is in the foreground (FCM only; the OS
+  /// shows APNs / Web Push itself).
+  Stream<Map<String, String>> get foreground;
+
+  /// Drops the local token / subscription after the server forgot it.
+  Future<void> release();
+}
+
+/// Registers this device's push token with the server and relays what the
+/// provider reports. Push is best effort: nothing here may throw into the
+/// app, messages always arrive through the store-and-forward queue anyway.
+class PushService {
+  PushService(
+    this._api,
+    this._deviceId, {
+    required PushProvider provider,
+    String? Function()? locale,
+    this.onForegroundPush,
+    this.onOpened,
+  }) : _provider = provider,
+       _locale = locale ?? (() => null);
+
+  final ApiClient _api;
+  final String _deviceId;
+  final PushProvider _provider;
+  final String? Function() _locale;
+
+  /// A push that arrived while the app runs (e.g. `channel_post` -> sync).
+  final void Function(Map<String, String> data)? onForegroundPush;
+
+  /// The user tapped a server push (also the one that launched the app).
+  final void Function(Map<String, String> data)? onOpened;
+
+  final _subscriptions = <StreamSubscription<Object?>>[];
+  bool _initialTaken = false;
+  PushStatus _status = PushStatus.idle;
+  PushStatus get status => _status;
+
+  String get deviceId => _deviceId;
+  String get platform => _provider.platform;
+
+  /// Obtains the token and registers it. Safe to call again (every
+  /// reconnect does, so a failed PUT is retried): previous listeners are
+  /// cancelled first so they never accumulate.
+  Future<PushStatus> register() async {
+    await _cancelSubscriptions();
+    final String token;
+    try {
+      token = await _provider.obtainToken();
+    } on PushUnavailable catch (e) {
+      return _status = e.status;
+    } catch (_) {
+      return _status = PushStatus.notConfigured;
+    }
+    await _put(token);
+    _subscriptions
+      ..add(_provider.tokenRefresh.listen(_put))
+      ..add(_provider.foreground.listen((data) => onForegroundPush?.call(data)))
+      ..add(_provider.opened.listen((data) => onOpened?.call(data)));
+    // The launching tap is handled once per app run, not on every reconnect.
+    if (!_initialTaken) {
+      _initialTaken = true;
+      try {
+        final initial = await _provider.takeInitialOpened();
+        if (initial != null) onOpened?.call(initial);
+      } catch (_) {}
+    }
+    return _status = PushStatus.registered;
+  }
+
+  /// Notifications turned off: the server forgets the token (DELETE), then
+  /// the platform subscription is dropped. Best effort, never throws.
+  Future<void> unregister() async {
+    await _cancelSubscriptions();
+    try {
+      await _api.deletePushToken(_deviceId);
+    } catch (_) {
+      // Offline: the server keeps the token until the next registration or
+      // a provider reports it stale. Turning it on again re-registers.
+    }
+    try {
+      await _provider.release();
+    } catch (_) {}
+    _status = PushStatus.idle;
+  }
+
+  Future<void> dispose() => _cancelSubscriptions();
+
+  Future<void> _cancelSubscriptions() async {
+    for (final s in _subscriptions) {
+      await s.cancel();
+    }
+    _subscriptions.clear();
+  }
+
+  Future<void> _put(String token) async {
+    try {
+      await _api.updatePushToken(
+        deviceId: _deviceId,
+        token: token,
+        platform: _provider.platform,
+        locale: _locale(),
+      );
+    } catch (_) {
+      // Non-fatal: the next reconnect or token refresh registers again.
+    }
+  }
+}
+
+// -- FCM (Android) ------------------------------------------------------------
+
 /// Thin seam around the static `FirebaseMessaging.instance` API so tests can
-/// substitute a fake — the real SDK has no constructor to inject and talks to
+/// substitute a fake: the real SDK has no constructor to inject and talks to
 /// platform channels that don't exist in `flutter test`.
 abstract class PushMessagingClient {
   Future<void> initializeFirebase();
-  Future<NotificationSettings> requestPermission();
   Future<String?> getToken();
+  Future<void> deleteToken();
   Stream<String> get onTokenRefresh;
   Stream<RemoteMessage> get onMessage;
   Stream<RemoteMessage> get onMessageOpenedApp;
+  Future<RemoteMessage?> getInitialMessage();
 }
 
-class _FirebasePushMessagingClient implements PushMessagingClient {
+class FirebasePushMessagingClient implements PushMessagingClient {
   @override
   Future<void> initializeFirebase() => Firebase.initializeApp();
-
-  @override
-  Future<NotificationSettings> requestPermission() =>
-      FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
 
   @override
   Future<String?> getToken() => FirebaseMessaging.instance.getToken();
 
   @override
-  Stream<String> get onTokenRefresh => FirebaseMessaging.instance.onTokenRefresh;
+  Future<void> deleteToken() => FirebaseMessaging.instance.deleteToken();
+
+  @override
+  Stream<String> get onTokenRefresh =>
+      FirebaseMessaging.instance.onTokenRefresh;
 
   @override
   Stream<RemoteMessage> get onMessage => FirebaseMessaging.onMessage;
 
   @override
-  Stream<RemoteMessage> get onMessageOpenedApp => FirebaseMessaging.onMessageOpenedApp;
+  Stream<RemoteMessage> get onMessageOpenedApp =>
+      FirebaseMessaging.onMessageOpenedApp;
+
+  @override
+  Future<RemoteMessage?> getInitialMessage() =>
+      FirebaseMessaging.instance.getInitialMessage();
 }
 
-/// Manages push notification token registration and incoming message handling.
-///
-/// On [initialize], this service:
-///   1. Requests notification permissions (required on iOS, auto-granted on Android)
-///   2. Retrieves the current FCM token from Firebase
-///   3. Registers the token with the CallType backend via the API
-///   4. Subscribes to token refresh events so the backend always has the latest token
-///
-/// Firebase project configuration files (google-services.json for Android,
-/// GoogleService-Info.plist for iOS) must be in place at build time. Without them,
-/// Firebase initialization will fail and push simply won't work — the app
-/// continues to function normally without push via the store-and-forward queue.
-///
-/// This service sends data-only pushes (no notification body from the server).
-/// The server knows nothing about message content due to E2E encryption, so
-/// the client is responsible for displaying local notifications when a push
-/// arrives.
-class PushService {
-  PushService(
-    this._api,
-    this._deviceId, {
-    PushMessagingClient? messaging,
-    this.onMessageReceived,
-    this.onChannelPost,
-    this.onNotificationOpened,
-  }) : _messaging = messaging ?? _FirebasePushMessagingClient();
+/// FCM on Android, used only when the build carries a Firebase config
+/// (google-services.json). Without it `Firebase.initializeApp()` throws and
+/// the provider reports [PushStatus.notConfigured].
+class FcmPushProvider implements PushProvider {
+  FcmPushProvider({PushMessagingClient? messaging})
+    : _messaging = messaging ?? FirebasePushMessagingClient();
 
-  final ApiClient _api;
-  final String _deviceId;
   final PushMessagingClient _messaging;
+  bool _initialized = false;
 
-  /// Called when a push arrives while the app is in the foreground.
-  /// Per K04 the payload carries no plaintext — this is only a hook for the
-  /// caller to trigger the existing inbox refresh, not to render content.
-  final VoidCallback? onMessageReceived;
+  /// Last foreground messageId handled: FCM may redeliver, and the caller's
+  /// reaction (a channels sync) need not run twice.
+  String? _lastMessageId;
 
-  /// Called instead of [onMessageReceived] for a `{type: "channel_post"}`
-  /// push. Channels have no server-side queue and live outside the chat
-  /// inbox, so the right reaction is a channels sync, not an inbox refresh.
-  final VoidCallback? onChannelPost;
+  @override
+  String get platform => 'fcm';
 
-  /// Called when the user taps a notification (app was backgrounded/terminated).
-  /// Per K04 this must route to the conversation list and the existing
-  /// reconnect/replay path — never a new plaintext-carrying endpoint.
-  final VoidCallback? onNotificationOpened;
-
-  StreamSubscription<String>? _refreshSub;
-  StreamSubscription<RemoteMessage>? _messageSub;
-  StreamSubscription<RemoteMessage>? _openedSub;
-
-  /// Last foreground messageId handled — guards against showing/handling the
-  /// same event twice if FCM redelivers it (data-only messages have no
-  /// dedup contract on the client the way visible notifications do).
-  String? _lastHandledMessageId;
-
-  PushStatus _status = PushStatus.notConfigured;
-  PushStatus get status => _status;
-
-  /// Request notification permissions and register the FCM token with the server.
-  ///
-  /// This is designed to be called fire-and-forget during app startup. Errors
-  /// are caught internally — push is a best-effort feature and must never
-  /// block the main app flow. Safe to call more than once: previous
-  /// subscriptions are cancelled first so listeners never accumulate.
-  Future<void> initialize() async {
-    await _cancelSubscriptions();
-
-    if (defaultTargetPlatform == TargetPlatform.windows ||
-        defaultTargetPlatform == TargetPlatform.linux) {
-      _status = PushStatus.unsupported;
-      return;
-    }
-
+  @override
+  Future<String> obtainToken() async {
     try {
-      await _messaging.initializeFirebase();
-
-      // iOS requires an explicit permission prompt. On Android this is
-      // auto-granted but calling requestPermission is harmless (returns
-      // immediately with authorized status).
-      final settings = await _messaging.requestPermission();
-      if (settings.authorizationStatus == AuthorizationStatus.denied) {
-        _status = PushStatus.permissionDenied;
-        return;
+      if (!_initialized) {
+        await _messaging.initializeFirebase();
+        _initialized = true;
       }
-
-      // Get the current FCM registration token. This token identifies
-      // this app instance and is used by the server to target push messages.
       final token = await _messaging.getToken();
-      if (token != null) {
-        await _registerToken(token);
+      if (token == null || token.isEmpty) {
+        throw const PushUnavailable(PushStatus.notConfigured, 'no FCM token');
       }
-
-      // FCM periodically rotates tokens (e.g. after app restore, OS update,
-      // or manual token deletion). Listen for refreshes so the server always
-      // has the current token — a stale token means silent push failures.
-      _refreshSub = _messaging.onTokenRefresh.listen(_registerToken);
-
-      // Foreground: FCM never shows a system notification itself, so this is
-      // the only signal the app gets. Route it through onMessageReceived so
-      // the caller can refresh the inbox rather than rendering push content.
-      _messageSub = _messaging.onMessage.listen(_handleForegroundMessage);
-
-      // User tapped a background/terminated notification — go to the
-      // conversation list and let the existing reconnect/replay fetch it.
-      _openedSub = _messaging.onMessageOpenedApp.listen((_) => onNotificationOpened?.call());
-
-      _status = PushStatus.registered;
+      return token;
+    } on PushUnavailable {
+      rethrow;
     } catch (e) {
-      // Firebase not configured (missing config files / no platform channel)
-      // — push won't work but the app is fully functional without it.
-      // Messages are still delivered via the store-and-forward queue.
-      _status = PushStatus.notConfigured;
+      throw PushUnavailable(PushStatus.notConfigured, e);
     }
   }
 
-  Future<void> dispose() async {
-    await _cancelSubscriptions();
+  @override
+  Stream<String> get tokenRefresh => _messaging.onTokenRefresh;
+
+  @override
+  Stream<Map<String, String>> get opened =>
+      _messaging.onMessageOpenedApp.map(_data);
+
+  @override
+  Future<Map<String, String>?> takeInitialOpened() async {
+    final message = await _messaging.getInitialMessage();
+    return message == null ? null : _data(message);
   }
 
-  Future<void> _cancelSubscriptions() async {
-    await _refreshSub?.cancel();
-    await _messageSub?.cancel();
-    await _openedSub?.cancel();
-    _refreshSub = null;
-    _messageSub = null;
-    _openedSub = null;
+  @override
+  Stream<Map<String, String>> get foreground => _messaging.onMessage
+      .where((m) {
+        final id = m.messageId;
+        if (id != null && id == _lastMessageId) return false;
+        _lastMessageId = id;
+        return true;
+      })
+      .map(_data);
+
+  @override
+  Future<void> release() async {
+    if (_initialized) await _messaging.deleteToken();
   }
 
-  void _handleForegroundMessage(RemoteMessage message) {
-    if (message.messageId != null && message.messageId == _lastHandledMessageId) {
-      return;
-    }
-    _lastHandledMessageId = message.messageId;
-    if (message.data['type'] == 'channel_post') {
-      onChannelPost?.call();
-    } else {
-      onMessageReceived?.call();
-    }
+  static Map<String, String> _data(RemoteMessage m) => {
+    for (final e in m.data.entries)
+      if (e.value is String) e.key: e.value as String,
+  };
+}
+
+// -- APNs (iOS) ---------------------------------------------------------------
+
+/// Native APNs token from AppDelegate.swift over a method channel, NOT
+/// Firebase (spec section 2, iOS): the server talks to APNs directly.
+class ApnsPushProvider implements PushProvider {
+  ApnsPushProvider({MethodChannel? channel})
+    : _channel = channel ?? const MethodChannel('cz.zcloud.jay/apns') {
+    _channel.setMethodCallHandler(_onCall);
   }
 
-  /// Sends the FCM token to the backend so it can send push notifications
-  /// to this device when messages arrive while the app is not connected.
-  Future<void> _registerToken(String token) async {
+  final MethodChannel _channel;
+  final _tokens = StreamController<String>.broadcast();
+  final _opened = StreamController<Map<String, String>>.broadcast();
+
+  @override
+  String get platform => 'apns';
+
+  /// Contract 1.1: 64..200 hex characters.
+  static final _hex = RegExp(r'^[0-9a-f]{64,200}$');
+
+  @override
+  Future<String> obtainToken() async {
     try {
-      await _api.updatePushToken(
-        deviceId: _deviceId,
-        token: token,
-        // Android and Web use FCM natively. iOS uses APNs under the hood
-        // but Firebase abstracts it — the server-side distinction matters
-        // for the delivery mechanism.
-        platform: 'fcm',
-      );
-    } catch (e) {
-      // Non-fatal — push just won't work until the next token refresh
-      // triggers another registration attempt. The store-and-forward
-      // queue guarantees message delivery regardless.
+      final token = (await _channel.invokeMethod<String>(
+        'register',
+      ))?.toLowerCase();
+      if (token == null || !_hex.hasMatch(token)) {
+        throw const PushUnavailable(PushStatus.notConfigured, 'no APNs token');
+      }
+      return token;
+    } on PushUnavailable {
+      rethrow;
+    } on PlatformException catch (e) {
+      // Simulator or a build without the aps-environment entitlement.
+      throw PushUnavailable(PushStatus.notConfigured, e.message);
+    } on MissingPluginException catch (e) {
+      throw PushUnavailable(PushStatus.notConfigured, e.message);
     }
+  }
+
+  Future<Object?> _onCall(MethodCall call) async {
+    switch (call.method) {
+      case 'onToken':
+        final token = call.arguments;
+        if (token is String && _hex.hasMatch(token.toLowerCase())) {
+          _tokens.add(token.toLowerCase());
+        }
+      case 'onNotificationTap':
+        final data = _stringMap(call.arguments);
+        if (data != null) _opened.add(data);
+    }
+    return null;
+  }
+
+  @override
+  Stream<String> get tokenRefresh => _tokens.stream;
+
+  @override
+  Stream<Map<String, String>> get opened => _opened.stream;
+
+  @override
+  Future<Map<String, String>?> takeInitialOpened() async {
+    try {
+      return _stringMap(
+        await _channel.invokeMethod<Object?>('takeLaunchNotification'),
+      );
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  @override
+  Stream<Map<String, String>> get foreground => const Stream.empty();
+
+  /// Nothing to drop locally: Apple discourages unregistering, and once the
+  /// server has deleted the token nothing is sent to it.
+  @override
+  Future<void> release() async {}
+
+  static Map<String, String>? _stringMap(Object? value) {
+    if (value is! Map) return null;
+    return {
+      for (final e in value.entries)
+        if (e.key is String && e.value is String)
+          e.key as String: e.value as String,
+    };
   }
 }

@@ -135,6 +135,13 @@ class ChannelsController extends ChangeNotifier {
   /// Badge on the Updates tab.
   int get totalUnread => _channels.fold(0, (sum, c) => sum + c.unreadCount);
 
+  /// Posts that are NEW to this device, for local notifications: every new
+  /// live post, and the newest one of a catch-up after a reconnect (never
+  /// the history fetched for an empty feed). Own posts are stored before the
+  /// hub echoes them, so they never show up here.
+  Stream<ChannelPostDto> get newPosts => _arrivals.stream;
+  final _arrivals = StreamController<ChannelPostDto>.broadcast();
+
   /// The feed currently on screen: its new posts are read immediately and
   /// must not bump the unread badge.
   String? _openChannelId;
@@ -237,23 +244,41 @@ class ChannelsController extends ChangeNotifier {
   /// comes back short.
   Future<int> _catchUp(String channelId) async {
     var cursor = await _newestCursor(channelId);
+    // An empty cache means a first fetch (new follow, fresh install): those
+    // posts are history, not news, so they never raise a notification.
+    final announce = cursor != null;
     var added = 0;
+    final fresh = <ChannelPostDto>[];
+    void announceNewest() {
+      if (!announce || fresh.isEmpty || _arrivals.isClosed) return;
+      // One notification per channel and catch-up, for the newest post: the
+      // notifications of a channel replace each other anyway (spec N4).
+      fresh.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      _arrivals.add(fresh.last);
+    }
+
     while (true) {
       final page = await _api.getChannelPosts(
         channelId,
         after: cursor,
         limit: pageSize,
       );
-      added += await _storePosts(page);
+      added += await _storePosts(page, newPosts: fresh);
       // No cursor = empty cache: the server answered with the newest page,
       // which is all a fresh feed needs (history loads on demand).
-      if (cursor == null || page.length < pageSize) return added;
+      if (cursor == null || page.length < pageSize) {
+        announceNewest();
+        return added;
+      }
       // Tombstones are not stored, so the cursor comes from the page itself.
       final next = page.first.createdAt.toUtc().toIso8601String();
       // A cursor that does not advance would loop forever. It can happen on
       // web, where DateTime has millisecond precision: a full page of posts
       // within one millisecond truncates back to the same cursor.
-      if (cursor.compareTo(next) >= 0) return added;
+      if (cursor.compareTo(next) >= 0) {
+        announceNewest();
+        return added;
+      }
       cursor = next;
     }
   }
@@ -629,6 +654,7 @@ class ChannelsController extends ChangeNotifier {
       return;
     }
     final isNew = await _storePosts([post]);
+    if (isNew > 0 && !_arrivals.isClosed) _arrivals.add(post);
     if (isNew > 0 && post.channelId != _openChannelId) {
       await _db.customUpdate(
         'UPDATE channels SET unread_count = unread_count + 1 '
@@ -660,6 +686,7 @@ class ChannelsController extends ChangeNotifier {
     List<ChannelPostDto> posts, {
     bool overwrite = false,
     bool publishedHere = false,
+    List<ChannelPostDto>? newPosts,
   }) async {
     var added = 0;
     for (final post in posts) {
@@ -693,7 +720,10 @@ class ChannelsController extends ChangeNotifier {
                   : const Value.absent(),
             ),
           );
-      if (!exists) added++;
+      if (!exists) {
+        added++;
+        newPosts?.add(post);
+      }
     }
     return added;
   }
@@ -738,6 +768,7 @@ class ChannelsController extends ChangeNotifier {
     for (final subscription in _subscriptions) {
       subscription.cancel();
     }
+    _arrivals.close();
     super.dispose();
   }
 }
