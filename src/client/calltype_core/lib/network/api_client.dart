@@ -353,20 +353,57 @@ class ApiClient {
 
   /// Registers or updates the device's push notification token on the server.
   ///
-  /// Called at app startup and whenever the FCM token refreshes. The server
-  /// uses this token to send data-only push notifications when messages arrive
-  /// while the app is not connected via SignalR.
+  /// Called at app startup and whenever the platform token refreshes. The
+  /// server uses it for a generic, localized "New message" push (never any
+  /// content) while the device has no SignalR connection.
+  ///
+  /// [platform] is `fcm`, `apns` or `webpush` (for `webpush` [token] is the
+  /// browser's `PushSubscription.toJSON()` as a JSON string). [locale] picks
+  /// the language of those generic texts; the server stores it per device.
   ///
   /// PUT /devices/{deviceId}/push-token
   Future<void> updatePushToken({
     required String deviceId,
     required String token,
     required String platform,
+    String? locale,
   }) async {
     await _dio.put(
       '/devices/$deviceId/push-token',
-      data: {'token': token, 'platform': platform},
+      data: {
+        'token': token,
+        'platform': platform,
+        // Omitted, not null, when unknown: the server then keeps English
+        // (contract 1.1 "default null = en") and the body stays what
+        // callers without a locale always sent.
+        'locale': ?locale,
+      },
     );
+  }
+
+  /// Forgets this device's push token, platform and locale (notifications
+  /// turned off, logout). Idempotent on the server.
+  ///
+  /// DELETE /devices/{deviceId}/push-token
+  Future<void> deletePushToken(String deviceId) async {
+    await _dio.delete('/devices/$deviceId/push-token');
+  }
+
+  /// The server's VAPID public key (base64url, uncompressed P-256) for a Web
+  /// Push subscription, or null when Web Push is not configured (404).
+  ///
+  /// GET /push/webpush-key (anonymous)
+  Future<String?> getWebPushPublicKey() async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/push/webpush-key',
+      );
+      final key = response.data?['publicKey'];
+      return key is String && key.isNotEmpty ? key : null;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return null;
+      rethrow;
+    }
   }
 
   // -- Profile -----------------------------------------------------------------
