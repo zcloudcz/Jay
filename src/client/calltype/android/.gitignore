@@ -12,3 +12,7 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Firebase config for FCM: written by CI from the optional
+# GOOGLE_SERVICES_JSON_BASE64 secret, never committed (notifications spec).
+/app/google-services.json
