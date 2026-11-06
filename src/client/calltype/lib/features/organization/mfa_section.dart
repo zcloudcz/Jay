@@ -6,9 +6,10 @@ import '../../l10n/l10n.dart';
 import 'mfa_controller.dart';
 import 'mfa_flow.dart';
 
-/// The MFA (TOTP) card on the Organization screen: status, enable/disable,
-/// regenerate backup codes. Shown only to org admins — the screen embedding
-/// this decides that (`OrganizationScreen`'s `isAdmin` branch).
+/// The MFA (TOTP) card: status, enable/disable, regenerate backup codes.
+/// Embedded by the Organization screen (org admins only, its `isAdmin`
+/// branch) and by the Account screen (every registered account, needed for
+/// the moderation web). The embedding screen decides who sees it.
 class MfaSection extends StatefulWidget {
   const MfaSection({super.key, required this.accountId});
 

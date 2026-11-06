@@ -2,12 +2,14 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/network/backup_api.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../l10n/l10n.dart';
+import '../organization/mfa_section.dart';
 
 /// Account registration and login screen.
 ///
@@ -19,6 +21,10 @@ import '../../l10n/l10n.dart';
 /// the server hashes this credential with salted Argon2id.
 /// A successful login is followed by authenticated device linking before
 /// cloud backups become available locally.
+///
+/// Once the device is linked to an account, the screen also shows the account
+/// id (copyable) and the TOTP [MfaSection]: a plain registered account needs
+/// MFA to sign in to the moderation web, not only organization admins.
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
 
@@ -38,6 +44,18 @@ class _AccountScreenState extends State<AccountScreen> {
   // the current locale.
   bool _error = false;
   bool _success = false;
+
+  /// Linked account of this device (null = not registered). Loaded once and
+  /// set again after a successful register/login below.
+  String? _accountId;
+
+  @override
+  void initState() {
+    super.initState();
+    context.read<SecureStorage>().getAccountId().then((id) {
+      if (mounted && id != null) setState(() => _accountId = id);
+    });
+  }
 
   @override
   void dispose() {
@@ -99,6 +117,23 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
               ),
               const SizedBox(height: 24),
+
+              // -- Registered account: id + MFA ------------------------------
+              if (_accountId case final accountId?) ...[
+                _AccountInfoCard(accountId: accountId),
+                const SizedBox(height: 16),
+                Text(
+                  l10n.accountMfaExplainer,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Keyed by id: a login into another account must rebuild the
+                // section so its controller loads that account's status.
+                MfaSection(key: ValueKey(accountId), accountId: accountId),
+                const SizedBox(height: 24),
+              ],
 
               // -- Email field -----------------------------------------------
               TextFormField(
@@ -282,6 +317,7 @@ class _AccountScreenState extends State<AccountScreen> {
         setState(() {
           _success = true;
           _isLoading = false;
+          _accountId = accountId;
         });
       }
     } catch (_) {
@@ -294,5 +330,61 @@ class _AccountScreenState extends State<AccountScreen> {
         });
       }
     }
+  }
+}
+
+/// "This device is linked to an account" with the account id in small,
+/// secondary text and a copy button (the id is what support or the operator
+/// configuration may ask for).
+class _AccountInfoCard extends StatelessWidget {
+  const _AccountInfoCard({required this.accountId});
+
+  final String accountId;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = context.l10n;
+    final secondary = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 4, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.verified_user_outlined, color: theme.colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(l10n.accountInfoTitle, style: theme.textTheme.titleMedium),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(l10n.accountIdLabel, style: secondary),
+            Row(
+              children: [
+                Expanded(child: SelectableText(accountId, style: secondary)),
+                IconButton(
+                  icon: const Icon(Icons.copy_rounded, size: 18),
+                  visualDensity: VisualDensity.compact,
+                  tooltip: l10n.accountIdCopy,
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    await Clipboard.setData(ClipboardData(text: accountId));
+                    messenger.showSnackBar(
+                      SnackBar(content: Text(l10n.accountIdCopied)),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

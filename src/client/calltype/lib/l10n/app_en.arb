@@ -361,6 +361,26 @@
   "accountSwitchToRegister": "Need an account? Register",
   "accountLinked": "Account linked. Cloud backup enabled.",
   "accountFailed": "That did not work. Check your email, passphrase and connection.",
+  "accountInfoTitle": "This device is linked to an account",
+  "@accountInfoTitle": {
+    "description": "Heading of the card on the account screen shown once this device is linked to a registered account."
+  },
+  "accountIdLabel": "Account ID",
+  "@accountIdLabel": {
+    "description": "Small label above the account id (a GUID) on the account screen."
+  },
+  "accountIdCopy": "Copy account ID",
+  "@accountIdCopy": {
+    "description": "Tooltip of the copy button next to the account id."
+  },
+  "accountIdCopied": "Account ID copied",
+  "@accountIdCopied": {
+    "description": "Snackbar after the account id was copied to the clipboard."
+  },
+  "accountMfaExplainer": "Two-step verification is required for the moderation web and for organization administration.",
+  "@accountMfaExplainer": {
+    "description": "Explains above the two-step verification card on the account screen why an account may need it."
+  },
   "backupTitle": "Cloud Backup",
   "backupEncryptedTitle": "End-to-End Encrypted",
   "backupExplanation": "Message history, embedded attachments and contacts are backed up; external files and live encryption sessions are not included. Your backup is encrypted with a passphrase that only you know. The server never sees your messages or contacts in plaintext.\n\nIf you forget your passphrase, your backup cannot be recovered. There is no reset option — this is by design for your security.",
