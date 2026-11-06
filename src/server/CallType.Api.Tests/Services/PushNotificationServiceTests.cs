@@ -2,16 +2,13 @@
 // PushNotificationServiceTests.cs — Integration tests for push notification
 // ---------------------------------------------------------------------------
 // Tests the push notification service's behavior when devices have or lack
-// push tokens. Since we cannot call the real FCM API in tests, we verify:
+// push tokens, with every provider UNCONFIGURED (the test default):
 // 1. The service resolves the device from the DB correctly.
 // 2. It handles missing devices, null tokens, and unknown platforms gracefully.
-// 3. It skips push when the FCM service account is not configured (default in tests).
+// 3. It skips push when a provider is not configured.
 //
-// The actual HTTP call to FCM is not tested here — that would require mocking
-// the HttpClient pipeline or a fake FCM endpoint, which adds complexity for
-// little value. The integration test for the push token endpoint (in
-// DeviceEndpointsTests) covers the full flow of setting a token and verifying
-// it was stored.
+// The real provider HTTP calls (against a fake push service) are covered by
+// PushDeliveryTests, WebPushTests and ApnsAndFcmSenderTests.
 // ---------------------------------------------------------------------------
 
 using FluentAssertions;
@@ -25,6 +22,8 @@ namespace CallType.Api.Tests.Services;
 
 public class PushNotificationServiceTests : IntegrationTestBase
 {
+    private static readonly PushNotification Message = new(PushTypes.Message, Guid.NewGuid().ToString());
+
     /// <summary>
     /// Resolves the singleton PushNotificationService from the test DI container.
     /// </summary>
@@ -42,7 +41,7 @@ public class PushNotificationServiceTests : IntegrationTestBase
         var nonExistentId = Guid.NewGuid();
 
         // Act & Assert — should complete without throwing.
-        var act = () => pushService.SendPushAsync(nonExistentId);
+        var act = () => pushService.SendPushAsync(nonExistentId, Message);
         await act.Should().NotThrowAsync(
             "push to a non-existent device should be silently ignored");
     }
@@ -56,7 +55,7 @@ public class PushNotificationServiceTests : IntegrationTestBase
         var pushService = GetPushService();
 
         // Act & Assert — device exists but has no PushToken.
-        var act = () => pushService.SendPushAsync(deviceId);
+        var act = () => pushService.SendPushAsync(deviceId, Message);
         await act.Should().NotThrowAsync(
             "push to a device without a push token should be silently ignored");
     }
@@ -82,7 +81,7 @@ public class PushNotificationServiceTests : IntegrationTestBase
 
         // Act & Assert — no service account configured, so SendFcmAsync
         // should return early.
-        var act = () => pushService.SendPushAsync(deviceId);
+        var act = () => pushService.SendPushAsync(deviceId, Message);
         await act.Should().NotThrowAsync(
             "push should gracefully handle a missing FCM service account");
     }
@@ -90,7 +89,7 @@ public class PushNotificationServiceTests : IntegrationTestBase
     [Fact]
     public async Task SendPushAsync_does_not_throw_for_apns_platform()
     {
-        // APNs is not yet implemented. Verify it logs but doesn't throw.
+        // APNs is not configured in tests. Verify it is skipped without throwing.
         var (deviceId, _, _) = await RegisterAndAuthenticateAsync();
 
         using (var scope = Factory.Services.CreateScope())
@@ -104,10 +103,10 @@ public class PushNotificationServiceTests : IntegrationTestBase
 
         var pushService = GetPushService();
 
-        // Act & Assert — APNs path should log and return without error.
-        var act = () => pushService.SendPushAsync(deviceId);
+        // Act & Assert: the disabled APNs path returns without error.
+        var act = () => pushService.SendPushAsync(deviceId, Message);
         await act.Should().NotThrowAsync(
-            "unimplemented APNs push should be handled gracefully");
+            "unconfigured APNs push should be handled gracefully");
     }
 
     [Fact]
@@ -130,7 +129,7 @@ public class PushNotificationServiceTests : IntegrationTestBase
         var pushService = GetPushService();
 
         // Act & Assert — unknown platforms should be logged, not crash.
-        var act = () => pushService.SendPushAsync(deviceId);
+        var act = () => pushService.SendPushAsync(deviceId, Message);
         await act.Should().NotThrowAsync(
             "unknown push platform should be handled gracefully");
     }

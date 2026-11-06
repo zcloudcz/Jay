@@ -27,17 +27,16 @@ public class MutePushTests : IntegrationTestBase
 {
     private static readonly string Body = Convert.ToBase64String([1, 2, 3]);
 
-    private sealed class RecordingPush(IHttpClientFactory h, IServiceScopeFactory sf,
-        FcmTokenProvider t, ILogger<PushNotificationService> l) : PushNotificationService(h, sf, t, l)
+    private sealed class RecordingPush(IServiceScopeFactory sf,
+        IEnumerable<IPushSender> senders, ILogger<PushNotificationService> l) : PushNotificationService(sf, senders, l)
     {
         public readonly System.Collections.Concurrent.ConcurrentBag<Guid> Pushed = new();
-        public override Task SendPushAsync(Guid recipientDeviceId) { Pushed.Add(recipientDeviceId); return Task.CompletedTask; }
+        public override Task SendPushAsync(Guid recipientDeviceId, PushNotification notification) { Pushed.Add(recipientDeviceId); return Task.CompletedTask; }
     }
 
     private RecordingPush NewPush() => new(
-        Factory.Services.GetRequiredService<IHttpClientFactory>(),
         Factory.Services.GetRequiredService<IServiceScopeFactory>(),
-        Factory.Services.GetRequiredService<FcmTokenProvider>(),
+        Factory.Services.GetServices<IPushSender>(),
         Factory.Services.GetRequiredService<ILogger<PushNotificationService>>());
 
     private static HubConnection Hub(WebApplicationFactory<Program> factory, string token) => new HubConnectionBuilder()

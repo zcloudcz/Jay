@@ -36,13 +36,14 @@ public static class DeviceEndpoints
         // to look up other devices' keys to prevent key-bundle enumeration.
         app.MapGet("/devices/{id:guid}/key-bundle", GetKeyBundle).RequireAuthorization().RequireRateLimiting("api");
         app.MapGet("/devices/by-handle/{handle}", FindDeviceByHandle).RequireAuthorization().RequireRateLimiting("api");
-        // Push token registration requires auth — only the device owner should be
-        // able to set its push token. Uses PUT because the token is idempotent
-        // (setting the same token twice is a no-op).
+        // Push token registration: only the device itself (Caller == {id}).
+        // Uses PUT because the token is idempotent (setting the same token
+        // twice is a no-op); DELETE turns pushes off (logout, setting off).
         app.MapPut("/devices/{id:guid}/push-token", UpdatePushToken).RequireAuthorization().RequireRateLimiting("api");
+        app.MapDelete("/devices/{id:guid}/push-token", DeletePushToken).RequireAuthorization().RequireRateLimiting("api");
         // Display name is opt-in metadata the device owner sets for itself — only
         // the authenticated caller matching {id} may change it (see Caller check
-        // in UpdateProfile), unlike push-token above which trusts the route id alone.
+        // in UpdateProfile).
         app.MapPut("/devices/{id:guid}/profile", UpdateProfile).RequireAuthorization().RequireRateLimiting("api");
         // Bot commands: written only by the bot device itself, readable by any
         // authenticated device (the "/" menu of whoever chats with the bot).
@@ -277,8 +278,8 @@ public static class DeviceEndpoints
         AppDbContext db,
         CancellationToken ct)
     {
-        // Unlike push-token, a display name is shown to other people — only the
-        // device itself may set it, never another authenticated caller.
+        // A display name is shown to other people, so only the device itself
+        // may set it, never another authenticated caller.
         if (Caller(user) != id)
             return Results.Forbid();
 
@@ -397,36 +398,69 @@ public static class DeviceEndpoints
     private static async Task<IResult> UpdatePushToken(
         Guid id,
         UpdatePushTokenRequest request,
+        ClaimsPrincipal user,
         AppDbContext db,
         CancellationToken ct)
     {
-        // Validate platform — only known push platforms are accepted.
-        // This prevents storing tokens for unsupported platforms that would
-        // silently fail at push time with no useful diagnostic.
-        if (request.Platform is not ("fcm" or "apns"))
-        {
-            return Results.BadRequest(new { error = "Platform must be 'fcm' or 'apns'." });
-        }
+        // Only the device itself: another device registering ITS token here
+        // would redirect this device's (generic, but timed) notifications to
+        // a phone the attacker holds, a presence/activity side channel.
+        if (Caller(user) != id)
+            return Results.Forbid();
 
-        if (string.IsNullOrWhiteSpace(request.Token))
-        {
-            return Results.BadRequest(new { error = "Token must not be empty." });
-        }
+        // Validate per platform up front: a token that cannot work would
+        // otherwise fail silently at push time with no useful diagnostic.
+        var (token, tokenError) = PushRegistration.ValidateToken(request.Platform, request.Token);
+        if (tokenError is not null)
+            return PushProblem(tokenError, tokenError == PushRegistration.InvalidPlatform
+                ? "Platform must be 'fcm', 'apns' or 'webpush'."
+                : "Token is missing, too long or not valid for the platform.");
+        var (locale, localeError) = PushRegistration.ValidateLocale(request.Locale);
+        if (localeError is not null)
+            return PushProblem(localeError, "Locale must be a BCP-47 tag of at most 16 characters.");
 
         var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == id, ct);
         if (device is null)
             return Results.NotFound(new { error = "Device not found." });
 
         // Overwrite previous token — a device has at most one active push token.
-        // When the client refreshes its FCM token, it calls this endpoint with the
-        // new token, replacing the stale one.
-        device.PushToken = request.Token;
+        // When the client refreshes its token, it calls this endpoint with the
+        // new token, replacing the stale one (and possibly the platform).
+        device.PushToken = token;
         device.PushPlatform = request.Platform;
+        device.PushLocale = locale;
 
         await db.SaveChangesAsync(ct);
 
         return Results.NoContent();
     }
+
+    // -----------------------------------------------------------------------
+    // DELETE /devices/{id}/push-token: stop server pushes to this device
+    // -----------------------------------------------------------------------
+    private static async Task<IResult> DeletePushToken(
+        Guid id,
+        ClaimsPrincipal user,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        if (Caller(user) != id)
+            return Results.Forbid();
+
+        // Idempotent: clearing an already empty registration is still 204,
+        // so a logout that retries never sees an error.
+        await db.Devices.Where(d => d.DeviceId == id)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(d => d.PushToken, (string?)null)
+                .SetProperty(d => d.PushPlatform, (string?)null)
+                .SetProperty(d => d.PushLocale, (string?)null), ct);
+        return Results.NoContent();
+    }
+
+    private static IResult PushProblem(string error, string detail) =>
+        Results.Problem(title: "Invalid push registration", detail: detail,
+            statusCode: StatusCodes.Status400BadRequest,
+            extensions: new Dictionary<string, object?> { ["error"] = error });
 
     /// <summary>
     /// Result type for the DELETE ... RETURNING SQL query on OneTimePreKeys.
@@ -504,7 +538,8 @@ public record KeyBundleResponse(
 
 public record OneTimePreKeyDto(int KeyId, string PublicKey);
 
-public record UpdatePushTokenRequest(string Token, string Platform);
+// Nullable so a missing field is a 400 from the validator, not a binder failure.
+public record UpdatePushTokenRequest(string? Token, string? Platform, string? Locale = null);
 
 public record UpdateProfileRequest(string? DisplayName);
 

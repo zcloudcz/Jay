@@ -351,7 +351,11 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
                 groupId = message.GroupId
             }, Context.ConnectionAborted);
         else if (push)
-            await pushService.SendPushAsync(message.RecipientId);
+            // conversationId tells the app which chat to open on tap: the
+            // group, or the sender's IDENTITY (primary) for 1:1, because the
+            // client keys direct conversations by identity, not by device.
+            await pushService.SendPushAsync(message.RecipientId,
+                PushNotification.ForMessage(message.GroupId, senderPrimary));
     }
 
     private static byte[] DecodePayload(string payload)
@@ -470,6 +474,32 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
                 payload,
                 businessGroupId
             });
+            await PushIncomingCallAsync(targetDeviceId, senderDeviceId.Value, businessGroupId);
+        }
+    }
+
+    /// <summary>
+    /// N5: an offer that finds the callee offline still shows "Incoming call"
+    /// on the callee's lock screen, so they learn about it and can call back.
+    /// Sent AFTER the "unavailable" reply so the caller's UI is never delayed
+    /// by a provider round trip. Not throttled; muted only by a 1:1 mute in
+    /// mode "all" (a "bots" mute is about bot chatter, not people calling).
+    /// </summary>
+    private async Task PushIncomingCallAsync(Guid targetDeviceId, Guid senderDeviceId, Guid? businessGroupId)
+    {
+        try
+        {
+            var senderPrimary = await deviceLists.PrimaryOfAsync(senderDeviceId, Context.ConnectionAborted);
+            if (await mutes.IsDirectMutedAllAsync(targetDeviceId, senderPrimary, Context.ConnectionAborted))
+                return;
+            // A business call belongs to its business conversation; an
+            // anonymous call to the 1:1 chat with the caller's identity.
+            await pushService.SendPushAsync(targetDeviceId,
+                PushNotification.ForCall(businessGroupId ?? senderPrimary));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Best-effort like every push: the "unavailable" reply already went out.
         }
     }
 

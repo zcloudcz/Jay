@@ -49,10 +49,18 @@ public class Device
     public string? PushToken { get; set; }
 
     /// <summary>
-    /// Push platform identifier (e.g. "apns", "fcm"). Null when PushToken is null.
+    /// Push platform identifier ("fcm", "apns" or "webpush"). Null when PushToken is null.
     /// Max 10 chars — kept short because the set of platforms is small and fixed.
     /// </summary>
     public string? PushPlatform { get; set; }
+
+    /// <summary>
+    /// BCP-47 locale the app registered with its push token (e.g. "cs",
+    /// "en-US"), max 16. Server pushes are generic texts the SERVER renders
+    /// (the app is not running to localize them), so it needs the language.
+    /// Null = English. Cleared together with the token.
+    /// </summary>
+    public string? PushLocale { get; set; }
 
     /// <summary>
     /// SHA-256 hash of the device secret issued at registration time.
