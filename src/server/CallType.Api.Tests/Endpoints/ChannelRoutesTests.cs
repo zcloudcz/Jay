@@ -54,7 +54,8 @@ public class ChannelRoutesTests
     }
 
     // Operator API (channel moderation): same smoke test once an operator is
-    // configured; without one the whole /admin tree is 404 (contract 4).
+    // configured (by account id or by device handle); without one the whole
+    // /admin tree is 404 (contract 4).
     [Theory]
     [InlineData("GET", "/admin/summary")]
     [InlineData("GET", "/admin/reports?status=open&limit=10")]
@@ -65,10 +66,10 @@ public class ChannelRoutesTests
     [InlineData("GET", "/admin/channels?q=CH")]
     public async Task Admin_route_exists_requires_a_token_and_is_hidden_without_operators(string method, string url)
     {
-        async Task<HttpStatusCode> StatusAsync(string? operatorId)
+        async Task<HttpStatusCode> StatusAsync(string? key, string? value)
         {
             var settings = new Dictionary<string, string?> { ["Jwt:Secret"] = "test-jwt-secret-at-least-32-characters-long!!" };
-            if (operatorId is not null) settings["Moderation:OperatorAccountIds:0"] = operatorId;
+            if (key is not null) settings[key] = value;
             await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
                 builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(settings)));
             using var client = factory.CreateClient();
@@ -76,7 +77,11 @@ public class ChannelRoutesTests
             return response.StatusCode;
         }
 
-        (await StatusAsync("6f9619ff-8b86-d011-b42d-00cf4fc964aa")).Should().Be(HttpStatusCode.Unauthorized);
-        (await StatusAsync(null)).Should().Be(HttpStatusCode.NotFound);
+        (await StatusAsync("Moderation:OperatorAccountIds:0", "6f9619ff-8b86-d011-b42d-00cf4fc964aa"))
+            .Should().Be(HttpStatusCode.Unauthorized);
+        // Device handles alone are a configured operator too.
+        (await StatusAsync("Moderation:OperatorHandles:0", "ct-77nn-3fms")).Should().Be(HttpStatusCode.Unauthorized);
+        (await StatusAsync("Moderation:OperatorHandles:0", "  ")).Should().Be(HttpStatusCode.NotFound);
+        (await StatusAsync(null, null)).Should().Be(HttpStatusCode.NotFound);
     }
 }

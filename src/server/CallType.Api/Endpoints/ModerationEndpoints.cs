@@ -5,7 +5,8 @@
 // section 4; design D3/D4/D5. Consumed by the operator web (src/client/jay_admin)
 // served under jay.zcloud.cz/admin/.
 //
-// WHO: an account in Moderation:OperatorAccountIds with TOTP MFA enabled.
+// WHO: an account in Moderation:OperatorAccountIds, or with a linked device
+// whose handle is in Moderation:OperatorHandles, with TOTP MFA enabled.
 // POST /admin/session trades e-mail + authKey + TOTP (or a backup code) for a
 // short operator token (scope=moderation, sub = ACCOUNT id). Program.cs
 // rejects that token outside /admin (401); the group filter below rejects a
@@ -73,11 +74,31 @@ public static class ModerationEndpoints
         if (!user.HasClaim(JwtService.ScopeClaim, JwtService.ModerationScope))
             return Error(403, "This endpoint needs an operator token from POST /admin/session.", "operator_token_required");
 
-        var options = context.HttpContext.RequestServices.GetRequiredService<IOptions<ModerationOptions>>().Value;
-        if (OperatorId(user) is not { } id || !options.OperatorAccountIds.Contains(id))
+        var services = context.HttpContext.RequestServices;
+        var options = services.GetRequiredService<IOptions<ModerationOptions>>().Value;
+        if (OperatorId(user) is not { } id ||
+            !await IsOperatorAsync(id, options, services.GetRequiredService<AppDbContext>(), context.HttpContext.RequestAborted))
             return Error(403, "This account is not an operator.", "not_an_operator");
 
         return await next(context);
+    }
+
+    /// <summary>
+    /// Allowlisted by account id, or by the handle of a device linked to the
+    /// account right now. Deliberately NOT cached: it is one indexed lookup
+    /// per operator call (a single operator, low traffic), and a cache would
+    /// keep a session alive after its device is unlinked, which is exactly
+    /// the revocation the per-call re-check exists for.
+    /// </summary>
+    internal static async Task<bool> IsOperatorAsync(
+        Guid accountId, ModerationOptions options, AppDbContext db, CancellationToken ct)
+    {
+        if (options.OperatorAccountIds.Contains(accountId)) return true;
+        var handles = options.NormalizedOperatorHandles();
+        if (handles.Count == 0) return false;
+        // Device.UserHandle is stored upper-case (see DeviceEndpoints.FindDeviceByHandle).
+        return await db.AccountDevices.AsNoTracking()
+            .AnyAsync(ad => ad.AccountId == accountId && handles.Contains(ad.Device.UserHandle), ct);
     }
 
     private static DateTimeOffset? ParseCursor(string? value) =>
@@ -110,7 +131,7 @@ public static class ModerationEndpoints
 
         // Only after valid credentials: before that, "not an operator" would
         // let anyone probe which e-mails belong to the operator.
-        if (!options.Value.OperatorAccountIds.Contains(account.AccountId))
+        if (!await IsOperatorAsync(account.AccountId, options.Value, db, ct))
             return Error(403, "This account is not an operator.", "not_an_operator");
 
         if (!encryption.IsConfigured) return MfaEndpoints.NotConfigured();

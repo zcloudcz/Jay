@@ -89,6 +89,14 @@ public class ChannelModerationTests : IntegrationTestBase
             config[$"Moderation:OperatorAccountIds:{i}"] = accountIds[i].ToString();
     }
 
+    /// <summary>Puts device handles on the operator allowlist. Call before the first /admin request.</summary>
+    private void AllowOperatorHandles(params string[] handles)
+    {
+        var config = _factory.Services.GetRequiredService<IConfiguration>();
+        for (var i = 0; i < handles.Length; i++)
+            config[$"Moderation:OperatorHandles:{i}"] = handles[i];
+    }
+
     private async Task<TestDevice> NewDeviceAsync(bool isBot = false, string? displayName = null)
     {
         var http = _factory.CreateClient();
@@ -333,6 +341,49 @@ public class ChannelModerationTests : IntegrationTestBase
         // A backup code is accepted instead of a TOTP code, once.
         (await PostSessionAsync(op.Email, AuthKey, backupCode: op.BackupCodes[0])).StatusCode.Should().Be(HttpStatusCode.OK);
         (await PostSessionAsync(op.Email, AuthKey, backupCode: op.BackupCodes[0])).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Operator_allowlisted_by_device_handle_gets_a_session_until_the_device_is_unlinked()
+    {
+        StartAsync();
+        var device = await NewDeviceAsync();
+        var (accountId, email) = await RegisterAccountAsync(device);
+        var (secret, codes) = await EnrollMfaAsync(device, accountId);
+        var outsider = await NewMfaAccountAsync();
+        // Only handles configured (no account ids), written in lower case
+        // with stray whitespace: matching is case-insensitive like
+        // GET /devices/by-handle, and the handles alone enable /admin.
+        AllowOperatorHandles($"  {device.Handle.ToLowerInvariant()} ");
+
+        var notOperator = await PostSessionAsync(outsider.Email, AuthKey, CurrentCode(outsider.Secret));
+        notOperator.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await CodeAsync(notOperator)).Should().Be("not_an_operator");
+
+        var session = await PostSessionAsync(email, AuthKey, CurrentCode(secret));
+        session.StatusCode.Should().Be(HttpStatusCode.OK, await session.Content.ReadAsStringAsync());
+        var body = await JsonAsync(session);
+        body.GetProperty("accountId").GetGuid().Should().Be(accountId);
+
+        using var http = _factory.CreateClient();
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", body.GetProperty("token").GetString());
+        (await http.GetAsync("/admin/summary")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Unlinking the device takes the role away from the live session and
+        // from new sessions (the per-call re-check reads the current links).
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.AccountDevices.Where(ad => ad.AccountId == accountId && ad.DeviceId == device.DeviceId)
+                .ExecuteDeleteAsync();
+        }
+        var revoked = await http.GetAsync("/admin/summary");
+        revoked.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await CodeAsync(revoked)).Should().Be("not_an_operator");
+        var again = await PostSessionAsync(email, AuthKey, backupCode: codes[0]);
+        again.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await CodeAsync(again)).Should().Be("not_an_operator");
     }
 
     [Fact]

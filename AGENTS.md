@@ -129,6 +129,20 @@ rm vapid.pem
 ```
 (macOS: `base64` without `-w0`.)
 
+### Channel moderation operator (`/admin/*`)
+
+The operator web signs in with e-mail + authKey + TOTP (`POST /admin/session`).
+An account is an operator when it matches EITHER list below; with both empty
+every `/admin` route answers 404. The lists are re-checked on every operator
+call, so removing an entry (or unlinking the listed device) cuts live sessions.
+TOTP MFA must be enabled for the account first (app: Settings -> Account).
+
+| Setting (env: `__` for `:`) | Meaning |
+|---|---|
+| `Moderation:OperatorAccountIds` | Array of account GUIDs (`Moderation__OperatorAccountIds__0=...`) |
+| `Moderation:OperatorHandles` | Array of device handles, case-insensitive (`Moderation__OperatorHandles__0=CT-77NN-3FMS`); the account the device is linked to is the operator |
+| `Moderation:SessionMinutes` | Operator token lifetime, default 30 (no refresh) |
+
 ### EF Core migrations
 ```bash
 # Add migration
@@ -184,7 +198,7 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `POST /channels/{id}/report` | Abuse report with `category`/`contactEmail`/`goodFaith`, 200 receipt `{reportId, createdAt}` | ✅ Done |
 | `GET /channels/reports/mine`, `GET /channels/{id}/moderation` | Reporter outcome / statements of reasons for owner, admin, publisher | ✅ Done |
 | `PUT /channels/{id}/admins/{deviceId}` | Owner appoints `admin` or `publisher` (body `{"role"}` optional); bot posts labelled `byBot`, limited by `Channels:MaxBotPostsPerDay` (429 `bot_post_limit`); suspended channel -> 403 `channel_suspended` | ✅ Done |
-| `POST /admin/session`, `/admin/*` | Operator moderation API (allowlist `Moderation:OperatorAccountIds` + TOTP, token `scope=moderation` valid only on `/admin/*`): summary, report queue, case detail, decisions (+ CSV log), channel search, attachments | ✅ Done |
+| `POST /admin/session`, `/admin/*` | Operator moderation API (allowlist `Moderation:OperatorAccountIds` or `Moderation:OperatorHandles` + TOTP, token `scope=moderation` valid only on `/admin/*`): summary, report queue, case detail, decisions (+ CSV log), channel search, attachments | ✅ Done |
 | `SignalR /hub` | Message relay, typing, call signaling | ✅ Done |
 
 ## Conventions

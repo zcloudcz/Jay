@@ -145,7 +145,7 @@ builder.Services.AddScoped<ChannelService>();
 
 // Channel moderation (operator web, /admin/*). Bound through the DI-resolved
 // IConfiguration for the same reason as BusinessOptions below: tests set
-// Moderation:OperatorAccountIds via WebApplicationFactory, which applies its
+// Moderation:OperatorAccountIds / OperatorHandles via WebApplicationFactory, which applies its
 // configuration after these top-level statements run.
 builder.Services.AddOptions<ModerationOptions>()
     .Configure<IConfiguration>((options, config) =>
@@ -386,11 +386,12 @@ app.UseCors();
 // The operator API does not exist until an operator is configured: every
 // /admin route answers 404 (before authentication, so not even a 401 hints
 // at it). Read per request so a config change needs no code path change.
+// Either allowlist (account ids or device handles) counts as configured.
 app.Use(async (context, next) =>
 {
     if (context.Request.Path.StartsWithSegments("/admin") &&
-        context.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<ModerationOptions>>()
-            .Value.OperatorAccountIds.Count == 0)
+        !context.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<ModerationOptions>>()
+            .Value.HasOperators)
     {
         context.Response.StatusCode = StatusCodes.Status404NotFound;
         return;

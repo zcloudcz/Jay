@@ -24,8 +24,9 @@ Timestamps ISO-8601 UTC. Ids are lower-case GUID strings.
   `SuspendedUntil` DateTimeOffset?, `OperatorAccountId` Guid, `ReportCount` int, `CreatedAt`. Index (ChannelId, CreatedAt).
 - `Channel` += `SuspendedUntil` (DateTimeOffset?). Suspended = `SuspendedUntil > now` (no job needed).
 - `ChannelAdmin.Role` gains value `publisher` (string column exists).
-- Config `Moderation:OperatorAccountIds` (array of GUID, default empty = every /admin route 404),
-  `Moderation:SessionMinutes` (default 30), `Channels:MaxBotPostsPerDay` (default 20).
+- Config `Moderation:OperatorAccountIds` (array of GUID) and `Moderation:OperatorHandles` (array of device
+  handles, case-insensitive; the account linked to such a device is an operator), both default empty; both empty =
+  every /admin route 404. `Moderation:SessionMinutes` (default 30), `Channels:MaxBotPostsPerDay` (default 20).
 
 ## 3. Server: user-facing changes
 
@@ -60,7 +61,7 @@ Timestamps ISO-8601 UTC. Ids are lower-case GUID strings.
 ## 4. Server: operator API (`/admin/*`)
 
 Auth for every route except session: operator token (section 4.1). A device token -> 403 `operator_token_required`.
-An operator token on any non-`/admin` route -> 401. All routes 404 when `Moderation:OperatorAccountIds` is empty.
+An operator token on any non-`/admin` route -> 401. All routes 404 when both `Moderation:OperatorAccountIds` and `Moderation:OperatorHandles` are empty.
 
 ### 4.1 `POST /admin/session` (anonymous, rate limit "auth")
 
