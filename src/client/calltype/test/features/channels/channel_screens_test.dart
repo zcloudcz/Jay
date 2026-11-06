@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:calltype/core/storage/database.dart';
 import 'package:calltype/core/storage/secure_storage.dart';
 import 'package:calltype/features/channels/channel_create_screen.dart';
@@ -7,15 +5,18 @@ import 'package:calltype/features/channels/channel_profile_screen.dart';
 import 'package:calltype/features/channels/channel_screen.dart';
 import 'package:calltype/features/channels/channels_controller.dart';
 import 'package:calltype/features/channels/updates_screen.dart';
+import 'package:calltype/features/chat/attachment_media.dart';
 import 'package:calltype/features/contacts/contacts_controller.dart';
 import 'package:calltype_core/network/channel_dtos.dart';
 import 'package:drift/drift.dart' show Value;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../helpers/fake_attachment_media.dart';
 import '../../helpers/localized_app.dart';
 import 'fake_channels.dart';
 
@@ -87,6 +88,37 @@ void main() {
     expect(find.byTooltip('Post image (max 2 MiB)'), findsOneWidget);
     expect(find.byTooltip('Post poll'), findsOneWidget);
     expect(find.text(l10nEn.channelPublicNotice), findsOneWidget);
+    await tearDownHarness(tester, h);
+  });
+
+  testWidgets('on a phone the image button opens the photo library and '
+      'posts a metadata-free JPEG', (tester) async {
+    final original = AttachmentMedia.instance;
+    final media = FakeMedia()
+      ..gallery = [PickedMedia.bytes('IMG_0001.HEIC', testPng(320, 240))];
+    AttachmentMedia.instance = media;
+    addTearDown(() => AttachmentMedia.instance = original);
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    final h = await pumpWithChannel(
+      tester,
+      const ChannelScreen(channelId: 'c1'),
+      role: 'admin',
+    );
+    await tester.tap(find.byTooltip('Post image (max 2 MiB)'));
+    // Compression runs in a real isolate: advance both clocks.
+    for (var i = 0; i < 200 && !h.api.calls.contains('post c1 image'); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 30)),
+      );
+      await tester.pump(const Duration(milliseconds: 30));
+    }
+    expect(media.calls, ['gallery-one']);
+    final (name, bytes) = h.api.uploads.single;
+    expect(name, matches(RegExp(r'^IMG_\d{8}_\d{6}\.jpg$')));
+    expect(bytes.sublist(0, 2), [0xFF, 0xD8]);
+    expect(bytes.length, lessThanOrEqualTo(channelImageMaxBytes));
+    expect(h.api.calls, contains('post c1 image'));
+    debugDefaultTargetPlatformOverride = null;
     await tearDownHarness(tester, h);
   });
 

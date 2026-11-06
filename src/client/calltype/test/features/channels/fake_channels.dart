@@ -199,6 +199,20 @@ class FakeChannelApi extends ApiClient {
   /// Simulates a suspended channel for followers (403 channel_suspended).
   final suspendedFeeds = <String>{};
 
+  /// Name and bytes of every uploaded channel image.
+  final uploads = <(String, List<int>)>[];
+
+  @override
+  Future<String> uploadChannelAttachment(
+    String channelId,
+    List<int> bytes,
+    String fileName,
+  ) async {
+    calls.add('upload $channelId $fileName');
+    uploads.add((fileName, bytes));
+    return 'channel-media/$channelId/$fileName';
+  }
+
   @override
   Future<ChannelPostDto> createChannelPost(
     String channelId, {

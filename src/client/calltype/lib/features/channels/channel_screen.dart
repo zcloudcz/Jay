@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:calltype_core/network/channel_dtos.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -11,6 +10,8 @@ import 'package:provider/provider.dart';
 import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/bot_badge.dart';
+import '../chat/attachment_media.dart';
+import '../chat/attachment_sheet.dart';
 import 'channel_moderation.dart';
 import 'channel_notice.dart';
 import 'channels_controller.dart';
@@ -465,10 +466,38 @@ class _ComposeBarState extends State<_ComposeBar> {
     });
   }
 
+  /// Mobile: the system photo picker (the document picker is the Files app
+  /// on iOS). Every image is re-encoded to a JPEG within the channel limit:
+  /// channel posts are PUBLIC, so the EXIF/GPS strip in [fitImageAsJpeg]
+  /// matters even more here than in an E2E chat.
   Future<void> _sendImage() async {
-    final file = await FilePicker.pickFile(type: FileType.image);
-    if (file == null) return;
-    final bytes = await file.readAsBytes();
+    final media = AttachmentMedia.instance;
+    final PickedMedia? picked;
+    try {
+      picked = AttachmentMedia.isMobile
+          ? await media.pickGalleryImage()
+          : (await media.pickImageFiles(multiple: false)).firstOrNull;
+    } catch (error) {
+      if (mounted) await _guard(context, () => Future.error(error));
+      return;
+    }
+    if (picked == null || !mounted) return;
+    final prepared = (await preparePhotos(
+      context,
+      [picked],
+      maxBytes: channelImageMaxBytes,
+    )).single;
+    if (!mounted) return;
+    final bytes = prepared.bytes;
+    if (bytes == null) {
+      await _guard(
+        context,
+        () => throw ChannelValidationException(
+          prepared.decoded ? 'image_too_large' : 'unsupported_image_type',
+        ),
+      );
+      return;
+    }
     final caption = _text.text.trim();
     await _publish((c) async {
       await c.publish(
@@ -476,7 +505,7 @@ class _ComposeBarState extends State<_ComposeBar> {
         kind: 'image',
         body: caption,
         imageBytes: bytes,
-        imageName: file.name,
+        imageName: prepared.name,
       );
       _text.clear();
     });
