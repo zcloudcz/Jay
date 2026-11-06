@@ -168,6 +168,16 @@ void _multiDeviceTests() {
     ]);
   });
 
+  test('pending call methods use the call ringing hub contract', () async {
+    final (client, transport) = await _connected();
+    await client.requestPendingCalls();
+    await client.declinePendingCall('c-1');
+    expect(transport.invocations, [
+      ['RequestPendingCalls'],
+      ['DeclinePendingCall', 'c-1'],
+    ]);
+  });
+
   test('staleRequired extracts the device ids the server demands', () {
     expect(
       SignalRClient.staleRequired(
