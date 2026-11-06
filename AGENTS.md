@@ -30,7 +30,7 @@ A WhatsApp-like messaging app with strong privacy:
 | **STUN/TURN** | Pluggable via `Turn:Provider`: `cloudflare` (Cloudflare TURN, credentials minted by API — beta default) or `shared-secret` (self-hosted coturn / DeskShare.Turn from `C:\GIT\ZCLOUD\RemoteDesktopNet`) |
 | **File storage** | Azure Blob Storage (encrypted attachments + backups) |
 | **Hosting** | Azure Container Apps |
-| **Push** | FCM HTTP v1 (Android/Web) + APNs (iOS — not implemented yet) |
+| **Push** | FCM HTTP v1 (Android) + APNs direct, HTTP/2 token auth (iOS) + Web Push with VAPID (browsers); generic localized texts only |
 
 ## Project structure
 
@@ -77,14 +77,57 @@ flutter test
 flutter run -d chrome
 ```
 
-### Push notifications (FCM)
+### Push notifications (FCM, APNs, Web Push)
 
-Server push uses the **FCM HTTP v1 API** (the legacy server-key API was shut
-down by Google in June 2024). Configuration: put the *entire* Firebase service
-account JSON (Firebase console → Project settings → Service accounts) into
-`Push:FcmServiceAccountJson` (env: `Push__FcmServiceAccountJson`). Empty =
-push disabled, messages still delivered via store-and-forward on next connect.
-APNs (iOS) is a known gap — `PushNotificationService` logs and skips it.
+Contract: `docs/superpowers/specs/2026-11-06-notifications.md`. Server pushes go
+only to OFFLINE devices and are visible but generic and localized (`cs` locale
+prefix -> Czech, else English): "New message", "New message in a group",
+"Incoming call", "New post in a channel". No sender, group name or text ever
+leaves the server (E2E; names would be metadata for Apple/Google). Data keys:
+`type` (`message`|`group_message`|`incoming_call`|`channel_post`),
+`conversationId` (group id, the sender's primary device id for 1:1, channel id),
+`v=1`. Collapse per conversation: FCM `tag`/`collapse_key`, APNs
+`apns-collapse-id`/`thread-id`, Web Push `Topic` (SHA-256 of the id, 32 chars).
+An `offer` call signal to an offline device sends `incoming_call` (muted only by
+a 1:1 mute in mode `all`). Dead tokens are cleared: FCM 404 `UNREGISTERED`,
+APNs 410 or 400 `BadDeviceToken`/`Unregistered`, Web Push 404/410.
+
+Code: `Services/Push/` (`IPushSender` per provider: `FcmSender`, `ApnsSender`,
+`WebPushSender`; payload builders in `PushPayloads`), dispatch and token
+clearing in `PushNotificationService`. Each provider uses its own named
+HttpClient (`fcm`, `apns`, `webpush`) so tests swap in a fake handler.
+Every provider is optional: empty settings = provider disabled (logged once at
+startup), messages still arrive through store-and-forward.
+
+| Setting (env: `__` for `:`) | Meaning |
+|---|---|
+| `Push:FcmServiceAccountJson` | The *entire* Firebase service account JSON (Firebase console -> Project settings -> Service accounts). FCM HTTP v1 only; the legacy server-key API was shut down in June 2024. |
+| `Push:Apns:KeyId` | Key ID of the APNs auth key (.p8) |
+| `Push:Apns:TeamId` | Apple team, default `DZR3FD9ZNT` |
+| `Push:Apns:BundleId` | `apns-topic`, default `cz.zcloud.jay` |
+| `Push:Apns:PrivateKeyP8` | PEM text of the .p8 file (with the BEGIN/END lines) |
+| `Push:Apns:UseSandbox` | `true` only for builds run from Xcode; TestFlight and App Store use production (default `false`) |
+| `Push:WebPush:PublicKey` | VAPID public key, base64url uncompressed P-256 point (87 chars); served by `GET /push/webpush-key` |
+| `Push:WebPush:PrivateKey` | VAPID private key, base64url 32-byte scalar (43 chars) |
+| `Push:WebPush:Subject` | VAPID contact, default `mailto:martin@zcloud.cz` |
+
+APNs: HTTP/2 to `api.push.apple.com`, ES256 provider JWT signed with the .p8,
+cached 50 min (Apple: refresh at most every 20 min, never older than 60).
+Web Push: own RFC 8291 (aes128gcm) + RFC 8292 (VAPID) implementation on
+`System.Security.Cryptography`, pinned to the RFC 8291 section 5 vector in
+`WebPushTests`. A mismatched VAPID pair disables Web Push at startup.
+
+Generate a VAPID key pair once per environment (keep the private key secret;
+changing the pair invalidates every browser subscription):
+```bash
+openssl ecparam -name prime256v1 -genkey -noout -out vapid.pem
+# Push:WebPush:PublicKey
+openssl ec -in vapid.pem -pubout -outform DER | tail -c 65 | base64 -w0 | tr '/+' '_-' | tr -d '='
+# Push:WebPush:PrivateKey
+openssl ec -in vapid.pem -outform DER | tail -c +8 | head -c 32 | base64 -w0 | tr '/+' '_-' | tr -d '='
+rm vapid.pem
+```
+(macOS: `base64` without `-w0`.)
 
 ### EF Core migrations
 ```bash
@@ -98,7 +141,7 @@ dotnet ef database update --project src/server/CallType.Api
 
 | Entity | Purpose | Key |
 |--------|---------|-----|
-| `Device` | Anonymous device identity + public keys; bots may publish a command menu (`BotCommandsJson`, public plaintext metadata like `DisplayName`) | `DeviceId` (Guid) |
+| `Device` | Anonymous device identity + public keys; push registration (`PushToken`, `PushPlatform`, `PushLocale`); bots may publish a command menu (`BotCommandsJson`, public plaintext metadata like `DisplayName`) | `DeviceId` (Guid) |
 | `OneTimePreKey` | Single-use X3DH pre-keys | `Id` (auto), unique(DeviceId, KeyId) |
 | `Account` | Optional registered account | `AccountId` (Guid), unique Email |
 | `AccountDevice` | Links accounts to devices (multi-device) | Composite(AccountId, DeviceId) |
@@ -130,6 +173,9 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `PUT /groups/{id}/members` | Add member | ✅ Done |
 | `DELETE /groups/{id}/members/{id}` | Remove member | ✅ Done |
 | `PUT` / `GET /devices/{id}/bot-commands` | Bot command menu `{"commands":[{"command","description"}]}`: PUT only by the bot itself (403, 403 `not_a_bot`, 400 `invalid_bot_commands`; empty list clears), GET by any device (empty for a non-bot, 404 unknown) | ✅ Done |
+| `PUT /devices/{id}/push-token` | Register push (self only, else 403): `{"platform":"fcm"\|"apns"\|"webpush","token","locale"?}`; APNs = 64..200 hex, Web Push = `PushSubscription.toJSON()` as a JSON string (https endpoint, keys), max 2048; 400 `invalid_platform` / `invalid_token` / `invalid_locale`; 204 | ✅ Done |
+| `DELETE /devices/{id}/push-token` | Clear token, platform and locale (self only, idempotent), 204 | ✅ Done |
+| `GET /push/webpush-key` | Anonymous, `{"publicKey"}` VAPID key (base64url) for `PushManager.subscribe`; 404 when Web Push is not configured | ✅ Done |
 | `PUT /groups/{id}/bot-talk` | Bot conversation setting (admin) | ✅ Done |
 | `PUT /groups/{id}/mute`, `PUT /mutes/direct/{id}`, `GET /mutes` | Per-device mute (push skip) | ✅ Done |
 | `POST /backups` | Upload backup metadata | ✅ Done |
