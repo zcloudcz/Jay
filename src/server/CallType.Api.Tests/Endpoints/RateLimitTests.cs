@@ -42,16 +42,19 @@ public class RateLimitTests : IntegrationTestBase
         var (_, secondToken, _) = await RegisterAndAuthenticateAsync();
         Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", firstToken);
         var path = $"/groups/{Guid.NewGuid()}/members";
-        HttpStatusCode status = HttpStatusCode.OK;
-        // Up to two full windows: the limiter uses fixed one-minute windows, so
-        // a slow runner whose loop crosses a window boundary gets a fresh
-        // budget mid-loop and 105 requests are then not enough to hit 429.
-        for (var i = 0; i < 205 && status != HttpStatusCode.TooManyRequests; i++)
+        // Bursts of 110 concurrent requests (budget is 100/min). Sequential
+        // requests took ~1.4 s each on a slow CI runner, so even 205 of them
+        // spread over several fixed one-minute windows and never hit 429. A
+        // burst lands in one window; the retry covers a burst that happens
+        // to straddle a window boundary.
+        var limited = false;
+        for (var burst = 0; burst < 3 && !limited; burst++)
         {
-            using var response = await Client.GetAsync(path);
-            status = response.StatusCode;
+            var responses = await Task.WhenAll(Enumerable.Range(0, 110).Select(_ => Client.GetAsync(path)));
+            limited = responses.Any(r => r.StatusCode == HttpStatusCode.TooManyRequests);
+            foreach (var response in responses) response.Dispose();
         }
-        status.Should().Be(HttpStatusCode.TooManyRequests);
+        limited.Should().BeTrue("110 requests at once exceed the 100/min api budget");
         Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secondToken);
         (await Client.GetAsync(path)).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
