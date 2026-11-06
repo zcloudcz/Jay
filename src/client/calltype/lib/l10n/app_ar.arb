@@ -626,5 +626,11 @@
   "notificationChannelMessages": "الرسائل",
   "notificationChannelCalls": "المكالمات",
   "notificationChannelChannels": "القنوات",
-  "notificationOpenAction": "فتح"
+  "notificationOpenAction": "فتح",
+  "callStateRinging": "يرن…",
+  "callErrorDeclined": "تم رفض المكالمة.",
+  "notificationMissedCall": "مكالمة فائتة",
+  "notificationChannelMissedCalls": "المكالمات الفائتة",
+  "notificationsFullScreenTitle": "المكالمات الواردة بملء الشاشة",
+  "notificationsFullScreenSubtitle": "غير مسموح: عندما يكون Jay مغلقًا، ترن المكالمات كإشعار فقط. اضغط للسماح."
 }

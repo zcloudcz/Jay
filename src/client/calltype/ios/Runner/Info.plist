@@ -97,10 +97,16 @@
      NOT enable the Push Notifications capability — that also needs an
      aps-environment entitlement wired into the Xcode project's code signing,
      which requires an Apple developer team and is BLOCKED until R01/Q01 has
-     one (see docs/acceptance/release-builds.md). -->
+     one (see docs/acceptance/release-builds.md).
+     voip: PushKit VoIP pushes wake the app to ring through CallKit (call
+     ringing spec 2026-11-06, section 2); audio: an answered call keeps its
+     WebRTC audio while the app is in the background or the phone is locked.
+     Background modes are not entitlements, the App Store profile stays. -->
 <key>UIBackgroundModes</key>
 <array>
 	<string>remote-notification</string>
+	<string>voip</string>
+	<string>audio</string>
 </array>
 <!-- calltype://channel/<handle> opens a channel profile and
      calltype://bot/<HANDLE>?start=<payload> adds/opens a bot (go_router

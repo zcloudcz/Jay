@@ -626,5 +626,11 @@
   "notificationChannelMessages": "Mesaje",
   "notificationChannelCalls": "Apeluri",
   "notificationChannelChannels": "Canale",
-  "notificationOpenAction": "Deschide"
+  "notificationOpenAction": "Deschide",
+  "callStateRinging": "Sună…",
+  "callErrorDeclined": "Apel respins.",
+  "notificationMissedCall": "Apel pierdut",
+  "notificationChannelMissedCalls": "Apeluri pierdute",
+  "notificationsFullScreenTitle": "Apeluri primite pe tot ecranul",
+  "notificationsFullScreenSubtitle": "Nepermis: când Jay este închis, apelurile sună doar ca notificare. Atingeți pentru a permite."
 }

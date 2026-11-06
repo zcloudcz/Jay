@@ -1,3 +1,4 @@
+import 'package:calltype/features/calls/call_ring.dart';
 import 'package:calltype/features/notifications/local_notifier.dart';
 import 'package:calltype/features/notifications/notification_service.dart';
 import 'package:calltype/features/notifications/notifications_screen.dart';
@@ -153,10 +154,50 @@ void main() {
     expect(find.byType(MaterialBanner), findsNothing);
   });
 
+  testWidgets('Android 14+: a missing full-screen call permission shows a '
+      'row that opens the system setting', (tester) async {
+    final access = FakeFullScreenAccess()..allowed = false;
+    final h = NotificationHarness(provider: FakePushProvider());
+    await h.service.start();
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<NotificationService>.value(value: h.service),
+          Provider<FullScreenIntentAccess?>.value(value: access),
+        ],
+        child: localizedApp(home: const NotificationsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(l10nEn.notificationsFullScreenTitle), findsOneWidget);
+
+    access.allowed = true;
+    await tester.tap(find.text(l10nEn.notificationsFullScreenTitle));
+    await tester.pumpAndSettle();
+    expect(access.requests, 1);
+    expect(find.text(l10nEn.notificationsFullScreenTitle), findsNothing);
+  });
+
+  testWidgets('the full-screen row is absent when allowed or not Android', (
+    tester,
+  ) async {
+    await pump(tester);
+    expect(find.text(l10nEn.notificationsFullScreenTitle), findsNothing);
+  });
+
   testWidgets('renders in Czech and right-to-left Arabic', (tester) async {
     await pump(tester, locale: const Locale('cs'));
     expect(find.text('Oznámení'), findsOneWidget);
     await pump(tester, locale: const Locale('ar'));
     expect(tester.takeException(), isNull);
   });
+}
+
+class FakeFullScreenAccess implements FullScreenIntentAccess {
+  bool allowed = true;
+  int requests = 0;
+  @override
+  Future<bool> canUseFullScreenIntent() async => allowed;
+  @override
+  Future<void> requestFullScreenIntent() async => requests++;
 }

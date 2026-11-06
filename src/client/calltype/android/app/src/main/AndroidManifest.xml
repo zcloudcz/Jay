@@ -9,6 +9,14 @@
      FCM; the app asks for it once after onboarding (notifications spec
      2026-11-06). See also K04 in docs/superpowers/plans/2026-09-16-beta-kontrakty.md. -->
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<!-- Call ringing on a closed app (spec 2026-11-06-call-ringing, section 2):
+     a ring push shows flutter_callkit_incoming's full-screen incoming call.
+     Android 14+ grants this only to calling apps and lets the user revoke it
+     (Settings > Notifications in the app links to the system page). The
+     plugin's own manifest merges in the rest: its call activity, receiver,
+     phoneCall foreground service, WAKE_LOCK, MANAGE_OWN_CALLS and
+     FOREGROUND_SERVICE_PHONE_CALL. -->
+<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 <!-- gal (save a received photo to the gallery) needs storage access only up
      to Android 10; newer versions write through MediaStore without it. The
      photo picker (image_picker) needs no permission at all. -->

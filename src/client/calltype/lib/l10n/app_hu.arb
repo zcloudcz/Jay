@@ -626,5 +626,11 @@
   "notificationChannelMessages": "Üzenetek",
   "notificationChannelCalls": "Hívások",
   "notificationChannelChannels": "Csatornák",
-  "notificationOpenAction": "Megnyitás"
+  "notificationOpenAction": "Megnyitás",
+  "callStateRinging": "Kicseng…",
+  "callErrorDeclined": "A hívást elutasították.",
+  "notificationMissedCall": "Nem fogadott hívás",
+  "notificationChannelMissedCalls": "Nem fogadott hívások",
+  "notificationsFullScreenTitle": "Bejövő hívások teljes képernyőn",
+  "notificationsFullScreenSubtitle": "Nincs engedélyezve: ha a Jay be van zárva, a hívások csak értesítésként csörögnek. Koppintson az engedélyezéshez."
 }

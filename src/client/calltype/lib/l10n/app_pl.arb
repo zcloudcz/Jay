@@ -626,5 +626,11 @@
   "notificationChannelMessages": "Wiadomości",
   "notificationChannelCalls": "Połączenia",
   "notificationChannelChannels": "Kanały",
-  "notificationOpenAction": "Otwórz"
+  "notificationOpenAction": "Otwórz",
+  "callStateRinging": "Dzwoni…",
+  "callErrorDeclined": "Połączenie odrzucone.",
+  "notificationMissedCall": "Nieodebrane połączenie",
+  "notificationChannelMissedCalls": "Nieodebrane połączenia",
+  "notificationsFullScreenTitle": "Połączenia przychodzące na pełnym ekranie",
+  "notificationsFullScreenSubtitle": "Niedozwolone: gdy Jay jest zamknięty, połączenia dzwonią tylko jako powiadomienie. Dotknij, aby zezwolić."
 }

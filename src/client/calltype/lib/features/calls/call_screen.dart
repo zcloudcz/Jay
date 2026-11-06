@@ -23,10 +23,14 @@ class CallScreen extends StatelessWidget {
         // rule, same "try again" phrasing, no separate key needed.
         CallError.auditorUnavailable => l10n.hubErrorAuditorUnavailable,
         CallError.notABusinessMember => l10n.callErrorCannotStart,
+        CallError.declined => l10n.callErrorDeclined,
         null when manager.isIncoming =>
           manager.isVideo ? l10n.callIncomingVideo : l10n.callIncomingVoice,
         null => switch (manager.state) {
-          CallState.ringing => l10n.callStateCalling,
+          // R5: the callee's phone rings via CallKit / full-screen
+          // notification although its app is closed.
+          CallState.ringing => manager.isRemoteRinging
+              ? l10n.callStateRinging : l10n.callStateCalling,
           CallState.connecting => l10n.callStateConnecting,
           CallState.connected => l10n.callStateConnected,
           CallState.idle || CallState.ended => l10n.callEnded,

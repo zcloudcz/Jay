@@ -626,5 +626,11 @@
   "notificationChannelMessages": "Mesajlar",
   "notificationChannelCalls": "Aramalar",
   "notificationChannelChannels": "Kanallar",
-  "notificationOpenAction": "Aç"
+  "notificationOpenAction": "Aç",
+  "callStateRinging": "Çalıyor…",
+  "callErrorDeclined": "Arama reddedildi.",
+  "notificationMissedCall": "Cevapsız arama",
+  "notificationChannelMissedCalls": "Cevapsız aramalar",
+  "notificationsFullScreenTitle": "Tam ekran gelen aramalar",
+  "notificationsFullScreenSubtitle": "İzin verilmedi: Jay kapalıyken aramalar yalnızca bildirim olarak çalar. İzin vermek için dokunun."
 }

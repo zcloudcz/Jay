@@ -626,5 +626,11 @@
   "notificationChannelMessages": "Nachrichten",
   "notificationChannelCalls": "Anrufe",
   "notificationChannelChannels": "Kanäle",
-  "notificationOpenAction": "Öffnen"
+  "notificationOpenAction": "Öffnen",
+  "callStateRinging": "Klingelt…",
+  "callErrorDeclined": "Anruf abgelehnt.",
+  "notificationMissedCall": "Verpasster Anruf",
+  "notificationChannelMissedCalls": "Verpasste Anrufe",
+  "notificationsFullScreenTitle": "Eingehende Anrufe im Vollbild",
+  "notificationsFullScreenSubtitle": "Nicht erlaubt: Wenn Jay geschlossen ist, klingeln Anrufe nur als Benachrichtigung. Zum Erlauben tippen."
 }

@@ -626,5 +626,11 @@
   "notificationChannelMessages": "Berichten",
   "notificationChannelCalls": "Oproepen",
   "notificationChannelChannels": "Kanalen",
-  "notificationOpenAction": "Openen"
+  "notificationOpenAction": "Openen",
+  "callStateRinging": "Gaat over…",
+  "callErrorDeclined": "Oproep geweigerd.",
+  "notificationMissedCall": "Gemiste oproep",
+  "notificationChannelMissedCalls": "Gemiste oproepen",
+  "notificationsFullScreenTitle": "Inkomende oproepen op volledig scherm",
+  "notificationsFullScreenSubtitle": "Niet toegestaan: als Jay gesloten is, gaan oproepen alleen over als melding. Tik om toe te staan."
 }

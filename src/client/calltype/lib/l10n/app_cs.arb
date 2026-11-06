@@ -626,5 +626,11 @@
   "notificationChannelMessages": "Zprávy",
   "notificationChannelCalls": "Hovory",
   "notificationChannelChannels": "Kanály",
-  "notificationOpenAction": "Otevřít"
+  "notificationOpenAction": "Otevřít",
+  "callStateRinging": "Zvoní u příjemce…",
+  "callErrorDeclined": "Hovor byl odmítnut.",
+  "notificationMissedCall": "Zmeškaný hovor",
+  "notificationChannelMissedCalls": "Zmeškané hovory",
+  "notificationsFullScreenTitle": "Příchozí hovory přes celou obrazovku",
+  "notificationsFullScreenSubtitle": "Nepovoleno: když je Jay zavřený, hovor zazvoní jen jako oznámení. Klepnutím povolíte."
 }

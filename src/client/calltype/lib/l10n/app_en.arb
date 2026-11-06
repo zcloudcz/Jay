@@ -1190,5 +1190,29 @@
   "notificationChannelMessages": "Messages",
   "notificationChannelCalls": "Calls",
   "notificationChannelChannels": "Channels",
-  "notificationOpenAction": "Open"
+  "notificationOpenAction": "Open",
+  "callStateRinging": "Ringing…",
+  "@callStateRinging": {
+    "description": "Outgoing call: the callee's phone rings through the system call screen while their app is closed."
+  },
+  "callErrorDeclined": "Call declined.",
+  "@callErrorDeclined": {
+    "description": "Outgoing call ended because the callee declined it."
+  },
+  "notificationMissedCall": "Missed call",
+  "@notificationMissedCall": {
+    "description": "Notification text for an incoming call that was not answered (the caller hung up or it timed out)."
+  },
+  "notificationChannelMissedCalls": "Missed calls",
+  "@notificationChannelMissedCalls": {
+    "description": "Android notification channel name for missed calls."
+  },
+  "notificationsFullScreenTitle": "Full-screen incoming calls",
+  "@notificationsFullScreenTitle": {
+    "description": "Settings > Notifications (Android 14+): the system permission to show incoming calls full screen on the lock screen."
+  },
+  "notificationsFullScreenSubtitle": "Not allowed: while Jay is closed, calls ring only as a notification. Tap to allow.",
+  "@notificationsFullScreenSubtitle": {
+    "description": "Shown when the full-screen permission is missing; tapping opens the system setting."
+  }
 }

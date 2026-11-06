@@ -158,6 +158,28 @@ void main() {
       await h.service.onIncomingCall('alice-phone');
       expect(h.notifier.shown, isEmpty);
     });
+
+    test('missed call: named when the caller is known, shown even while '
+        'focused, silenced only by a full mute', () async {
+      h.focused = true;
+      await h.service.onMissedCall('alice-phone');
+      final n = h.notifier.shown.single;
+      expect(n.title, 'Alice');
+      expect(n.body, 'Missed call');
+      expect(
+        n.target,
+        const NotificationTarget(NotificationKind.incomingCall, 'alice'),
+      );
+
+      // A ring push carries no caller (R4): generic text, no target.
+      await h.service.onMissedCall(null);
+      expect(h.notifier.shown.last.title, 'Jay');
+      expect(h.notifier.shown.last.target, isNull);
+
+      h.mutes['alice'] = MuteMode.all;
+      await h.service.onMissedCall('alice-phone');
+      expect(h.notifier.shown, hasLength(2));
+    });
   });
 
   group('taps', () {

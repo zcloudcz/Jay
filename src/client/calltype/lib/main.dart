@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:ui' show PlatformDispatcher;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -16,6 +16,9 @@ import 'core/network/webrtc_manager.dart';
 import 'core/storage/database.dart';
 import 'core/storage/secure_storage.dart';
 import 'features/calls/call_event_sender.dart';
+import 'features/calls/call_ring.dart';
+import 'features/calls/call_ring_coordinator.dart';
+import 'features/calls/callkit_ring_platform.dart';
 import 'features/channels/channels_controller.dart';
 import 'features/chat/message_inbox_service.dart';
 import 'features/chat_list/chat_list_controller.dart';
@@ -143,6 +146,16 @@ void main() async {
   // only the cache behind the list icons and the Chats badge.
   final mutes = MuteController(apiClient: apiClient);
 
+  // Calls that ring while the app is closed (call ringing spec, section 2):
+  // CallKit + PushKit on iOS, the full-screen call notification on Android.
+  // Null on web and desktop, which keep today's in-app ringing only.
+  final ringPlatform = ringsInSystemUi
+      ? CallkitRingPlatform(strings: () => lookupAppLocalizations(_appLocale()))
+      : null;
+  final isAndroid = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+  final isIos = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+  CallRingCoordinator? ringCoordinator;
+
   // Local notifications for messages, calls and channel posts, plus the
   // server push registration (spec 2026-11-06). App-wide and subscribed
   // before SignalR connects, like the inbox: the first queued messages
@@ -184,8 +197,23 @@ void main() async {
       if (data['type'] == 'channel_post') {
         unawaited(channels.sync().catchError((Object _) {}));
       }
+      ringCoordinator?.onForegroundPush(data);
     },
+    // R2: this build shows a full-screen call for a data-only ring push.
+    ringCalls: isAndroid && ringPlatform != null,
+    voip: isIos ? ringPlatform : null,
   );
+  if (ringPlatform != null) {
+    ringCoordinator = CallRingCoordinator(
+      platform: ringPlatform,
+      calls: webrtcManager,
+      signalR: signalRClient,
+      onMissedCall: notifications.onMissedCall,
+    );
+    // Subscribes before SignalR connects: the hub delivers pending calls and
+    // `cancelled` tombstones right on connect.
+    unawaited(ringCoordinator.start());
+  }
   inbox.persistedMessages.listen((m) => unawaited(notifications.onMessage(m)));
   channels.newPosts.listen((p) => unawaited(notifications.onChannelPost(p)));
   // An incoming call while the app is in the background: ring visibly. The
@@ -193,7 +221,12 @@ void main() async {
   var ringingFrom = '';
   webrtcManager.addListener(() {
     final remote = webrtcManager.remoteDeviceId;
-    final ringing = webrtcManager.isIncoming && remote != null;
+    // A call ringing in CallKit / the Android call screen needs no second
+    // notification.
+    final ringing =
+        webrtcManager.isIncoming &&
+        !webrtcManager.ringsInSystemUi &&
+        remote != null;
     if (ringing && remote != ringingFrom) {
       ringingFrom = remote;
       unawaited(notifications.onIncomingCall(remote));
@@ -269,6 +302,10 @@ void main() async {
         ChangeNotifierProvider.value(value: channels),
         ChangeNotifierProvider.value(value: mutes),
         ChangeNotifierProvider.value(value: notifications),
+        // Settings > Notifications: Android 14+ full-screen call permission.
+        Provider<FullScreenIntentAccess?>.value(
+          value: isAndroid ? ringPlatform : null,
+        ),
 
         // -- Auth / security ------------------------------------------------
         Provider(create: (_) => AppLock(secureStorage: secureStorage)),

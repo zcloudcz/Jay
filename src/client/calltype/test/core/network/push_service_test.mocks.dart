@@ -319,6 +319,7 @@ class MockApiClient extends _i1.Mock implements _i5.ApiClient {
     required String? token,
     required String? platform,
     String? locale,
+    bool? ringCalls = false,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#updatePushToken, [], {
@@ -326,7 +327,32 @@ class MockApiClient extends _i1.Mock implements _i5.ApiClient {
               #token: token,
               #platform: platform,
               #locale: locale,
+              #ringCalls: ringCalls,
             }),
+            returnValue: _i6.Future<void>.value(),
+            returnValueForMissingStub: _i6.Future<void>.value(),
+          )
+          as _i6.Future<void>);
+
+  @override
+  _i6.Future<void> updateVoipToken({
+    required String? deviceId,
+    required String? token,
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(#updateVoipToken, [], {
+              #deviceId: deviceId,
+              #token: token,
+            }),
+            returnValue: _i6.Future<void>.value(),
+            returnValueForMissingStub: _i6.Future<void>.value(),
+          )
+          as _i6.Future<void>);
+
+  @override
+  _i6.Future<void> deleteVoipToken(String? deviceId) =>
+      (super.noSuchMethod(
+            Invocation.method(#deleteVoipToken, [deviceId]),
             returnValue: _i6.Future<void>.value(),
             returnValueForMissingStub: _i6.Future<void>.value(),
           )

@@ -626,5 +626,11 @@
   "notificationChannelMessages": "Messages",
   "notificationChannelCalls": "Appels",
   "notificationChannelChannels": "Chaînes",
-  "notificationOpenAction": "Ouvrir"
+  "notificationOpenAction": "Ouvrir",
+  "callStateRinging": "Ça sonne…",
+  "callErrorDeclined": "Appel refusé.",
+  "notificationMissedCall": "Appel manqué",
+  "notificationChannelMissedCalls": "Appels manqués",
+  "notificationsFullScreenTitle": "Appels entrants en plein écran",
+  "notificationsFullScreenSubtitle": "Non autorisé : quand Jay est fermé, les appels sonnent seulement comme notification. Touchez pour autoriser."
 }

@@ -626,5 +626,11 @@
   "notificationChannelMessages": "Messaggi",
   "notificationChannelCalls": "Chiamate",
   "notificationChannelChannels": "Canali",
-  "notificationOpenAction": "Apri"
+  "notificationOpenAction": "Apri",
+  "callStateRinging": "Squilla…",
+  "callErrorDeclined": "Chiamata rifiutata.",
+  "notificationMissedCall": "Chiamata persa",
+  "notificationChannelMissedCalls": "Chiamate perse",
+  "notificationsFullScreenTitle": "Chiamate in arrivo a schermo intero",
+  "notificationsFullScreenSubtitle": "Non consentito: con Jay chiuso, le chiamate squillano solo come notifica. Tocca per consentire."
 }

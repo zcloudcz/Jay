@@ -113,11 +113,24 @@ class FakePushApi extends ApiClient {
     required String token,
     required String platform,
     String? locale,
-  }) async => calls.add('PUT $deviceId $platform $token $locale');
+    bool ringCalls = false,
+  }) async => calls.add(
+    'PUT $deviceId $platform $token $locale${ringCalls ? ' ring' : ''}',
+  );
 
   @override
   Future<void> deletePushToken(String deviceId) async =>
       calls.add('DELETE $deviceId');
+
+  @override
+  Future<void> updateVoipToken({
+    required String deviceId,
+    required String token,
+  }) async => calls.add('PUT-VOIP $deviceId $token');
+
+  @override
+  Future<void> deleteVoipToken(String deviceId) async =>
+      calls.add('DELETE-VOIP $deviceId');
 }
 
 class FakePushProvider implements PushProvider {

@@ -626,5 +626,11 @@
   "notificationChannelMessages": "Mensagens",
   "notificationChannelCalls": "Chamadas",
   "notificationChannelChannels": "Canais",
-  "notificationOpenAction": "Abrir"
+  "notificationOpenAction": "Abrir",
+  "callStateRinging": "A tocar…",
+  "callErrorDeclined": "Chamada recusada.",
+  "notificationMissedCall": "Chamada perdida",
+  "notificationChannelMissedCalls": "Chamadas perdidas",
+  "notificationsFullScreenTitle": "Chamadas recebidas em ecrã inteiro",
+  "notificationsFullScreenSubtitle": "Não permitido: com o Jay fechado, as chamadas tocam apenas como notificação. Toque para permitir."
 }

@@ -626,5 +626,11 @@
   "notificationChannelMessages": "Сообщения",
   "notificationChannelCalls": "Звонки",
   "notificationChannelChannels": "Каналы",
-  "notificationOpenAction": "Открыть"
+  "notificationOpenAction": "Открыть",
+  "callStateRinging": "Звонит…",
+  "callErrorDeclined": "Вызов отклонён.",
+  "notificationMissedCall": "Пропущенный вызов",
+  "notificationChannelMissedCalls": "Пропущенные вызовы",
+  "notificationsFullScreenTitle": "Входящие вызовы на весь экран",
+  "notificationsFullScreenSubtitle": "Не разрешено: когда Jay закрыт, вызовы звонят только как уведомление. Нажмите, чтобы разрешить."
 }
