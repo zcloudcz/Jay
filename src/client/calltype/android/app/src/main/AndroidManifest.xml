@@ -5,9 +5,9 @@
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
 <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-<!-- Required on Android 13+ (API 33) to show push notifications; without it
-     FCM messages are still delivered to the app but no system notification
-     is shown. See K04 in docs/superpowers/plans/2026-09-16-beta-kontrakty.md. -->
+<!-- Required on Android 13+ (API 33) to show any notification, local or
+     FCM; the app asks for it once after onboarding (notifications spec
+     2026-11-06). See also K04 in docs/superpowers/plans/2026-09-16-beta-kontrakty.md. -->
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 <uses-feature android:name="android.hardware.camera" android:required="false" />
 <application
@@ -55,6 +55,16 @@
                 <data android:scheme="calltype" android:host="bot"/>
             </intent-filter>
         </activity>
+        <!-- Server pushes (FCM "notification" messages) shown by the system
+             while the app is in the background use this icon and land in the
+             "messages" channel unless the push names another one (contract
+             1.3: messages / calls / channels, created by the app). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_jay" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="messages" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -318,17 +318,36 @@ class MockApiClient extends _i1.Mock implements _i5.ApiClient {
     required String? deviceId,
     required String? token,
     required String? platform,
+    String? locale,
   }) =>
       (super.noSuchMethod(
             Invocation.method(#updatePushToken, [], {
               #deviceId: deviceId,
               #token: token,
               #platform: platform,
+              #locale: locale,
             }),
             returnValue: _i6.Future<void>.value(),
             returnValueForMissingStub: _i6.Future<void>.value(),
           )
           as _i6.Future<void>);
+
+  @override
+  _i6.Future<void> deletePushToken(String? deviceId) =>
+      (super.noSuchMethod(
+            Invocation.method(#deletePushToken, [deviceId]),
+            returnValue: _i6.Future<void>.value(),
+            returnValueForMissingStub: _i6.Future<void>.value(),
+          )
+          as _i6.Future<void>);
+
+  @override
+  _i6.Future<String?> getWebPushPublicKey() =>
+      (super.noSuchMethod(
+            Invocation.method(#getWebPushPublicKey, []),
+            returnValue: _i6.Future<String?>.value(),
+          )
+          as _i6.Future<String?>);
 
   @override
   _i6.Future<void> updateDisplayName({

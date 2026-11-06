@@ -1,17 +1,19 @@
 // ---------------------------------------------------------------------------
-// push_service_test.dart — Unit tests for PushService
+// push_service_test.dart: PushService and the per-platform push providers.
 // ---------------------------------------------------------------------------
-// firebase_messaging talks to platform channels that don't exist under
-// `flutter test`, so PushService takes an injectable PushMessagingClient
-// seam. These tests drive that seam directly with FakePushMessagingClient,
-// with no real Firebase/network calls involved.
+// firebase_messaging and the APNs method channel talk to platform code that
+// does not exist under `flutter test`, so FCM goes through the injectable
+// PushMessagingClient seam and APNs through a mocked MethodChannel. No real
+// Firebase / network call happens here.
 // ---------------------------------------------------------------------------
 
 import 'dart:async';
 
 import 'package:calltype/core/network/api_client.dart';
 import 'package:calltype/core/network/push_service.dart';
+import 'package:calltype/features/notifications/web_push_provider.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
@@ -20,185 +22,318 @@ import 'push_service_test.mocks.dart';
 
 @GenerateMocks([ApiClient])
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   late MockApiClient api;
+
+  void stubPut() => when(
+    api.updatePushToken(
+      deviceId: anyNamed('deviceId'),
+      token: anyNamed('token'),
+      platform: anyNamed('platform'),
+      locale: anyNamed('locale'),
+    ),
+  ).thenAnswer((_) async {});
 
   setUp(() {
     api = MockApiClient();
-    when(api.updatePushToken(
-      deviceId: anyNamed('deviceId'),
-      token: anyNamed('token'),
-      platform: anyNamed('platform'),
-    )).thenAnswer((_) async {});
+    stubPut();
+    when(api.deletePushToken(any)).thenAnswer((_) async {});
   });
 
-  test('registers the token and reaches status=registered on success', () async {
-    final messaging = FakePushMessagingClient()..token = 'tok-1';
-    final service = PushService(api, 'device-1', messaging: messaging);
+  PushService fcmService(
+    FakePushMessagingClient messaging, {
+    void Function(Map<String, String>)? onForegroundPush,
+    void Function(Map<String, String>)? onOpened,
+  }) => PushService(
+    api,
+    'device-1',
+    provider: FcmPushProvider(messaging: messaging),
+    locale: () => 'cs',
+    onForegroundPush: onForegroundPush,
+    onOpened: onOpened,
+  );
 
-    await service.initialize();
+  group('FCM (Android)', () {
+    test('registers platform fcm with the app locale', () async {
+      final service = fcmService(FakePushMessagingClient()..token = 'tok-1');
 
-    expect(service.status, PushStatus.registered);
-    verify(api.updatePushToken(deviceId: 'device-1', token: 'tok-1', platform: 'fcm')).called(1);
+      expect(await service.register(), PushStatus.registered);
+      verify(
+        api.updatePushToken(
+          deviceId: 'device-1',
+          token: 'tok-1',
+          platform: 'fcm',
+          locale: 'cs',
+        ),
+      ).called(1);
+    });
+
+    test('missing Firebase config yields notConfigured, not a crash', () async {
+      final service = fcmService(
+        FakePushMessagingClient()..throwOnInitialize = true,
+      );
+
+      expect(await service.register(), PushStatus.notConfigured);
+      verifyNever(
+        api.updatePushToken(
+          deviceId: anyNamed('deviceId'),
+          token: anyNamed('token'),
+          platform: anyNamed('platform'),
+          locale: anyNamed('locale'),
+        ),
+      );
+    });
+
+    test('no token yields notConfigured', () async {
+      final service = fcmService(FakePushMessagingClient()..token = null);
+      expect(await service.register(), PushStatus.notConfigured);
+    });
+
+    test('token refresh re-registers the new token', () async {
+      final messaging = FakePushMessagingClient()..token = 'tok-1';
+      final service = fcmService(messaging);
+      await service.register();
+
+      messaging.emitTokenRefresh('tok-2');
+      await Future<void>.delayed(Duration.zero);
+
+      verify(
+        api.updatePushToken(
+          deviceId: 'device-1',
+          token: 'tok-2',
+          platform: 'fcm',
+          locale: 'cs',
+        ),
+      ).called(1);
+    });
+
+    test('repeated register/dispose does not grow listener counts', () async {
+      final messaging = FakePushMessagingClient()..token = 'tok-1';
+      final service = fcmService(messaging);
+
+      await service.register();
+      await service.register();
+      await service.dispose();
+      await service.register();
+      await service.dispose();
+
+      expect(messaging.tokenRefreshListenerCount, lessThanOrEqualTo(1));
+      expect(messaging.onMessageListenerCount, lessThanOrEqualTo(1));
+      expect(messaging.onMessageOpenedAppListenerCount, lessThanOrEqualTo(1));
+    });
+
+    test('a failed PUT never throws out of register and is retried', () async {
+      final messaging = FakePushMessagingClient()..token = 'tok-1';
+      when(
+        api.updatePushToken(
+          deviceId: anyNamed('deviceId'),
+          token: anyNamed('token'),
+          platform: anyNamed('platform'),
+          locale: anyNamed('locale'),
+        ),
+      ).thenThrow(Exception('network error'));
+      final service = fcmService(messaging);
+
+      await expectLater(service.register(), completes);
+
+      // The next reconnect calls register() again.
+      clearInteractions(api);
+      stubPut();
+      await service.register();
+      verify(
+        api.updatePushToken(
+          deviceId: 'device-1',
+          token: 'tok-1',
+          platform: 'fcm',
+          locale: 'cs',
+        ),
+      ).called(1);
+    });
+
+    test('a redelivered foreground push is relayed once', () async {
+      final messaging = FakePushMessagingClient();
+      final received = <Map<String, String>>[];
+      final service = fcmService(messaging, onForegroundPush: received.add);
+      await service.register();
+
+      const message = RemoteMessage(
+        messageId: 'msg-1',
+        data: {'type': 'channel_post', 'conversationId': 'c1', 'v': '1'},
+      );
+      messaging.emitMessage(message);
+      messaging.emitMessage(message);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(received, [
+        {'type': 'channel_post', 'conversationId': 'c1', 'v': '1'},
+      ]);
+    });
+
+    test('tapped push and the launching push reach onOpened', () async {
+      final messaging = FakePushMessagingClient()
+        ..initialMessage = const RemoteMessage(
+          data: {'type': 'message', 'conversationId': 'peer-1', 'v': '1'},
+        );
+      final opened = <Map<String, String>>[];
+      final service = fcmService(messaging, onOpened: opened.add);
+      await service.register();
+      // A second register (reconnect) must not replay the launching tap.
+      await service.register();
+
+      messaging.emitOpenedApp(
+        const RemoteMessage(
+          messageId: 'm-2',
+          data: {'type': 'group_message', 'conversationId': 'g-1', 'v': '1'},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(opened.map((d) => d['conversationId']), ['peer-1', 'g-1']);
+    });
+
+    test('unregister deletes the server token and the FCM token', () async {
+      final messaging = FakePushMessagingClient();
+      final service = fcmService(messaging);
+      await service.register();
+
+      await service.unregister();
+
+      verify(api.deletePushToken('device-1')).called(1);
+      expect(messaging.deleted, isTrue);
+      expect(service.status, PushStatus.idle);
+      expect(messaging.tokenRefreshListenerCount, 0);
+    });
+
+    test('unregister offline still drops the local token', () async {
+      final messaging = FakePushMessagingClient();
+      when(api.deletePushToken(any)).thenThrow(Exception('offline'));
+      final service = fcmService(messaging);
+      await service.register();
+
+      await expectLater(service.unregister(), completes);
+      expect(messaging.deleted, isTrue);
+    });
   });
 
-  test('permission denied stops before registering a token', () async {
-    final messaging = FakePushMessagingClient()
-      ..token = 'tok-1'
-      ..authorizationStatus = AuthorizationStatus.denied;
-    final service = PushService(api, 'device-1', messaging: messaging);
+  group('APNs (iOS, native token)', () {
+    const channel = MethodChannel('cz.zcloud.jay/apns');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    const hexToken =
+        'ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
 
-    await service.initialize();
+    tearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
-    expect(service.status, PushStatus.permissionDenied);
-    verifyNever(api.updatePushToken(
-      deviceId: anyNamed('deviceId'),
-      token: anyNamed('token'),
-      platform: anyNamed('platform'),
-    ));
+    test('registers the lower-case hex token as platform apns', () async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'register') return hexToken;
+        return null;
+      });
+      final service = PushService(
+        api,
+        'device-1',
+        provider: ApnsPushProvider(),
+        locale: () => 'en-US',
+      );
+
+      expect(await service.register(), PushStatus.registered);
+      verify(
+        api.updatePushToken(
+          deviceId: 'device-1',
+          token: hexToken.toLowerCase(),
+          platform: 'apns',
+          locale: 'en-US',
+        ),
+      ).called(1);
+    });
+
+    test('a missing entitlement (simulator) is notConfigured', () async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        throw PlatformException(
+          code: 'apns_unavailable',
+          message: 'no valid aps-environment entitlement',
+        );
+      });
+      final service = PushService(
+        api,
+        'device-1',
+        provider: ApnsPushProvider(),
+      );
+
+      expect(await service.register(), PushStatus.notConfigured);
+    });
+
+    test('a malformed token is refused', () async {
+      messenger.setMockMethodCallHandler(channel, (call) async => 'xyz');
+      final service = PushService(
+        api,
+        'device-1',
+        provider: ApnsPushProvider(),
+      );
+      expect(await service.register(), PushStatus.notConfigured);
+    });
+
+    test('launch tap and live taps from AppDelegate reach onOpened', () async {
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'register') return hexToken;
+        if (call.method == 'takeLaunchNotification') {
+          return {'type': 'incoming_call', 'conversationId': 'p-1', 'v': '1'};
+        }
+        return null;
+      });
+      final opened = <Map<String, String>>[];
+      final service = PushService(
+        api,
+        'device-1',
+        provider: ApnsPushProvider(),
+        onOpened: opened.add,
+      );
+      await service.register();
+
+      // AppDelegate -> Dart: a tap while the app runs.
+      await messenger.handlePlatformMessage(
+        channel.name,
+        const StandardMethodCodec().encodeMethodCall(
+          const MethodCall('onNotificationTap', {
+            'type': 'message',
+            'conversationId': 'p-2',
+            'v': '1',
+          }),
+        ),
+        (_) {},
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(opened.map((d) => d['conversationId']), ['p-1', 'p-2']);
+    });
   });
 
-  test('missing Firebase config yields notConfigured, not a crash', () async {
-    final messaging = FakePushMessagingClient()..throwOnInitialize = true;
-    final service = PushService(api, 'device-1', messaging: messaging);
-
-    await service.initialize();
-
-    expect(service.status, PushStatus.notConfigured);
-  });
-
-  test('token refresh re-registers the new token with the backend', () async {
-    final messaging = FakePushMessagingClient()..token = 'tok-1';
-    final service = PushService(api, 'device-1', messaging: messaging);
-    await service.initialize();
-
-    messaging.emitTokenRefresh('tok-2');
-    await Future<void>.delayed(Duration.zero);
-
-    verify(api.updatePushToken(deviceId: 'device-1', token: 'tok-2', platform: 'fcm')).called(1);
-  });
-
-  test('repeated initialize/dispose does not grow listener counts', () async {
-    final messaging = FakePushMessagingClient()..token = 'tok-1';
-    final service = PushService(api, 'device-1', messaging: messaging);
-
-    await service.initialize();
-    await service.initialize();
-    await service.dispose();
-    await service.initialize();
-    await service.dispose();
-
-    // Each stream must have at most one active subscriber at any time —
-    // listener counts should never exceed 1 despite repeated init/dispose.
-    expect(messaging.tokenRefreshListenerCount, lessThanOrEqualTo(1));
-    expect(messaging.onMessageListenerCount, lessThanOrEqualTo(1));
-    expect(messaging.onMessageOpenedAppListenerCount, lessThanOrEqualTo(1));
-  });
-
-  test('re-registers after a network error on the next token event', () async {
-    final messaging = FakePushMessagingClient()..token = 'tok-1';
-    when(api.updatePushToken(deviceId: 'device-1', token: 'tok-1', platform: 'fcm'))
-        .thenThrow(Exception('network error'));
-    final service = PushService(api, 'device-1', messaging: messaging);
-
-    // Initial registration fails but must not throw out of initialize().
-    await service.initialize();
-    expect(service.status, PushStatus.registered);
-
-    // A later token refresh (e.g. after connectivity returns) succeeds.
-    clearInteractions(api);
-    when(api.updatePushToken(
-      deviceId: anyNamed('deviceId'),
-      token: anyNamed('token'),
-      platform: anyNamed('platform'),
-    )).thenAnswer((_) async {});
-    messaging.emitTokenRefresh('tok-2');
-    await Future<void>.delayed(Duration.zero);
-
-    verify(api.updatePushToken(deviceId: 'device-1', token: 'tok-2', platform: 'fcm')).called(1);
-  });
-
-  test('foreground message does not duplicate the same event twice', () async {
-    final messaging = FakePushMessagingClient()..token = 'tok-1';
-    var receivedCount = 0;
-    final service = PushService(
-      api,
-      'device-1',
-      messaging: messaging,
-      onMessageReceived: () => receivedCount++,
-    );
-    await service.initialize();
-
-    const message = RemoteMessage(messageId: 'msg-1', data: {'type': 'new_message'});
-    messaging.emitMessage(message);
-    messaging.emitMessage(message); // redelivery of the same event
-    await Future<void>.delayed(Duration.zero);
-
-    expect(receivedCount, 1);
-  });
-
-  test('channel_post push goes to the channels sync, not the chat inbox', () async {
-    final messaging = FakePushMessagingClient()..token = 'tok-1';
-    var chat = 0;
-    var channel = 0;
-    final service = PushService(
-      api,
-      'device-1',
-      messaging: messaging,
-      onMessageReceived: () => chat++,
-      onChannelPost: () => channel++,
-    );
-    await service.initialize();
-
-    // Exactly what PushNotificationService.SendFcmAsync sends: data { type }.
-    messaging.emitMessage(const RemoteMessage(messageId: 'm-1', data: {'type': 'channel_post'}));
-    messaging.emitMessage(const RemoteMessage(messageId: 'm-2', data: {'type': 'new_message'}));
-    await Future<void>.delayed(Duration.zero);
-
-    expect(channel, 1);
-    expect(chat, 1);
-  });
-
-  test('tapping a notification triggers onNotificationOpened, not a plaintext fetch', () async {
-    final messaging = FakePushMessagingClient()..token = 'tok-1';
-    var openedCount = 0;
-    final service = PushService(
-      api,
-      'device-1',
-      messaging: messaging,
-      onNotificationOpened: () => openedCount++,
-    );
-    await service.initialize();
-
-    messaging.emitOpenedApp(const RemoteMessage(messageId: 'msg-1', data: {'type': 'new_message'}));
-    await Future<void>.delayed(Duration.zero);
-
-    expect(openedCount, 1);
-  });
-
-  test('chat is never blocked: initialize completes even if registration throws', () async {
-    final messaging = FakePushMessagingClient()..token = 'tok-1';
-    when(api.updatePushToken(
-      deviceId: anyNamed('deviceId'),
-      token: anyNamed('token'),
-      platform: anyNamed('platform'),
-    )).thenThrow(Exception('boom'));
-    final service = PushService(api, 'device-1', messaging: messaging);
-
-    await expectLater(service.initialize(), completes);
+  group('Web Push', () {
+    test('outside a browser it reports notConfigured', () async {
+      final service = PushService(
+        api,
+        'device-1',
+        provider: WebPushProvider(apiClient: api),
+      );
+      expect(await service.register(), PushStatus.notConfigured);
+      verifyNever(api.getWebPushPublicKey());
+    });
   });
 }
 
 /// Test double for [PushMessagingClient]. Tracks listener counts on its
-/// broadcast streams so tests can assert repeated initialize()/dispose()
+/// broadcast streams so tests can assert repeated register()/dispose()
 /// never accumulates subscriptions.
 class FakePushMessagingClient implements PushMessagingClient {
   String? token = 'tok-1';
   bool throwOnInitialize = false;
-  AuthorizationStatus authorizationStatus = AuthorizationStatus.authorized;
+  bool deleted = false;
+  RemoteMessage? initialMessage;
 
   final _tokenRefreshController = StreamController<String>.broadcast();
   final _onMessageController = StreamController<RemoteMessage>.broadcast();
-  final _onMessageOpenedAppController = StreamController<RemoteMessage>.broadcast();
+  final _onMessageOpenedAppController =
+      StreamController<RemoteMessage>.broadcast();
 
   int tokenRefreshListenerCount = 0;
   int onMessageListenerCount = 0;
@@ -210,51 +345,50 @@ class FakePushMessagingClient implements PushMessagingClient {
   }
 
   @override
-  Future<NotificationSettings> requestPermission() async => NotificationSettings(
-        alert: AppleNotificationSetting.enabled,
-        announcement: AppleNotificationSetting.notSupported,
-        authorizationStatus: authorizationStatus,
-        badge: AppleNotificationSetting.enabled,
-        carPlay: AppleNotificationSetting.notSupported,
-        lockScreen: AppleNotificationSetting.notSupported,
-        notificationCenter: AppleNotificationSetting.notSupported,
-        showPreviews: AppleShowPreviewSetting.always,
-        timeSensitive: AppleNotificationSetting.notSupported,
-        criticalAlert: AppleNotificationSetting.notSupported,
-        sound: AppleNotificationSetting.enabled,
-        providesAppNotificationSettings: AppleNotificationSetting.notSupported,
-      );
-
-  @override
   Future<String?> getToken() async => token;
 
   @override
-  Stream<String> get onTokenRefresh => _countedStream(_tokenRefreshController, (n) => tokenRefreshListenerCount = n);
+  Future<void> deleteToken() async => deleted = true;
 
   @override
-  Stream<RemoteMessage> get onMessage => _countedStream(_onMessageController, (n) => onMessageListenerCount = n);
+  Future<RemoteMessage?> getInitialMessage() async {
+    final message = initialMessage;
+    initialMessage = null;
+    return message;
+  }
 
   @override
-  Stream<RemoteMessage> get onMessageOpenedApp =>
-      _countedStream(_onMessageOpenedAppController, (n) => onMessageOpenedAppListenerCount = n);
+  Stream<String> get onTokenRefresh => _CountingStream(
+    _tokenRefreshController.stream,
+    (delta) => tokenRefreshListenerCount += delta,
+  );
 
-  void emitTokenRefresh(String newToken) => _tokenRefreshController.add(newToken);
+  @override
+  Stream<RemoteMessage> get onMessage => _CountingStream(
+    _onMessageController.stream,
+    (delta) => onMessageListenerCount += delta,
+  );
+
+  @override
+  Stream<RemoteMessage> get onMessageOpenedApp => _CountingStream(
+    _onMessageOpenedAppController.stream,
+    (delta) => onMessageOpenedAppListenerCount += delta,
+  );
+
+  void emitTokenRefresh(String newToken) =>
+      _tokenRefreshController.add(newToken);
   void emitMessage(RemoteMessage message) => _onMessageController.add(message);
-  void emitOpenedApp(RemoteMessage message) => _onMessageOpenedAppController.add(message);
-
-  /// Wraps a broadcast controller's stream so every listen()/cancel() updates
-  /// a live count via [onCountChanged] — the only way to observe subscription
-  /// growth on a plain StreamController from outside.
-  Stream<T> _countedStream<T>(StreamController<T> controller, void Function(int) onCountChanged) =>
-      _CountingStream<T>(controller.stream, onCountChanged);
+  void emitOpenedApp(RemoteMessage message) =>
+      _onMessageOpenedAppController.add(message);
 }
 
+/// Reports +1 / -1 per subscription to the fake's counter: the only way to
+/// observe listener growth on a plain broadcast StreamController.
 class _CountingStream<T> extends Stream<T> {
-  _CountingStream(this._source, this._onCountChanged);
+  _CountingStream(this._source, this._change);
 
   final Stream<T> _source;
-  final void Function(int) _onCountChanged;
-  int _count = 0;
+  final void Function(int delta) _change;
 
   @override
   StreamSubscription<T> listen(
@@ -263,13 +397,14 @@ class _CountingStream<T> extends Stream<T> {
     void Function()? onDone,
     bool? cancelOnError,
   }) {
-    _count++;
-    _onCountChanged(_count);
-    final sub = _source.listen(onData, onError: onError, onDone: onDone, cancelOnError: cancelOnError);
-    return _CountingSubscription<T>(sub, () {
-      _count--;
-      _onCountChanged(_count);
-    });
+    _change(1);
+    final sub = _source.listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
+    return _CountingSubscription<T>(sub, () => _change(-1));
   }
 }
 

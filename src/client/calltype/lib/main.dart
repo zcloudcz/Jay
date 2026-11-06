@@ -1,14 +1,16 @@
 import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'app/app.dart';
+import 'app/router.dart';
 import 'core/auth/app_lock.dart';
 import 'core/auth/auth_service.dart';
 import 'core/crypto/key_manager.dart';
 import 'core/crypto/session_manager.dart';
 import 'core/network/api_client.dart';
-import 'core/network/push_service.dart';
 import 'core/network/signalr_client.dart';
 import 'core/network/webrtc_manager.dart';
 import 'core/storage/database.dart';
@@ -20,6 +22,10 @@ import 'features/chat_list/chat_list_controller.dart';
 import 'features/contacts/contacts_controller.dart';
 import 'features/devices/device_service.dart';
 import 'features/mute/mute_controller.dart';
+import 'features/notifications/notification_directory.dart';
+import 'features/notifications/notification_platform.dart';
+import 'features/notifications/notification_service.dart';
+import 'l10n/l10n.dart';
 
 /// Application entry point with full dependency injection wiring.
 ///
@@ -136,6 +142,72 @@ void main() async {
   // Conversation mutes (spec D6) live on the server per device; this is
   // only the cache behind the list icons and the Chats badge.
   final mutes = MuteController(apiClient: apiClient);
+
+  // Local notifications for messages, calls and channel posts, plus the
+  // server push registration (spec 2026-11-06). App-wide and subscribed
+  // before SignalR connects, like the inbox: the first queued messages
+  // flushed on connect must already produce notifications.
+  final notifications = NotificationService(
+    notifier: createLocalNotifier(),
+    prefs: SecureStoragePrefs(secureStorage),
+    // No BuildContext here: the texts follow the same OS locale resolution
+    // MaterialApp uses (no in-app language switch exists).
+    strings: () => lookupAppLocalizations(_appLocale()),
+    directory: AppNotificationDirectory(
+      database: db,
+      devices: devices,
+      channels: channels,
+    ),
+    currentPath: () {
+      try {
+        return router.routerDelegate.currentConfiguration.uri.path;
+      } catch (_) {
+        return null;
+      }
+    },
+    // "Foreground and focused" (spec section 2): a minimized window or a
+    // background tab still gets notifications for the open chat.
+    appFocused: () =>
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed &&
+        webDocumentFocused,
+    openRoute: _openNotificationRoute,
+    muteOf: mutes.modeOf,
+    apiClient: apiClient,
+    pushProvider: createPushProvider(apiClient),
+    deviceId: () => devices.isOpen ? devices.directory.selfDeviceId : null,
+    // Contract 1.1: the server localizes its generic push texts by this.
+    locale: () => _appLocale().toLanguageTag(),
+    // A channel push means the hub was down (the server only pushes to
+    // offline followers): pull the missed posts. If the hub is up again
+    // meanwhile, sync() finds nothing new and is cheap.
+    onForegroundPush: (data) {
+      if (data['type'] == 'channel_post') {
+        unawaited(channels.sync().catchError((Object _) {}));
+      }
+    },
+  );
+  inbox.persistedMessages.listen((m) => unawaited(notifications.onMessage(m)));
+  channels.newPosts.listen((p) => unawaited(notifications.onChannelPost(p)));
+  // An incoming call while the app is in the background: ring visibly. The
+  // notification is withdrawn as soon as the call stops ringing.
+  var ringingFrom = '';
+  webrtcManager.addListener(() {
+    final remote = webrtcManager.remoteDeviceId;
+    final ringing = webrtcManager.isIncoming && remote != null;
+    if (ringing && remote != ringingFrom) {
+      ringingFrom = remote;
+      unawaited(notifications.onIncomingCall(remote));
+    } else if (!ringing && ringingFrom.isNotEmpty) {
+      ringingFrom = '';
+      unawaited(notifications.onCallNotRinging());
+    }
+  });
+  unawaited(notifications.start());
+  // Back from the system settings (or another app): the permission may have
+  // changed there.
+  AppLifecycleListener(
+    onResume: () => unawaited(notifications.refreshPermission()),
+  );
   // The server keeps no offline queue for channels, so every transition to
   // "connected" (app start, reconnect, first connect after onboarding) pulls
   // what was missed and re-joins the hub groups. One sync per transition —
@@ -152,6 +224,10 @@ void main() async {
       // right after onboarding), and after an outage the chat list may have
       // loaded while GET /mutes failed; one cheap re-read per transition.
       unawaited(mutes.load().catchError((Object _) {}));
+      // First connect after onboarding = the moment for the one automatic
+      // permission prompt (mobile); every connect re-registers the push
+      // token, which also retries a registration that failed offline.
+      unawaited(notifications.onConnected());
     }
     wasConnected = connected;
   });
@@ -159,22 +235,6 @@ void main() async {
   await sessionManager.finalizePreKeyCleanup();
   if (deviceId.isNotEmpty) {
     unawaited(signalRClient.connect().catchError((Object _) {}));
-  }
-
-  // Initialize push notifications if the device is registered.
-  // Fire-and-forget — push is best-effort and must never block app startup.
-  // If Firebase is not configured (no google-services.json / GoogleService-Info.plist),
-  // PushService.initialize() catches the error and the app works without push.
-  if (deviceId.isNotEmpty) {
-    PushService(
-      apiClient,
-      deviceId,
-      // A channel push means the hub was down (the server only pushes to
-      // offline followers): pull the missed posts. If the hub is up again
-      // meanwhile, sync() finds nothing new and is cheap.
-      onChannelPost: () =>
-          unawaited(channels.sync().catchError((Object _) {})),
-    ).initialize();
   }
 
   runApp(
@@ -208,6 +268,7 @@ void main() async {
         ),
         ChangeNotifierProvider.value(value: channels),
         ChangeNotifierProvider.value(value: mutes),
+        ChangeNotifierProvider.value(value: notifications),
 
         // -- Auth / security ------------------------------------------------
         Provider(create: (_) => AppLock(secureStorage: secureStorage)),
@@ -215,4 +276,27 @@ void main() async {
       child: const CallTypeApp(),
     ),
   );
+}
+
+/// The UI language: the OS preference list resolved against the shipped
+/// locales, exactly like MaterialApp without a `locale:` does.
+Locale _appLocale() => basicLocaleListResolution(
+  PlatformDispatcher.instance.locales,
+  AppLocalizations.supportedLocales,
+);
+
+/// Opens what a tapped notification points at. Deferred to after a frame:
+/// a tap that launched the app arrives before the router has built anything.
+void _openNotificationRoute(String route) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (route.startsWith('/channels/')) {
+      // The feed is a top-level route: put the Updates tab under it so Back
+      // returns into the app instead of leaving it.
+      router.go('/updates');
+      unawaited(router.push(route));
+    } else {
+      router.go(route);
+    }
+  });
+  WidgetsBinding.instance.scheduleFrame();
 }

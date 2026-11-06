@@ -45,6 +45,7 @@ import '../features/organization/organization_controller.dart';
 import '../features/organization/organization_screen.dart';
 import '../features/onboarding/onboarding_controller.dart';
 import '../features/onboarding/onboarding_screen.dart';
+import '../features/notifications/notifications_screen.dart';
 import '../features/settings/account_screen.dart';
 import '../features/settings/app_lock_settings_screen.dart';
 import '../features/settings/settings_screen.dart';
@@ -69,6 +70,7 @@ import '../features/settings/identity_screen.dart';
 ///   /call/:id           — active voice/video call screen
 ///   /settings           — app settings root
 ///   /settings/lock      — PIN / biometric lock configuration
+///   /settings/notifications - notifications on/off, preview, test
 ///   /settings/account   — account registration & management
 ///   /settings/backup    — encrypted backup settings
 final router = GoRouter(
@@ -319,6 +321,10 @@ final router = GoRouter(
             // AppLock is in the provider tree — the settings screen reads it.
             return const AppLockSettingsScreen();
           },
+        ),
+        GoRoute(
+          path: 'notifications',
+          builder: (context, state) => const NotificationsScreen(),
         ),
         GoRoute(
           path: 'identity',

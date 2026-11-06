@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Release and Profile builds (TestFlight, App Store). aps-environment
+  "production" lets APNs hand out production device tokens, which the server
+  targets by default (Push:Apns:UseSandbox=false). The "Jay App Store"
+  provisioning profile must include Push Notifications, otherwise the
+  signed archive fails; ios-testflight.yml checks that before building.
+-->
+<plist version="1.0">
+<dict>
+	<key>aps-environment</key>
+	<string>production</string>
+</dict>
+</plist>

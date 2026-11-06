@@ -1070,5 +1070,56 @@
         "type": "String"
       }
     }
-  }
+  },
+  "settingsNotifications": "Notifications",
+  "settingsNotificationsSubtitle": "Messages, calls and channel posts",
+  "notificationsEnable": "Show notifications",
+  "notificationsEnableSubtitle": "Also when Jay runs in the background",
+  "notificationsPreview": "Show message preview",
+  "notificationsPreviewSubtitle": "When off, a notification only says that a new message arrived",
+  "notificationsTest": "Send a test notification",
+  "notificationsTestBody": "Notifications are working.",
+  "@notificationsTestBody": {
+    "description": "Body of the test notification from Settings; its title is the app name."
+  },
+  "notificationsTestFailed": "No notification could be shown. Check the permission.",
+  "notificationsAllow": "Allow notifications",
+  "notificationsStateOff": "Notifications are off.",
+  "notificationsStateUnsupported": "This device or browser cannot show notifications.",
+  "notificationsStatePermissionDenied": "Notifications are blocked. Allow them for Jay in the system or browser settings.",
+  "notificationsStatePermissionRequired": "Jay needs your permission to show notifications.",
+  "notificationsStateLocalOnly": "Active while Jay is running. This platform gets no notifications while Jay is closed.",
+  "notificationsStatePushNotConfigured": "Active while Jay is running. Notifications while Jay is closed are not available in this version yet.",
+  "notificationsStatePushPending": "Active while Jay is running. Notifications while Jay is closed turn on once Jay connects.",
+  "notificationsStateActive": "Active, also while Jay is closed.",
+  "notificationsPrivacyNote": "While Jay is closed, notifications come from the server, which cannot read your messages. They therefore show only a generic text such as New message, with no names and no content.",
+  "notificationsBannerText": "Turn on notifications so you do not miss messages and calls.",
+  "notificationsBannerAllow": "Turn on",
+  "notificationsBannerDismiss": "Not now",
+  "notificationNewMessage": "New message",
+  "@notificationNewMessage": {
+    "description": "Generic body when previews are off; same meaning as the server push text (contract 1.3)."
+  },
+  "notificationNewGroupMessage": "New message in a group",
+  "notificationIncomingCall": "Incoming call",
+  "notificationNewChannelPost": "New post in a channel",
+  "notificationPhoto": "Photo",
+  "notificationFile": "File",
+  "notificationPoll": "Poll",
+  "notificationGroupBody": "{sender}: {preview}",
+  "@notificationGroupBody": {
+    "description": "Body of a group message notification: who wrote it and the message preview.",
+    "placeholders": {
+      "sender": {
+        "type": "String"
+      },
+      "preview": {
+        "type": "String"
+      }
+    }
+  },
+  "notificationChannelMessages": "Messages",
+  "notificationChannelCalls": "Calls",
+  "notificationChannelChannels": "Channels",
+  "notificationOpenAction": "Open"
 }
