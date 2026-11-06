@@ -50,6 +50,13 @@ dependencies:
   share_plus: ^13.1.0
   file_picker: ^12.3.0
   image_picker: ^1.2.2
+  # Re-encodes picked photos to a small JPEG without EXIF/GPS before they go
+  # into an end-to-end encrypted attachment (pure Dart, so it runs in an
+  # isolate and on web alike). Already in the tree via flutter_launcher_icons.
+  image: ^4.10.1
+  # Saves received photos into the iOS / Android photo library; FilePicker's
+  # save dialog only reaches the Files app there.
+  gal: ^2.3.3
   # Opens the public channel rules page (the app had no external links
   # before; the rules are a web page so they stay one legal text).
   url_launcher: ^6.3.2
