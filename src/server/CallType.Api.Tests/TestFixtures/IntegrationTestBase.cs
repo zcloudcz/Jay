@@ -231,9 +231,14 @@ public abstract class IntegrationTestBase : IAsyncLifetime
     /// between computing it and the server checking it. The earlier
     /// previous/current pair did not: on a slow CI runner a boundary crossed
     /// mid-request turned the previous step into -2 (deploy run 42248830094).
+    /// <paramref name="clock"/> must be the server's clock when the client's
+    /// factory injects a FakeTimeProvider: a frozen server clock
+    /// and the real one drift apart while a slow runner builds the factory,
+    /// and codes from the real clock were then rejected (deploy run 42285302688).
     /// </summary>
-    protected static async Task<string> EnrollAndVerifyMfaAsync(HttpClient client, Guid accountId, string authKey)
+    protected static async Task<string> EnrollAndVerifyMfaAsync(HttpClient client, Guid accountId, string authKey, TimeProvider? clock = null)
     {
+        clock ??= TimeProvider.System;
         var startResponse = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/enroll/start", new { authKey });
         if (startResponse.StatusCode != HttpStatusCode.OK)
             throw new InvalidOperationException(
@@ -241,14 +246,14 @@ public abstract class IntegrationTestBase : IAsyncLifetime
         var secretBase32 = (await startResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("secretBase32").GetString()!;
         var secret = Base32.Decode(secretBase32);
 
-        var confirmStep = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TotpService.Period;
+        var confirmStep = clock.GetUtcNow().ToUnixTimeSeconds() / TotpService.Period;
         var confirmResponse = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/enroll/confirm",
             new { code = TotpService.ComputeCode(secret, confirmStep) });
         if (confirmResponse.StatusCode != HttpStatusCode.OK)
             throw new InvalidOperationException(
                 $"MFA enroll/confirm failed with {confirmResponse.StatusCode}: {await confirmResponse.Content.ReadAsStringAsync()}");
 
-        var verifyStep = Math.Max(confirmStep, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TotpService.Period) + 1;
+        var verifyStep = Math.Max(confirmStep, clock.GetUtcNow().ToUnixTimeSeconds() / TotpService.Period) + 1;
         var verifyResponse = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/verify",
             new { code = TotpService.ComputeCode(secret, verifyStep) });
         if (verifyResponse.StatusCode != HttpStatusCode.OK)

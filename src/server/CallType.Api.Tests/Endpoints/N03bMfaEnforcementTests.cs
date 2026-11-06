@@ -157,7 +157,8 @@ public class N03bMfaEnforcementTests : IntegrationTestBase
         // the enroll/confirm/verify calls below.
         UseToken(client, plainToken);
 
-        var stepUpToken = await EnrollAndVerifyMfaAsync(client, accountId, ValidAuthKey);
+        // The server reads the frozen fake clock, so the codes must come from it.
+        var stepUpToken = await EnrollAndVerifyMfaAsync(client, accountId, ValidAuthKey, clock);
         UseToken(client, stepUpToken);
 
         clock.Advance(TimeSpan.FromMinutes(20)); // past Mfa:StepUpMinutes (default 15)
