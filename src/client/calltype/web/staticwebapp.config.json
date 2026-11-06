@@ -10,15 +10,6 @@
       }
     },
     {
-      "route": "/admin/",
-      "rewrite": "/admin/index.html",
-      "headers": {
-        "X-Frame-Options": "DENY",
-        "X-Robots-Tag": "noindex, nofollow",
-        "Cache-Control": "no-store"
-      }
-    },
-    {
       "route": "/admin/index.html",
       "headers": {
         "X-Frame-Options": "DENY",
