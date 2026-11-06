@@ -86,7 +86,11 @@ jobs:
   test:
     needs: validate-inputs
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 60, not 30: the backend suite alone grew from about 13 to 23-30 minutes
+    # on the hosted runner (622 Testcontainers tests), and runs 42254277201
+    # and 42289854149 were cancelled mid-suite by the old limit, before the
+    # Flutter tests even started.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
