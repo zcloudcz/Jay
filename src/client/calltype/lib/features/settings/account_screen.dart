@@ -3,12 +3,16 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/network/backup_api.dart';
+import '../../core/storage/database.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../l10n/l10n.dart';
+import '../devices/device_service.dart';
+import '../devices/link_ux.dart';
 import '../organization/mfa_section.dart';
 
 /// Account registration and login screen.
@@ -25,8 +29,15 @@ import '../organization/mfa_section.dart';
 /// Once the device is linked to an account, the screen also shows the account
 /// id (copyable) and the TOTP [MfaSection]: a plain registered account needs
 /// MFA to sign in to the moderation web, not only organization admins.
+///
+/// Link UX A4: on web and desktop a login that leaves this device without
+/// conversations explains why (the account holds backups only, by design of
+/// spec 1) and offers the way that does work: linking with the phone.
 class AccountScreen extends StatefulWidget {
-  const AccountScreen({super.key});
+  const AccountScreen({super.key, this.linkFirstPlatform});
+
+  /// Overrides [isLinkFirstPlatform] (tests run on one platform only).
+  final bool? linkFirstPlatform;
 
   @override
   State<AccountScreen> createState() => _AccountScreenState();
@@ -44,6 +55,9 @@ class _AccountScreenState extends State<AccountScreen> {
   // the current locale.
   bool _error = false;
   bool _success = false;
+
+  /// A login left this device without conversations (link UX, A4).
+  bool _noChatsAfterLogin = false;
 
   /// Linked account of this device (null = not registered). Loaded once and
   /// set again after a successful register/login below.
@@ -211,6 +225,7 @@ class _AccountScreenState extends State<AccountScreen> {
                             _isRegister = !_isRegister;
                             _error = false;
                             _success = false;
+                            _noChatsAfterLogin = false;
                           });
                         },
                   child: Text(
@@ -250,6 +265,12 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
               ],
 
+              // -- Why there are no chats (link UX, A4) ------------------------
+              if (_noChatsAfterLogin) ...[
+                const SizedBox(height: 16),
+                const NoChatsAfterLoginCard(),
+              ],
+
               // -- Error message ---------------------------------------------
               if (_error) ...[
                 const SizedBox(height: 16),
@@ -283,6 +304,21 @@ class _AccountScreenState extends State<AccountScreen> {
     );
   }
 
+  /// Web or desktop, not linked yet, and not a single conversation here.
+  /// Optional providers: the screen is also pumped without them in tests.
+  Future<bool> _deviceHasNoChats(
+    AppDatabase? db,
+    DeviceService? devices,
+  ) async {
+    if (!(widget.linkFirstPlatform ?? isLinkFirstPlatform)) return false;
+    if (db == null || (devices?.isCompanion ?? false)) return false;
+    try {
+      return (await (db.select(db.conversations)..limit(1)).get()).isEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -290,6 +326,7 @@ class _AccountScreenState extends State<AccountScreen> {
       _isLoading = true;
       _error = false;
       _success = false;
+      _noChatsAfterLogin = false;
     });
 
     try {
@@ -302,6 +339,8 @@ class _AccountScreenState extends State<AccountScreen> {
       final authKey = sha256.convert(utf8.encode(passphrase)).toString();
 
       final storage = context.read<SecureStorage>();
+      final db = context.read<AppDatabase?>();
+      final devices = context.read<DeviceService?>();
       final deviceId = await storage.getDeviceId();
       if (deviceId == null) {
         throw StateError('Set up this device before linking an account.');
@@ -312,12 +351,14 @@ class _AccountScreenState extends State<AccountScreen> {
       final accountId = response['accountId'] as String;
       await apiClient.linkAccountDevice(accountId, deviceId, authKey);
       await storage.setAccountId(accountId);
+      final noChats = !_isRegister && await _deviceHasNoChats(db, devices);
       if (mounted) {
         _passphraseController.clear();
         setState(() {
           _success = true;
           _isLoading = false;
           _accountId = accountId;
+          _noChatsAfterLogin = noChats;
         });
       }
     } catch (_) {
@@ -330,6 +371,38 @@ class _AccountScreenState extends State<AccountScreen> {
         });
       }
     }
+  }
+}
+
+/// Explains, after a login, why this browser or computer shows no chats and
+/// links to the screen that brings them (link UX, A4).
+class NoChatsAfterLoginCard extends StatelessWidget {
+  const NoChatsAfterLoginCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = context.l10n;
+    return Card(
+      color: theme.colorScheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l10n.accountNoChatsTitle, style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Text(l10n.accountNoChatsBody),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => context.push('/settings/devices/link'),
+              icon: const Icon(Icons.phonelink_rounded),
+              label: Text(l10n.accountNoChatsAction),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

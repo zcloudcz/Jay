@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/crypto/key_manager.dart';
 import '../../core/network/api_client.dart';
 import '../../core/storage/secure_storage.dart';
+import '../devices/link_ux.dart';
 
 /// Drives the first-launch onboarding flow: key generation, device
 /// registration with the server, and local persistence of the device ID.
@@ -47,6 +48,12 @@ class OnboardingController extends ChangeNotifier {
   /// Human-readable handle (e.g. CT-A1B2-C3D4) for display and sharing.
   String? get userHandle => _userHandle;
 
+  bool _linkMode = false;
+
+  /// The device is being set up to be linked to a phone (link UX, A1): the
+  /// screen shows the link code, never this device's own handle.
+  bool get linkMode => _linkMode;
+
   /// True while the registration HTTP call is in flight.
   bool get isLoading => _isLoading;
 
@@ -61,6 +68,48 @@ class OnboardingController extends ChangeNotifier {
   String? get qrData {
     if (_deviceId == null || _userHandle == null) return null;
     return 'ct://$_deviceId/$_userHandle';
+  }
+
+  /// Link path (link UX, A1): registers this device silently if it is not
+  /// registered yet (the link code needs a device id and keys) and marks it as
+  /// waiting for the phone ([linkPendingKey]). An already registered device,
+  /// e.g. one just reset by "disconnect and link", skips the registration.
+  Future<void> startLinking() async {
+    _linkMode = true;
+    _error = null;
+    notifyListeners();
+    try {
+      await _secureStorage.write(linkPendingKey, '1');
+    } catch (_) {
+      // Only the reload protection is lost.
+    }
+    final id = await _secureStorage.getDeviceId();
+    final secret = await _secureStorage.getDeviceSecret();
+    if (id != null && secret != null) {
+      _deviceId = id;
+      notifyListeners();
+      return;
+    }
+    await register();
+  }
+
+  /// "I don't have Jay on a phone, start here": a standalone identity, as the
+  /// mobile onboarding creates it. Reuses a registration the link path already
+  /// made (or is making) instead of creating a second device.
+  Future<void> startStandalone() async {
+    _linkMode = false;
+    _error = null;
+    notifyListeners();
+    try {
+      await _secureStorage.delete(linkPendingKey);
+    } catch (_) {}
+    if (_isLoading) return; // The running registration shows the identity.
+    if (_deviceId == null) {
+      await register();
+      return;
+    }
+    _userHandle ??= await _secureStorage.read('ct_user_handle') ?? _deviceId;
+    notifyListeners();
   }
 
   /// Starts the device registration flow.

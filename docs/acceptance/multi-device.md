@@ -1,7 +1,7 @@
 # Multi-device (spec 1: live sync) - přejímka
 
 Statusy: PASS / FAIL / BLOCKED / NOT_RUN. PASS jen pro skutečně provedený scénář.
-Spec: `docs/superpowers/specs/2026-10-13-multi-device-sync-design.md`. Plány:
+Spec: `docs/superpowers/specs/2026-10-13-multi-device-sync-design.md`, UX propojení (stage A): `docs/superpowers/specs/2026-11-06-link-ux.md`. Plány:
 `docs/superpowers/plans/2026-10-13-multi-device-sync-1-protocol.md`,
 `docs/superpowers/plans/2026-10-14-multi-device-sync-2-app.md`.
 
@@ -14,6 +14,7 @@ Zařízení: P = telefon (primární, Android nebo iOS), W = web (`https://jay.z
 | Server: `GroupEndpointsTests`, `FanoutHubTests`, `DeviceListEndpointsTests` (Testcontainers) | PASS: celá sada 458 testů dříve; po změně nápovědy odesílatele znovu `FanoutHubTests` + `MessengerHubTests` 40 testů |
 | `calltype_core`: `dart analyze` + `dart test` | PASS: 207 testů |
 | App: `flutter analyze` + `flutter test` (vč. `multi_device_flow_test`, `message_inbox_multi_device_test`, l10n guardy) | PASS: analyze bez nálezů, 320 testů |
+| App, UX propojení (stage A): `onboarding_link_first_test`, `link_ux_test`, `account_screen_test` (A4) + celá sada | PASS: analyze bez nálezů, 513 testů |
 | Boti: `calltype_bot`, `hermes_bridge`, `jay_archiver` - `dart analyze` + `dart test` | PASS: `calltype_bot` 27, `hermes_bridge` 17, `jay_archiver` 27 + 3 přeskočené (živé E2E bez `JAY_E2E_API`) |
 | Živé E2E `jay_archiver/test/e2e/multi_device_e2e_test.dart` proti lokálnímu compose (nikdy beta) | PASS: 6/6 dne 2026-10-14 |
 
@@ -28,9 +29,9 @@ Zařízení: P = telefon (primární, Android nebo iOS), W = web (`https://jay.z
 
 | # | Scénář | Stav |
 | --- | --- | --- |
-| M-01 | W čerstvě zaregistrovaný: "Propojit s existujícím zařízením" ukáže QR kód | NOT_RUN |
-| M-02 | P: Nastavení > Propojená zařízení > Propojit zařízení, naskenovat QR z W; P ukáže vlastní handle ke srovnání, W ukáže "Propojit s CT-…?" se stejným handlem P; po potvrzení W skončí v seznamu chatů a P ukáže zařízení v seznamu | NOT_RUN |
-| M-03 | W s kontaktem nebo chatem: propojení odmítnuto textem "jen zařízení bez kontaktů a chatů" | NOT_RUN |
+| M-01 | W čistý profil: první obrazovka je "Používejte Jay ze svého telefonu" s QR kódem a třemi kroky, žádné "Začít" ani handle W ("Vaše identita" se neukáže). Obnovení stránky (F5) vrátí na stejnou obrazovku, ne do prázdného seznamu chatů | NOT_RUN |
+| M-02 | P: ikona skeneru "Propojit web / počítač" v seznamu chatů (nebo první řádek Nastavení), naskenovat QR z W; P ukáže vlastní handle ke srovnání, W ukáže "Propojit s CT-…?" se stejným handlem P; po potvrzení W skončí v seznamu chatů a P ukáže zařízení v Propojených zařízeních. Cesta Nastavení > Propojená zařízení > Propojit zařízení funguje dál | NOT_RUN |
+| M-03 | W s kontaktem nebo chatem: obrazovka propojení vysvětlí "jen zařízení bez kontaktů a chatů" a nabídne "Odpojit toto zařízení a propojit ho s telefonem" (dál viz M-26) | NOT_RUN |
 | M-04 | QR z jiného zařízení než toho, jehož klíče server vrátí (podvržený kód): P ukáže varování "Kód neodpovídá klíčům zařízení", W nedostane nabídku | NOT_RUN |
 | M-05 | B pošle zprávu P: dorazí na P i W do konverzace s B | NOT_RUN |
 | M-06 | W odpoví B: B ji vidí v existující konverzaci s P (ne v nové); P ji vidí jako vlastní odeslanou, bez nepřečteného odznaku | NOT_RUN |
@@ -52,5 +53,10 @@ Zařízení: P = telefon (primární, Android nebo iOS), W = web (`https://jay.z
 | M-21 | Skupina s companionem: P a B ve skupině, W propojený; zpráva od B dorazí na P i W, odpověď z W vidí B i P jako od P | NOT_RUN |
 | M-22 | Odebrání + wipe + restart: P odebere W, W smaže data; po restartu aplikace na W zůstane prázdné zařízení bez chatů (wipe se dokončí i po pádu uprostřed) a nic se nevrátí | NOT_RUN |
 | M-23 | Notifikace na P: P je na pozadí, uživatel píše z W. Vlastní zprávy z W na P nezabzučí ani nezobrazí notifikaci; zpráva od B stále ano | NOT_RUN |
+| M-24 | W čistý profil, "Jay v telefonu nemám, začít tady": ukáže handle a QR "Vaše identita" jako dřív, bez druhé registrace (stejný handle po F5); další obrazovka je seznam chatů | NOT_RUN |
+| M-25 | Viditelnost "Propojit web / počítač": je na P (Android i iOS) v seznamu chatů i v Nastavení; není na propojeném W (companion); není na Windows/Linux desktopu (bez kamery). Při 5 propojených zařízeních ukáže hlášku o limitu místo skeneru | NOT_RUN |
+| M-26 | W s chatem: Nastavení > Propojená zařízení > "Odpojit toto zařízení a propojit ho s telefonem". Dialog varuje, že se smažou chaty a kontakty a ztratí se identita zařízení; "Zrušit" nic nesmaže; "Nejdřív zálohovat" otevře Zálohu; "Smazat a propojit" vyprázdní W a ukáže QR obrazovku z M-01; propojení pak projde jako M-02 | NOT_RUN |
+| M-27 | Primární zařízení s propojeným companionem: Propojená zařízení akci "Odpojit toto zařízení…" nenabízí; obrazovka propojení (na webu přímá adresa `/settings/devices/link`) ji nabídne, ale po klepnutí odmítne s vysvětlením a nic nesmaže | NOT_RUN |
+| M-28 | W (web nebo desktop) bez chatů: Nastavení > Účet > přihlášení e-mailem: po "Účet propojen" se ukáže "Kde jsou moje chaty?" s vysvětlením E2E a tlačítkem "Propojit s telefonem", které otevře QR kód. Na P se po přihlášení nic takového neukáže; přihlášení samo chaty nepřinese (beze změny) | NOT_RUN |
 
 Známé limity v1 (nejsou chybou přejímky): historie před propojením se nepřenáší (spec 2); stav přečtení, mazání "pro mě" a přejmenování kontaktu se mezi zařízeními nesynchronizují (spec 3); konverzace na W s lidmi, kteří tam nejsou v kontaktech, mají jako název technické id; protějšek se starou verzí posílá jen na P; propojení z Windows/Linux není (chybí kamera); ztráta P = seznam už nejde měnit (spec 4); server může vynutit starou cestu i pro běžnou skupinu, companion pak tu zprávu nedostane; zrušení na novém zařízení po odeslaném souhlasu nemusí propojení zastavit; odebraný companion, který se nesmazal (např. odcizený prohlížeč), se protějšku ukáže jako samostatné zařízení od své další zprávy (nápověda serveru), už ne jako vlastník.

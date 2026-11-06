@@ -1190,5 +1190,95 @@
   "notificationChannelMessages": "Messages",
   "notificationChannelCalls": "Calls",
   "notificationChannelChannels": "Channels",
-  "notificationOpenAction": "Open"
+  "notificationOpenAction": "Open",
+  "linkWebAction": "Link web / computer",
+  "@linkWebAction": {
+    "description": "Phone entry (chat list app bar, top of Settings) that scans the code of a browser or computer to link it."
+  },
+  "linkWebSubtitle": "Use Jay in a browser or on a computer",
+  "@linkWebSubtitle": {
+    "description": "Subtitle of the Link web / computer row in Settings."
+  },
+  "linkWebLimitReached": "You already have {count} linked devices, the maximum. Remove one in Settings, Linked devices.",
+  "@linkWebLimitReached": {
+    "description": "Snackbar when the phone already has the maximum number of linked devices.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "linkFirstTitle": "Use Jay from your phone",
+  "@linkFirstTitle": {
+    "description": "Heading of the first screen on web and desktop, which leads with linking to the phone."
+  },
+  "linkFirstBody": "Your chats are on your phone. Link this browser or computer with it to read and send them here too.",
+  "@linkFirstBody": {
+    "description": "Explanation under the link-first heading."
+  },
+  "linkFirstStandalone": "I don't have Jay on a phone, start here",
+  "@linkFirstStandalone": {
+    "description": "Small secondary button on the link-first screen that creates a standalone identity instead."
+  },
+  "linkStepOpenPhone": "Open Jay on your phone.",
+  "@linkStepOpenPhone": {
+    "description": "Step 1 next to the link QR code."
+  },
+  "linkStepTapEntry": "Tap \"{action}\" at the top of the chat list (or Settings, Linked devices, Link a device).",
+  "@linkStepTapEntry": {
+    "description": "Step 2 next to the link QR code; action is the linkWebAction text.",
+    "placeholders": {
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "linkStepScan": "Scan this code, then confirm the link here.",
+  "@linkStepScan": {
+    "description": "Step 3 next to the link QR code."
+  },
+  "disconnectAndLinkAction": "Disconnect this device and link it with your phone",
+  "@disconnectAndLinkAction": {
+    "description": "Action on a device that already has chats: delete them and link the device to the phone."
+  },
+  "disconnectAndLinkTitle": "Disconnect this device?",
+  "@disconnectAndLinkTitle": {
+    "description": "Title of the confirmation dialog for disconnecting this device."
+  },
+  "disconnectAndLinkWarning": "The chats and contacts stored on this device will be deleted, and the identity of this device will be lost: people who have it as a contact will no longer reach you here. This cannot be undone. Afterwards this device shows a code to link it with your phone.",
+  "@disconnectAndLinkWarning": {
+    "description": "Warning in the confirmation dialog: what is deleted and lost."
+  },
+  "disconnectAndLinkBackupHint": "Want to keep them? Make a backup first.",
+  "@disconnectAndLinkBackupHint": {
+    "description": "Hint in the confirmation dialog to make a backup first."
+  },
+  "disconnectAndLinkBackup": "Back up first",
+  "@disconnectAndLinkBackup": {
+    "description": "Dialog button that opens the backup settings instead of deleting."
+  },
+  "disconnectAndLinkConfirm": "Delete and link",
+  "@disconnectAndLinkConfirm": {
+    "description": "Destructive dialog button that deletes local data and shows the link code."
+  },
+  "disconnectAndLinkRefused": "This device is the main device of other linked devices, so it cannot be linked to another phone. Remove its linked devices first (Settings, Linked devices).",
+  "@disconnectAndLinkRefused": {
+    "description": "Explanation when a primary device with companions tries to disconnect itself."
+  },
+  "disconnectAndLinkFailed": "This device could not be reset. Nothing was linked. Try again.",
+  "@disconnectAndLinkFailed": {
+    "description": "Snackbar when the local reset failed."
+  },
+  "accountNoChatsTitle": "Where are my chats?",
+  "@accountNoChatsTitle": {
+    "description": "Heading of the card shown after an e-mail sign-in on web/desktop when there are no chats."
+  },
+  "accountNoChatsBody": "Your chats are end-to-end encrypted and live only on your devices. Signing in to your account is for backups and does not bring them here. To see them here, link this browser with your phone.",
+  "@accountNoChatsBody": {
+    "description": "Why the account sign-in does not show chats (end-to-end encryption) and what to do."
+  },
+  "accountNoChatsAction": "Link with my phone",
+  "@accountNoChatsAction": {
+    "description": "Button on that card that opens the link screen."
+  }
 }

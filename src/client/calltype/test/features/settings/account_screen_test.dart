@@ -1,8 +1,11 @@
 import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype/core/storage/database.dart';
 import 'package:calltype/core/storage/secure_storage.dart';
 import 'package:calltype/features/organization/mfa_section.dart';
 import 'package:calltype/features/settings/account_screen.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/native.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,7 +29,9 @@ class _FakeAdapter implements HttpClientAdapter {
   ) async {
     paths.add(options.path);
     return ResponseBody.fromString(
-      '{"enabled":false,"confirmedAt":null,"backupCodesRemaining":0}',
+      options.path == '/accounts/login'
+          ? '{"accountId":"6f9619ff-8b86-d011-b42d-00cf4fc964aa"}'
+          : '{"enabled":false,"confirmedAt":null,"backupCodesRemaining":0}',
       200,
       headers: {
         'content-type': ['application/json'],
@@ -38,7 +43,11 @@ class _FakeAdapter implements HttpClientAdapter {
 void main() {
   const accountId = '6f9619ff-8b86-d011-b42d-00cf4fc964aa';
 
-  Future<_FakeAdapter> pumpScreen(WidgetTester tester) async {
+  Future<_FakeAdapter> pumpScreen(
+    WidgetTester tester, {
+    AppDatabase? db,
+    bool linkFirstPlatform = false,
+  }) async {
     final adapter = _FakeAdapter();
     final api = ApiClient(
       baseUrl: 'https://example.test',
@@ -49,8 +58,11 @@ void main() {
         providers: [
           Provider<ApiClient>.value(value: api),
           Provider.value(value: SecureStorage()),
+          if (db != null) Provider<AppDatabase>.value(value: db),
         ],
-        child: localizedApp(home: const AccountScreen()),
+        child: localizedApp(
+          home: AccountScreen(linkFirstPlatform: linkFirstPlatform),
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -111,5 +123,77 @@ void main() {
     );
     // The register form is still there.
     expect(find.text(l10nEn.accountEmailLabel), findsOneWidget);
+  });
+
+  group('link UX A4: after a login without chats', () {
+    Future<void> logIn(WidgetTester tester) async {
+      await tester.ensureVisible(find.text(l10nEn.accountSwitchToLogin));
+      await tester.tap(find.text(l10nEn.accountSwitchToLogin));
+      await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, l10nEn.accountEmailLabel),
+        'me@example.test',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, l10nEn.accountPassphraseLabel),
+        'correct horse',
+      );
+      final submit = find.widgetWithText(
+        FilledButton,
+        l10nEn.accountLoginTitle,
+      );
+      await tester.ensureVisible(submit);
+      await tester.pump();
+      await tester.tap(submit);
+      for (var i = 0; i < 5; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    late AppDatabase db;
+    setUp(() {
+      FlutterSecureStorage.setMockInitialValues({'ct_device_id': 'device-1'});
+      db = AppDatabase.forTesting(NativeDatabase.memory());
+    });
+    tearDown(() => db.close());
+
+    testWidgets('web: explains why and offers the link screen', (tester) async {
+      await pumpScreen(tester, db: db, linkFirstPlatform: true);
+      await logIn(tester);
+
+      expect(find.text(l10nEn.accountLinked), findsOneWidget);
+      expect(find.text(l10nEn.accountNoChatsTitle), findsOneWidget);
+      expect(find.text(l10nEn.accountNoChatsBody), findsOneWidget);
+      expect(find.text(l10nEn.accountNoChatsAction), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('web with chats: no explanation', (tester) async {
+      await tester.runAsync(
+        () => db
+            .into(db.conversations)
+            .insert(ConversationsCompanion.insert(id: 'c1', type: 'direct')),
+      );
+      await pumpScreen(tester, db: db, linkFirstPlatform: true);
+      await logIn(tester);
+
+      expect(find.text(l10nEn.accountLinked), findsOneWidget);
+      expect(find.text(l10nEn.accountNoChatsTitle), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('phone: no explanation (the phone is where chats live)', (
+      tester,
+    ) async {
+      await pumpScreen(tester, db: db);
+      await logIn(tester);
+
+      expect(find.text(l10nEn.accountLinked), findsOneWidget);
+      expect(find.text(l10nEn.accountNoChatsTitle), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    });
   });
 }

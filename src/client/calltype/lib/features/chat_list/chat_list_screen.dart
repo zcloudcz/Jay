@@ -12,6 +12,7 @@ import '../../shared/widgets/bot_badge.dart';
 import '../../shared/widgets/main_navigation_bar.dart';
 import '../contacts/contacts_controller.dart';
 import '../devices/device_service.dart';
+import '../devices/devices_screen.dart' show LinkWebButton;
 import '../mute/mute_controller.dart';
 import '../mute/mute_dialog.dart';
 import '../notifications/notifications_screen.dart';
@@ -94,6 +95,9 @@ class _ChatListScreenState extends State<ChatListScreen> {
               tooltip: l10n.chatListNewGroup,
               onPressed: () => context.push('/groups/create'),
             ),
+          // Link UX A2: linking the web or a computer was three levels deep
+          // in Settings; it is what people look for on this screen.
+          const LinkWebButton(),
           IconButton(
             icon: const Icon(Icons.qr_code),
             tooltip: l10n.chatListMyIdentity,

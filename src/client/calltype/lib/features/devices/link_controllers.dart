@@ -190,6 +190,17 @@ class CompanionLinkController extends ChangeNotifier {
   String? offeredHandle;
 
   Future<void> start() async {
+    // Restartable: after "disconnect and link" (link UX, A3) the same screen
+    // starts again on the now empty device. The old offer listener goes first,
+    // or an offer would be counted twice.
+    final old = _offers;
+    _offers = null;
+    if (old != null) await old.cancel();
+    _leaveWaiting();
+    code = null;
+    offeredPrimary = null;
+    offeredHandle = null;
+    if (_state != CompanionLinkState.loading) _set(CompanionLinkState.loading);
     // Not registered yet: there is no device id to put in a code.
     if (!_devices.isOpen) {
       _set(CompanionLinkState.failed);

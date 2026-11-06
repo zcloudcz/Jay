@@ -47,6 +47,12 @@ const companionOfKey = 'companion_of';
 /// exist, waiting for the user's decision (see [DeviceService.reportVanishedCompanions]).
 const vanishedCompanionsKey = 'vanished_companions';
 
+/// [DeviceService.resetForLinking] refused: this device is a companion, or a
+/// primary that has companions of its own.
+class LinkResetRefused implements Exception {
+  const LinkResetRefused();
+}
+
 /// App-wide owner of this device's multi-device state (spec Part A).
 ///
 /// Built before onboarding (the inbox needs a reference at startup) and
@@ -300,6 +306,45 @@ class DeviceService extends ChangeNotifier {
     await _directory!.load();
     _setStatus(CompanionStatus.removed);
   });
+
+  /// "Disconnect this device and link it with your phone" (link UX, A3): the
+  /// user chose to give up what this device holds so it can become a
+  /// companion, which only an EMPTY device may (decision 3). Same deletion as
+  /// [_wipe], plus the Signal sessions: the identity of this device is given
+  /// up, so ratchets with its old contacts must not keep decrypting their
+  /// messages here once it reads the phone's conversations. Keys and
+  /// registration stay (the device id is what the QR code carries), and so do
+  /// the stored device lists, for the rollback reason given at [_wipe].
+  ///
+  /// Throws [LinkResetRefused] for a primary with companions: its list would
+  /// be orphaned and the companions could no longer be managed.
+  Future<void> resetForLinking() async {
+    final directory = this.directory;
+    if (directory.isCompanion || (await companions()).isNotEmpty) {
+      throw const LinkResetRefused();
+    }
+    await MessageProcessingQueue.forDatabase(_db).run(() async {
+      await _db.transaction(() async {
+        await _db.delete(_db.messages).go();
+        await _db.delete(_db.conversations).go();
+        await _db.delete(_db.contacts).go();
+        await _db.delete(_db.signalSessions).go();
+        await (_db.delete(_db.backupState)..where(
+              (s) =>
+                  s.key.like('outbox:%') |
+                  s.key.like('control:%') |
+                  s.key.equals(companionOfKey) |
+                  s.key.equals(linkedPrimaryHandleKey) |
+                  s.key.equals(vanishedCompanionsKey),
+            ))
+            .go();
+      });
+      await directory.load();
+    });
+    _pendingPrimary = null;
+    _vanished = {};
+    _setStatus(CompanionStatus.ok);
+  }
 
   Future<KnownDeviceList?> _ownList() =>
       (_db.select(_db.knownDeviceLists)

@@ -35,6 +35,7 @@ import '../features/devices/device_service.dart';
 import '../features/devices/devices_screen.dart';
 import '../features/devices/link_controllers.dart';
 import '../features/devices/link_device_screen.dart';
+import '../features/devices/link_ux.dart';
 import '../features/groups/bot_talk_controller.dart';
 import '../features/groups/bot_talk_screen.dart';
 import '../features/groups/group_create_screen.dart';
@@ -60,6 +61,7 @@ import '../features/settings/identity_screen.dart';
 ///
 /// Route hierarchy:
 ///   /onboarding        — first-run device setup
+///   /onboarding?link=1 - link this device to a phone (link UX)
 ///   /chats             — main conversation list (initial location)
 ///   /chats/:id         — single conversation view
 ///   /contacts           — contact list / discovery
@@ -95,6 +97,16 @@ final router = GoRouter(
     if ((id == null || secret == null) && state.uri.path != '/onboarding') {
       return '/onboarding';
     }
+    // Link UX A1/A3: a device registered only to be linked stays on the link
+    // screen until the phone has linked it or the user chose "start here".
+    // Otherwise a page reload would leave it as an unintended new identity.
+    if (state.uri.path != '/onboarding' &&
+        await storage.read(linkPendingKey) != null) {
+      if (!context.mounted) return null;
+      if (!context.read<DeviceService>().isCompanion) return linkFirstRoute;
+      // Linked, but the screen closed before it could drop the marker.
+      await storage.delete(linkPendingKey);
+    }
     if (state.uri.path.startsWith('/settings/backup') &&
         await storage.getAccountId() == null) {
       return '/settings/account';
@@ -128,7 +140,10 @@ final router = GoRouter(
               } catch (_) {}
             },
           ),
-          child: const OnboardingScreen(),
+          child: OnboardingScreen(
+            linkFirst:
+                isLinkFirstPlatform || state.uri.queryParameters['link'] == '1',
+          ),
         );
       },
     ),

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:calltype_core/crypto/device_list.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -14,18 +13,13 @@ import '../../l10n/l10n.dart';
 import '../contacts/qr_scanner_screen.dart';
 import 'device_service.dart';
 import 'link_controllers.dart';
+import 'link_ux.dart';
 
 /// Settings > Linked devices. On the primary: its companions, removal and
 /// "Link a device". On a companion: whose device it is; the list is managed
 /// on the primary, the only device that can sign it.
 class DevicesScreen extends StatelessWidget {
   const DevicesScreen({super.key});
-
-  // The contact scanner has the same gap: no camera plugin on these.
-  static bool get _hasCamera =>
-      kIsWeb ||
-      (defaultTargetPlatform != TargetPlatform.windows &&
-          defaultTargetPlatform != TargetPlatform.linux);
 
   Future<(List<DeviceListEntry>, bool)> _load(
     AppDatabase db,
@@ -96,11 +90,11 @@ class DevicesScreen extends StatelessWidget {
                           child: Text(l10n.devicesRemove),
                         ),
                       ),
-                    if (_hasCamera && companions.length < maxCompanionDevices)
+                    if (canScanLinkCodes && companions.length < maxCompanionDevices)
                       ListTile(
                         leading: const Icon(Icons.qr_code_scanner_rounded),
                         title: Text(l10n.devicesAdd),
-                        onTap: () => _add(context),
+                        onTap: () => linkNewDevice(context),
                       ),
                     // Decision 3: only an empty device may become a companion,
                     // and a device that already has companions is a primary.
@@ -109,6 +103,20 @@ class DevicesScreen extends StatelessWidget {
                         leading: const Icon(Icons.link_rounded),
                         title: Text(l10n.linkDeviceAction),
                         onTap: () => context.push('/settings/devices/link'),
+                      ),
+                    // Link UX A3: before this, a device with chats could only
+                    // be linked from a fresh browser profile. A primary with
+                    // companions is not offered it (it would be refused).
+                    if (!empty && companions.isEmpty)
+                      ListTile(
+                        leading: const Icon(Icons.phonelink_erase_rounded),
+                        title: Text(l10n.disconnectAndLinkAction),
+                        onTap: () async {
+                          if (await confirmDisconnectAndLink(context) &&
+                              context.mounted) {
+                            context.go(linkFirstRoute);
+                          }
+                        },
                       ),
                   ],
                 );
@@ -154,38 +162,6 @@ class DevicesScreen extends StatelessWidget {
     } catch (_) {
       messenger.showSnackBar(SnackBar(content: Text(l10n.devicesRemoveFailed)));
     }
-  }
-
-  Future<void> _add(BuildContext context) async {
-    final devices = context.read<DeviceService>();
-    final api = context.read<ApiClient>();
-    final signalR = context.read<SignalRClient>();
-    final storage = context.read<SecureStorage>();
-    final result = await Navigator.of(context).push<Map<String, String>>(
-      MaterialPageRoute(builder: (_) => const QrScannerScreen(deviceLink: true)),
-    );
-    final scanned = result?['link'];
-    if (scanned == null || !context.mounted) return;
-    // Our own handle, shown while waiting so the user can compare it with
-    // what the new device displays (a forged offer would show another one).
-    final handle =
-        await storage.read('ct_user_handle') ?? devices.directory.selfDeviceId;
-    if (!context.mounted) return;
-    final controller = PrimaryLinkController(
-      devices: devices,
-      apiClient: api,
-      signalRClient: signalR,
-    );
-    unawaited(controller.link(scanned));
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => ChangeNotifierProvider.value(
-        value: controller,
-        child: PrimaryLinkDialog(handle: handle),
-      ),
-    );
-    controller.dispose();
   }
 }
 
@@ -239,6 +215,106 @@ class PrimaryLinkDialog extends StatelessWidget {
           child: Text(MaterialLocalizations.of(context).closeButtonLabel),
         ),
       ],
+    );
+  }
+}
+
+/// The phone's side of linking: scan the new device's code, then the
+/// [PrimaryLinkDialog]. Shared by Settings > Linked devices and the "Link web
+/// / computer" entries (link UX, A2).
+Future<void> linkNewDevice(BuildContext context) async {
+  final l10n = context.l10n;
+  final messenger = ScaffoldMessenger.of(context);
+  final devices = context.read<DeviceService>();
+  final api = context.read<ApiClient>();
+  final signalR = context.read<SignalRClient>();
+  final storage = context.read<SecureStorage>();
+  // The entries outside Settings do not know the count; the list does.
+  if ((await devices.companions()).length >= maxCompanionDevices) {
+    messenger.showSnackBar(
+      SnackBar(content: Text(l10n.linkWebLimitReached(maxCompanionDevices))),
+    );
+    return;
+  }
+  if (!context.mounted) return;
+  final result = await Navigator.of(context).push<Map<String, String>>(
+    MaterialPageRoute(builder: (_) => const QrScannerScreen(deviceLink: true)),
+  );
+  final scanned = result?['link'];
+  if (scanned == null || !context.mounted) return;
+  // Our own handle, shown while waiting so the user can compare it with
+  // what the new device displays (a forged offer would show another one).
+  final handle =
+      await storage.read('ct_user_handle') ?? devices.directory.selfDeviceId;
+  if (!context.mounted) return;
+  final controller = PrimaryLinkController(
+    devices: devices,
+    apiClient: api,
+    signalRClient: signalR,
+  );
+  unawaited(controller.link(scanned));
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => ChangeNotifierProvider.value(
+      value: controller,
+      child: PrimaryLinkDialog(handle: handle),
+    ),
+  );
+  controller.dispose();
+}
+
+/// "Link web / computer" (link UX, A2): the phone's entry into linking,
+/// reachable from the chat list instead of three levels deep in Settings.
+/// Shown only where it can work: not on a companion (only the primary signs
+/// the list) and not where nothing can scan ([canScanLinkCodes]).
+class LinkWebButton extends StatelessWidget {
+  const LinkWebButton({super.key, this.canScan});
+
+  /// Overrides [canScanLinkCodes] (tests run on one platform only).
+  final bool? canScan;
+
+  static bool visibleFor(DeviceService? devices, {bool? canScan}) =>
+      devices != null &&
+      devices.isOpen &&
+      !devices.isCompanion &&
+      (canScan ?? canScanLinkCodes);
+
+  @override
+  Widget build(BuildContext context) {
+    // Optional so screens pumped without it (older tests) still build.
+    final devices = context.watch<DeviceService?>();
+    if (!visibleFor(devices, canScan: canScan)) return const SizedBox.shrink();
+    return IconButton(
+      icon: const Icon(Icons.qr_code_scanner_rounded),
+      tooltip: context.l10n.linkWebAction,
+      onPressed: () => linkNewDevice(context),
+    );
+  }
+}
+
+/// The same entry as [LinkWebButton], as the first row of Settings.
+class LinkWebTile extends StatelessWidget {
+  const LinkWebTile({super.key, this.canScan});
+
+  final bool? canScan;
+
+  @override
+  Widget build(BuildContext context) {
+    final devices = context.watch<DeviceService?>();
+    if (!LinkWebButton.visibleFor(devices, canScan: canScan)) {
+      return const SizedBox.shrink();
+    }
+    final l10n = context.l10n;
+    return ListTile(
+      leading: Icon(
+        Icons.qr_code_scanner_rounded,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+      title: Text(l10n.linkWebAction),
+      subtitle: Text(l10n.linkWebSubtitle),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: () => linkNewDevice(context),
     );
   }
 }

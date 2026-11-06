@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/network/webrtc_manager.dart';
 import '../../l10n/l10n.dart';
+import '../devices/devices_screen.dart' show LinkWebTile;
 
 /// Main settings screen with navigation to sub-settings.
 ///
@@ -29,6 +30,9 @@ class SettingsScreen extends StatelessWidget {
       appBar: AppBar(title: Text(l10n.settingsTitle)),
       body: ListView(
         children: [
+          // Link UX A2: the phone's entry into linking, first so it is found.
+          const LinkWebTile(),
+
           // -- Security section ------------------------------------------------
           _SettingsTile(
             icon: Icons.lock_rounded,
