@@ -97,6 +97,50 @@ public static class PushPayloads
         ["tag"] = n.ConversationId,
     };
 
+    /// <summary>
+    /// FCM ring message (incoming_call or call_cancelled with a call id):
+    /// data-only, NO "notification" block, so Android hands it to the app's
+    /// background handler even when the app is killed, and the app shows a
+    /// full-screen call notification instead of a plain one. ttl 45 s = the
+    /// caller's ring timeout: a ring delivered later than that would ring for
+    /// a call that no longer exists.
+    /// </summary>
+    public static JsonObject FcmRing(string token, PushNotification n) => new()
+    {
+        ["message"] = new JsonObject
+        {
+            ["token"] = token,
+            ["android"] = new JsonObject
+            {
+                ["priority"] = "high",
+                ["ttl"] = "45s",
+            },
+            ["data"] = RingData(n),
+        },
+    };
+
+    /// <summary>
+    /// PushKit VoIP body. "aps" stays empty: a VoIP push is never shown by
+    /// iOS itself, the app must report it to CallKit right away. Same data
+    /// keys as the FCM ring, at the top level like every APNs custom key.
+    /// </summary>
+    public static JsonObject ApnsVoip(PushNotification n)
+    {
+        var body = new JsonObject { ["aps"] = new JsonObject() };
+        foreach (var (key, value) in RingData(n))
+            body[key] = value?.DeepClone();
+        return body;
+    }
+
+    /// <summary>Ring data keys in contract order: type, callId, conversationId, v.</summary>
+    private static JsonObject RingData(PushNotification n) => new()
+    {
+        ["type"] = n.Type,
+        ["callId"] = n.CallId,
+        ["conversationId"] = n.ConversationId,
+        ["v"] = PushNotification.Version,
+    };
+
     private static JsonObject Data(PushNotification n) => new()
     {
         ["type"] = n.Type,

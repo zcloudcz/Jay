@@ -41,6 +41,8 @@ public static class DeviceEndpoints
         // twice is a no-op); DELETE turns pushes off (logout, setting off).
         app.MapPut("/devices/{id:guid}/push-token", UpdatePushToken).RequireAuthorization().RequireRateLimiting("api");
         app.MapDelete("/devices/{id:guid}/push-token", DeletePushToken).RequireAuthorization().RequireRateLimiting("api");
+        app.MapPut("/devices/{id:guid}/voip-token", UpdateVoipToken).RequireAuthorization().RequireRateLimiting("api");
+        app.MapDelete("/devices/{id:guid}/voip-token", DeleteVoipToken).RequireAuthorization().RequireRateLimiting("api");
         // Display name is opt-in metadata the device owner sets for itself — only
         // the authenticated caller matching {id} may change it (see Caller check
         // in UpdateProfile).
@@ -429,6 +431,11 @@ public static class DeviceEndpoints
         device.PushToken = token;
         device.PushPlatform = request.Platform;
         device.PushLocale = locale;
+        // Call ringing (spec 2026-11-06-call-ringing 1.1): only an FCM app can
+        // declare it handles data-only ring pushes. iOS rings through its own
+        // VoIP token, and an old app that omits the field must stay on the
+        // visible "Incoming call" push it understands.
+        device.PushRingCalls = request.Platform == "fcm" && request.RingCalls == true;
 
         await db.SaveChangesAsync(ct);
 
@@ -453,7 +460,56 @@ public static class DeviceEndpoints
             .ExecuteUpdateAsync(s => s
                 .SetProperty(d => d.PushToken, (string?)null)
                 .SetProperty(d => d.PushPlatform, (string?)null)
-                .SetProperty(d => d.PushLocale, (string?)null), ct);
+                .SetProperty(d => d.PushLocale, (string?)null)
+                // Logout / notifications off must also stop the phone from
+                // RINGING, so the ring registration goes with the alert one.
+                .SetProperty(d => d.PushRingCalls, false)
+                .SetProperty(d => d.VoipPushToken, (string?)null), ct);
+        return Results.NoContent();
+    }
+
+    // -----------------------------------------------------------------------
+    // PUT /devices/{id}/voip-token: iOS PushKit token for call ringing
+    // -----------------------------------------------------------------------
+    // Its own route instead of a second field on push-token: iOS delivers the
+    // VoIP token through PushKit at a different moment than the alert token,
+    // and either may rotate on its own.
+    private static async Task<IResult> UpdateVoipToken(
+        Guid id,
+        UpdateVoipTokenRequest request,
+        ClaimsPrincipal user,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        // Self only, same reason as push-token: another device's token here
+        // would make THIS device's calls ring a phone the attacker holds.
+        if (Caller(user) != id)
+            return Results.Forbid();
+
+        // A VoIP token is an APNs device token: same hex rule, stored lowercase.
+        var (token, error) = PushRegistration.ValidateToken("apns", request.Token);
+        if (error is not null)
+            return PushProblem(PushRegistration.InvalidToken, "Token must be 64 to 200 hex characters.");
+
+        var updated = await db.Devices.Where(d => d.DeviceId == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.VoipPushToken, token), ct);
+        return updated == 0 ? Results.NotFound(new { error = "Device not found." }) : Results.NoContent();
+    }
+
+    // -----------------------------------------------------------------------
+    // DELETE /devices/{id}/voip-token: stop ringing this device (idempotent)
+    // -----------------------------------------------------------------------
+    private static async Task<IResult> DeleteVoipToken(
+        Guid id,
+        ClaimsPrincipal user,
+        AppDbContext db,
+        CancellationToken ct)
+    {
+        if (Caller(user) != id)
+            return Results.Forbid();
+
+        await db.Devices.Where(d => d.DeviceId == id)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.VoipPushToken, (string?)null), ct);
         return Results.NoContent();
     }
 
@@ -539,7 +595,13 @@ public record KeyBundleResponse(
 public record OneTimePreKeyDto(int KeyId, string PublicKey);
 
 // Nullable so a missing field is a 400 from the validator, not a binder failure.
-public record UpdatePushTokenRequest(string? Token, string? Platform, string? Locale = null);
+/// <param name="RingCalls">
+/// Android app handles data-only ring pushes (call-ringing spec 1.1). Optional
+/// so old apps keep working; ignored for any platform other than "fcm".
+/// </param>
+public record UpdatePushTokenRequest(string? Token, string? Platform, string? Locale = null, bool? RingCalls = null);
+
+public record UpdateVoipTokenRequest(string? Token);
 
 public record UpdateProfileRequest(string? DisplayName);
 

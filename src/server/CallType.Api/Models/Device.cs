@@ -63,6 +63,25 @@ public class Device
     public string? PushLocale { get; set; }
 
     /// <summary>
+    /// iOS PushKit (VoIP) token, lowercase hex, max 200. Separate from
+    /// <see cref="PushToken"/> because iOS hands out a different token for
+    /// VoIP pushes and the alert token keeps serving messages. A device with
+    /// this token can ring (CallKit) while the app is closed; spec
+    /// 2026-11-06-call-ringing R2. Cleared by DELETE voip-token, by DELETE
+    /// push-token (logout) and when APNs reports it dead.
+    /// </summary>
+    public string? VoipPushToken { get; set; }
+
+    /// <summary>
+    /// The Android app declared (push-token registration, <c>ringCalls</c>)
+    /// that it handles data-only ring pushes with a full-screen call
+    /// notification. Explicit opt-in because an older app would silently
+    /// drop a data-only push and the call would neither ring nor show
+    /// "Incoming call". Only ever true for platform "fcm".
+    /// </summary>
+    public bool PushRingCalls { get; set; }
+
+    /// <summary>
     /// SHA-256 hash of the device secret issued at registration time.
     /// The raw secret is returned once to the client and never stored.
     /// Authentication works by hashing the client-provided secret and

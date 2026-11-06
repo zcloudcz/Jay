@@ -106,6 +106,96 @@ public class PushRegistrationEndpointsTests : IntegrationTestBase
         (await StoredAsync(other)).Should().Be(("other-token", "fcm", "en"));
     }
 
+    // -----------------------------------------------------------------------
+    // Call ringing registration (spec 2026-11-06-call-ringing 1.1)
+    // -----------------------------------------------------------------------
+
+    private async Task<(string? Voip, bool RingCalls)> RingAsync(Guid id)
+    {
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var d = await db.Devices.AsNoTracking().SingleAsync(x => x.DeviceId == id);
+        return (d.VoipPushToken, d.PushRingCalls);
+    }
+
+    [Fact]
+    public async Task Voip_token_is_stored_lowercase_and_deleted_self_only()
+    {
+        var (other, _, _) = await RegisterAndAuthenticateAsync();
+        var (me, _, _) = await RegisterAndAuthenticateAsync();
+        var token = new string('A', 32) + new string('b', 32);
+
+        (await Client.PutAsJsonAsync($"/devices/{other}/voip-token", new { token }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.DeleteAsync($"/devices/{other}/voip-token")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.PutAsJsonAsync($"/devices/{me}/voip-token", new { token }))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await RingAsync(me)).Voip.Should().Be(token.ToLowerInvariant());
+        (await RingAsync(other)).Voip.Should().BeNull();
+
+        (await Client.DeleteAsync($"/devices/{me}/voip-token")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await Client.DeleteAsync($"/devices/{me}/voip-token")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await RingAsync(me)).Voip.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("not-hex")]
+    [InlineData("abcd")]
+    [InlineData("")]
+    [InlineData(null)]
+    public async Task Invalid_voip_token_is_400_invalid_token(string? token)
+    {
+        var (id, _, _) = await RegisterAndAuthenticateAsync();
+
+        var response = await Client.PutAsJsonAsync($"/devices/{id}/voip-token", new { token });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await ErrorCodeAsync(response)).Should().Be("invalid_token");
+        (await RingAsync(id)).Voip.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Voip_token_requires_authentication()
+    {
+        using var anonymous = Factory.CreateClient();
+        (await anonymous.PutAsJsonAsync($"/devices/{Guid.NewGuid()}/voip-token", new { token = new string('a', 64) }))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Ring_calls_is_stored_only_for_fcm_and_defaults_to_false()
+    {
+        var (id, _, _) = await RegisterAndAuthenticateAsync();
+
+        (await Client.PutAsJsonAsync($"/devices/{id}/push-token",
+            new { platform = "fcm", token = "t", ringCalls = true })).EnsureSuccessStatusCode();
+        (await RingAsync(id)).RingCalls.Should().BeTrue();
+
+        // An old app re-registering without the field turns ringing off again.
+        (await Client.PutAsJsonAsync($"/devices/{id}/push-token",
+            new { platform = "fcm", token = "t" })).EnsureSuccessStatusCode();
+        (await RingAsync(id)).RingCalls.Should().BeFalse();
+
+        (await Client.PutAsJsonAsync($"/devices/{id}/push-token",
+            new { platform = "apns", token = new string('c', 64), ringCalls = true })).EnsureSuccessStatusCode();
+        (await RingAsync(id)).RingCalls.Should().BeFalse("iOS rings through its VoIP token instead");
+    }
+
+    [Fact]
+    public async Task Delete_push_token_also_clears_the_ring_registration()
+    {
+        var (id, _, _) = await RegisterAndAuthenticateAsync();
+        (await Client.PutAsJsonAsync($"/devices/{id}/push-token",
+            new { platform = "fcm", token = "t", ringCalls = true })).EnsureSuccessStatusCode();
+        (await Client.PutAsJsonAsync($"/devices/{id}/voip-token",
+            new { token = new string('d', 64) })).EnsureSuccessStatusCode();
+
+        (await Client.DeleteAsync($"/devices/{id}/push-token")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await RingAsync(id)).Should().Be(((string?)null, false));
+        (await StoredAsync(id)).Token.Should().BeNull();
+    }
+
     [Fact]
     public async Task Delete_requires_authentication()
     {

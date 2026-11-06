@@ -483,6 +483,9 @@ namespace CallType.Api.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
 
+                    b.Property<bool>("PushRingCalls")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("PushToken")
                         .HasColumnType("text");
 
@@ -500,6 +503,10 @@ namespace CallType.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(12)
                         .HasColumnType("character varying(12)");
+
+                    b.Property<string>("VoipPushToken")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.HasKey("DeviceId");
 
