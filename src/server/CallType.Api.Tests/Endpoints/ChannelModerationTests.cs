@@ -15,8 +15,8 @@
 //     "unknown") cannot turn the many device registrations of these tests
 //     into flaky 429s. Rate limiting itself is covered by RateLimitTests.
 //
-// TOTP without sleeping: enrolment is confirmed with the PREVIOUS time step,
-// the operator session uses the CURRENT one (same trick as
+// TOTP without sleeping: enrolment is confirmed with the CURRENT time step,
+// the operator session uses the NEXT one (same trick as
 // IntegrationTestBase.EnrollAndVerifyMfaAsync); a second session in the same
 // test uses one of the backup codes.
 // ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ public class ChannelModerationTests : IntegrationTestBase
         start.StatusCode.Should().Be(HttpStatusCode.OK);
         var secret = Base32.Decode((await start.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("secretBase32").GetString()!);
 
-        var confirmStep = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TotpService.Period - 1;
+        var confirmStep = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TotpService.Period;
         var confirm = await device.Http.PostAsJsonAsync($"/accounts/{accountId}/mfa/enroll/confirm",
             new { code = TotpService.ComputeCode(secret, confirmStep) });
         confirm.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -160,8 +160,13 @@ public class ChannelModerationTests : IntegrationTestBase
         return (secret, codes);
     }
 
+    /// <summary>
+    /// Code of the NEXT step: always newer than the enrolment confirmation
+    /// (current step), and like it accepted across one step boundary (the
+    /// server allows -1/0/+1), so a slow runner cannot push it out of the window.
+    /// </summary>
     private static string CurrentCode(byte[] secret) =>
-        TotpService.ComputeCode(secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TotpService.Period);
+        TotpService.ComputeCode(secret, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TotpService.Period + 1);
 
     /// <summary>
     /// Account with MFA, NOT yet allowlisted and without a session. Use

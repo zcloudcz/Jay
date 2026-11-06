@@ -224,10 +224,13 @@ public abstract class IntegrationTestBase : IAsyncLifetime
     /// N03b test helper: enrols TOTP MFA on an already-linked account through
     /// the given (already-authenticated) client, verifies it, and returns the
     /// step-up token — everything OrgAdmin+ endpoints now require. Confirms
-    /// with the PREVIOUS time-step and verifies with the CURRENT one so the
-    /// two calls consume different steps without a 30s sleep (a step-up code
-    /// is single-use per account, see TotpService/MfaEndpoints); this mirrors
-    /// how jay_archiver's live E2E helper avoids the same wait.
+    /// with the CURRENT time-step and verifies with the NEXT one so the two
+    /// calls consume different steps without a 30s sleep (a step-up code is
+    /// single-use per account, see TotpService/MfaEndpoints). The server
+    /// accepts steps -1/0/+1, so each code survives one step boundary passing
+    /// between computing it and the server checking it. The earlier
+    /// previous/current pair did not: on a slow CI runner a boundary crossed
+    /// mid-request turned the previous step into -2 (deploy run 42248830094).
     /// </summary>
     protected static async Task<string> EnrollAndVerifyMfaAsync(HttpClient client, Guid accountId, string authKey)
     {
@@ -238,14 +241,14 @@ public abstract class IntegrationTestBase : IAsyncLifetime
         var secretBase32 = (await startResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("secretBase32").GetString()!;
         var secret = Base32.Decode(secretBase32);
 
-        var confirmStep = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TotpService.Period - 1;
+        var confirmStep = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TotpService.Period;
         var confirmResponse = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/enroll/confirm",
             new { code = TotpService.ComputeCode(secret, confirmStep) });
         if (confirmResponse.StatusCode != HttpStatusCode.OK)
             throw new InvalidOperationException(
                 $"MFA enroll/confirm failed with {confirmResponse.StatusCode}: {await confirmResponse.Content.ReadAsStringAsync()}");
 
-        var verifyStep = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TotpService.Period;
+        var verifyStep = Math.Max(confirmStep, DateTimeOffset.UtcNow.ToUnixTimeSeconds() / TotpService.Period) + 1;
         var verifyResponse = await client.PostAsJsonAsync($"/accounts/{accountId}/mfa/verify",
             new { code = TotpService.ComputeCode(secret, verifyStep) });
         if (verifyResponse.StatusCode != HttpStatusCode.OK)
