@@ -44,6 +44,18 @@ public class ConversationMuteService(AppDbContext db, TimeProvider clock)
     }
 
     /// <summary>
+    /// True when <paramref name="recipient"/> muted the 1:1 conversation with
+    /// <paramref name="peerPrimary"/> in mode "all" (and the mute is still
+    /// running). Used for call pushes, where only a full mute applies.
+    /// </summary>
+    public Task<bool> IsDirectMutedAllAsync(Guid recipient, Guid peerPrimary, CancellationToken ct)
+    {
+        var now = clock.GetUtcNow();
+        return db.ConversationMutes.AnyAsync(m => m.DeviceId == recipient && m.PeerPrimaryDeviceId == peerPrimary
+            && m.Mode == ConversationMute.ModeAll && (m.Until == null || m.Until > now), ct);
+    }
+
+    /// <summary>
     /// Mute of the given conversation as the contract shows it; an expired
     /// mute reads as "off" so clients never have to compare clocks.
     /// </summary>

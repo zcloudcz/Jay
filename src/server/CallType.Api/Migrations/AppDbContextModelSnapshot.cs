@@ -475,6 +475,10 @@ namespace CallType.Api.Migrations
                     b.Property<DateTimeOffset>("LastSeenAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("PushLocale")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.Property<string>("PushPlatform")
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");

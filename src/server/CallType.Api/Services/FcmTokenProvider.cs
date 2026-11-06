@@ -36,7 +36,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace CallType.Api.Services;
 
-public class FcmTokenProvider : IDisposable
+public class FcmTokenProvider : IFcmAccessTokenSource, IDisposable
 {
     /// <summary>OAuth scope required for FCM HTTP v1 sends.</summary>
     private const string FcmScope = "https://www.googleapis.com/auth/firebase.messaging";

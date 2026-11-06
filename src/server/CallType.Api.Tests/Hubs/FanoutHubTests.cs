@@ -334,11 +334,11 @@ public class FanoutHubTests : IntegrationTestBase
 
     // Records push targets instead of calling FCM: the smallest seam to
     // observe who the hub tries to wake (SendPushAsync is virtual for this).
-    private sealed class RecordingPush(IHttpClientFactory h, IServiceScopeFactory sf,
-        FcmTokenProvider t, ILogger<PushNotificationService> l) : PushNotificationService(h, sf, t, l)
+    private sealed class RecordingPush(IServiceScopeFactory sf,
+        IEnumerable<IPushSender> senders, ILogger<PushNotificationService> l) : PushNotificationService(sf, senders, l)
     {
         public readonly System.Collections.Concurrent.ConcurrentBag<Guid> Pushed = new();
-        public override Task SendPushAsync(Guid recipientDeviceId) { Pushed.Add(recipientDeviceId); return Task.CompletedTask; }
+        public override Task SendPushAsync(Guid recipientDeviceId, PushNotification notification) { Pushed.Add(recipientDeviceId); return Task.CompletedTask; }
     }
 
     [Fact]
@@ -390,9 +390,8 @@ public class FanoutHubTests : IntegrationTestBase
         var bPhone = await RegisterAndAuthenticateAsync();
         await LinkAsync(aPhone.DeviceId, aWeb.DeviceId);
         var push = new RecordingPush(
-            Factory.Services.GetRequiredService<IHttpClientFactory>(),
             Factory.Services.GetRequiredService<IServiceScopeFactory>(),
-            Factory.Services.GetRequiredService<FcmTokenProvider>(),
+            Factory.Services.GetServices<IPushSender>(),
             Factory.Services.GetRequiredService<ILogger<PushNotificationService>>());
         await using var factory = Factory.WithWebHostBuilder(b =>
             b.ConfigureServices(sv => sv.AddSingleton<PushNotificationService>(push)));

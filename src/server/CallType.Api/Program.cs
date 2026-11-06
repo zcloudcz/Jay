@@ -63,6 +63,36 @@ builder.Services.AddScoped<ConversationMuteService>();
 // for the FCM HTTP v1 API across all push sends (tokens are valid ~1 hour).
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<FcmTokenProvider>();
+builder.Services.AddSingleton<IFcmAccessTokenSource>(sp => sp.GetRequiredService<FcmTokenProvider>());
+// Push providers (spec 2026-11-06-notifications). Options are bound through
+// the DI-resolved IConfiguration for the same reason as ModerationOptions:
+// tests add Push:* settings via WebApplicationFactory after these top-level
+// statements run. Each sender is a singleton (it caches its signing key and
+// JWT) and is also exposed as IPushSender, which PushNotificationService
+// dispatches on by Device.PushPlatform. Named HttpClients let tests swap the
+// primary handler for a fake one per provider.
+builder.Services.AddOptions<ApnsOptions>()
+    .Configure<IConfiguration>((options, config) => config.GetSection(ApnsOptions.SectionName).Bind(options));
+builder.Services.AddOptions<WebPushOptions>()
+    .Configure<IConfiguration>((options, config) => config.GetSection(WebPushOptions.SectionName).Bind(options));
+builder.Services.AddHttpClient(FcmSender.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddHttpClient(WebPushSender.HttpClientName, c => c.Timeout = TimeSpan.FromSeconds(10));
+// APNs is HTTP/2 only. Apple also asks providers to keep connections open
+// rather than reconnect per push (it may treat churn as a DoS), hence the
+// long handler lifetime instead of the factory's 2-minute default.
+builder.Services.AddHttpClient(ApnsSender.HttpClientName, c =>
+    {
+        c.DefaultRequestVersion = HttpVersion.Version20;
+        c.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionExact;
+        c.Timeout = TimeSpan.FromSeconds(10);
+    })
+    .SetHandlerLifetime(TimeSpan.FromMinutes(30));
+builder.Services.AddSingleton<FcmSender>();
+builder.Services.AddSingleton<ApnsSender>();
+builder.Services.AddSingleton<WebPushSender>();
+builder.Services.AddSingleton<IPushSender>(sp => sp.GetRequiredService<FcmSender>());
+builder.Services.AddSingleton<IPushSender>(sp => sp.GetRequiredService<ApnsSender>());
+builder.Services.AddSingleton<IPushSender>(sp => sp.GetRequiredService<WebPushSender>());
 builder.Services.AddSingleton<PushNotificationService>();
 
 // TURN credential provider — chosen by Turn:Provider:
@@ -383,6 +413,7 @@ app.MapSecurityTxtEndpoints();
 app.MapAuthEndpoints();
 
 app.MapDeviceEndpoints();
+app.MapPushEndpoints();
 app.MapDeviceListEndpoints();
 app.MapAccountEndpoints();
 app.MapMfaEndpoints();

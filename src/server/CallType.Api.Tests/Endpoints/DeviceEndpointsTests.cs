@@ -283,6 +283,8 @@ public class DeviceEndpointsTests : IntegrationTestBase
     // PUT /devices/{id}/push-token
     // -----------------------------------------------------------------------
 
+    private const string ApnsHexToken = "A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F90";
+
     [Fact]
     public async Task Update_push_token_stores_fcm_token()
     {
@@ -316,7 +318,7 @@ public class DeviceEndpointsTests : IntegrationTestBase
 
         var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token", new
         {
-            token = "apns-device-token-hex-string",
+            token = ApnsHexToken,
             platform = "apns"
         });
 
@@ -326,7 +328,7 @@ public class DeviceEndpointsTests : IntegrationTestBase
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var device = await db.Devices.FirstAsync(d => d.DeviceId == deviceId);
 
-        device.PushToken.Should().Be("apns-device-token-hex-string");
+        device.PushToken.Should().Be(ApnsHexToken.ToLowerInvariant());
         device.PushPlatform.Should().Be("apns");
     }
 
@@ -368,7 +370,7 @@ public class DeviceEndpointsTests : IntegrationTestBase
         var response = await Client.PutAsJsonAsync($"/devices/{deviceId}/push-token", new
         {
             token = "some-token",
-            platform = "webpush" // Not a recognized platform.
+            platform = "gcm" // Not a recognized platform.
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -389,17 +391,19 @@ public class DeviceEndpointsTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task Update_push_token_for_nonexistent_device_returns_not_found()
+    public async Task Update_push_token_for_another_device_is_forbidden()
     {
+        // Self only (notifications contract 1.1): the route id must be the
+        // caller, whether or not the other device exists.
         await RegisterAndAuthenticateAsync();
+        var (otherId, _) = await RegisterDeviceAsync(isBot: null);
 
-        var response = await Client.PutAsJsonAsync($"/devices/{Guid.NewGuid()}/push-token", new
-        {
-            token = "some-token",
-            platform = "fcm"
-        });
-
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        foreach (var target in new[] { otherId, Guid.NewGuid() })
+            (await Client.PutAsJsonAsync($"/devices/{target}/push-token", new
+            {
+                token = "some-token",
+                platform = "fcm"
+            })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [Fact]
@@ -578,6 +582,20 @@ public class DeviceEndpointsTests : IntegrationTestBase
         return (body.GetProperty("deviceId").GetGuid(), body.GetProperty("userHandle").GetString()!);
     }
 
+    private async Task<(Guid DeviceId, HttpClient Http)> RegisterAuthenticatedClientAsync(bool isBot)
+    {
+        var response = await Client.PostAsJsonAsync("/devices",
+            new { identityKey = ValidIdentityKey, signedPreKey = ValidSignedPreKey, isBot });
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var id = body.GetProperty("deviceId").GetGuid();
+        var tokenResponse = await Client.PostAsJsonAsync("/auth/token",
+            new { deviceId = id, deviceSecret = body.GetProperty("deviceSecret").GetString() });
+        var token = (await tokenResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString();
+        var http = Factory.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new("Bearer", token);
+        return (id, http);
+    }
+
     private async Task<bool> GetIsBotFromKeyBundleAsync(Guid deviceId)
     {
         var bundle = await (await Client.GetAsync($"/devices/{deviceId}/key-bundle"))
@@ -618,14 +636,14 @@ public class DeviceEndpointsTests : IntegrationTestBase
     public async Task IsBot_cannot_be_changed_after_registration()
     {
         await RegisterAndAuthenticateAsync();
-        var (humanId, _) = await RegisterDeviceAsync(isBot: false);
-        var (botId, _) = await RegisterDeviceAsync(isBot: true);
+        var (humanId, humanHttp) = await RegisterAuthenticatedClientAsync(isBot: false);
+        var (botId, botHttp) = await RegisterAuthenticatedClientAsync(isBot: true);
 
-        // The only device-update endpoint is push-token; smuggling isBot into
-        // its body must be ignored in both directions.
-        (await Client.PutAsJsonAsync($"/devices/{humanId}/push-token",
+        // The only device-update endpoint is push-token (each device for
+        // itself); smuggling isBot into its body must be ignored in both directions.
+        (await humanHttp.PutAsJsonAsync($"/devices/{humanId}/push-token",
             new { token = "t1", platform = "fcm", isBot = true })).StatusCode.Should().Be(HttpStatusCode.NoContent);
-        (await Client.PutAsJsonAsync($"/devices/{botId}/push-token",
+        (await botHttp.PutAsJsonAsync($"/devices/{botId}/push-token",
             new { token = "t2", platform = "fcm", isBot = false })).StatusCode.Should().Be(HttpStatusCode.NoContent);
 
         // Registering again always creates a NEW device — it cannot rewrite an
