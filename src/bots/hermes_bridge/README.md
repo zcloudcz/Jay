@@ -37,7 +37,9 @@ messages, therefore:
 | `BOT_DISPLAY_NAME` | no, default `Hermes` | name users can `@mention` in groups |
 | `HERMES_URL` | no, default `http://127.0.0.1:8642` | Hermes API server |
 | `HERMES_API_KEY` | yes | Hermes' `API_SERVER_KEY` |
-| `HERMES_TIMEOUT_SECONDS` | no, default `300` | per-request timeout (agent turns with tools are slow) |
+| `HERMES_ASK_TIMEOUT_SECONDS` | no, default `300` | longest wait for a Hermes answer (`/chat`), or longest silence while streaming; raise it for long agent turns |
+| `HERMES_TIMEOUT_SECONDS` | no | older name of `HERMES_ASK_TIMEOUT_SECONDS`, still read when the new one is unset |
+| `JAY_SERVER_TIMEOUT_SECONDS` | no, default `60`, min `20` | the Jay hub pings every 15 s; this long without any frame from it = dead session, the bridge logs it and reconnects (same identity) |
 | `ALLOWED_HANDLES` | effectively yes | comma-separated `CT-XXXX-XXXX` handles allowed to talk to Hermes |
 | `PEER_BOT_HANDLES` | no | comma-separated handles of other bots; if set, ONLY these may talk to this one (narrows the group setting, never widens it; set but unresolvable = no bot) |
 | `PEER_MAX_TURNS_CAP` | no, default `50` | operator ceiling for a bot-only exchange; a group's "max messages" above it is cut down to it |

@@ -24,6 +24,16 @@ import 'package:hermes_bridge/hermes_bridge.dart';
 /// - `PROGRESS_EDIT_SECONDS`  min seconds between progress edits (default 5).
 /// - `PROGRESS_MAX_EDITS`     progress edits per turn (default 30).
 /// - `BOT_COMMANDS`           `cmd:description;cmd2:description` for the "/" menu.
+///
+/// Timeouts (all optional):
+/// - `HERMES_ASK_TIMEOUT_SECONDS` longest wait for a Hermes answer (plain
+///                            `/chat`) or longest silence (stream); default
+///                            300. `HERMES_TIMEOUT_SECONDS` is the older name
+///                            of the same setting (used when the new one is
+///                            unset).
+/// - `JAY_SERVER_TIMEOUT_SECONDS` silence from the Jay hub after which the
+///                            session counts as dead and is reconnected
+///                            (default 60, minimum 20; the hub pings every 15 s).
 Future<void> main() async {
   final env = Platform.environment;
   String required(String name) {
@@ -82,12 +92,28 @@ Future<void> main() async {
   final sendKey = env['BRIDGE_SEND_KEY']?.trim() ?? '';
   final sendPort = positiveInt('BRIDGE_PORT', 8650);
 
+  // The new name wins and is validated; the old one keeps its old lenient
+  // parsing (anything unusable = 300) so existing deployments start as before.
+  final oldAskTimeout = int.tryParse(env['HERMES_TIMEOUT_SECONDS'] ?? '');
+  final askTimeout = Duration(
+    seconds: positiveInt(
+      'HERMES_ASK_TIMEOUT_SECONDS',
+      oldAskTimeout != null && oldAskTimeout > 0 ? oldAskTimeout : 300,
+    ),
+  );
+  final hubTimeout = Duration(
+    seconds: positiveInt('JAY_SERVER_TIMEOUT_SECONDS', 60),
+  );
+  if (hubTimeout < const Duration(seconds: 20)) {
+    // Below ~1 missed server ping every healthy session would be dropped.
+    stderr.writeln('JAY_SERVER_TIMEOUT_SECONDS must be at least 20.');
+    exit(78); // EX_CONFIG
+  }
+
   final hermes = HermesClient(
     baseUrl: env['HERMES_URL'] ?? 'http://127.0.0.1:8642',
     apiKey: required('HERMES_API_KEY'),
-    timeout: Duration(
-      seconds: int.tryParse(env['HERMES_TIMEOUT_SECONDS'] ?? '') ?? 300,
-    ),
+    timeout: askTimeout,
     stream: useStream,
     log: log,
   );
@@ -99,6 +125,7 @@ Future<void> main() async {
       storePath: required('BOT_STORE_PATH'),
       displayName: env['BOT_DISPLAY_NAME'] ?? 'Hermes',
       log: log,
+      hubServerTimeout: hubTimeout,
     );
   } on StateError catch (error) {
     // Store key problems: a clear one-liner beats a stack trace.
@@ -111,6 +138,10 @@ Future<void> main() async {
     exit(69); // EX_UNAVAILABLE
   }
   log('Bot ${bot.handle} starting — invite: ${bot.inviteLink}');
+  log(
+    'Hermes timeout ${askTimeout.inSeconds} s, Jay hub reconnects after '
+    '${hubTimeout.inSeconds} s of silence.',
+  );
 
   for (final old in ['PEER_REPLY_LIMIT', 'PEER_REPLY_WINDOW_MINUTES']) {
     if ((env[old] ?? '').trim().isNotEmpty) {

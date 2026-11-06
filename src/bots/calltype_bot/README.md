@@ -116,6 +116,14 @@ bot.deepLink(start: 'invite_42'); // calltype://bot/CT-XXXX-XXXX?start=invite_42
 - **Ordering:** handlers run serially per conversation, concurrently across conversations.
 - **Handler exception** → logged, short apology sent, loop continues.
 - **Reconnect forever** (the app gives up after four attempts; a bot has no user to tap retry).
+- **Dead-session watchdog.** A connection can stay TCP-ESTABLISHED, and even keep
+  answering WebSocket pings (a proxy in front of the API does), after the hub
+  behind it is gone. The transport counts any frame from the server; after
+  `hubServerTimeout` (default 60 s, the server pings every 15 s) without one it
+  logs `Hub: nothing from the server ...`, drops the socket without waiting
+  for its close handshake and reconnects. Hub invocations fail after 2 min
+  without a completion and HTTP calls have timeouts, so the serial receive
+  queue can never wait forever.
 
 ## Storage and its limits
 

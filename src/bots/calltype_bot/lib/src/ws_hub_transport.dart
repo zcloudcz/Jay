@@ -20,18 +20,45 @@ import 'package:calltype_core/network/signalr_client.dart';
 /// opens the client sends `{"protocol":"json","version":1}` and the server
 /// answers `{}` (or `{"error":…}`). Then: type 1 = invocation, 3 =
 /// completion, 6 = ping, 7 = close.
+///
+/// Dead-session detection (WHY [serverTimeout]): the server sends a SignalR
+/// ping every 15 s. A connection can die at the application level while the
+/// TCP socket stays ESTABLISHED and WebSocket pongs still come back (a proxy
+/// in front of the API, e.g. Azure's front end, answers them for a backend
+/// that is gone). WebSocket pings alone then never notice, and the bot goes
+/// deaf until it is restarted. Like the official SignalR clients, the
+/// transport therefore treats [serverTimeout] without ANY frame from the
+/// server as a lost connection and reconnects. An invocation without a
+/// completion fails after [invocationTimeout], so a caller never waits
+/// forever on such a connection.
 class WebSocketHubTransport implements HubTransport {
   WebSocketHubTransport(
     this._url,
     this._accessTokenFactory, {
     List<int> retryDelaysMs = SignalRClient.retryDelaysMs,
-  }) : _retryDelaysMs = retryDelaysMs;
+    this.serverTimeout = const Duration(seconds: 60),
+    this.keepAliveInterval = const Duration(seconds: 15),
+    this.invocationTimeout = const Duration(minutes: 2),
+    void Function(String line)? log,
+  }) : _retryDelaysMs = retryDelaysMs,
+       _log = log ?? ((_) {});
 
-  static const _separator = '';
+  static const _separator = '\x1e';
 
   final String _url;
   final Future<String> Function()? _accessTokenFactory;
   final List<int> _retryDelaysMs;
+  final void Function(String line) _log;
+
+  /// Silence from the server after which the connection counts as dead.
+  /// Must be well above the server's keep-alive interval (15 s).
+  final Duration serverTimeout;
+
+  /// How often the client pings and checks [serverTimeout].
+  final Duration keepAliveInterval;
+
+  /// Longest wait for an invocation's completion.
+  final Duration invocationTimeout;
 
   final _handlers = <String, void Function(List<Object?>?)>{};
   final _pending = <String, Completer<void>>{};
@@ -41,6 +68,7 @@ class WebSocketHubTransport implements HubTransport {
 
   WebSocket? _socket;
   Timer? _keepAlive;
+  DateTime _lastReceived = DateTime.now();
   bool _connected = false;
   bool _stopped = false;
   int _nextInvocationId = 0;
@@ -84,7 +112,13 @@ class WebSocketHubTransport implements HubTransport {
     socket.add(
       '${jsonEncode({'type': 1, 'invocationId': id, 'target': method, 'arguments': args})}$_separator',
     );
-    return completer.future;
+    return completer.future.timeout(
+      invocationTimeout,
+      onTimeout: () {
+        _pending.remove(id);
+        throw TimeoutException('Hub invocation $method', invocationTimeout);
+      },
+    );
   }
 
   Future<void> _open() async {
@@ -110,6 +144,7 @@ class WebSocketHubTransport implements HubTransport {
     final handshake = Completer<void>();
     socket.listen(
       (data) {
+        if (socket == _socket) _lastReceived = DateTime.now();
         if (data is! String) return;
         for (final frame in data.split(_separator)) {
           if (frame.isEmpty) continue;
@@ -138,10 +173,26 @@ class WebSocketHubTransport implements HubTransport {
     }
 
     _connected = true;
+    _lastReceived = DateTime.now();
     // SignalR-level ping: the server drops clients that stay silent for its
-    // ClientTimeoutInterval (30 s by default), so speak at half that.
-    _keepAlive = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (_connected) socket.add('{"type":6}$_separator');
+    // ClientTimeoutInterval (30 s by default), so speak at half that. The
+    // same tick checks the server's side (see [serverTimeout]).
+    _keepAlive = Timer.periodic(keepAliveInterval, (_) {
+      if (!_connected || socket != _socket) return;
+      final silent = DateTime.now().difference(_lastReceived);
+      if (silent > serverTimeout) {
+        _log(
+          'Hub: nothing from the server for ${silent.inSeconds} s, '
+          'the session is dead. Reconnecting.',
+        );
+        _abandon(socket, TimeoutException('Server timeout', serverTimeout));
+        return;
+      }
+      try {
+        socket.add('{"type":6}$_separator');
+      } catch (_) {
+        // A socket that cannot even buffer a frame is gone; onDone follows.
+      }
     });
   }
 
@@ -171,7 +222,24 @@ class WebSocketHubTransport implements HubTransport {
       return; // start()/_reconnect() see the error and decide what is next.
     }
     if (socket != _socket || _stopped) return;
+    _log('Hub: connection closed (code ${socket.closeCode}). Reconnecting.');
     _teardown(StateError('Connection lost.'));
+    unawaited(_reconnect());
+  }
+
+  /// Drops a connection that still looks open: its close handshake may never
+  /// finish (that is the failure being handled), so the reconnect does not
+  /// wait for `onDone`, which is ignored for this socket from now on.
+  void _abandon(WebSocket socket, Object reason) {
+    if (socket != _socket || _stopped) return;
+    _socket = null;
+    _teardown(reason);
+    unawaited(
+      socket
+          .close(WebSocketStatus.goingAway)
+          .timeout(const Duration(seconds: 5), onTimeout: () => null)
+          .catchError((Object _) => null),
+    );
     unawaited(_reconnect());
   }
 
@@ -199,10 +267,15 @@ class WebSocketHubTransport implements HubTransport {
       if (_stopped) return;
       try {
         await _open();
+        _log('Hub: reconnected after ${attempt + 1} attempt(s).');
         _onReconnected?.call();
         return;
-      } catch (_) {
+      } catch (error) {
         // Server still unreachable (or token endpoint down) — next attempt.
+        // Logged sparsely: an outage would otherwise flood the log.
+        if (attempt < 3 || attempt % 10 == 0) {
+          _log('Hub: reconnect attempt ${attempt + 1} failed: $error');
+        }
       }
     }
   }

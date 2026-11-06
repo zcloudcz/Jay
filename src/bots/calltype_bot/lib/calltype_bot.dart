@@ -340,7 +340,8 @@ class CallTypeBot {
   /// start. Does NOT connect yet — see [onMessage].
   ///
   /// [storeKeyBase64] defaults to env `BOT_STORE_KEY`. [transportFactory] is
-  /// a test seam; production uses [WebSocketHubTransport].
+  /// a test seam; production uses [WebSocketHubTransport], which reconnects
+  /// when the server stays silent for [hubServerTimeout].
   static Future<CallTypeBot> start({
     required String apiBaseUrl,
     required String storePath,
@@ -350,6 +351,7 @@ class CallTypeBot {
     void Function(String line)? log,
     Duration sendRetryDelay = const Duration(seconds: 5),
     Duration groupCacheTtl = const Duration(minutes: 5),
+    Duration hubServerTimeout = const Duration(seconds: 60),
   }) async {
     log ??= (line) => stdout.writeln(line);
     final key = EncryptedFileStore.parseKey(
@@ -360,8 +362,24 @@ class CallTypeBot {
     // DB today (documented limitation, see README) — the host is trusted.
     final db = AppDatabase(NativeDatabase(File('$storePath.sqlite')));
     final keys = KeyManager(secureStorage: store);
-    final auth = AuthService(secureStorage: store, baseUrl: apiBaseUrl);
-    final api = ApiClient(baseUrl: apiBaseUrl, authService: auth);
+    // Bounded HTTP: messages are processed one after another, so a request
+    // stuck on a half-dead connection would stall every later message (the
+    // bot looks deaf). A timed-out request fails like any network error and
+    // the message stays queued on the server for the next attempt.
+    Dio http() => Dio(
+      BaseOptions(
+        baseUrl: apiBaseUrl,
+        connectTimeout: const Duration(seconds: 20),
+        sendTimeout: const Duration(minutes: 2),
+        receiveTimeout: const Duration(seconds: 90),
+      ),
+    );
+    final auth = AuthService(
+      secureStorage: store,
+      baseUrl: apiBaseUrl,
+      dio: http(),
+    );
+    final api = ApiClient(baseUrl: apiBaseUrl, authService: auth, dio: http());
 
     var deviceId = await store.getDeviceId();
     var handle = await store.read('ct_user_handle');
@@ -407,7 +425,14 @@ class CallTypeBot {
         baseUrl: apiBaseUrl,
         deviceId: deviceId,
         authService: auth,
-        transportFactory: transportFactory ?? WebSocketHubTransport.new,
+        transportFactory:
+            transportFactory ??
+            (url, token) => WebSocketHubTransport(
+              url,
+              token,
+              serverTimeout: hubServerTimeout,
+              log: log,
+            ),
       ),
       directory,
       FanoutSender(
