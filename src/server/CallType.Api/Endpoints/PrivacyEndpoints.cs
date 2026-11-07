@@ -4,7 +4,8 @@
 // Three endpoints, all in one file because they share the same subject
 // (what the server holds about a device/account) rather than one route group:
 //   DELETE /devices/{deviceId}   — forget a device (queued messages, keys,
-//                                  memberships, channel activity, push token).
+//                                  memberships, channel activity, push token,
+//                                  encrypted media it uploaded).
 //   DELETE /accounts/{accountId} — forget an account (proof-of-possession
 //                                  required — irreversible), backups and all.
 //   GET    /accounts/{accountId}/export — everything the server holds about
@@ -50,8 +51,8 @@ public static class PrivacyEndpoints
     // DELETE /devices/{deviceId}
     // -----------------------------------------------------------------------
     private static async Task<IResult> DeleteDevice(
-        Guid deviceId, ClaimsPrincipal user, AppDbContext db,
-        BusinessModeOptions businessMode, HttpContext http, CancellationToken ct)
+        Guid deviceId, ClaimsPrincipal user, AppDbContext db, BlobServiceClient blobService,
+        ILoggerFactory loggerFactory, BusinessModeOptions businessMode, HttpContext http, CancellationToken ct)
     {
         // Only the device itself can delete itself — there is no "account admin
         // deletes a device" flow (that already exists as group/channel member
@@ -80,6 +81,12 @@ public static class PrivacyEndpoints
             // its own, so leaving the enrollment row behind does not defeat
             // the deletion. Only the Delivery-side data below is removed.
         }
+
+        // Media ids are needed for the post-commit blob deletion below.
+        var mediaIds = await db.MediaUploads
+            .Where(m => m.UploaderDeviceId == deviceId)
+            .Select(m => m.Id)
+            .ToListAsync(ct);
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
@@ -114,7 +121,13 @@ public static class PrivacyEndpoints
             """DELETE FROM "Devices" WHERE "DeviceId" = @deviceId""",
             [new NpgsqlParameter("@deviceId", deviceId)], ct);
 
+        // MediaUploads has no FK to Device (rows must be deleted together with
+        // their blobs, a cascade cannot do that), so it is cleared explicitly.
+        await db.MediaUploads.Where(m => m.UploaderDeviceId == deviceId).ExecuteDeleteAsync(ct);
+
         await tx.CommitAsync(ct);
+
+        await DeleteMediaBlobsAsync(mediaIds, blobService, loggerFactory, "device", deviceId, ct);
         return Results.NoContent();
     }
 
@@ -172,8 +185,22 @@ public static class PrivacyEndpoints
             .Select(b => b.BlobPath)
             .ToListAsync(ct);
 
+        // Encrypted media of every device linked to the account (spec 2.7).
+        // Collected BEFORE the transaction: deleting the Account row cascades
+        // the AccountDevices links, after that nothing ties the devices to it.
+        var linkedDeviceIds = await db.AccountDevices
+            .Where(ad => ad.AccountId == accountId)
+            .Select(ad => ad.DeviceId)
+            .ToListAsync(ct);
+        var mediaIds = await db.MediaUploads
+            .Where(m => linkedDeviceIds.Contains(m.UploaderDeviceId))
+            .Select(m => m.Id)
+            .ToListAsync(ct);
+
         await using (var tx = await db.Database.BeginTransactionAsync(ct))
         {
+            await db.MediaUploads.Where(m => mediaIds.Contains(m.Id)).ExecuteDeleteAsync(ct);
+
             // Devices themselves are NOT deleted — losing account registration
             // just makes them anonymous again, per the brief. Deleting the
             // Account row cascades AccountDevices (the links) and Backups
@@ -211,7 +238,33 @@ public static class PrivacyEndpoints
             }
         }
 
+        await DeleteMediaBlobsAsync(mediaIds, blobService, loggerFactory, "account", accountId, ct);
         return Results.NoContent();
+    }
+
+    /// <summary>
+    /// Post-commit, best-effort deletion of media blobs whose rows are already
+    /// gone (same pattern and reasoning as the backup blobs above): a failure
+    /// cannot be retried by MediaCleanupService anymore (no row points at the
+    /// blob), so it is logged for manual removal. Only random ids are logged.
+    /// </summary>
+    private static async Task DeleteMediaBlobsAsync(
+        List<Guid> mediaIds, BlobServiceClient blobService, ILoggerFactory loggerFactory,
+        string subjectKind, Guid subjectId, CancellationToken ct)
+    {
+        var logger = loggerFactory.CreateLogger("CallType.Api.Privacy");
+        foreach (var mediaId in mediaIds)
+        {
+            try
+            {
+                await MediaBlobStore.DeleteWithBlocksAsync(MediaBlobStore.GetBlob(blobService, mediaId), ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Media blob {MediaId} of deleted {SubjectKind} {SubjectId} could not be removed; delete it manually.",
+                    mediaId, subjectKind, subjectId);
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -248,6 +301,14 @@ public static class PrivacyEndpoints
         var backups = await db.Backups
             .Where(b => b.AccountId == accountId)
             .Select(b => new { id = b.Id, blobPath = b.BlobPath, sizeBytes = b.SizeBytes, status = b.Status.ToString(), createdAt = b.CreatedAt })
+            .ToListAsync(ct);
+
+        // Encrypted media uploaded by the linked devices: metadata only (the
+        // server has no key; the content is ciphertext and short-lived).
+        var media = await db.MediaUploads
+            .Where(m => deviceIds.Contains(m.UploaderDeviceId))
+            .OrderBy(m => m.CreatedAt)
+            .Select(m => new { id = m.Id, sizeBytes = m.SizeBytes, status = m.Status, createdAt = m.CreatedAt, expiresAt = m.ExpiresAt })
             .ToListAsync(ct);
 
         var ownedChannels = await db.Channels
@@ -319,6 +380,8 @@ public static class PrivacyEndpoints
             account = new { accountId = account.AccountId, email = account.Email, createdAt = account.CreatedAt },
             devices,
             backups,
+            // Status lower-case like the media API ("uploading"/"completed"/"deleted").
+            media = media.Select(m => new { m.id, m.sizeBytes, status = m.status.ToString().ToLowerInvariant(), m.createdAt, m.expiresAt }),
             channelsOwned = ownedChannels,
             channelsAdministered = administeredChannels,
             channelsFollowed = follows,

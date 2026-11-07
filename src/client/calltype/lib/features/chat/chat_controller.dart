@@ -5,10 +5,17 @@ import 'package:calltype_core/network/signalr_client.dart' as core
     show SignalRClient;
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' show Locale;
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+import '../../l10n/app_localizations.dart';
+import '../media/media_cleanup.dart';
+import '../media/media_crypto.dart';
+import '../media/media_message.dart';
+import '../media/media_service.dart';
+import 'attachment_media.dart';
 import 'package:calltype_core/network/organization_api.dart';
 import 'package:calltype_core/network/organization_dtos.dart';
 import '../../core/crypto/group_cipher.dart';
@@ -52,7 +59,9 @@ class ChatController extends ChangeNotifier {
     void Function(Set<String> required)? onStale,
     void Function(String deviceId)? onMissingOwnDevice,
     BotCommandsCache? commandsCache,
+    MediaService? media,
   }) : _db = database,
+       media = media ?? MediaService.instance,
        _commandsCache = commandsCache ?? BotCommandsCache.shared,
        _signalR = signalRClient,
        _sessions = sessionManager,
@@ -397,8 +406,9 @@ class ChatController extends ChangeNotifier {
   /// What a quote of [message] shows: the text, or for a file its caption
   /// (photo with a caption) or else its name, cut to [maxReplyPreview]. It
   /// is copied into the outgoing payload because the receiver may not have
-  /// the original.
-  static String replyPreviewOf(Message message) {
+  /// the original. A media message is quoted by its caption, else kind +
+  /// name / duration ([l10n], default English).
+  static String replyPreviewOf(Message message, [AppLocalizations? l10n]) {
     var text = message.body ?? '';
     if (message.type == 'file') {
       try {
@@ -407,6 +417,9 @@ class ChatController extends ChangeNotifier {
       } catch (_) {
         text = '';
       }
+    } else if (message.type == 'media') {
+      final info = MediaInfo.tryDecode(text);
+      text = info == null ? '' : mediaSummary(l10n ?? _english, info);
     }
     return text.length > maxReplyPreview
         ? text.substring(0, maxReplyPreview)
@@ -589,6 +602,190 @@ class ChatController extends ChangeNotifier {
     'file',
   );
 
+  /// Encrypted media transfers (uploads, downloads, local copies); shared
+  /// app-wide so a transfer outlives this chat screen.
+  final MediaService media;
+
+  /// The UI language, set by the chat screen: the fallback text old clients
+  /// show (contract M7) and media reply quotes are written in the sender's
+  /// language. English when unset (tests, background sends).
+  AppLocalizations? localizations;
+
+  static final _english = lookupAppLocalizations(const Locale('en'));
+
+  /// Sends [source] through the encrypted media path (contract 4.1): the
+  /// file is streamed into local media storage while hashing, an optimistic
+  /// row of type `media` appears at once, then the upload runs and finally
+  /// the `media` object goes out through the normal encrypted pipeline.
+  /// This is also the hook the photo preview screen can call for large
+  /// files. Throws [MediaTooLarge] before anything is stored.
+  Future<void> sendMedia(
+    PickedMedia source, {
+    MediaKind? kind,
+    String? caption,
+    int? durationMs,
+    Uint8List? waveform,
+    int? width,
+    int? height,
+    Uint8List? thumbnail,
+    String? mime,
+  }) async {
+    if (!isValidMediaName(source.name)) {
+      throw ArgumentError('Invalid media name');
+    }
+    final id = _uuid.v4();
+    final folder = MediaService.uploadFolder(id);
+    final stored = await media.importForUpload(
+      id,
+      source.name,
+      source.openRead(),
+    );
+    final keys = newMediaKey();
+    final trimmed = caption?.trim();
+    // The receiver drops an invalid `media` object to the fallback text,
+    // so whatever a picker reports is normalized here (parameters cut,
+    // unknown shapes replaced by the type the name suggests).
+    final type = normalizeMediaMime(mime ?? source.mimeType, source.name);
+    final info = MediaInfo(
+      id: '',
+      kind: kind ?? mediaKindFor(source.name, mime: type),
+      name: source.name,
+      mime: type,
+      size: stored.size,
+      sha256: stored.sha256,
+      key: keys.key,
+      nonce: keys.nonce,
+      durationMs: durationMs,
+      width: width,
+      height: height,
+      thumbnail: thumbnail != null && thumbnail.length <= 24 * 1024
+          ? thumbnail
+          : null,
+      waveform: waveform == null || waveform.isEmpty ? null : waveform,
+      caption: trimmed == null || trimmed.isEmpty
+          ? null
+          : trimmed.length > 4096
+          ? trimmed.substring(0, 4096)
+          : trimmed,
+    );
+    if (MediaInfo.tryParse(info.toJson(), draft: true) == null) {
+      await media.deleteLocal(folder);
+      throw ArgumentError('Invalid media');
+    }
+    final now = DateTime.now();
+    final reply = _replyingTo;
+    if (reply != null) cancelReply();
+    await _db.transaction(() async {
+      await _db
+          .into(_db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: id,
+              conversationId: conversationId,
+              senderId: myIdentityId,
+              body: Value(info.encode()),
+              type: const Value('media'),
+              status: const Value('sending'),
+              createdAt: now,
+              replyToId: Value(reply?.id),
+              replySenderId: Value(reply?.senderId),
+              replyPreview: Value(
+                reply == null ? null : replyPreviewOf(reply, localizations),
+              ),
+            ),
+          );
+      await _storeUploadState(id, folder: folder);
+      await (_db.update(_db.conversations)
+            ..where((c) => c.id.equals(conversationId)))
+          .write(ConversationsCompanion(lastMessageAt: Value(now)));
+    });
+    await retryMessage(id);
+  }
+
+  /// `mediaup:<messageId>`: where the local copy of an unfinished upload
+  /// is and whether it finished (contract 4.1). The id, key and nonce live
+  /// in the row body (a draft `media` object) and are updated as the
+  /// upload proceeds, so a restart resumes through `GET /media/{id}/upload`.
+  Future<void> _storeUploadState(
+    String messageId, {
+    required String folder,
+    bool uploaded = false,
+  }) => _db
+      .into(_db.backupState)
+      .insertOnConflictUpdate(
+        BackupStateCompanion.insert(
+          key: 'mediaup:$messageId',
+          value: jsonEncode({'folder': folder, 'uploaded': uploaded}),
+        ),
+      );
+
+  Future<Map<String, dynamic>?> _loadUploadState(String messageId) async {
+    final row = await (_db.select(
+      _db.backupState,
+    )..where((s) => s.key.equals('mediaup:$messageId'))).getSingleOrNull();
+    if (row == null) return null;
+    try {
+      return jsonDecode(row.value) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Cancel on the bubble: stops the upload, withdraws the blob; the row
+  /// becomes `failed` (retry starts a new upload, delete removes it).
+  void cancelMediaUpload(String messageId) => media.cancelUpload(messageId);
+
+  /// Runs (or resumes) the upload of an own media row before it can be
+  /// sent. Deliberately OUTSIDE MessageProcessingQueue: an upload takes
+  /// minutes and must not block decrypting incoming messages. Returns false
+  /// when the message must not be sent now.
+  Future<bool> _prepareMedia(String messageId) async {
+    final message = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(messageId))).getSingleOrNull();
+    if (message == null || message.type != 'media') return true;
+    final state = await _loadUploadState(messageId);
+    if (state == null || state['uploaded'] == true) return true;
+    if (message.senderId != myIdentityId ||
+        message.conversationId != conversationId ||
+        (message.status != 'failed' && message.status != 'sending')) {
+      return false;
+    }
+    if (media.isUploading(messageId)) return false;
+    final draft = MediaInfo.tryDecode(message.body);
+    final folder = state['folder'];
+    if (draft == null || folder is! String) {
+      await _status(messageId, 'failed');
+      return false;
+    }
+    await _status(messageId, 'sending');
+    try {
+      final done = await media.upload(
+        messageId,
+        draft,
+        folder: folder,
+        persist: (info, folder) => _db.transaction(() async {
+          await (_db.update(_db.messages)
+                ..where((m) => m.id.equals(messageId)))
+              .write(MessagesCompanion(body: Value(info.encode())));
+          await _storeUploadState(messageId, folder: folder);
+        }),
+      );
+      await _db.transaction(() async {
+        await (_db.update(_db.messages)..where((m) => m.id.equals(messageId)))
+            .write(MessagesCompanion(body: Value(done.encode())));
+        await _storeUploadState(messageId, folder: done.id, uploaded: true);
+      });
+      return true;
+    } on MediaCancelled {
+      await _status(messageId, 'failed');
+      return false;
+    } catch (_) {
+      await _status(messageId, 'failed');
+      return false;
+    }
+  }
+
   /// Sends [body] into THIS conversation marked as forwarded. The forward UI
   /// navigates to the target chat first and calls this on that chat's own
   /// controller (a second controller would mark the conversation read).
@@ -702,14 +899,29 @@ class ChatController extends ChangeNotifier {
 
   /// Removes the message from this device only. Works for any message,
   /// including tombstones and failed sends (also drops its pending outbox).
-  Future<void> deleteForMe(String messageId) => _db.transaction(() async {
-    await deleteReactionsOf(_db, messageId);
-    await (_db.delete(_db.messages)..where((m) => m.id.equals(messageId))).go();
-    await (_db.delete(_db.backupState)..where(
-          (s) => s.key.isIn(['outbox:$messageId', 'extra:$messageId']),
-        ))
-        .go();
-  });
+  Future<void> deleteForMe(String messageId) async {
+    final message = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(messageId))).getSingleOrNull();
+    await _db.transaction(() async {
+      await deleteReactionsOf(_db, messageId);
+      await (_db.delete(
+        _db.messages,
+      )..where((m) => m.id.equals(messageId))).go();
+      await (_db.delete(_db.backupState)..where(
+            (s) => s.key.isIn([
+              'outbox:$messageId',
+              'extra:$messageId',
+              'mediaup:$messageId',
+            ]),
+          ))
+          .go();
+    });
+    if (message?.type == 'media') {
+      media.cancelUpload(messageId);
+      await deleteUnreferencedMedia(_db, media, message!.body, messageId);
+    }
+  }
 
   /// Deletes an own, already sent message for every participant by sending a
   /// `delete` control message through the normal encrypted pipeline. Returns
@@ -773,6 +985,9 @@ class ChatController extends ChangeNotifier {
         _db.backupState,
       )..where((s) => s.key.equals('outbox:$controlId'))).go();
     });
+    if (sent && target.type == 'media') {
+      await deleteUnreferencedMedia(_db, media, target.body, messageId);
+    }
     return sent;
   }
 
@@ -805,7 +1020,9 @@ class ChatController extends ChangeNotifier {
               createdAt: now,
               replyToId: Value(reply?.id),
               replySenderId: Value(reply?.senderId),
-              replyPreview: Value(reply == null ? null : replyPreviewOf(reply)),
+              replyPreview: Value(
+                reply == null ? null : replyPreviewOf(reply, localizations),
+              ),
               forwarded: Value(forwarded),
             ),
           );
@@ -816,7 +1033,14 @@ class ChatController extends ChangeNotifier {
     await retryMessage(id);
   }
 
-  Future<void> retryMessage(
+  /// Sends (again) an own message. A media row first finishes its upload,
+  /// outside the processing queue (see [_prepareMedia]).
+  Future<void> retryMessage(String messageId) async {
+    if (!await _prepareMedia(messageId)) return;
+    await _sendQueued(messageId);
+  }
+
+  Future<void> _sendQueued(
     String messageId,
   ) => MessageProcessingQueue.forDatabase(_db).run(() async {
     final message = await (_db.select(
@@ -855,11 +1079,23 @@ class ChatController extends ChangeNotifier {
         if (recipients.isEmpty) {
           throw StateError('No recipients in this conversation');
         }
+        // Contract M7: media goes out as `text` with a fallback body for old
+        // clients plus the `media` object new clients read.
+        final mediaInfo = message.type == 'media'
+            ? MediaInfo.tryDecode(message.body)
+            : null;
+        if (message.type == 'media' &&
+            (mediaInfo == null || mediaInfo.isDraft)) {
+          throw StateError('Media message is not uploaded');
+        }
         final payload = jsonEncode({
           'v': 1,
           'id': messageId,
-          'body': message.body,
-          'type': message.type,
+          'body': mediaInfo == null
+              ? message.body
+              : mediaFallbackBody(localizations ?? _english, mediaInfo),
+          'type': mediaInfo == null ? message.type : 'text',
+          if (mediaInfo != null) 'media': mediaInfo.toJson(),
           'groupId': groupId,
           'groupName': groupId == null ? null : conversation.title,
           'createdAt': message.createdAt.toUtc().toIso8601String(),
@@ -942,9 +1178,10 @@ class ChatController extends ChangeNotifier {
       }
       await _db.transaction(() async {
         await _status(messageId, 'sent');
-        await (_db.delete(
-          _db.backupState,
-        )..where((s) => s.key.equals('outbox:$messageId'))).go();
+        await (_db.delete(_db.backupState)..where(
+              (s) => s.key.isIn(['outbox:$messageId', 'mediaup:$messageId']),
+            ))
+            .go();
       });
     } catch (e) {
       // The hub reports the audit failure as a plain-text HubException

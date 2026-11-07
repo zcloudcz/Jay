@@ -21,6 +21,8 @@ import 'features/chat/message_inbox_service.dart';
 import 'features/chat_list/chat_list_controller.dart';
 import 'features/contacts/contacts_controller.dart';
 import 'features/devices/device_service.dart';
+import 'features/media/media_service.dart';
+import 'features/media/media_store.dart';
 import 'features/mute/mute_controller.dart';
 import 'features/notifications/notification_directory.dart';
 import 'features/notifications/notification_platform.dart';
@@ -68,6 +70,12 @@ void main() async {
   );
 
   final apiClient = ApiClient(baseUrl: baseUrl, authService: authService);
+  // Encrypted media relay (uploads, downloads, local copies): one service
+  // for the app so a transfer survives leaving the chat screen.
+  MediaService.instance = MediaService(
+    remote: ApiMediaRemote(apiClient),
+    store: MediaStore.create(),
+  );
   final signalRClient = SignalRClient(
     baseUrl: baseUrl,
     deviceId: deviceId,

@@ -1337,5 +1337,200 @@
         "type": "String"
       }
     }
+  },
+  "chatAttachVideo": "Video",
+  "@chatAttachVideo": {
+    "description": "Attachment sheet entry: pick a video (photo library on mobile, file dialog elsewhere)."
+  },
+  "chatAttachVideoCamera": "Record video",
+  "@chatAttachVideoCamera": {
+    "description": "Attachment sheet entry: record a video with the camera."
+  },
+  "chatAttachAudio": "Audio",
+  "@chatAttachAudio": {
+    "description": "Attachment sheet entry: pick an audio file."
+  },
+  "mediaKindImage": "Photo",
+  "@mediaKindImage": {
+    "description": "Kind label of a media message (quotes, previews)."
+  },
+  "mediaKindVideo": "Video",
+  "@mediaKindVideo": {
+    "description": "Kind label of a media message."
+  },
+  "mediaKindAudio": "Audio",
+  "@mediaKindAudio": {
+    "description": "Kind label of a media message."
+  },
+  "mediaKindVoice": "Voice message",
+  "@mediaKindVoice": {
+    "description": "Kind label of a media message."
+  },
+  "mediaKindFile": "File",
+  "@mediaKindFile": {
+    "description": "Kind label of a media message."
+  },
+  "mediaFallbackVoice": "🎤 Voice message ({duration}). Update Jay to play it.",
+  "@mediaFallbackVoice": {
+    "description": "Text an OLD app version shows instead of a voice message. Sent in the sender's language.",
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "mediaFallbackVideo": "🎬 Video ({size}). Update Jay to play it.",
+  "@mediaFallbackVideo": {
+    "description": "Text an OLD app version shows instead of a video.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "mediaFallbackImage": "🖼 Photo ({size}). Update Jay to view it.",
+  "@mediaFallbackImage": {
+    "description": "Text an OLD app version shows instead of a photo sent as encrypted media.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "mediaFallbackFile": "📎 {name} ({size}). Update Jay to download it.",
+  "@mediaFallbackFile": {
+    "description": "Text an OLD app version shows instead of a file or audio sent as encrypted media.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "mediaDownload": "Download",
+  "@mediaDownload": {
+    "description": "Button on a received media message; nothing downloads without this tap."
+  },
+  "mediaDownloading": "Downloading {percent}%",
+  "@mediaDownloading": {
+    "description": "Progress of a media download.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "mediaUploading": "Uploading {percent}%",
+  "@mediaUploading": {
+    "description": "Progress of a media upload.",
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "mediaAvailableUntil": "Available until {time}",
+  "@mediaAvailableUntil": {
+    "description": "Until when the server keeps the encrypted media; {time} is a date and time.",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "mediaExpired": "Media expired",
+  "@mediaExpired": {
+    "description": "The server copy is gone and it was never downloaded here."
+  },
+  "mediaDamaged": "File is damaged",
+  "@mediaDamaged": {
+    "description": "The download failed the integrity check."
+  },
+  "mediaDownloadFailed": "Download failed",
+  "@mediaDownloadFailed": {
+    "description": "Network or server error during a media download."
+  },
+  "mediaRetry": "Retry",
+  "@mediaRetry": {
+    "description": "Retries a failed media download."
+  },
+  "mediaTooLargeForWeb": "Too large for the browser. Open it in the Jay app.",
+  "@mediaTooLargeForWeb": {
+    "description": "A received file over the 512 MiB web limit."
+  },
+  "mediaTooLarge": "Files can be at most {size}.",
+  "@mediaTooLarge": {
+    "description": "Snackbar when a picked file is over the size limit; {size} like 5.4 GB.",
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "mediaSaveToDevice": "Save to device",
+  "@mediaSaveToDevice": {
+    "description": "Message action of a downloaded media message."
+  },
+  "mediaSaved": "Saved.",
+  "@mediaSaved": {
+    "description": "Snackbar after saving a media file to the device."
+  },
+  "mediaOpen": "Open",
+  "@mediaOpen": {
+    "description": "Opens a downloaded file with the system app."
+  },
+  "mediaOpenFailed": "No app could open this file.",
+  "@mediaOpenFailed": {
+    "description": "Snackbar when opening a downloaded file failed."
+  },
+  "mediaPlay": "Play",
+  "@mediaPlay": {
+    "description": "Tooltip of the play button (voice, audio, video)."
+  },
+  "mediaPause": "Pause",
+  "@mediaPause": {
+    "description": "Tooltip of the pause button."
+  },
+  "mediaSpeed": "Playback speed",
+  "@mediaSpeed": {
+    "description": "Accessibility label of the 1x / 1.5x / 2x button."
+  },
+  "mediaPlaybackFailed": "Unable to play this file.",
+  "@mediaPlaybackFailed": {
+    "description": "Playback of a voice message, audio or video failed."
+  },
+  "notificationVoice": "Voice message",
+  "@notificationVoice": {
+    "description": "Notification body for a voice message (no content shown)."
+  },
+  "notificationVideo": "Video",
+  "@notificationVideo": {
+    "description": "Notification body for a video."
+  },
+  "notificationAudio": "Audio",
+  "@notificationAudio": {
+    "description": "Notification body for an audio file."
+  },
+  "voiceRecordTooltip": "Hold to record a voice message",
+  "@voiceRecordTooltip": {
+    "description": "Tooltip of the mic button in the composer."
+  },
+  "voiceHoldToRecord": "Hold to record, release to send.",
+  "@voiceHoldToRecord": {
+    "description": "Hint after a too short press on the mic button."
+  },
+  "voiceSlideToCancel": "Slide to cancel",
+  "@voiceSlideToCancel": {
+    "description": "Shown while recording a voice message."
+  },
+  "voiceMicrophoneDenied": "Jay may not use the microphone. Allow it in Settings.",
+  "@voiceMicrophoneDenied": {
+    "description": "Snackbar when the microphone permission is denied."
+  },
+  "voiceRecordFailed": "Unable to record.",
+  "@voiceRecordFailed": {
+    "description": "Snackbar when recording could not start or stop."
   }
 }

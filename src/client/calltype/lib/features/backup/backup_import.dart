@@ -73,8 +73,10 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
     final status = requiredText(m, 'status');
     // Every type the app itself writes into `messages` must restore:
     // 'call-event' (business call log) and 'device-change' (multi-device
-    // notice) are rows like any other.
-    if (!['text', 'image', 'file', 'audio', 'video', 'call-event', 'device-change']
+    // notice) are rows like any other. 'media' rows carry the `media` object
+    // (id + key) but not the file: it downloads again while the server copy
+    // lives (encrypted media contract M11).
+    if (!['text', 'image', 'file', 'audio', 'video', 'media', 'call-event', 'device-change']
             .contains(type) ||
         !['sending', 'sent', 'delivered', 'read', 'failed'].contains(status)) {
       throw const FormatException('Invalid message type or status');

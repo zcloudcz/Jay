@@ -19,6 +19,16 @@ enum AttachSource {
 
   /// Any file through the document picker (on iOS: the Files app).
   file,
+
+  /// A video from the photo library (mobile) or a file dialog (elsewhere);
+  /// always the encrypted media path.
+  video,
+
+  /// Record a video with the camera (mobile with a camera only).
+  videoCamera,
+
+  /// An audio file, sent with an inline player (media path).
+  audio,
 }
 
 /// Bottom sheet with the attachment sources of this platform. A separate
@@ -30,6 +40,9 @@ Future<AttachSource?> showAttachSourceSheet(BuildContext context) {
   return showModalBottomSheet<AttachSource>(
     context: context,
     showDragHandle: true,
+    // Up to six entries (video, audio): taller than the default 9/16 cap
+    // on small screens, and scrollable when even that does not fit.
+    isScrollControlled: true,
     builder: (sheetContext) {
       final l10n = sheetContext.l10n;
       Widget tile(AttachSource source, IconData icon, String label) => ListTile(
@@ -39,33 +52,51 @@ Future<AttachSource?> showAttachSourceSheet(BuildContext context) {
         onTap: () => Navigator.of(sheetContext).pop(source),
       );
       return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (mobile)
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (mobile)
+                tile(
+                  AttachSource.photoLibrary,
+                  Icons.photo_library_outlined,
+                  l10n.chatAttachPhotoLibrary,
+                )
+              else
+                tile(
+                  AttachSource.photo,
+                  Icons.image_outlined,
+                  l10n.chatAttachPhoto,
+                ),
+              if (camera)
+                tile(
+                  AttachSource.camera,
+                  Icons.photo_camera_outlined,
+                  l10n.chatAttachCamera,
+                ),
               tile(
-                AttachSource.photoLibrary,
-                Icons.photo_library_outlined,
-                l10n.chatAttachPhotoLibrary,
-              )
-            else
-              tile(
-                AttachSource.photo,
-                Icons.image_outlined,
-                l10n.chatAttachPhoto,
+                AttachSource.video,
+                Icons.video_library_outlined,
+                l10n.chatAttachVideo,
               ),
-            if (camera)
+              if (camera)
+                tile(
+                  AttachSource.videoCamera,
+                  Icons.videocam_outlined,
+                  l10n.chatAttachVideoCamera,
+                ),
               tile(
-                AttachSource.camera,
-                Icons.photo_camera_outlined,
-                l10n.chatAttachCamera,
+                AttachSource.audio,
+                Icons.audiotrack_outlined,
+                l10n.chatAttachAudio,
               ),
-            tile(
-              AttachSource.file,
-              Icons.insert_drive_file_outlined,
-              l10n.chatAttachFile,
-            ),
-          ],
+              tile(
+                AttachSource.file,
+                Icons.insert_drive_file_outlined,
+                l10n.chatAttachFile,
+              ),
+            ],
+          ),
         ),
       );
     },

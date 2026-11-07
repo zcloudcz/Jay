@@ -27,6 +27,12 @@ import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
+import '../media/media_bubble.dart';
+import '../media/media_device.dart';
+import '../media/media_message.dart';
+import '../media/media_store.dart';
+import '../media/media_thumbnail.dart';
+import '../media/voice_composer.dart';
 import '../mute/mute_dialog.dart';
 import '../organization/business_banner.dart';
 
@@ -192,6 +198,28 @@ class ChatScreen extends StatelessWidget {
     if (source == null || !context.mounted) return;
     final media = AttachmentMedia.instance;
     if (source == AttachSource.file) return _attachFile(context);
+    final device = MediaDevice.instance;
+    switch (source) {
+      case AttachSource.video:
+        return _attachMedia(
+          context,
+          () => device.pickVideo(camera: false),
+          kind: MediaKind.video,
+        );
+      case AttachSource.videoCamera:
+        return _attachMedia(
+          context,
+          () => device.pickVideo(camera: true),
+          kind: MediaKind.video,
+        );
+      case AttachSource.audio:
+        return _attachMedia(
+          context,
+          () => device.pickFile(audioOnly: true),
+          kind: MediaKind.audio,
+        );
+      default:
+    }
     final List<PickedMedia> photos;
     try {
       photos = switch (source) {
@@ -274,6 +302,9 @@ class ChatScreen extends StatelessWidget {
     }
   }
 
+  /// Small plain files keep the inline path old clients read; audio, video
+  /// and anything over the inline limit go through the encrypted media path
+  /// (contract M12), streamed, up to the platform cap.
   Future<void> _attachFile(BuildContext context) async {
     final controller = context.read<ChatController>();
     // Captured before the awaits; the raw exception text is for developers
@@ -283,21 +314,100 @@ class ChatScreen extends StatelessWidget {
     try {
       final file = await AttachmentMedia.instance.pickFile();
       if (file == null) return;
-      if (await file.length() > Attachment.maxBytes) {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              l10n.chatAttachmentTooLarge(Attachment.maxBytes ~/ 1024),
-            ),
-          ),
-        );
+      final kind = mediaKindFor(file.name, mime: file.mimeType);
+      if (await file.length() <= Attachment.maxBytes &&
+          kind != MediaKind.audio &&
+          kind != MediaKind.video) {
+        await controller.sendAttachment(file.name, await file.readAsBytes());
         return;
       }
-      await controller.sendAttachment(file.name, await file.readAsBytes());
+      await _sendMediaFile(controller, file, kind: kind);
+    } on MediaTooLarge catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.mediaTooLarge(formatMediaSize(e.maxBytes)))),
+      );
     } catch (_) {
       messenger.showSnackBar(
         SnackBar(content: Text(l10n.chatAttachmentFailed)),
       );
+    }
+  }
+
+  Future<void> _attachMedia(
+    BuildContext context,
+    Future<PickedMedia?> Function() pick, {
+    required MediaKind kind,
+  }) async {
+    final controller = context.read<ChatController>();
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final file = await pick();
+      if (file == null) return;
+      await _sendMediaFile(controller, file, kind: kind);
+    } on MediaTooLarge catch (e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.mediaTooLarge(formatMediaSize(e.maxBytes)))),
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.chatAttachmentFailed)),
+      );
+    }
+  }
+
+  /// Largest image read into memory for a media-path thumbnail.
+  static const _thumbnailSourceLimit = 40 * 1024 * 1024;
+
+  /// Collects what the receiver sees before downloading (thumbnail,
+  /// duration, size) and hands the file to [ChatController.sendMedia]. The
+  /// video is sent as the original: no maintained compression plugin fits
+  /// (spec Limits).
+  Future<void> _sendMediaFile(
+    ChatController controller,
+    PickedMedia file, {
+    required MediaKind kind,
+  }) async {
+    final length = await file.length();
+    if (length > controller.media.maxBytes) {
+      throw MediaTooLarge(controller.media.maxBytes);
+    }
+    VideoProbe probe = const VideoProbe();
+    if (kind == MediaKind.video && file.path != null) {
+      try {
+        probe = await MediaDevice.instance.probeVideo(file.path!);
+      } catch (_) {}
+    } else if (kind == MediaKind.image && length <= _thumbnailSourceLimit) {
+      try {
+        final thumb = await prepareMediaThumbnail(await file.readAsBytes());
+        probe = VideoProbe(
+          thumbnail: thumb.thumbnail,
+          width: thumb.width,
+          height: thumb.height,
+        );
+      } catch (_) {}
+    }
+    await controller.sendMedia(
+      file,
+      kind: kind,
+      durationMs: probe.durationMs,
+      width: probe.width,
+      height: probe.height,
+      thumbnail: probe.thumbnail,
+    );
+  }
+
+  Future<void> _sendVoice(ChatController controller, VoiceClip clip) async {
+    try {
+      await controller.sendMedia(
+        clip.recording.file,
+        kind: MediaKind.voice,
+        mime: clip.recording.mime,
+        durationMs: clip.durationMs,
+        waveform: Uint8List.fromList(clip.waveform),
+      );
+    } finally {
+      await clip.recording.cleanup?.call();
     }
   }
 
@@ -529,8 +639,11 @@ class ChatScreen extends StatelessWidget {
     required List<Contact> contacts,
   }) {
     final l10n = context.l10n;
-    final isFile = message.type == 'file';
+    final isMedia = message.type == 'media';
+    // A media body is JSON with the key: never copied to the clipboard.
+    final isFile = message.type == 'file' || isMedia;
     final pending = message.status == 'sending' || message.status == 'failed';
+    final mediaInfo = isMedia ? MediaInfo.tryDecode(message.body) : null;
     final delete = MessageAction(
       icon: Icons.delete_outline_rounded,
       label: l10n.chatMessageDelete,
@@ -563,16 +676,33 @@ class ChatScreen extends StatelessWidget {
         onSelected: () => controller.startReply(message),
       ),
       if (!isFile) copy,
-      MessageAction(
-        icon: Icons.forward_rounded,
-        label: l10n.chatMessageForward,
-        onSelected: () => _forward(
-          context,
-          message,
-          controller: controller,
-          contacts: contacts,
+      // Save to device for every downloaded media message (contract M10).
+      if (mediaInfo != null &&
+          !mediaInfo.isDraft &&
+          controller.media.isLocal(mediaInfo) == true)
+        MessageAction(
+          icon: Icons.save_alt_rounded,
+          label: l10n.mediaSaveToDevice,
+          onSelected: () =>
+              saveMediaToDevice(context, mediaInfo, controller.media),
         ),
-      ),
+      // Forwarding re-sends the same `media` object, which only works while
+      // the server copy lives; after expiry the action is hidden (contract
+      // section 3, the app branch's choice).
+      if (!isMedia ||
+          (mediaInfo != null &&
+              !mediaInfo.isDraft &&
+              !mediaInfo.isExpired(DateTime.now())))
+        MessageAction(
+          icon: Icons.forward_rounded,
+          label: l10n.chatMessageForward,
+          onSelected: () => _forward(
+            context,
+            message,
+            controller: controller,
+            contacts: contacts,
+          ),
+        ),
       delete,
     ];
   }
@@ -659,6 +789,8 @@ class ChatScreen extends StatelessWidget {
     ];
     final organizationName = conversation?.organizationName;
     final l10n = context.l10n;
+    // The sender's language for media fallback texts and quotes.
+    controller.localizations = l10n;
     if (controller.consumeAuditRecipientMissing()) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!context.mounted) return;
@@ -815,6 +947,10 @@ class ChatScreen extends StatelessWidget {
                         message,
                         business: conversation?.organizationId != null,
                       );
+                      final mediaInfo =
+                          message.type == 'media' && !message.deleted
+                          ? MediaInfo.tryDecode(message.body)
+                          : null;
                       return Column(
                         crossAxisAlignment: mine
                             ? CrossAxisAlignment.end
@@ -864,7 +1000,16 @@ class ChatScreen extends StatelessWidget {
                                     allContacts,
                                   ),
                             quoteText: message.replyPreview,
-                            content: file == null
+                            content: mediaInfo != null
+                                ? MediaMessageContent(
+                                    messageId: message.id,
+                                    info: mediaInfo,
+                                    media: controller.media,
+                                    sending: mine && message.status == 'sending',
+                                    onCancelUpload: () =>
+                                        controller.cancelMediaUpload(message.id),
+                                  )
+                                : file == null
                                 ? null
                                 : _attachmentContent(context, file),
                             caption: file?.caption,
@@ -966,6 +1111,7 @@ class ChatScreen extends StatelessWidget {
                     ),
               initialText: controller.initialDraft,
               onAttachment: () => _attach(context),
+              onVoice: (clip) => _sendVoice(controller, clip),
               replyAuthor: controller.replyingTo == null
                   ? null
                   : _authorLabel(

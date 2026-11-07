@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/bot_badge.dart';
+import '../media/voice_composer.dart';
 import 'bot_commands.dart';
 import 'mentions.dart';
 
@@ -34,6 +35,7 @@ class MessageInput extends StatefulWidget {
     this.loadDraft,
     this.saveDraft,
     this.enterSends,
+    this.onVoice,
   });
 
   /// Lines the field grows to before it scrolls inside.
@@ -53,6 +55,10 @@ class MessageInput extends StatefulWidget {
   /// background, on dispose and right after a send). Blank = remove.
   final Future<void> Function(String text)? saveDraft;
   final VoidCallback? onAttachment;
+
+  /// Sends a recorded voice message. When set, the mic replaces the send
+  /// button while the field is empty (hold to record, contract 4.2).
+  final Future<void> Function(VoiceClip clip)? onVoice;
 
   /// Used instead of [onSend] when set: also gets the identity ids of the
   /// picked @mentions still present in the text (contract section 8).
@@ -127,6 +133,41 @@ class _MessageInputState extends State<MessageInput>
   bool _hasText = false;
   bool _sending = false;
 
+  /// Hold-to-record state; null when the chat does not take voice.
+  VoiceRecordController? _voice;
+
+  VoiceRecordController _createVoice() => VoiceRecordController(
+    onRecorded: (clip) async {
+      final send = widget.onVoice;
+      if (send == null) return;
+      try {
+        await send(clip);
+      } catch (_) {
+        if (mounted) _snack(context.l10n.chatAttachmentFailed);
+      }
+    },
+    onOutcome: (outcome) {
+      if (!mounted) return;
+      final l10n = context.l10n;
+      switch (outcome) {
+        case VoiceOutcome.tooShort:
+          _snack(l10n.voiceHoldToRecord);
+        case VoiceOutcome.denied:
+          _snack(l10n.voiceMicrophoneDenied);
+        case VoiceOutcome.failed:
+          _snack(l10n.voiceRecordFailed);
+        case VoiceOutcome.cancelled:
+          break;
+      }
+    },
+  );
+
+  void _snack(String text) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(content: Text(text)));
+  }
+
   @override
   void didUpdateWidget(MessageInput oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -154,6 +195,7 @@ class _MessageInputState extends State<MessageInput>
     }
     _controller.addListener(_onTextChanged);
     WidgetsBinding.instance.addObserver(this);
+    if (widget.onVoice != null) _voice = _createVoice();
   }
 
   Future<void> _restoreDraft() async {
@@ -328,10 +370,82 @@ class _MessageInputState extends State<MessageInput>
     }
   }
 
+  /// The field row. While a voice message is recorded the attach button and
+  /// the text field give way to the recording bar; the mic button keeps its
+  /// place (and its element) so the held pointer keeps being tracked.
+  Widget _inputRow(BuildContext context, ColorScheme colorScheme) {
+    final voice = _voice;
+    final recording =
+        voice != null && voice.state != VoiceRecordState.idle;
+    final showMic = voice != null && !_hasText;
+    return Row(
+      // Side buttons stay at the bottom line while the field grows.
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (recording)
+          const SizedBox(width: 8)
+        else
+          IconButton(
+            icon: const Icon(Icons.attach_file_rounded),
+            tooltip: context.l10n.chatInputAttach,
+            onPressed: widget.onAttachment,
+          ),
+
+        Expanded(
+          child: recording
+              ? VoiceRecordingBar(controller: voice)
+              : TextField(
+                  controller: _controller,
+                  focusNode: _focus,
+                  minLines: 1,
+                  maxLines: MessageInput.maxComposerLines,
+                  keyboardType: TextInputType.multiline,
+                  textInputAction: TextInputAction.newline,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: InputDecoration(
+                    hintText: context.l10n.chatInputHint,
+                    filled: true,
+                    fillColor: colorScheme.surfaceContainerHighest,
+                    // Fully rounded ends give the input field the pill shape
+                    // that's become standard in messaging app UIs.
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 10,
+                    ),
+                  ),
+                ),
+        ),
+
+        const SizedBox(width: 4),
+
+        // Mic while the field is empty (voice messages), otherwise the send
+        // button, visually distinct when text is present.
+        if (showMic)
+          VoiceRecordButton(controller: voice)
+        else
+          IconButton(
+            icon: Icon(
+              Icons.send_rounded,
+              color: _hasText
+                  ? colorScheme.primary
+                  : colorScheme.onSurfaceVariant,
+            ),
+            tooltip: context.l10n.chatInputSend,
+            onPressed: _hasText && !_sending ? _submit : null,
+          ),
+      ],
+    );
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _flushDraft();
+    _voice?.dispose();
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -447,58 +561,9 @@ class _MessageInputState extends State<MessageInput>
             ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            child: Row(
-              // Side buttons stay at the bottom line while the field grows.
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.attach_file_rounded),
-                  tooltip: context.l10n.chatInputAttach,
-                  onPressed: widget.onAttachment,
-                ),
-
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    focusNode: _focus,
-                    minLines: 1,
-                    maxLines: MessageInput.maxComposerLines,
-                    keyboardType: TextInputType.multiline,
-                    textInputAction: TextInputAction.newline,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: InputDecoration(
-                      hintText: context.l10n.chatInputHint,
-                      filled: true,
-                      fillColor: colorScheme.surfaceContainerHighest,
-                      // Fully rounded ends give the input field the pill shape
-                      // that's become standard in messaging app UIs.
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: BorderSide.none,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(width: 4),
-
-                // Send button — visually distinct when text is present to
-                // signal that the message is ready to send.
-                IconButton(
-                  icon: Icon(
-                    Icons.send_rounded,
-                    color: _hasText
-                        ? colorScheme.primary
-                        : colorScheme.onSurfaceVariant,
-                  ),
-                  tooltip: context.l10n.chatInputSend,
-                  onPressed: _hasText && !_sending ? _submit : null,
-                ),
-              ],
+            child: ListenableBuilder(
+              listenable: _voice ?? const AlwaysStoppedAnimation(0),
+              builder: (context, _) => _inputRow(context, colorScheme),
             ),
           ),
         ],

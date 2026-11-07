@@ -143,12 +143,14 @@ NotificationSkip? notificationSkip({
 
 /// What a message is, for the notification body. Only [text] carries
 /// content; the others become a localized label (a photo with a caption:
-/// the label plus the caption).
-enum PreviewKind { text, photo, file, poll }
+/// the label plus the caption; a media file shows its name, encrypted media
+/// contract section 3).
+enum PreviewKind { text, photo, file, poll, voice, video, audio }
 
 class MessagePreview {
   const MessagePreview.text(this.text) : kind = PreviewKind.text;
   const MessagePreview.label(this.kind, {String? caption}) : text = caption;
+  const MessagePreview.fileName(String this.text) : kind = PreviewKind.file;
 
   final PreviewKind kind;
   final String? text;
@@ -197,8 +199,14 @@ NotificationText notificationText({
       preview.text == null || preview.text!.trim().isEmpty
           ? l10n.notificationPhoto
           : l10n.notificationPhotoCaption(truncatePreview(preview.text!)),
-    PreviewKind.file => l10n.notificationFile,
+    PreviewKind.file =>
+      preview.text == null
+          ? l10n.notificationFile
+          : truncatePreview(preview.text!),
     PreviewKind.poll => l10n.notificationPoll,
+    PreviewKind.voice => l10n.notificationVoice,
+    PreviewKind.video => l10n.notificationVideo,
+    PreviewKind.audio => l10n.notificationAudio,
   };
   if (content.isEmpty) return NotificationText(heading, generic);
   final body =
