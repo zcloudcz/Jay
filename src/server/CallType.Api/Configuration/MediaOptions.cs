@@ -41,4 +41,11 @@ public class MediaOptions
 
     /// <summary>MediaCleanupService period. 10 minutes default.</summary>
     public int CleanupIntervalMinutes { get; set; } = 10;
+
+    /// <summary>
+    /// Chunk PUTs one device may have in flight. 8 default (the app uploads
+    /// 2 chunks at a time per file). Each open PUT holds up to one chunk in
+    /// memory, so this bounds what one (free, anonymous) device can pin.
+    /// </summary>
+    public int MaxConcurrentChunkUploadsPerDevice { get; set; } = 8;
 }

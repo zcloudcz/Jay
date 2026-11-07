@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "A Jay nem használhatja a mikrofont. Engedélyezd a Beállításokban.",
   "voiceRecordFailed": "A felvétel nem sikerült.",
   "chatJumpToLatest": "Ugrás a legújabb üzenetekhez",
-  "chatNewMessagesBadge": "{count, plural, one{1 új üzenet} other{{count} új üzenet}}"
+  "chatNewMessagesBadge": "{count, plural, one{1 új üzenet} other{{count} új üzenet}}",
+  "mediaOpenBlocked": "A Jay nem nyit meg programokat és szkripteket. Előbb mentse el és ellenőrizze a fájlt."
 }

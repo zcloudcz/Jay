@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "Jay nesmie používať mikrofón. Povoľte to v Nastaveniach.",
   "voiceRecordFailed": "Nahrávanie zlyhalo.",
   "chatJumpToLatest": "Prejsť na najnovšie správy",
-  "chatNewMessagesBadge": "{count, plural, one{1 nová správa} few{{count} nové správy} many{{count} novej správy} other{{count} nových správ}}"
+  "chatNewMessagesBadge": "{count, plural, one{1 nová správa} few{{count} nové správy} many{{count} novej správy} other{{count} nových správ}}",
+  "mediaOpenBlocked": "Jay neotvára programy ani skripty. Súbor najprv uložte a skontrolujte."
 }

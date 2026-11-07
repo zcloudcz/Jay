@@ -165,6 +165,7 @@ All byte limits are encrypted bytes.
 | `Media:MaxUploadsPerDay` | 500 | Uploads created per device in a rolling 24 h |
 | `Media:MaxTotalBytes` | 536870912000 (500 GiB) | Whole installation, active bytes |
 | `Media:CleanupIntervalMinutes` | 10 | Cleanup period |
+| `Media:MaxConcurrentChunkUploadsPerDevice` | 8 | Chunk PUTs one device may have in flight (429 `media_rate_limited` above) |
 | `RateLimiting:MediaPermitLimit` | 600 | Requests/min per device on chunk PUT + download GET (policy `media`) |
 
 ### EF Core migrations

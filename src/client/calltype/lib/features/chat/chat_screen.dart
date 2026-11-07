@@ -194,11 +194,15 @@ class ChatScreen extends StatelessWidget {
     }
   }
 
-  Future<void> _attach(BuildContext context) async {
-    final source = await showAttachSourceSheet(context);
+  /// [business]: no encrypted media there (see ChatController.sendMedia),
+  /// only photos and small inline files.
+  Future<void> _attach(BuildContext context, {required bool business}) async {
+    final source = await showAttachSourceSheet(context, media: !business);
     if (source == null || !context.mounted) return;
     final media = AttachmentMedia.instance;
-    if (source == AttachSource.file) return _attachFile(context);
+    if (source == AttachSource.file) {
+      return _attachFile(context, business: business);
+    }
     final device = MediaDevice.instance;
     switch (source) {
       case AttachSource.video:
@@ -306,7 +310,10 @@ class ChatScreen extends StatelessWidget {
   /// Small plain files keep the inline path old clients read; audio, video
   /// and anything over the inline limit go through the encrypted media path
   /// (contract M12), streamed, up to the platform cap.
-  Future<void> _attachFile(BuildContext context) async {
+  Future<void> _attachFile(
+    BuildContext context, {
+    required bool business,
+  }) async {
     final controller = context.read<ChatController>();
     // Captured before the awaits; the raw exception text is for developers
     // and is not shown — the user gets one of two localized messages.
@@ -316,13 +323,21 @@ class ChatScreen extends StatelessWidget {
       final file = await AttachmentMedia.instance.pickFile();
       if (file == null) return;
       final kind = mediaKindFor(file.name, mime: file.mimeType);
-      if (await file.length() <= Attachment.maxBytes &&
-          kind != MediaKind.audio &&
-          kind != MediaKind.video) {
+      final small = await file.length() <= Attachment.maxBytes;
+      if (small &&
+          (business || (kind != MediaKind.audio && kind != MediaKind.video))) {
         await controller.sendAttachment(file.name, await file.readAsBytes());
         return;
       }
       await _sendMediaFile(controller, file, kind: kind);
+    } on MediaNotAllowed {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            l10n.chatAttachmentTooLarge(Attachment.maxBytes ~/ 1024),
+          ),
+        ),
+      );
     } on MediaTooLarge catch (e) {
       messenger.showSnackBar(
         SnackBar(content: Text(l10n.mediaTooLarge(formatMediaSize(e.maxBytes)))),
@@ -1111,8 +1126,15 @@ class ChatScreen extends StatelessWidget {
                       group: group,
                     ),
               initialText: controller.initialDraft,
-              onAttachment: () => _attach(context),
-              onVoice: (clip) => _sendVoice(controller, clip),
+              onAttachment: () =>
+                  _attach(
+                context,
+                business: conversation?.organizationId != null,
+              ),
+              // No voice messages in business conversations (no media).
+              onVoice: conversation?.organizationId != null
+                  ? null
+                  : (clip) => _sendVoice(controller, clip),
               replyAuthor: controller.replyingTo == null
                   ? null
                   : _authorLabel(

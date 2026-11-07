@@ -80,3 +80,9 @@ class MediaTooLarge implements Exception {
   const MediaTooLarge(this.maxBytes);
   final int maxBytes;
 }
+
+/// Media is not sent in this conversation (business, see
+/// `ChatController.sendMedia`).
+class MediaNotAllowed implements Exception {
+  const MediaNotAllowed();
+}

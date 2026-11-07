@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "لا يمكن لـ Jay استخدام الميكروفون. اسمح بذلك في الإعدادات.",
   "voiceRecordFailed": "تعذّر التسجيل.",
   "chatJumpToLatest": "الانتقال إلى أحدث الرسائل",
-  "chatNewMessagesBadge": "{count, plural, zero{لا توجد رسائل جديدة} one{رسالة جديدة واحدة} two{رسالتان جديدتان} few{{count} رسائل جديدة} many{{count} رسالة جديدة} other{{count} رسالة جديدة}}"
+  "chatNewMessagesBadge": "{count, plural, zero{لا توجد رسائل جديدة} one{رسالة جديدة واحدة} two{رسالتان جديدتان} few{{count} رسائل جديدة} many{{count} رسالة جديدة} other{{count} رسالة جديدة}}",
+  "mediaOpenBlocked": "لا يفتح Jay البرامج أو النصوص البرمجية. احفظ الملف وتحقق منه أولاً."
 }

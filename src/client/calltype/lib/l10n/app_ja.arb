@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "Jay はマイクを使用できません。設定で許可してください。",
   "voiceRecordFailed": "録音できませんでした。",
   "chatJumpToLatest": "最新のメッセージへ移動",
-  "chatNewMessagesBadge": "{count, plural, other{新着メッセージ {count} 件}}"
+  "chatNewMessagesBadge": "{count, plural, other{新着メッセージ {count} 件}}",
+  "mediaOpenBlocked": "Jay はプログラムやスクリプトを開きません。先にファイルを保存して確認してください。"
 }

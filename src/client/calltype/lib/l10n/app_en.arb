@@ -1545,5 +1545,9 @@
         "type": "int"
       }
     }
+  },
+  "mediaOpenBlocked": "Jay does not open programs or scripts. Save the file and check it first.",
+  "@mediaOpenBlocked": {
+    "description": "Snackbar on desktop when the user taps Open on a received program, script or shortcut (exe, bat, sh, app, ...): Jay refuses to run it."
   }
 }

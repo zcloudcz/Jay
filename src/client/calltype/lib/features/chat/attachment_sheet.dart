@@ -34,7 +34,14 @@ enum AttachSource {
 /// Bottom sheet with the attachment sources of this platform. A separate
 /// photo entry exists because the document picker that "File" opens is the
 /// Files app on iOS and cannot reach the photo library at all.
-Future<AttachSource?> showAttachSourceSheet(BuildContext context) {
+///
+/// [media] false hides the sources that need the encrypted media path
+/// (video, audio): business conversations have no media (see
+/// `ChatController.sendMedia`).
+Future<AttachSource?> showAttachSourceSheet(
+  BuildContext context, {
+  bool media = true,
+}) {
   final mobile = AttachmentMedia.isMobile;
   final camera = mobile && AttachmentMedia.instance.supportsCamera;
   return showModalBottomSheet<AttachSource>(
@@ -74,22 +81,24 @@ Future<AttachSource?> showAttachSourceSheet(BuildContext context) {
                   Icons.photo_camera_outlined,
                   l10n.chatAttachCamera,
                 ),
-              tile(
-                AttachSource.video,
-                Icons.video_library_outlined,
-                l10n.chatAttachVideo,
-              ),
-              if (camera)
+              if (media)
+                tile(
+                  AttachSource.video,
+                  Icons.video_library_outlined,
+                  l10n.chatAttachVideo,
+                ),
+              if (camera && media)
                 tile(
                   AttachSource.videoCamera,
                   Icons.videocam_outlined,
                   l10n.chatAttachVideoCamera,
                 ),
-              tile(
-                AttachSource.audio,
-                Icons.audiotrack_outlined,
-                l10n.chatAttachAudio,
-              ),
+              if (media)
+                tile(
+                  AttachSource.audio,
+                  Icons.audiotrack_outlined,
+                  l10n.chatAttachAudio,
+                ),
               tile(
                 AttachSource.file,
                 Icons.insert_drive_file_outlined,

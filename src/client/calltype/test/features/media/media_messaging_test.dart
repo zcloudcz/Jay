@@ -10,6 +10,7 @@ import 'package:calltype/features/chat/chat_controller.dart';
 import 'package:calltype/features/chat/message_inbox_service.dart';
 import 'package:calltype/features/media/media_message.dart';
 import 'package:calltype/features/media/media_service.dart';
+import 'package:calltype/features/media/media_store.dart' show MediaNotAllowed;
 import 'package:calltype/features/media/media_store_memory.dart';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
@@ -158,6 +159,22 @@ void main() {
     expect(plain['media']['id'], info.id);
     expect(plain['media']['kind'], 'voice');
   });
+
+  test(
+    'no media in a business conversation (fail closed, nothing stored)',
+    () async {
+      await (alice.db.update(alice.db.conversations)
+            ..where((c) => c.id.equals('bob')))
+          .write(const ConversationsCompanion(organizationId: Value('org-1')));
+      await expectLater(
+        chat.sendMedia(voice(100), kind: MediaKind.voice),
+        throwsA(isA<MediaNotAllowed>()),
+      );
+      expect(await alice.db.select(alice.db.messages).get(), isEmpty);
+      expect(remote.blobs, isEmpty);
+      expect(hub.sent, isEmpty);
+    },
+  );
 
   test('inbound text + media becomes a media row; invalid media or a newer '
       'version keeps the fallback text', () async {

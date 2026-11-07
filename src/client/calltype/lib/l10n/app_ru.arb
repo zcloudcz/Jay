@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "Jay не может использовать микрофон. Разрешите это в Настройках.",
   "voiceRecordFailed": "Не удалось записать.",
   "chatJumpToLatest": "К последним сообщениям",
-  "chatNewMessagesBadge": "{count, plural, one{{count} новое сообщение} few{{count} новых сообщения} many{{count} новых сообщений} other{{count} нового сообщения}}"
+  "chatNewMessagesBadge": "{count, plural, one{{count} новое сообщение} few{{count} новых сообщения} many{{count} новых сообщений} other{{count} нового сообщения}}",
+  "mediaOpenBlocked": "Jay не открывает программы и скрипты. Сначала сохраните файл и проверьте его."
 }

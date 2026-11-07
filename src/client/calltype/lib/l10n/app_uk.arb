@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "Jay не може використовувати мікрофон. Дозвольте це в Налаштуваннях.",
   "voiceRecordFailed": "Не вдалося записати.",
   "chatJumpToLatest": "До останніх повідомлень",
-  "chatNewMessagesBadge": "{count, plural, one{{count} нове повідомлення} few{{count} нові повідомлення} many{{count} нових повідомлень} other{{count} нового повідомлення}}"
+  "chatNewMessagesBadge": "{count, plural, one{{count} нове повідомлення} few{{count} нові повідомлення} many{{count} нових повідомлень} other{{count} нового повідомлення}}",
+  "mediaOpenBlocked": "Jay не відкриває програми та скрипти. Спершу збережіть файл і перевірте його."
 }

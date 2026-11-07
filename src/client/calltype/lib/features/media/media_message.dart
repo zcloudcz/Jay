@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../../l10n/app_localizations.dart';
+import 'media_thumbnail.dart' show jpegDimensions, mediaThumbnailSide;
 
 /// What a media message carries (contract section 3 `kind`). Decides the
 /// bubble (player, viewer, plain file) and the notification label only;
@@ -45,14 +46,52 @@ final _guid = RegExp(
 );
 final _mime = RegExp(r'^[A-Za-z0-9][\w.+-]*/[\w.+-]+$');
 
-/// Same file name rules as the inline `Attachment`.
+/// The inline `Attachment` rules plus what makes a bad file name on some
+/// platform: the name becomes a file inside the media folder on every
+/// device that downloads it, and it is shown to the user.
 bool isValidMediaName(String name) =>
     name.trim().isNotEmpty &&
-    // It becomes a file name inside the media folder.
     name != '.' &&
     name != '..' &&
     name.length <= 255 &&
-    !name.contains(RegExp(r'[/\\\x00-\x1f]'));
+    // Separators, controls, Windows-reserved characters (`:` would also
+    // address an alternate data stream) and bidi controls that can make
+    // "evil\u202Efdp.exe" display as "evilexe.pdf".
+    !name.contains(_badNameChars) &&
+    // Windows drops a trailing dot or space, so the file would not be found.
+    !name.endsWith('.') &&
+    !name.endsWith(' ') &&
+    !_windowsDeviceName.hasMatch(name);
+
+final _badNameChars = RegExp(
+  '[/\\\\\x00-\x1f\x7f:<>"|?*\u202a-\u202e\u2066-\u2069]',
+);
+final _windowsDeviceName = RegExp(
+  r'^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\.|$)',
+  caseSensitive: false,
+);
+
+/// Whether opening [name] with the desktop shell could run code instead of
+/// showing a document: programs, scripts, installers, shortcuts.
+bool isRunnableFileName(String name) {
+  final dot = name.lastIndexOf('.');
+  if (dot < 0) return false;
+  return _runnableExtensions.contains(name.substring(dot + 1).toLowerCase());
+}
+
+const _runnableExtensions = {
+  // Windows
+  'exe', 'com', 'scr', 'pif', 'bat', 'cmd', 'msi', 'msp', 'msix', 'appx',
+  'appxbundle', 'lnk', 'url', 'hta', 'cpl', 'jar', 'js', 'jse', 'vbs',
+  'vbe', 'wsf', 'wsh', 'ps1', 'psm1', 'reg', 'scf', 'inf', 'library-ms',
+  'settingcontent-ms', 'application', 'gadget', 'chm', 'dll', 'sys',
+  // macOS
+  'app', 'command', 'tool', 'pkg', 'mpkg', 'dmg', 'workflow', 'terminal',
+  'scpt', 'applescript', 'webloc', 'inetloc', 'fileloc',
+  // Linux and Unix
+  'desktop', 'sh', 'bash', 'zsh', 'run', 'bin', 'appimage', 'deb', 'rpm',
+  'py', 'pl', 'rb',
+};
 
 /// The `media` object of a message (contract section 3): where the
 /// ciphertext lives on the server plus everything needed to decrypt and
@@ -205,6 +244,14 @@ class MediaInfo {
         if (thumbnail == null || thumbnail.length > _maxThumbnailBytes) {
           return null;
         }
+        // Only a small JPEG is rendered (see jpegDimensions); anything else
+        // loses its preview, not the message.
+        final dimensions = jpegDimensions(thumbnail);
+        if (dimensions == null ||
+            dimensions.width > mediaThumbnailSide ||
+            dimensions.height > mediaThumbnailSide) {
+          thumbnail = null;
+        }
       }
       Uint8List? waveform;
       if (json['waveform'] != null) {
@@ -221,7 +268,9 @@ class MediaInfo {
         return null;
       }
       return MediaInfo(
-        id: id,
+        // One spelling: the id names the local folder, and case-insensitive
+        // file systems would otherwise let two ids share it.
+        id: id.toLowerCase(),
         kind: MediaKind.parse(json['kind']),
         name: name,
         mime: mime,

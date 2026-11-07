@@ -128,6 +128,13 @@ idempotent for an already deleted row.
   can overshoot the global cap by at most one file each.
 - `POST /media` with a valid JWT whose device row is gone -> 401. Export shows `status` in lowercase.
 
+### 2.7b Hardening from the release review (release/2026-11-07)
+- Chunk PUT: at most `MaxConcurrentChunkUploadsPerDevice` in flight per device (429 `media_rate_limited`), and the
+  chunk buffer grows with the bytes received instead of being allocated up front, so slow requests cannot pin memory.
+- `GET /media/{id}/upload` of an `Uploading` row past its upload window -> 410 `media_expired` (the client then starts
+  a new upload with a new key instead of failing on every chunk until cleanup runs).
+- Download of a `Completed` row whose blob is missing -> 404 `media_not_found` (was 500).
+
 ### 2.8 Data model
 Entity `MediaUpload` (table `MediaUploads`), migration `AddMediaUploads`:
 `Id` Guid (PK, `Guid.NewGuid()`), `UploaderDeviceId` Guid (no FK, deleted explicitly with blobs), `SizeBytes` long
@@ -147,6 +154,7 @@ Entity `MediaUpload` (table `MediaUploads`), migration `AddMediaUploads`:
 | `Media:MaxUploadsPerDay` | 500 | Uploads created per device in a rolling 24 h |
 | `Media:MaxTotalBytes` | 536870912000 (500 GiB) | Whole installation, active bytes |
 | `Media:CleanupIntervalMinutes` | 10 | Cleanup period |
+| `Media:MaxConcurrentChunkUploadsPerDevice` | 8 | Chunk PUTs in flight per device; above it 429 `media_rate_limited` |
 | `RateLimiting:MediaPermitLimit` | 600 | Requests/min per device on chunk PUT + download GET |
 
 Kestrel `MaxRequestBodySize` stays 10 MB (a chunk is at most 8 MiB + 16).
@@ -302,6 +310,22 @@ bubble states (not downloaded, downloading, expired, downloaded) with fakes; no 
   and sends only missing chunks, a 404 / 410 starts a new upload with a new key.
 - A delete for everyone of a media message (sent or received) also removes the local file when no other row
   references the media id.
+
+## App hardening from the release review (release/2026-11-07)
+
+- Business conversations get NO media (fail closed like edit, delete and reactions): `sendMedia` throws
+  `MediaNotAllowed`, the attachment sheet hides video and audio, there is no mic button, and a file over the inline
+  limit is refused as too large. Reason: the compliance archive (K01) would only record the fallback text.
+- A received `thumbnail` is rendered only if it is a JPEG whose frame header says at most 320 x 320 px; anything else
+  drops the preview (not the message). A sender-declared PNG/WebP canvas could otherwise decode to gigabytes.
+- The media `id` is stored in lower case (it names the local folder; case-insensitive file systems).
+- Media names additionally reject `: < > " | ? *`, DEL, bidi controls (U+202A..202E, U+2066..2069), a trailing dot or
+  space and Windows device names (CON, NUL, COM1, ...).
+- Desktop "Open" refuses programs, scripts, installers and shortcuts (exe, bat, sh, app, desktop, ...): the OS shell
+  would run them. Mobile opens through the share sheet.
+- An "image" over 50 MiB is shown as a file tile, never read into memory for an inline preview.
+- Reactions work on `media` rows (the reactions branch predates the media type).
+- The backup export skips in-flight `reaction` rows (an older app's import rejects that type).
 
 ## Ops (deploy notes)
 

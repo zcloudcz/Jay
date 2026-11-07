@@ -386,6 +386,7 @@ void main() {
       );
       expect(chat.canReact(m(), business: false), isTrue);
       expect(chat.canReact(m(type: 'file'), business: false), isTrue);
+      expect(chat.canReact(m(type: 'media'), business: false), isTrue);
       expect(chat.canReact(m(), business: true), isFalse);
       expect(chat.canReact(m(status: 'sending'), business: false), isFalse);
       expect(chat.canReact(m(status: 'failed'), business: false), isFalse);

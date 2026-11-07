@@ -6,7 +6,7 @@ export 'package:calltype_core/messaging/reaction.dart';
 
 /// Message types a reaction may target: real chat bubbles. A call log line,
 /// a device notice or a control row is not something to react to.
-const reactableTypes = {'text', 'file', 'image', 'audio', 'video'};
+const reactableTypes = {'text', 'file', 'media', 'image', 'audio', 'video'};
 
 /// Stores [emoji] (or a removal, '') as the reaction of [reactorId] on
 /// [messageId] if it is newer than (or as new as) the stored one: last

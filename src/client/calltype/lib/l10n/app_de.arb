@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "Jay darf das Mikrofon nicht verwenden. Erlaube es in den Einstellungen.",
   "voiceRecordFailed": "Aufnahme nicht möglich.",
   "chatJumpToLatest": "Zu den neuesten Nachrichten",
-  "chatNewMessagesBadge": "{count, plural, one{1 neue Nachricht} other{{count} neue Nachrichten}}"
+  "chatNewMessagesBadge": "{count, plural, one{1 neue Nachricht} other{{count} neue Nachrichten}}",
+  "mediaOpenBlocked": "Jay öffnet keine Programme oder Skripte. Speichern und prüfen Sie die Datei zuerst."
 }

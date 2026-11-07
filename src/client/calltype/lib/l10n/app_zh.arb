@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "Jay 无法使用麦克风。请在设置中允许。",
   "voiceRecordFailed": "无法录音。",
   "chatJumpToLatest": "跳到最新消息",
-  "chatNewMessagesBadge": "{count, plural, other{{count} 条新消息}}"
+  "chatNewMessagesBadge": "{count, plural, other{{count} 条新消息}}",
+  "mediaOpenBlocked": "Jay 不会打开程序或脚本。请先保存文件并检查。"
 }

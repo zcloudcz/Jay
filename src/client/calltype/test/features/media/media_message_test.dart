@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:calltype/features/chat/attachment.dart';
 import 'package:calltype/features/media/media_message.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 
 import '../../helpers/localized_app.dart';
 
@@ -78,6 +79,68 @@ void main() {
       expect(MediaInfo.tryParse(entry.value), isNull);
     });
   }
+
+  group('names', () {
+    final names = {
+      'a:b.txt': false,
+      'CON': false,
+      'nul.txt': false,
+      'com1.log': false,
+      'report.': false,
+      'report ': false,
+      'evil\u202Efdp.exe': false,
+      'a<b>.txt': false,
+      'console.txt': true,
+      'report.pdf': true,
+      'voice-20261107-101500.m4a': true,
+    };
+    for (final entry in names.entries) {
+      test('"${entry.key}" valid: ${entry.value}', () {
+        expect(isValidMediaName(entry.key), entry.value);
+      });
+    }
+  });
+
+  test('desktop open refuses programs and scripts', () {
+    for (final name in ['setup.EXE', 'run.sh', 'x.bat', 'a.desktop', 'b.app']) {
+      expect(isRunnableFileName(name), isTrue, reason: name);
+    }
+    for (final name in ['report.pdf', 'clip.mp4', 'README', 'exe.txt']) {
+      expect(isRunnableFileName(name), isFalse, reason: name);
+    }
+  });
+
+  test('the media id is stored in lower case', () {
+    final upper = {...valid, 'id': '6F1C2A3B-1111-4222-8333-444455556666'};
+    expect(
+      MediaInfo.tryParse(upper)!.id,
+      '6f1c2a3b-1111-4222-8333-444455556666',
+    );
+  });
+
+  group('thumbnail', () {
+    String jpeg(int w, int h) => base64Encode(
+      img.encodeJpg(img.Image(width: w, height: h), quality: 10),
+    );
+
+    test('a small JPEG is kept', () {
+      final info = MediaInfo.tryParse({...valid, 'thumbnail': jpeg(320, 180)});
+      expect(info!.thumbnail, isNotNull);
+    });
+
+    test('a JPEG declaring more than 320 px is dropped, the media stays', () {
+      final info = MediaInfo.tryParse({...valid, 'thumbnail': jpeg(321, 10)});
+      expect(info, isNotNull);
+      expect(info!.thumbnail, isNull);
+    });
+
+    test('a non-JPEG (a PNG can declare a huge canvas) is dropped', () {
+      final png = base64Encode(img.encodePng(img.Image(width: 8, height: 8)));
+      final info = MediaInfo.tryParse({...valid, 'thumbnail': png});
+      expect(info, isNotNull);
+      expect(info!.thumbnail, isNull);
+    });
+  });
 
   test('a draft (own unfinished upload) may lack id and expiry', () {
     final draft = {...valid, 'id': ''}..remove('expiresAt');

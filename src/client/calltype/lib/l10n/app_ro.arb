@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "Jay nu poate folosi microfonul. Permite-l în Setări.",
   "voiceRecordFailed": "Înregistrarea nu a reușit.",
   "chatJumpToLatest": "Mergi la cele mai noi mesaje",
-  "chatNewMessagesBadge": "{count, plural, one{1 mesaj nou} few{{count} mesaje noi} other{{count} de mesaje noi}}"
+  "chatNewMessagesBadge": "{count, plural, one{1 mesaj nou} few{{count} mesaje noi} other{{count} de mesaje noi}}",
+  "mediaOpenBlocked": "Jay nu deschide programe sau scripturi. Salvați mai întâi fișierul și verificați-l."
 }

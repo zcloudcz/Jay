@@ -374,7 +374,13 @@ class _LocalImage extends StatefulWidget {
 
 class _LocalImageState extends State<_LocalImage> {
   // Kept in state: a new Future per build would reload and flicker.
-  late final Future<Uint8List?> _bytes = widget.media.bytesOf(widget.info);
+  // A sender-declared "image" of gigabytes would be read into memory on
+  // every build of the chat: above the cap it is shown as a file instead.
+  late final Future<Uint8List?> _bytes = widget.info.size > _inlineImageLimit
+      ? Future.value()
+      : widget.media.bytesOf(widget.info);
+
+  static const _inlineImageLimit = 50 * 1024 * 1024;
 
   @override
   Widget build(BuildContext context) {
@@ -715,6 +721,13 @@ Future<void> openMediaWithSystem(
 ) async {
   final messenger = ScaffoldMessenger.of(context);
   final l10n = context.l10n;
+  // Desktop "open" hands the file to the OS shell, which RUNS programs and
+  // scripts (and files written by the app carry no download quarantine
+  // mark). Mobile goes through the share sheet and never executes.
+  if (!AttachmentMedia.isMobile && isRunnableFileName(info.name)) {
+    messenger.showSnackBar(SnackBar(content: Text(l10n.mediaOpenBlocked)));
+    return;
+  }
   var opened = false;
   try {
     final path = await media.pathOf(info);

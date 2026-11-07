@@ -45,6 +45,9 @@ public static class MediaEndpoints
     /// <summary>The smallest possible file: one empty final chunk = just its tag.</summary>
     public const long MinSize = 16;
 
+    // Read buffer of a chunk PUT (and the initial buffer size).
+    private const int ChunkReadSize = 256 * 1024;
+
     // Rolling window of the daily caps; also how long a Deleted row is kept.
     internal static readonly TimeSpan DailyWindow = TimeSpan.FromHours(24);
 
@@ -155,6 +158,25 @@ public static class MediaEndpoints
     // -----------------------------------------------------------------------
     private static async Task<IResult> UploadChunk(
         Guid id, int index, HttpRequest httpRequest, ClaimsPrincipal user, AppDbContext db,
+        BlobServiceClient blobService, IOptions<MediaOptions> options, TimeProvider clock, CancellationToken ct)
+    {
+        // Fixed-window rate limits count requests, not how long they stay
+        // open: without this a device could hold thousands of slow PUTs.
+        if (AccountEndpoints.CallerDeviceId(user) is not { } caller) return NotFound();
+        if (!ChunkUploadGate.TryEnter(caller, options.Value.MaxConcurrentChunkUploadsPerDevice))
+            return Error(StatusCodes.Status429TooManyRequests, "media_rate_limited", "Too many chunk uploads in progress.");
+        try
+        {
+            return await UploadChunkCore(id, index, httpRequest, user, db, blobService, clock, ct);
+        }
+        finally
+        {
+            ChunkUploadGate.Exit(caller);
+        }
+    }
+
+    private static async Task<IResult> UploadChunkCore(
+        Guid id, int index, HttpRequest httpRequest, ClaimsPrincipal user, AppDbContext db,
         BlobServiceClient blobService, TimeProvider clock, CancellationToken ct)
     {
         var media = await FindOwnAsync(db, user, id, ct);
@@ -173,24 +195,26 @@ public static class MediaEndpoints
             return Error(StatusCodes.Status400BadRequest, "invalid_chunk", "Chunk length does not match.");
 
         // One chunk (<= 8 MiB + 16) is buffered so StageBlock gets a seekable
-        // stream it can retry. Reading stops at expected + 1 bytes: the +1 only
-        // detects an over-long body, the rest of such a body is never read.
-        var buffer = new byte[expected];
-        var read = 0;
-        while (read < expected)
+        // stream it can retry. The buffer grows with the bytes that actually
+        // arrive (a client that announces 8 MiB and trickles pins only what it
+        // sent). Reading stops at expected + 1 bytes: the +1 only detects an
+        // over-long body, the rest of such a body is never read.
+        using var content = new MemoryStream(capacity: (int)Math.Min(expected, ChunkReadSize));
+        var buffer = new byte[ChunkReadSize];
+        while (content.Length <= expected)
         {
-            var n = await httpRequest.Body.ReadAsync(buffer.AsMemory(read), ct);
+            var want = (int)Math.Min(buffer.Length, expected + 1 - content.Length);
+            var n = await httpRequest.Body.ReadAsync(buffer.AsMemory(0, want), ct);
             if (n == 0) break;
-            read += n;
+            content.Write(buffer, 0, n);
         }
-        var probe = new byte[1];
-        if (read != expected || await httpRequest.Body.ReadAsync(probe, ct) != 0)
+        if (content.Length != expected)
             return Error(StatusCodes.Status400BadRequest, "invalid_chunk", "Chunk length does not match.");
 
         // Fixed block id per index: re-uploading the same index replaces the
         // block, which makes retries and resume idempotent (spec M4).
         var blob = MediaBlobStore.GetBlob(blobService, media.Id);
-        using var content = new MemoryStream(buffer, writable: false);
+        content.Position = 0;
         await blob.StageBlockAsync(MediaBlobStore.BlockId(index), content, new BlockBlobStageBlockOptions(), ct);
 
         return Results.NoContent();
@@ -201,11 +225,15 @@ public static class MediaEndpoints
     // -----------------------------------------------------------------------
     private static async Task<IResult> UploadState(
         Guid id, ClaimsPrincipal user, AppDbContext db, BlobServiceClient blobService,
-        IOptions<MediaOptions> options, CancellationToken ct)
+        IOptions<MediaOptions> options, TimeProvider clock, CancellationToken ct)
     {
         var media = await FindOwnAsync(db, user, id, ct);
         // A cancelled upload has nothing to resume; to the client it is gone.
         if (media is null || media.Status == MediaStatus.Deleted) return NotFound();
+        // Past the upload window (cleanup not run yet): gone as well, so the
+        // client starts a new upload instead of failing on every chunk.
+        if (media.Status == MediaStatus.Uploading && clock.GetUtcNow() >= media.ExpiresAt)
+            return Error(StatusCodes.Status410Gone, "media_expired", "Upload window has passed.");
 
         // The upload deadline is not stored once ExpiresAt switches to the
         // retention end on completion, so it is derived from CreatedAt.
@@ -348,8 +376,19 @@ public static class MediaEndpoints
         }
 
         var blob = MediaBlobStore.GetBlob(blobService, media.Id);
-        var download = await blob.DownloadStreamingAsync(
-            new BlobDownloadOptions { Range = new Azure.HttpRange(from, to - from + 1) }, ct);
+        Azure.Response<BlobDownloadStreamingResult> download;
+        try
+        {
+            download = await blob.DownloadStreamingAsync(
+                new BlobDownloadOptions { Range = new Azure.HttpRange(from, to - from + 1) }, ct);
+        }
+        catch (Azure.RequestFailedException e) when (e.Status == StatusCodes.Status404NotFound)
+        {
+            // The row says completed but the blob is gone (a cancel racing the
+            // completion, manual cleanup): for the client that is "expired",
+            // not a server error worth retrying.
+            return NotFound();
+        }
 
         var response = http.Response;
         response.StatusCode = partial ? StatusCodes.Status206PartialContent : StatusCodes.Status200OK;

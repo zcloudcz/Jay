@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "Jay no puede usar el micrófono. Permítelo en Ajustes.",
   "voiceRecordFailed": "No se pudo grabar.",
   "chatJumpToLatest": "Ir a los mensajes más recientes",
-  "chatNewMessagesBadge": "{count, plural, one{1 mensaje nuevo} other{{count} mensajes nuevos}}"
+  "chatNewMessagesBadge": "{count, plural, one{1 mensaje nuevo} other{{count} mensajes nuevos}}",
+  "mediaOpenBlocked": "Jay no abre programas ni scripts. Guarda el archivo y revísalo primero."
 }

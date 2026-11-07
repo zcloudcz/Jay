@@ -147,6 +147,12 @@ void main() {
     expect(applied.single.reactorId, 'alice');
   });
 
+  test('a media message (voice, video, large file) takes reactions', () async {
+    await seed(type: 'media');
+    await deliver(alice, reaction('❤️'));
+    expect((await reactions()).single.emoji, '❤️');
+  });
+
   test('a redelivered reaction is acked again without error', () async {
     await seed();
     final d = await deliver(alice, reaction('👍'));

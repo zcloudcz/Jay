@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "Jay माइक्रोफ़ोन का उपयोग नहीं कर सकता। सेटिंग्स में अनुमति दें।",
   "voiceRecordFailed": "रिकॉर्ड नहीं हो सका।",
   "chatJumpToLatest": "नवीनतम संदेशों पर जाएं",
-  "chatNewMessagesBadge": "{count, plural, one{1 नया संदेश} other{{count} नए संदेश}}"
+  "chatNewMessagesBadge": "{count, plural, one{1 नया संदेश} other{{count} नए संदेश}}",
+  "mediaOpenBlocked": "Jay प्रोग्राम या स्क्रिप्ट नहीं खोलता। पहले फ़ाइल सेव करें और जाँचें।"
 }

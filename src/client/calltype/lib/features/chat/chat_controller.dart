@@ -15,6 +15,7 @@ import '../media/media_cleanup.dart';
 import '../media/media_crypto.dart';
 import '../media/media_message.dart';
 import '../media/media_service.dart';
+import '../media/media_store.dart' show MediaNotAllowed;
 import 'attachment_media.dart';
 import 'package:calltype_core/network/organization_api.dart';
 import 'package:calltype_core/network/organization_dtos.dart';
@@ -482,18 +483,10 @@ class ChatController extends ChangeNotifier {
         target.body == text) {
       return false;
     }
-    final conversation = await (_db.select(
-      _db.conversations,
-    )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
     // WHY business is refused (fail closed, exactly like delete): business
     // messages are archived for audit and the archiver does not accept an
     // `edit` (it would stay queued for it until the TTL).
-    if (conversation == null || conversation.organizationId != null) {
-      return false;
-    }
-    if (conversation.type == 'group' && !await _confirmNotBusiness()) {
-      return false;
-    }
+    if (!await _outsideBusiness()) return false;
     final controlId = _uuid.v4();
     final now = DateTime.now();
     await _db.transaction(() async {
@@ -546,8 +539,22 @@ class ChatController extends ChangeNotifier {
         .go();
   }
 
+  /// Whether this conversation is known NOT to be a business one: the local
+  /// row says so and, for a group, the server confirms it. Fails CLOSED
+  /// (unknown conversation or network error = business). Shared by edit,
+  /// delete, reactions and media.
+  Future<bool> _outsideBusiness() async {
+    final conversation = await (_db.select(
+      _db.conversations,
+    )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
+    if (conversation == null || conversation.organizationId != null) {
+      return false;
+    }
+    return conversation.type != 'group' || await _confirmNotBusiness();
+  }
+
   /// Asks the server whether this group is a business group, failing CLOSED
-  /// (a network error counts as "business"). Shared by delete and edit.
+  /// (a network error counts as "business").
   Future<bool> _confirmNotBusiness() async {
     // The cached organizationId may simply not be filled in yet. Asked
     // directly instead of through getGroupBusinessInfo: that helper turns a
@@ -633,6 +640,10 @@ class ChatController extends ChangeNotifier {
     if (!isValidMediaName(source.name)) {
       throw ArgumentError('Invalid media name');
     }
+    // Fail closed like edit, delete and reactions: a business archive
+    // (K01) would record only the fallback text of a media message, and
+    // the file itself is gone from the server after the retention.
+    if (!await _outsideBusiness()) throw const MediaNotAllowed();
     final id = _uuid.v4();
     final folder = MediaService.uploadFolder(id);
     final stored = await media.importForUpload(
@@ -818,17 +829,9 @@ class ChatController extends ChangeNotifier {
         !isValidReactionEmoji(emoji)) {
       return false;
     }
-    final conversation = await (_db.select(
-      _db.conversations,
-    )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
     // Fail closed, like edit and delete: the archiver of a business
     // conversation would have to record reactions too (v1: none there).
-    if (conversation == null || conversation.organizationId != null) {
-      return false;
-    }
-    if (conversation.type == 'group' && !await _confirmNotBusiness()) {
-      return false;
-    }
+    if (!await _outsideBusiness()) return false;
     final previous = await reactionOf(_db, messageId, myIdentityId);
     final next = previous?.emoji == emoji ? '' : emoji;
     final controlId = _uuid.v4();
@@ -941,17 +944,9 @@ class ChatController extends ChangeNotifier {
         target.status == 'failed') {
       return false;
     }
-    final conversation = await (_db.select(
-      _db.conversations,
-    )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
-    if (conversation == null || conversation.organizationId != null) {
-      return false;
-    }
     // Fail CLOSED: business messages are archived and must never be
     // retracted.
-    if (conversation.type == 'group' && !await _confirmNotBusiness()) {
-      return false;
-    }
+    if (!await _outsideBusiness()) return false;
     // A local row of type 'delete' reuses the outbox, so a retry resends the
     // SAME ciphertext and the receiver's redelivery marker keeps it idempotent.
     // It deliberately does not touch lastMessageAt.

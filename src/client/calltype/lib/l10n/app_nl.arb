@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "Jay mag de microfoon niet gebruiken. Sta het toe in Instellingen.",
   "voiceRecordFailed": "Opnemen mislukt.",
   "chatJumpToLatest": "Naar de nieuwste berichten",
-  "chatNewMessagesBadge": "{count, plural, one{1 nieuw bericht} other{{count} nieuwe berichten}}"
+  "chatNewMessagesBadge": "{count, plural, one{1 nieuw bericht} other{{count} nieuwe berichten}}",
+  "mediaOpenBlocked": "Jay opent geen programma's of scripts. Sla het bestand eerst op en controleer het."
 }

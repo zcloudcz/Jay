@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:calltype_core/messaging/reaction.dart' show reactionType;
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -179,7 +180,11 @@ class BackupController extends ChangeNotifier {
         () async => (
           await _db.select(_db.contacts).get(),
           await _db.select(_db.conversations).get(),
-          await _db.select(_db.messages).get(),
+          // An in-flight reaction send is a local row too; an older app's
+          // import rejects that type and would fail the whole restore.
+          await (_db.select(
+            _db.messages,
+          )..where((m) => m.type.isNotValue(reactionType))).get(),
           await _db.select(_db.messageReactions).get(),
         ),
       );

@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "Jay mikrofonu kullanamıyor. Ayarlar'dan izin verin.",
   "voiceRecordFailed": "Kayıt yapılamadı.",
   "chatJumpToLatest": "En yeni mesajlara git",
-  "chatNewMessagesBadge": "{count, plural, one{1 yeni mesaj} other{{count} yeni mesaj}}"
+  "chatNewMessagesBadge": "{count, plural, one{1 yeni mesaj} other{{count} yeni mesaj}}",
+  "mediaOpenBlocked": "Jay program veya betik açmaz. Önce dosyayı kaydedip kontrol edin."
 }

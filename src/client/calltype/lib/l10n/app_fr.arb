@@ -695,5 +695,6 @@
   "voiceMicrophoneDenied": "Jay n’a pas accès au micro. Autorisez-le dans les Réglages.",
   "voiceRecordFailed": "Enregistrement impossible.",
   "chatJumpToLatest": "Aller aux derniers messages",
-  "chatNewMessagesBadge": "{count, plural, one{1 nouveau message} other{{count} nouveaux messages}}"
+  "chatNewMessagesBadge": "{count, plural, one{1 nouveau message} other{{count} nouveaux messages}}",
+  "mediaOpenBlocked": "Jay n'ouvre pas les programmes ni les scripts. Enregistrez d'abord le fichier et vérifiez-le."
 }

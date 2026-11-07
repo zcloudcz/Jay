@@ -281,6 +281,51 @@ public class MediaEndpointsTests : IntegrationTestBase
         (await ErrorCodeAsync(response)).Should().Be("media_expired");
     }
 
+    [Fact]
+    public async Task Upload_state_after_the_upload_window_is_410_so_the_client_starts_over()
+    {
+        var device = await NewDeviceAsync(Factory);
+        var id = await CreateOkAsync(device.Http, 100);
+        await UpdateRowAsync(id, m => m.ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1));
+
+        var response = await device.Http.GetAsync($"/media/{id}/upload");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Gone);
+        (await ErrorCodeAsync(response)).Should().Be("media_expired");
+    }
+
+    [Fact]
+    public async Task Chunk_puts_over_the_per_device_in_flight_cap_are_429()
+    {
+        var factory = WithSettings(("Media:MaxConcurrentChunkUploadsPerDevice", "0"));
+        var device = await NewDeviceAsync(factory);
+        var id = await CreateOkAsync(device.Http, 100);
+
+        var response = await PutChunkAsync(device.Http, id, 0, Bytes(100));
+
+        response.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        (await ErrorCodeAsync(response)).Should().Be("media_rate_limited");
+    }
+
+    [Fact]
+    public void Chunk_upload_gate_counts_per_device_and_releases_slots()
+    {
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        ChunkUploadGate.TryEnter(a, 2).Should().BeTrue();
+        ChunkUploadGate.TryEnter(a, 2).Should().BeTrue();
+        ChunkUploadGate.TryEnter(a, 2).Should().BeFalse();
+        ChunkUploadGate.TryEnter(b, 2).Should().BeTrue();
+        ChunkUploadGate.Exit(a);
+        ChunkUploadGate.TryEnter(a, 2).Should().BeTrue();
+        ChunkUploadGate.Exit(a);
+        ChunkUploadGate.Exit(a);
+        ChunkUploadGate.Exit(b);
+        ChunkUploadGate.Exit(b); // extra exit is harmless
+        ChunkUploadGate.TryEnter(b, 1).Should().BeTrue();
+        ChunkUploadGate.Exit(b);
+    }
+
     // ------------------------------------------------------- uploader-only
 
     [Fact]
@@ -489,6 +534,21 @@ public class MediaEndpointsTests : IntegrationTestBase
         var gone = await receiver.Http.GetAsync($"/media/{id}");
         gone.StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await ErrorCodeAsync(gone)).Should().Be("media_not_found");
+    }
+
+    [Fact]
+    public async Task Download_of_completed_media_whose_blob_is_gone_is_404_not_500()
+    {
+        var uploader = await NewDeviceAsync(Factory);
+        var receiver = await NewDeviceAsync(Factory);
+        var id = await UploadCompletedAsync(uploader.Http, Bytes(100));
+        var blobs = Factory.Services.GetRequiredService<BlobServiceClient>();
+        await MediaBlobStore.GetBlob(blobs, id).DeleteIfExistsAsync();
+
+        var response = await receiver.Http.GetAsync($"/media/{id}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await ErrorCodeAsync(response)).Should().Be("media_not_found");
     }
 
     // ---------------------------------------------------------------- CORS
