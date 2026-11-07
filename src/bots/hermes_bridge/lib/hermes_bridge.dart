@@ -398,6 +398,19 @@ const botLimitNotice = 'Bot limit reached, waiting for a human.';
 /// Answer to an approval button pressed by someone who is not an owner.
 const approvalOwnerOnlyNotice = 'Only the bot owner can approve.';
 
+/// An answer that is exactly this (trimmed, any case) sends nothing. The
+/// agent's way to end a bot exchange without feeding it one more message.
+const silentReply = '[SILENT]';
+
+/// Appended to every bot message the agent sees, so it knows how to stay
+/// quiet. WHY in the prompt: each bridge's agent learns it without any
+/// per-agent setup.
+const botSilenceHint =
+    '\n[This message is from a bot. Answer $silentReply to send nothing.]';
+
+/// True when [text] means "send nothing".
+bool isSilentReply(String text) => text.trim().toUpperCase() == silentReply;
+
 /// Same text the runtime uses for a failed handler.
 const _apology = 'Sorry, something went wrong. Please try again.';
 
@@ -540,9 +553,14 @@ class HermesBridge {
     // The prefix tells the agent who is speaking (and that it is a bot).
     // Batched reactions of this conversation ride along, oldest first.
     final batched = _pendingReactions.remove(message.conversationId);
+    final fromBot = human == null;
     await _runTurn(
       message,
-      [...?batched, '$label: ${_withContext(message)}'].join('\n'),
+      [
+        ...?batched,
+        '$label: ${_withContext(message)}${fromBot ? botSilenceHint : ''}',
+      ].join('\n'),
+      fromBot: fromBot,
     );
   }
 
@@ -630,9 +648,18 @@ class HermesBridge {
 
   /// One backend turn: progress message after a while, approvals as
   /// buttons, the final answer replacing the progress message.
-  Future<void> _runTurn(BotMessage message, String prompt) async {
+  ///
+  /// [fromBot]: the turn answers another bot. WHY no progress message then:
+  /// it is a group reply that quotes the other bot, the quote addresses that
+  /// bot, and it answers the "Working on it..." as one more message. WHY an
+  /// empty answer is silence then: an apology would feed the exchange too.
+  Future<void> _runTurn(
+    BotMessage message,
+    String prompt, {
+    bool fromBot = false,
+  }) async {
     final progress = ProgressReporter(
-      settings: _progress,
+      settings: fromBot ? ProgressSettings.never : _progress,
       post: message.reply,
       log: _log,
     )..start();
@@ -662,6 +689,13 @@ class HermesBridge {
       final text = completed != null && completed.trim().isNotEmpty
           ? completed
           : answer.toString();
+      if (isSilentReply(text) || (fromBot && text.trim().isEmpty)) {
+        // A progress message already on screen cannot be taken back; it is
+        // closed with a neutral mark instead of an answer.
+        await progress.finish('-');
+        _log('Turn for message ${message.id}: silent, nothing sent.');
+        return;
+      }
       if (text.trim().isEmpty) {
         throw const FormatException('Hermes returned no assistant text.');
       }

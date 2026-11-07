@@ -153,14 +153,21 @@ void main() {
     final backendCalls = <String>[];
     final logs = <String>[];
 
+    // What the backend answers; null = 'answer to <prompt>'.
+    String? reply;
+    var delay = Duration.zero;
+
     Future<String> backend(String text, {required String conversationId}) async {
       backendCalls.add('$conversationId: $text');
-      return 'answer to $text';
+      await Future<void>.delayed(delay);
+      return reply ?? 'answer to $text';
     }
 
     setUp(() async {
       backendCalls.clear();
       logs.clear();
+      reply = null;
+      delay = Duration.zero;
       dir = await Directory.systemTemp.createTemp('hermes_bridge_test');
       api = await FakeApi.start();
       hub = FakeHub();
@@ -294,8 +301,48 @@ void main() {
       test('mode all, owner admin: backend gets the "(bot)" label', () async {
         await start();
         await say(peer, 'ping');
-        expect(backendCalls, ['$groupId: [from CT-PEER-0002 (bot)]: @${bot.handle} ping']);
+        expect(backendCalls, ['$groupId: [from CT-PEER-0002 (bot)]: @${bot.handle} ping$botSilenceHint']);
         expect(hub.calls('SendReliableGroupFanout'), hasLength(1));
+      });
+
+      test('[SILENT] answer to a bot: nothing is sent, the turn still counts', () async {
+        await start();
+        reply = '  [silent]\n';
+        await say(peer, 'bye');
+        expect(backendCalls, hasLength(1));
+        expect(hub.calls('SendReliableGroupFanout'), isEmpty);
+        expect(logs.join('\n'), contains('silent, nothing sent'));
+      });
+
+      test('empty answer to a bot: no apology either', () async {
+        await start();
+        reply = '   ';
+        await say(peer, 'bye');
+        expect(hub.calls('SendReliableGroupFanout'), isEmpty);
+      });
+
+      test('slow answer to a bot: no progress message, only the answer', () async {
+        await runBridge(
+          bot,
+          allowedHandles: {'CT-AAAA-0001'},
+          now: () => clock,
+          backend: backend,
+          progress: const ProgressSettings(after: Duration(milliseconds: 10)),
+          log: logs.add,
+        );
+        delay = const Duration(milliseconds: 200);
+        await say(peer, 'slow');
+        final sent = hub.calls('SendReliableGroupFanout');
+        expect(sent, hasLength(1));
+        final body = (sent.single[3] as Map<String, String>)[alice.id]!;
+        expect(await alice.read(bot.deviceId, body), startsWith('answer to'));
+      });
+
+      test('[SILENT] answer to the owner: nothing is sent', () async {
+        await start();
+        reply = '[SILENT]';
+        await say(alice, 'quiet please');
+        expect(hub.calls('SendReliableGroupFanout'), isEmpty);
       });
 
       test('human message gets the plain handle label', () async {
