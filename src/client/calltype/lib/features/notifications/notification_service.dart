@@ -9,6 +9,7 @@ import '../../core/network/push_service.dart';
 import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../chat/attachment.dart';
+import '../chat/reactions.dart' show AppliedReaction;
 import 'local_notifier.dart';
 import 'notification_content.dart';
 
@@ -328,6 +329,54 @@ class NotificationService extends ChangeNotifier {
       await _show(target, text);
     } catch (_) {
       // A notification must never break message processing.
+    }
+  }
+
+  /// A reaction the inbox applied (spec 2026-11-07-message-reactions): only
+  /// someone else's reaction on MY message notifies, under the same rules as
+  /// a message (mute, open chat, previews). Removals never do.
+  Future<void> onReaction(AppliedReaction reaction) async {
+    final target = reaction.target;
+    final self = _directory.selfIdentityId;
+    if (reaction.emoji.isEmpty || target == null || self == null) return;
+    if (target.senderId.toLowerCase() != self.toLowerCase()) return;
+    try {
+      final conversation = await _directory.conversation(
+        reaction.conversationId,
+      );
+      final kind = conversation.group
+          ? NotificationKind.groupMessage
+          : NotificationKind.message;
+      final sender = await _directory.contact(reaction.reactorId);
+      final where = NotificationTarget(kind, reaction.conversationId);
+      if (_skip(
+        where,
+        fromSelf: reaction.reactorId.toLowerCase() == self.toLowerCase(),
+        senderIsBot: sender.isBot,
+      )) {
+        return;
+      }
+      final l10n = _strings();
+      final heading =
+          conversation.title == null || conversation.title!.trim().isEmpty
+          ? 'Jay'
+          : conversation.title!;
+      final preview = _previewOf(target);
+      final quoted = switch (preview?.kind) {
+        PreviewKind.photo => l10n.notificationPhoto,
+        PreviewKind.file => l10n.notificationFile,
+        _ => truncatePreview(preview?.text ?? ''),
+      };
+      final body = _previews
+          ? l10n.notificationReaction(
+              sender.name ?? heading,
+              reaction.emoji,
+              quoted,
+            )
+          : genericNotificationBody(l10n, kind);
+      await _show(where, NotificationText(heading, body));
+    } catch (_) {
+      // Best effort, like every notification.
     }
   }
 

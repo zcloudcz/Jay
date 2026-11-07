@@ -650,5 +650,10 @@
   "chatPhotoPreviewTitle": "{count, plural, zero{إرسال الصور} one{إرسال الصورة} two{إرسال صورتين} few{إرسال {count} صور} many{إرسال {count} صورة} other{إرسال {count} صورة}}",
   "chatPhotoPreviewRemove": "إزالة الصورة",
   "chatPhotoCaptionHint": "أضف تعليقًا",
-  "notificationPhotoCaption": "صورة: {caption}"
+  "notificationPhotoCaption": "صورة: {caption}",
+  "chatReactionMore": "مزيد من التفاعلات",
+  "chatReactionsTitle": "التفاعلات",
+  "chatReactionTapToRemove": "انقر للإزالة",
+  "chatReactionFailed": "تعذّر إرسال التفاعل.",
+  "notificationReaction": "تفاعل {name} بـ {emoji} مع: {preview}"
 }

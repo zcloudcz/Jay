@@ -650,5 +650,10 @@
   "chatPhotoPreviewTitle": "{count, plural, one{Odeslat fotku} few{Odeslat {count} fotky} many{Odeslat {count} fotky} other{Odeslat {count} fotek}}",
   "chatPhotoPreviewRemove": "Odebrat fotku",
   "chatPhotoCaptionHint": "Přidat popisek",
-  "notificationPhotoCaption": "Fotka: {caption}"
+  "notificationPhotoCaption": "Fotka: {caption}",
+  "chatReactionMore": "Další reakce",
+  "chatReactionsTitle": "Reakce",
+  "chatReactionTapToRemove": "Klepnutím odeberete",
+  "chatReactionFailed": "Reakci se nepodařilo odeslat.",
+  "notificationReaction": "{name} reaguje {emoji} na: {preview}"
 }

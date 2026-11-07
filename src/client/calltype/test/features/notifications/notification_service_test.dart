@@ -1,4 +1,6 @@
 import 'package:calltype/core/network/push_service.dart';
+import 'package:calltype/core/storage/database.dart';
+import 'package:calltype/features/chat/reactions.dart';
 import 'package:calltype/features/notifications/local_notifier.dart';
 import 'package:calltype/features/notifications/notification_content.dart';
 import 'package:calltype/features/notifications/notification_service.dart';
@@ -107,6 +109,103 @@ void main() {
       await h.service.refreshPermission();
       await h.service.onMessage(message());
       expect(h.notifier.shown, isEmpty);
+    });
+  });
+
+  group('reactions', () {
+    late NotificationHarness h;
+    setUp(() async {
+      h = NotificationHarness();
+      h.directory.contacts['alice'] = (name: 'Alice', isBot: false);
+      h.directory.contacts['bob'] = (name: 'Bob', isBot: false);
+      h.directory.contacts['botty'] = (name: 'Botty', isBot: true);
+      h.directory.groups['team'] = 'Team';
+      await h.service.start();
+    });
+
+    AppliedReaction reacted({
+      String emoji = '👍',
+      String reactor = 'alice',
+      String conversationId = 'alice',
+      Message? target,
+    }) => AppliedReaction(
+      conversationId: conversationId,
+      reactorId: reactor,
+      emoji: emoji,
+      target:
+          target ??
+          message(
+            conversationId: conversationId,
+            senderId: 'me',
+            body: 'Ship it?',
+          ),
+    );
+
+    test('someone reacting to my message: who, what, to which text', () async {
+      await h.service.onReaction(reacted());
+      final n = h.notifier.shown.single;
+      expect(n.title, 'Alice');
+      expect(n.body, 'Alice reacted 👍 to: Ship it?');
+      expect(
+        n.target,
+        const NotificationTarget(NotificationKind.message, 'alice'),
+      );
+    });
+
+    test('in a group: the group is the title', () async {
+      await h.service.onReaction(
+        reacted(reactor: 'bob', conversationId: 'team', emoji: '❤️'),
+      );
+      final n = h.notifier.shown.single;
+      expect(n.title, 'Team');
+      expect(n.body, 'Bob reacted ❤️ to: Ship it?');
+    });
+
+    test('not for removals, others\' messages, my own reactions or an '
+        'unknown target', () async {
+      await h.service.onReaction(reacted(emoji: ''));
+      await h.service.onReaction(
+        reacted(
+          target: message(senderId: 'alice', body: 'hers'),
+        ),
+      );
+      await h.service.onReaction(reacted(reactor: 'me'));
+      await h.service.onReaction(
+        const AppliedReaction(
+          conversationId: 'alice',
+          reactorId: 'alice',
+          emoji: '👍',
+          target: null,
+        ),
+      );
+      expect(h.notifier.shown, isEmpty);
+    });
+
+    test('muted, open chat or previews off follow the message rules', () async {
+      h.mutes['alice'] = MuteMode.all;
+      await h.service.onReaction(reacted());
+      expect(h.notifier.shown, isEmpty);
+      h.mutes.clear();
+      h.path = '/chats/alice';
+      await h.service.onReaction(reacted());
+      expect(h.notifier.shown, isEmpty);
+      h.path = '/chats';
+      await h.service.setPreviews(false);
+      await h.service.onReaction(reacted());
+      expect(h.notifier.shown.single.body, 'New message');
+    });
+
+    test('a photo is named, not quoted', () async {
+      await h.service.onReaction(
+        reacted(
+          target: message(
+            senderId: 'me',
+            type: 'file',
+            body: '{"name":"cat.png","data":"AAAA"}',
+          ),
+        ),
+      );
+      expect(h.notifier.shown.single.body, 'Alice reacted 👍 to: Photo');
     });
   });
 

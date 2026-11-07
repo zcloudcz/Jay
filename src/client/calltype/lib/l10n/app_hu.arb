@@ -650,5 +650,10 @@
   "chatPhotoPreviewTitle": "{count, plural, =1{Fénykép küldése} other{{count} fénykép küldése}}",
   "chatPhotoPreviewRemove": "Fénykép eltávolítása",
   "chatPhotoCaptionHint": "Képaláírás hozzáadása",
-  "notificationPhotoCaption": "Fénykép: {caption}"
+  "notificationPhotoCaption": "Fénykép: {caption}",
+  "chatReactionMore": "További reakciók",
+  "chatReactionsTitle": "Reakciók",
+  "chatReactionTapToRemove": "Koppintson az eltávolításhoz",
+  "chatReactionFailed": "A reakciót nem sikerült elküldeni.",
+  "notificationReaction": "{name} {emoji} reakciót küldött erre: {preview}"
 }

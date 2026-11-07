@@ -650,5 +650,10 @@
   "chatPhotoPreviewTitle": "{count, plural, =1{Foto versturen} other{{count} foto's versturen}}",
   "chatPhotoPreviewRemove": "Foto verwijderen",
   "chatPhotoCaptionHint": "Bijschrift toevoegen",
-  "notificationPhotoCaption": "Foto: {caption}"
+  "notificationPhotoCaption": "Foto: {caption}",
+  "chatReactionMore": "Meer reacties",
+  "chatReactionsTitle": "Reacties",
+  "chatReactionTapToRemove": "Tik om te verwijderen",
+  "chatReactionFailed": "De reactie kon niet worden verzonden.",
+  "notificationReaction": "{name} reageerde {emoji} op: {preview}"
 }

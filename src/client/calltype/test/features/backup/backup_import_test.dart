@@ -157,4 +157,56 @@ void main() {
     await expectLater(importBackup(db, data), throwsFormatException);
     expect(await db.select(db.contacts).get(), isEmpty);
   });
+
+  test('reactions restore; bad rows and foreign conversations are skipped, '
+      'reaction control rows are not resurrected', () async {
+    final data = fixture();
+    final base = (data['messages'] as List).single as Map<String, dynamic>;
+    data['messages'] = [
+      base,
+      {...base, 'id': 'ctl', 'type': 'reaction', 'status': 'sending'},
+    ];
+    data['reactions'] = [
+      {
+        'messageId': 'message',
+        'reactorId': 'peer',
+        'conversationId': 'chat',
+        'emoji': '👍',
+        'reactedAt': 1700000000000,
+      },
+      {
+        'messageId': 'message',
+        'reactorId': 'me',
+        'conversationId': 'chat',
+        'emoji': '',
+        'reactedAt': 1700000000001,
+      },
+      {
+        'messageId': 'message',
+        'reactorId': 'x',
+        'conversationId': 'chat',
+        'emoji': 'not an emoji',
+        'reactedAt': 1,
+      },
+      {
+        'messageId': 'message',
+        'reactorId': 'y',
+        'conversationId': 'elsewhere',
+        'emoji': '👍',
+        'reactedAt': 1,
+      },
+      'junk',
+    ];
+    await importBackup(db, data);
+    expect((await db.select(db.messages).get()).map((m) => m.id), [
+      'message',
+    ]);
+    final rows = await db.select(db.messageReactions).get();
+    expect({for (final r in rows) r.reactorId: r.emoji}, {'peer': '👍', 'me': ''});
+  });
+
+  test('a backup without reactions still restores', () async {
+    await importBackup(db, fixture());
+    expect(await db.select(db.messageReactions).get(), isEmpty);
+  });
 }

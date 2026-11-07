@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:drift/drift.dart';
 import '../../core/storage/database.dart';
+import '../chat/reactions.dart';
 
 Future<void> importBackup(AppDatabase db, dynamic input) async {
   if (input is! Map<String, dynamic> || input['version'] != 1) {
@@ -52,12 +53,17 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
     );
   }).toList();
   final conversationIds = conversations.map((c) => c.id.value).toSet();
-  // 'delete' / 'edit' rows are transient outbox control messages
+  // 'delete' / 'edit' / 'reaction' rows are transient outbox control messages
   // (deleteForEveryone, editMessage). A backup taken while one was pending
   // must not resurrect it: it has no bubble and would be resent. Skipped, not
   // rejected, so one such row cannot fail a whole restore.
   final messages = rows('messages')
-      .where((m) => m['type'] != 'delete' && m['type'] != 'edit')
+      .where(
+        (m) =>
+            m['type'] != 'delete' &&
+            m['type'] != 'edit' &&
+            m['type'] != 'reaction',
+      )
       .map((m) {
     final conversationId = requiredText(m, 'conversationId');
     if (!conversationIds.contains(conversationId)) {
@@ -109,8 +115,35 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
       ),
     );
   }).toList();
+  // Optional and lenient: a bad reaction row is skipped, never a failed
+  // restore (they are decorations of messages, not history).
+  final rawReactions = input['reactions'];
+  final reactions = <MessageReactionsCompanion>[
+    if (rawReactions is List)
+      for (final r in rawReactions)
+        if (r is Map &&
+            r['messageId'] is String &&
+            r['reactorId'] is String &&
+            r['conversationId'] is String &&
+            conversationIds.contains(r['conversationId']) &&
+            r['emoji'] is String &&
+            (r['emoji'] == '' || isValidReactionEmoji(r['emoji'] as String)) &&
+            r['reactedAt'] is int)
+          MessageReactionsCompanion.insert(
+            messageId: r['messageId'] as String,
+            reactorId: r['reactorId'] as String,
+            conversationId: r['conversationId'] as String,
+            emoji: r['emoji'] as String,
+            reactedAt: r['reactedAt'] as int,
+          ),
+  ];
   await db.transaction(() async {
     await db.batch((batch) {
+      batch.insertAll(
+        db.messageReactions,
+        reactions,
+        mode: InsertMode.insertOrIgnore,
+      );
       batch.insertAll(db.contacts, contacts, mode: InsertMode.insertOrIgnore);
       batch.insertAll(
         db.conversations,

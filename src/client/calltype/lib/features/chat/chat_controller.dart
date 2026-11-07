@@ -19,6 +19,7 @@ import '../../core/storage/database.dart';
 import 'message_inbox_service.dart';
 import 'attachment.dart';
 import 'bot_commands.dart';
+import 'reactions.dart';
 
 /// Handed to the chat route (`GoRouter` `extra`) by the forward dialog; the
 /// route's `create:` sends it once on the freshly created controller.
@@ -30,7 +31,7 @@ class ForwardDraft {
 
 /// Local `messages.type` values that are outbox control messages, never
 /// chat bubbles.
-const controlTypes = ['delete', 'edit'];
+const controlTypes = ['delete', 'edit', reactionType];
 
 /// Handed to the chat route (`GoRouter` `extra`) by the bot deep link: text
 /// put into the composer, NEVER sent on its own (the user presses send).
@@ -93,6 +94,24 @@ class ChatController extends ChangeNotifier {
             .watch()
             .listen((rows) {
               _messages = rows;
+              if (!_disposed) notifyListeners();
+            });
+    // Bound to THIS conversation: a reaction stored under another
+    // conversation never shows here, even if it names a message id of ours.
+    _reactionSubscription =
+        (_db.select(_db.messageReactions)
+              ..where((r) => r.conversationId.equals(conversationId))
+              ..where((r) => r.emoji.equals('').not()))
+            .watch()
+            .listen((rows) {
+              final byMessage = <String, List<MessageReaction>>{};
+              for (final row in rows) {
+                (byMessage[row.messageId] ??= []).add(row);
+              }
+              _reactions = {
+                for (final MapEntry(:key, :value) in byMessage.entries)
+                  key: summarizeReactions(value, myId: myIdentityId),
+              };
               if (!_disposed) notifyListeners();
             });
     _incoming = inbox.persistedMessages.listen((message) {
@@ -226,6 +245,20 @@ class ChatController extends ChangeNotifier {
   /// not a loop.
   static const _maxFanoutRounds = 3;
   late StreamSubscription<List<Message>> _subscription;
+  late StreamSubscription<List<MessageReaction>> _reactionSubscription;
+  Map<String, List<ReactionSummary>> _reactions = const {};
+
+  /// Reaction chips of [messageId] (empty for none).
+  List<ReactionSummary> reactionsOf(String messageId) =>
+      _reactions[messageId] ?? const [];
+
+  /// The emoji the local user put on [messageId], or null.
+  String? myReactionOf(String messageId) {
+    for (final chip in reactionsOf(messageId)) {
+      if (chip.mine) return chip.emoji;
+    }
+    return null;
+  }
   late StreamSubscription<Message> _incoming;
   bool _disposed = false;
   List<Message> _messages = [];
@@ -562,9 +595,115 @@ class ChatController extends ChangeNotifier {
   Future<void> sendForwarded({required String body, required String type}) =>
       _send(body, type, forwarded: true);
 
+  /// Whether the local user may react to [message] here: a real, sent
+  /// bubble that is not a tombstone, outside business conversations (spec
+  /// 2026-11-07-message-reactions, decisions).
+  bool canReact(Message message, {required bool business}) =>
+      !business &&
+      !message.deleted &&
+      reactableTypes.contains(message.type) &&
+      message.status != 'sending' &&
+      message.status != 'failed';
+
+  /// Puts [emoji] on [messageId] for everyone in the conversation, WhatsApp
+  /// style: one reaction per person, another emoji replaces it, the same
+  /// emoji again removes it. Sent as a `type: reaction` control message
+  /// through the normal outbox (our other devices get it through the same
+  /// fan-out). Applied locally right away; restored if the send fails.
+  /// Returns false when not allowed or the send failed.
+  Future<bool> react(String messageId, String emoji) async {
+    final target = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(messageId))).getSingleOrNull();
+    if (target == null ||
+        target.conversationId != conversationId ||
+        !canReact(target, business: false) ||
+        !isValidReactionEmoji(emoji)) {
+      return false;
+    }
+    final conversation = await (_db.select(
+      _db.conversations,
+    )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
+    // Fail closed, like edit and delete: the archiver of a business
+    // conversation would have to record reactions too (v1: none there).
+    if (conversation == null || conversation.organizationId != null) {
+      return false;
+    }
+    if (conversation.type == 'group' && !await _confirmNotBusiness()) {
+      return false;
+    }
+    final previous = await reactionOf(_db, messageId, myIdentityId);
+    final next = previous?.emoji == emoji ? '' : emoji;
+    final controlId = _uuid.v4();
+    final now = DateTime.now();
+    final reactedAt = now.millisecondsSinceEpoch;
+    await _db.transaction(() async {
+      await applyReaction(
+        _db,
+        messageId: messageId,
+        reactorId: myIdentityId,
+        conversationId: conversationId,
+        emoji: next,
+        reactedAt: reactedAt,
+      );
+      await _db
+          .into(_db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: controlId,
+              conversationId: conversationId,
+              senderId: myIdentityId,
+              body: Value(
+                ReactionPayload(targetId: messageId, emoji: next).encode(),
+              ),
+              type: const Value(reactionType),
+              status: const Value('sending'),
+              createdAt: now,
+            ),
+          );
+      // WHY createdAt as an extra key: the messages column keeps whole
+      // seconds only, and receivers order a person's reactions by it (last
+      // writer wins). Extra keys are spread after the defaults, so this
+      // millisecond value is what goes on the wire.
+      await _storeExtra(controlId, {
+        'createdAt': DateTime.fromMillisecondsSinceEpoch(
+          reactedAt,
+        ).toUtc().toIso8601String(),
+      });
+    });
+    await retryMessage(controlId);
+    final control = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(controlId))).getSingleOrNull();
+    final sent = control?.status == 'sent';
+    await _db.transaction(() async {
+      if (!sent) {
+        // Restore what was there, unless the user reacted again meanwhile.
+        final current = await reactionOf(_db, messageId, myIdentityId);
+        if (current != null && current.reactedAt == reactedAt) {
+          if (previous == null) {
+            await (_db.delete(_db.messageReactions)..where(
+                  (r) =>
+                      r.messageId.equals(messageId) &
+                      r.reactorId.equals(myIdentityId),
+                ))
+                .go();
+          } else {
+            await _db
+                .into(_db.messageReactions)
+                .insertOnConflictUpdate(previous);
+          }
+        }
+      }
+      await _dropControl(controlId);
+    });
+    return sent;
+  }
+
   /// Removes the message from this device only. Works for any message,
   /// including tombstones and failed sends (also drops its pending outbox).
   Future<void> deleteForMe(String messageId) => _db.transaction(() async {
+    await deleteReactionsOf(_db, messageId);
     await (_db.delete(_db.messages)..where((m) => m.id.equals(messageId))).go();
     await (_db.delete(_db.backupState)..where(
           (s) => s.key.isIn(['outbox:$messageId', 'extra:$messageId']),
@@ -968,6 +1107,7 @@ class ChatController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _subscription.cancel();
+    _reactionSubscription.cancel();
     _incoming.cancel();
     super.dispose();
   }

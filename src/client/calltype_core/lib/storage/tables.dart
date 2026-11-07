@@ -300,3 +300,35 @@ class KnownDeviceListMembers extends Table {
   @override
   Set<Column> get primaryKey => {deviceId};
 }
+
+/// Chat reactions (`type: reaction`, spec 2026-11-07-message-reactions.md):
+/// the CURRENT reaction of each person on a message. One row per
+/// (message, reactor); a new emoji overwrites it.
+///
+/// WHY a table and not a column on [Messages]: a group message can carry a
+/// reaction per member, and a reaction may arrive before its target (another
+/// sender's queue), so it must be storable without the message row.
+class MessageReactions extends Table {
+  /// The reacted-to message ([Messages.id]).
+  TextColumn get messageId => text()();
+
+  /// IDENTITY of the reactor (a user's primary device id), like
+  /// [Messages.senderId]: all devices of a user share one reaction.
+  TextColumn get reactorId => text()();
+
+  /// Conversation the reaction was sent in. Shown only under a message of
+  /// the SAME conversation, so a reaction cannot attach to a message
+  /// elsewhere by naming its id.
+  TextColumn get conversationId => text()();
+
+  /// The emoji; '' = removed. A removal is kept as a row so an older
+  /// reaction that arrives late cannot bring it back.
+  TextColumn get emoji => text()();
+
+  /// Sender's `createdAt` in milliseconds since epoch: last writer wins.
+  /// An int, not a drift DateTime, which keeps only whole seconds.
+  IntColumn get reactedAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {messageId, reactorId};
+}

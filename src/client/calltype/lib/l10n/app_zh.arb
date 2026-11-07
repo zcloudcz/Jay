@@ -650,5 +650,10 @@
   "chatPhotoPreviewTitle": "{count, plural, =1{发送照片} other{发送 {count} 张照片}}",
   "chatPhotoPreviewRemove": "移除照片",
   "chatPhotoCaptionHint": "添加说明",
-  "notificationPhotoCaption": "照片：{caption}"
+  "notificationPhotoCaption": "照片：{caption}",
+  "chatReactionMore": "更多回应",
+  "chatReactionsTitle": "回应",
+  "chatReactionTapToRemove": "点按以移除",
+  "chatReactionFailed": "无法发送回应。",
+  "notificationReaction": "{name} 用 {emoji} 回应了：{preview}"
 }

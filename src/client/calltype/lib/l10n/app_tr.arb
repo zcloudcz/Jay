@@ -650,5 +650,10 @@
   "chatPhotoPreviewTitle": "{count, plural, =1{Fotoğrafı gönder} other{{count} fotoğraf gönder}}",
   "chatPhotoPreviewRemove": "Fotoğrafı kaldır",
   "chatPhotoCaptionHint": "Açıklama ekle",
-  "notificationPhotoCaption": "Fotoğraf: {caption}"
+  "notificationPhotoCaption": "Fotoğraf: {caption}",
+  "chatReactionMore": "Diğer tepkiler",
+  "chatReactionsTitle": "Tepkiler",
+  "chatReactionTapToRemove": "Kaldırmak için dokunun",
+  "chatReactionFailed": "Tepki gönderilemedi.",
+  "notificationReaction": "{name}, {emoji} ile tepki verdi: {preview}"
 }
