@@ -100,6 +100,23 @@ class BotReaction {
   indicator, and is acked after the handler (at most once, like messages). A handler error is logged
   and NOT answered with an apology.
 
+Sending (same wire shape as the app, 1:1 and groups):
+
+```dart
+Future<void> sendReaction({required String to, required String targetMessageId, required String emoji});
+Future<void> removeReaction({required String to, required String targetMessageId}); // emoji ""
+// on an incoming BotMessage, in its own conversation (no handle lookup):
+Future<void> react(String emoji);
+Future<void> removeReaction();
+```
+
+- `to` is resolved like `send()`: a `CT-XXXX-XXXX` handle (signed device list, every device of the
+  user) or a group id the bot is a member of (group fan-out, `groupId`/`groupName` set).
+- `emoji` is `""` or passes `isValidReactionEmoji`; `targetMessageId` is 1..64 characters. Anything
+  else throws `ArgumentError` before anything is resolved or sent.
+- Each reaction is a fresh message id with `createdAt` set by the send path; receivers keep the newest
+  reaction per sender and target.
+
 ### `hermes_bridge`
 
 Only reactions of owners (`ALLOWED_HANDLES`) are forwarded; removals and reactions of other bots are
@@ -117,6 +134,27 @@ ignored. The agent sees:
 | `batch` | No turn. Reactions are kept in memory per conversation and prepended to the owner's next message (lost on restart). |
 | `reply` | A normal turn; the answer is posted like a reply. |
 | `off` | Ignored. |
+
+The bridge also REACTS:
+
+- **Reply directive.** When the first non-blank line of the agent's final answer is exactly
+  `[react:EMOJI]` (whitespace around it and any case of `react` allowed), the bridge reacts with
+  EMOJI to the owner's message being answered (`BotMessage.react`) and posts only the rest.
+  `[react:]` removes the bot's reaction. An answer of only that line posts no text; a progress message
+  already on screen is edited to "Done." (bots cannot delete). An invalid emoji is stripped and logged,
+  never shown. A `[react:...]` anywhere else is ordinary text. Not applied in reaction turns (`silent`
+  discards the answer, `reply` strips the line). Parsing: `parseReplyDirective` in
+  `lib/src/reply_directive.dart`.
+- **Agent hint.** The first owner message of each conversation after a bridge start is preceded by one
+  line telling the agent about the directive (`reactDirectiveHint`); later messages are unchanged.
+- **`POST /react`** next to `POST /send` (same loopback port, same `BRIDGE_SEND_KEY` Bearer auth with
+  constant-time compare, same 256 KiB body cap): `{"to": string, "messageId"?: string, "emoji":
+  string}`. `to` is an `ALLOWED_HANDLES` owner (1:1) or a group the bot is in (not counted as a bot
+  turn: a reaction addresses nobody). Without `messageId` the last message received from that owner /
+  in that group is used (in memory). Answers: 202 `{"status":"reacted"}`, 400 bad body /
+  `invalid_emoji` / `bad_target`, 401, 403 `target_not_allowed`, 404 `no_message` (or unknown path),
+  405, 502 `delivery_failed`.
+- `a2a_bridge` does not send reactions: A2A has no reaction concept to map from.
 
 ## Limits
 

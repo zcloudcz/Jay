@@ -181,12 +181,17 @@ void main() {
       hub.deliver(await alice.messageTo(bot.deviceId, api.botBundle, 'hi'));
       await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
 
-      expect(backendCalls, ['${alice.id}: [from CT-AAAA-0001]: hi']);
+      // The first owner message of a conversation carries the directive
+      // hint once; later ones do not.
+      expect(backendCalls, ['${alice.id}: $reactDirectiveHint\n[from CT-AAAA-0001]: hi']);
       final sent = hub.calls('SendReliableDirectFanout').single;
       expect(
         await alice.read(bot.deviceId, (sent[3] as Map<String, String>)[alice.id]!),
-        'answer to [from CT-AAAA-0001]: hi',
+        'answer to $reactDirectiveHint\n[from CT-AAAA-0001]: hi',
       );
+      hub.deliver(await alice.messageTo(bot.deviceId, api.botBundle, 'again'));
+      await until(() => hub.calls('AcknowledgeMessage').length == 2);
+      expect(backendCalls.last, '${alice.id}: [from CT-AAAA-0001]: again');
     });
 
     test('disallowed handle: backend never called, no reply', () async {
@@ -286,7 +291,9 @@ void main() {
       test('human message gets the plain handle label', () async {
         await start();
         await say(alice, 'hi');
-        expect(backendCalls, ['$groupId: [from CT-AAAA-0001]: @${bot.handle} hi']);
+        expect(backendCalls, [
+          '$groupId: $reactDirectiveHint\n[from CT-AAAA-0001]: @${bot.handle} hi',
+        ]);
       });
 
       // Every refusal below is silent: no backend call, no notice.

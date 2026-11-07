@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:calltype_bot/calltype_bot.dart'
+    show isValidReactionEmoji, maxReactionTargetLength;
+
 /// Result of a local send request, see [startSendEndpoint].
 enum SendOutcome {
   sent,
@@ -24,62 +27,93 @@ enum SendOutcome {
   /// Text longer than one channel post may be (4096 characters).
   textTooLong,
 
+  /// `/react` without a messageId, and no message from that target is
+  /// known yet (the bridge remembers the last one in memory only).
+  noMessage,
+
   /// Allowed, but delivery to the hub failed.
   failed,
 }
 
 typedef LocalSend = Future<SendOutcome> Function(String to, String text);
 
+/// Puts [emoji] ('' = remove) on [messageId] in the conversation [to]; a
+/// null [messageId] means the last message received from [to].
+typedef LocalReact =
+    Future<SendOutcome> Function(String to, String? messageId, String emoji);
+
 /// Largest accepted request body. A chat message, not a file upload.
 const maxSendBodyBytes = 256 * 1024;
 
-/// Starts `POST /send` on 127.0.0.1:[port] so local tools and cron jobs can
-/// post into Jay through the bridge.
+/// Starts `POST /send` (and `POST /react` when [react] is given) on
+/// 127.0.0.1:[port] so local tools and cron jobs can post into Jay through
+/// the bridge.
 ///
 /// WHY fail-closed: anything on the host could reach a loopback port, and the
 /// bot speaks with its owner's trust. Without a [key] there is no endpoint at
-/// all (returns null), never an open one.
+/// all (returns null), never an open one. Both routes share the key, the
+/// constant-time check, the body cap and the error style.
 ///
-/// Answers: 202 sent, 400 bad body or bad target, 401 bad key, 403 target
-/// not allowed (or channel suspended), 404 unknown path, 405 wrong method,
-/// 429 bot post limit of a channel, 502 delivery failed.
+/// `/send {"to", "text"}`: 202 sent, 400 bad body or bad target, 401 bad
+/// key, 403 target not allowed (or channel suspended), 404 unknown path, 405
+/// wrong method, 429 bot post limit of a channel, 502 delivery failed.
+///
+/// `/react {"to", "messageId"?, "emoji"}`: 202 reacted, 400 bad body,
+/// invalid emoji or bad target, 401, 403 target not allowed, 404 no known
+/// message to react to, 502 delivery failed.
 Future<HttpServer?> startSendEndpoint({
   required String? key,
   required LocalSend send,
+  LocalReact? react,
   required void Function(String) log,
   int port = 8650,
 }) async {
   if (key == null || key.trim().isEmpty) return null;
   final expected = utf8.encode('Bearer ${key.trim()}');
+  final routes = <String, _Route>{
+    '/send': (json) => _send(json, send),
+    if (react != null) '/react': (json) => _react(json, react),
+  };
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
   server.listen((request) async {
+    final path = request.uri.path;
     try {
-      final (status, body) = await _serve(request, expected, send, log);
+      final (status, body) = await _serve(request, expected, routes, log);
       request.response.statusCode = status;
       request.response.headers.contentType = ContentType.json;
       request.response.write(jsonEncode(body));
     } catch (e) {
-      log('/send: internal error: $e');
+      log('$path: internal error: $e');
       request.response.statusCode = HttpStatus.internalServerError;
     }
     await request.response.close();
   });
-  log('Local send endpoint on http://127.0.0.1:${server.port}/send');
+  log(
+    'Local endpoint on http://127.0.0.1:${server.port}: '
+    '${routes.keys.join(', ')}',
+  );
   return server;
 }
 
+/// One route: the parsed JSON object of an authenticated request in, the
+/// status and body out.
+typedef _Route = Future<(int, Object)> Function(Map<dynamic, dynamic> json);
+
+/// What every route shares: path, method, key, body cap, JSON object.
 Future<(int, Object)> _serve(
   HttpRequest request,
   List<int> expectedAuth,
-  LocalSend send,
+  Map<String, _Route> routes,
   void Function(String) log,
 ) async {
-  if (request.uri.path != '/send') return (404, {'error': 'not_found'});
+  final path = request.uri.path;
+  final route = routes[path];
+  if (route == null) return (404, {'error': 'not_found'});
   if (request.method != 'POST') return (405, {'error': 'method_not_allowed'});
   final auth = request.headers.value(HttpHeaders.authorizationHeader) ?? '';
   if (!_constantTimeEquals(utf8.encode(auth), expectedAuth)) {
     // The key itself is never logged.
-    log('/send: rejected a request with a wrong or missing key');
+    log('$path: rejected a request with a wrong or missing key');
     return (401, {'error': 'unauthorized'});
   }
   final bytes = <int>[];
@@ -87,32 +121,69 @@ Future<(int, Object)> _serve(
     bytes.addAll(chunk);
     if (bytes.length > maxSendBodyBytes) return (400, {'error': 'too_large'});
   }
-  final String to;
-  final String text;
+  final Object? json;
   try {
-    final json = jsonDecode(utf8.decode(bytes));
-    if (json is! Map ||
-        json['to'] is! String ||
-        json['text'] is! String ||
-        (json['to'] as String).trim().isEmpty ||
-        (json['text'] as String).trim().isEmpty) {
-      return (400, {'error': 'expected {"to": string, "text": string}'});
-    }
-    to = (json['to'] as String).trim();
-    text = json['text'] as String;
+    json = jsonDecode(utf8.decode(bytes));
   } on FormatException {
     return (400, {'error': 'invalid_json'});
   }
-  return switch (await send(to, text)) {
-    SendOutcome.sent => (202, {'status': 'sent'}),
-    SendOutcome.forbidden => (403, {'error': 'target_not_allowed'}),
-    SendOutcome.channelSuspended => (403, {'error': 'channel_suspended'}),
-    SendOutcome.rateLimited => (429, {'error': 'bot_post_limit'}),
-    SendOutcome.badTarget => (400, {'error': 'bad_target'}),
-    SendOutcome.textTooLong => (400, {'error': 'text_too_long'}),
-    SendOutcome.failed => (502, {'error': 'delivery_failed'}),
-  };
+  if (json is! Map) return (400, {'error': 'expected a JSON object'});
+  return route(json);
 }
+
+Future<(int, Object)> _send(Map<dynamic, dynamic> json, LocalSend send) async {
+  final to = json['to'];
+  final text = json['text'];
+  if (to is! String ||
+      text is! String ||
+      to.trim().isEmpty ||
+      text.trim().isEmpty) {
+    return (400, {'error': 'expected {"to": string, "text": string}'});
+  }
+  return _answer(await send(to.trim(), text), 'sent');
+}
+
+Future<(int, Object)> _react(
+  Map<dynamic, dynamic> json,
+  LocalReact react,
+) async {
+  final to = json['to'];
+  final messageId = json['messageId'];
+  final emoji = json['emoji'];
+  if (to is! String ||
+      to.trim().isEmpty ||
+      emoji is! String ||
+      (messageId != null &&
+          (messageId is! String ||
+              messageId.trim().isEmpty ||
+              messageId.length > maxReactionTargetLength))) {
+    return (
+      400,
+      {
+        'error':
+            'expected {"to": string, "messageId"?: string, "emoji": string}',
+      },
+    );
+  }
+  if (emoji.isNotEmpty && !isValidReactionEmoji(emoji)) {
+    return (400, {'error': 'invalid_emoji'});
+  }
+  return _answer(
+    await react(to.trim(), (messageId as String?)?.trim(), emoji),
+    'reacted',
+  );
+}
+
+(int, Object) _answer(SendOutcome outcome, String done) => switch (outcome) {
+  SendOutcome.sent => (202, {'status': done}),
+  SendOutcome.forbidden => (403, {'error': 'target_not_allowed'}),
+  SendOutcome.channelSuspended => (403, {'error': 'channel_suspended'}),
+  SendOutcome.rateLimited => (429, {'error': 'bot_post_limit'}),
+  SendOutcome.badTarget => (400, {'error': 'bad_target'}),
+  SendOutcome.textTooLong => (400, {'error': 'text_too_long'}),
+  SendOutcome.noMessage => (404, {'error': 'no_message'}),
+  SendOutcome.failed => (502, {'error': 'delivery_failed'}),
+};
 
 /// WHY constant time: a byte-by-byte early exit leaks how much of the key a
 /// guess got right through response timing.

@@ -21,8 +21,8 @@ messages, therefore:
 - Other bots are answered **only in groups**, only where the group's owner turned
   on "Bot conversation" and one of your `ALLOWED_HANDLES` is a group **admin**; see
   "Two bots in one group". `PEER_BOT_HANDLES` can only narrow that further.
-- The local `/send` endpoint is **off** unless `BRIDGE_SEND_KEY` is set, binds to
-  127.0.0.1 only, and sends 1:1 messages only to `ALLOWED_HANDLES`. Channel posts
+- The local `/send` and `/react` endpoint is **off** unless `BRIDGE_SEND_KEY` is set, binds to
+  127.0.0.1 only, and sends 1:1 messages and reactions only to `ALLOWED_HANDLES`. Channel posts
   go only to channels whose owner made the bot a publisher (the server checks).
 - Keep Hermes' API on localhost. The bot's SQLite session DB is plaintext on disk
   (see `../calltype_bot/README.md`), so the host must be trusted.
@@ -43,7 +43,7 @@ messages, therefore:
 | `ALLOWED_HANDLES` | effectively yes | comma-separated `CT-XXXX-XXXX` handles allowed to talk to Hermes |
 | `PEER_BOT_HANDLES` | no | comma-separated handles of other bots; if set, ONLY these may talk to this one (narrows the group setting, never widens it; set but unresolvable = no bot) |
 | `PEER_MAX_TURNS_CAP` | no, default `50` | operator ceiling for a bot-only exchange; a group's "max messages" above it is cut down to it |
-| `BRIDGE_SEND_KEY` | no | enables `POST http://127.0.0.1:$BRIDGE_PORT/send`; the Bearer key callers must send. Unset = endpoint off |
+| `BRIDGE_SEND_KEY` | no | enables `POST http://127.0.0.1:$BRIDGE_PORT/send` and `/react`; the Bearer key callers must send. Unset = endpoint off |
 | `BRIDGE_PORT` | no, default `8650` | port of the local send endpoint (loopback only) |
 | `HERMES_STREAM` | no, default `true` | stream turns (`/api/sessions/{id}/chat/stream`, SSE): progress and approval buttons. `false` = plain `/chat`. A Hermes without the stream route is detected (404 after the session exists) and `/chat` is used from then on |
 | `PROGRESS_AFTER_SECONDS` | no, default `8` | post "Working on it..." when no answer came after this long; `0` = never |
@@ -163,6 +163,32 @@ menu in Jay) to give quick feedback without writing. Spec:
 - `off`: ignored.
 - A reaction waits behind a turn already running in its conversation.
 
+### The bot reacting: `[react:EMOJI]`
+
+Hermes can answer with a reaction instead of (or besides) text. When the
+FIRST non-blank line of its final answer is exactly `[react:EMOJI]` (spaces
+around it and any case of `react` are fine), the bridge puts EMOJI on the
+owner's message being answered and posts only the rest:
+
+```
+[react:👍]
+Deployed to beta.
+```
+
+- EMOJI must be ONE emoji (skin tones, ZWJ families, flags and keycaps are
+  one emoji); `[react:]` removes the bot's reaction.
+- An answer of only that line posts no text. If a progress message is
+  already on screen it is edited to "Done." (a bot cannot delete it).
+- An invalid emoji (`[react:yes]`, two emojis) is stripped and logged, never
+  shown; the rest of the answer is posted (nothing left = the usual apology).
+- Only the first line counts: `[react:...]` further down, or followed by
+  text on the same line, is ordinary text.
+- Works in 1:1 and in groups (the reaction goes to the addressed message).
+  Not applied in reaction turns: `silent` discards the answer anyway,
+  `reply` strips the line and posts the rest.
+- Hermes learns the syntax from a one-sentence hint put in front of the
+  first owner message of each conversation after a bridge start.
+
 ## Starting a message: local `/send`
 
 With `BRIDGE_SEND_KEY` set, Hermes tools and cron jobs can post into Jay:
@@ -184,6 +210,33 @@ curl -sS -X POST http://127.0.0.1:8650/send \
 | 502 | allowed, but the hub (or the API, for a channel) did not take it (retry later) |
 
 Text only; reference artifacts by commit or path.
+
+### Reacting from outside: `/react`
+
+Same port, same key, same body cap. Puts an emoji on a message (`""` removes
+the bot's reaction):
+
+```bash
+curl -sS -X POST http://127.0.0.1:8650/react \
+  -H "Authorization: Bearer $BRIDGE_SEND_KEY" -H 'Content-Type: application/json' \
+  -d '{"to": "CT-XXXX-XXXX", "emoji": "✅"}'
+```
+
+`to` is an `ALLOWED_HANDLES` owner (1:1) or a group the bot is in (a
+reaction addresses nobody, so unlike a group `/send` it is not a bot turn);
+channels take no reactions. `messageId` is optional: without it the bridge
+reacts to the last message it received from that owner or in that group
+(kept in memory, empty after a restart).
+
+| Status | Meaning |
+| --- | --- |
+| 202 | `{"status": "reacted"}` |
+| 400 | body is not `{"to": string, "messageId"?: string, "emoji": string}` (messageId 1..64 characters); `invalid_emoji`: not ONE emoji and not `""`; `bad_target`: a `channel:` target |
+| 401 | missing or wrong key |
+| 403 | `target_not_allowed`: a handle not in `ALLOWED_HANDLES`, or a group the bot is not in |
+| 404 | `no_message`: no `messageId` and no message from that target since the start; also an unknown path |
+| 405 | wrong method |
+| 502 | allowed, but the hub did not take it (retry later) |
 
 ### Posting to a channel (newsletter)
 

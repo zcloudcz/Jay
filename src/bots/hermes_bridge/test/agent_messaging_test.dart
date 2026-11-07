@@ -574,6 +574,7 @@ void main() {
         await until(() => prompts.isNotEmpty);
         expect(
           prompts.single,
+          '$reactDirectiveHint\n'
           '[from CT-AAAA-0001]: [Replying to: "Shall I restart nginx?"]\n'
           'yes, do that',
         );

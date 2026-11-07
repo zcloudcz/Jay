@@ -12,7 +12,7 @@ import 'package:hermes_bridge/hermes_bridge.dart';
 ///                        (narrows the group setting, never widens it).
 /// - `PEER_MAX_TURNS_CAP` ceiling for any group's bot-only exchange (default 50).
 /// - `BRIDGE_SEND_KEY`    enables `POST http://127.0.0.1:$BRIDGE_PORT/send`
-///                        (Bearer key); unset = endpoint off.
+///                        and `/react` (Bearer key); unset = endpoint off.
 /// - `BRIDGE_PORT`        port of that endpoint (default 8650).
 /// `PEER_REPLY_LIMIT` / `PEER_REPLY_WINDOW_MINUTES` are obsolete (logged, ignored).
 ///
@@ -28,6 +28,10 @@ import 'package:hermes_bridge/hermes_bridge.dart';
 ///                            (default: one Hermes turn, answer not posted),
 ///                            `batch` (sent along with the next message),
 ///                            `reply` (normal turn, answer posted), `off`.
+///
+/// Hermes may start an answer with a line `[react:EMOJI]` to react to the
+/// owner's message (`[react:]` removes it; only that line = no text), see
+/// README "The bot reacting".
 ///
 /// Timeouts (all optional):
 /// - `HERMES_ASK_TIMEOUT_SECONDS` longest wait for a Hermes answer (plain
@@ -193,13 +197,16 @@ Future<void> main() async {
       key: sendKey,
       port: sendPort,
       send: bridge.sendFromLocal,
+      react: bridge.reactFromLocal,
       log: log,
     );
   } on SocketException catch (error) {
     stderr.writeln('Cannot listen on 127.0.0.1:$sendPort: $error');
     exit(78); // EX_CONFIG
   }
-  if (endpoint == null) log('BRIDGE_SEND_KEY not set: local /send is off.');
+  if (endpoint == null) {
+    log('BRIDGE_SEND_KEY not set: local /send and /react are off.');
+  }
 
   // Let `docker stop` flush the DB instead of killing mid-write.
   Future<void> shutdown(ProcessSignal _) async {

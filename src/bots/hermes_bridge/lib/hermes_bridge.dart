@@ -8,11 +8,13 @@ import 'package:calltype_bot/calltype_bot.dart';
 import 'src/bot_talk.dart';
 import 'src/hermes_events.dart';
 import 'src/progress.dart';
+import 'src/reply_directive.dart';
 import 'src/send_endpoint.dart';
 
 export 'src/bot_talk.dart';
 export 'src/hermes_events.dart';
 export 'src/progress.dart';
+export 'src/reply_directive.dart';
 export 'src/send_endpoint.dart';
 
 /// Answers one user message within a conversation in one go. Kept for
@@ -380,6 +382,16 @@ const silentReactionHint =
     '(Feedback only. Your answer to this is not shown to the user; no reply '
     'is needed.)';
 
+/// Told to the agent once per conversation (per bridge run), in front of an
+/// owner's message: the reply directive, see [parseReplyDirective].
+const reactDirectiveHint =
+    '(You may start your reply with a line [react:EMOJI] to react to this '
+    'message with one emoji; a reply of only that line sends no text.)';
+
+/// What a progress message becomes when the answer was only a reaction
+/// directive: the bot cannot delete it, and "Working on it..." would stay.
+const reactedProgressText = 'Done.';
+
 /// The one notice a bot posts when a bot-only exchange hits its limit.
 const botLimitNotice = 'Bot limit reached, waiting for a human.';
 
@@ -445,6 +457,13 @@ class HermesBridge {
   /// owner's next message takes them along.
   final _pendingReactions = <String, List<String>>{};
 
+  /// Conversations whose agent already got [reactDirectiveHint] in this run.
+  final _hinted = <String>{};
+
+  /// Id of the last message received per owner handle (1:1) or group id
+  /// (lower-case): the default target of [reactFromLocal]. In memory only.
+  final _lastReceived = <String, String>{};
+
   /// Approval requests still waiting, by token (see [_approvalButtonId]).
   final _approvals = <String, _PendingApproval>{};
   static final _random = Random.secure();
@@ -476,6 +495,11 @@ class HermesBridge {
   Future<void> _handle(BotMessage message) async {
     final human = _owner(message.senderId);
     final groupId = message.groupId;
+    if (groupId != null) {
+      _lastReceived[groupId.toLowerCase()] = message.id;
+    } else if (human != null) {
+      _lastReceived[human] = message.id;
+    }
     String label;
     if (human != null) {
       // In groups the runtime only calls this handler for messages that
@@ -483,6 +507,9 @@ class HermesBridge {
       // message re-arms.
       if (groupId != null) policy.humanSpoke(groupId);
       label = '[from $human]';
+      if (_hinted.add(message.conversationId.toLowerCase())) {
+        label = '$reactDirectiveHint\n$label';
+      }
     } else {
       // WHY groups only: a 1:1 bot-to-bot chat has no human watching it.
       if (groupId == null) return;
@@ -540,7 +567,15 @@ class HermesBridge {
         await _quietTurn('$line\n$silentReactionHint', reaction.conversationId);
         _log('Reaction ${reaction.emoji} from $human passed to Hermes.');
       case ReactionMode.reply:
-        final answer = await _quietTurn(line, reaction.conversationId);
+        // There is no message being answered here, so a directive is only
+        // stripped: it must not reach the chat as text.
+        final directive = parseReplyDirective(
+          await _quietTurn(line, reaction.conversationId),
+        );
+        if (directive.emoji != null || directive.invalid) {
+          _log('Reply directive in a reaction turn ignored.');
+        }
+        final answer = directive.text;
         if (answer.trim().isEmpty) return;
         // A 1:1 is addressed by the owner's handle, a group by its id.
         final to = reaction.groupId ?? human;
@@ -630,7 +665,30 @@ class HermesBridge {
       if (text.trim().isEmpty) {
         throw const FormatException('Hermes returned no assistant text.');
       }
-      final chunks = splitMessage(text);
+      final directive = parseReplyDirective(text);
+      final emoji = directive.emoji;
+      if (directive.invalid) {
+        _log('Invalid reply directive for message ${message.id}: stripped.');
+      }
+      if (emoji != null) {
+        try {
+          await message.react(emoji);
+        } catch (e) {
+          // The text (if any) still goes out; a lost reaction is cosmetic.
+          _log('Reaction to message ${message.id} failed: $e');
+        }
+      }
+      if (directive.text.trim().isEmpty) {
+        // A stripped invalid directive and nothing else: no answer at all.
+        if (emoji == null) {
+          throw const FormatException('Hermes returned no assistant text.');
+        }
+        // Reaction only: no text message; a progress message on screen
+        // cannot be deleted by a bot, so it says the turn is over.
+        await progress.finish(reactedProgressText);
+        return;
+      }
+      final chunks = splitMessage(directive.text);
       final replaced = await progress.finish(chunks.first);
       for (final chunk in replaced ? chunks.skip(1) : chunks) {
         await message.reply(chunk);
@@ -802,6 +860,60 @@ class HermesBridge {
       return SendOutcome.forbidden;
     } catch (e) {
       _log('/send to $target failed: $e');
+      return SendOutcome.failed;
+    }
+  }
+
+  /// The /react path: [emoji] ('' = remove) on [messageId] in [to], an
+  /// owner's handle (1:1) or a group id the bot is in, the same targets
+  /// /send allows. A null [messageId] means the last message received there
+  /// ([SendOutcome.noMessage] when none is known).
+  ///
+  /// WHY a group reaction is not counted as a bot turn, unlike a group
+  /// /send: a reaction addresses nobody, and bots only hear reactions to
+  /// their own messages, never turned into a reply (bridges forward only
+  /// owners' reactions), so it cannot feed a bot-to-bot exchange.
+  Future<SendOutcome> reactFromLocal(
+    String to,
+    String? messageId,
+    String emoji,
+  ) async {
+    final target = to.trim();
+    final handle = target.toUpperCase();
+    final String key;
+    if (_handlePattern.hasMatch(handle)) {
+      // Owners only, as for /send.
+      if (!_allowedHandles.contains(handle) ||
+          !_allowedIds.containsValue(handle)) {
+        return SendOutcome.forbidden;
+      }
+      key = handle;
+    } else {
+      if (target.toLowerCase().startsWith(channelTargetPrefix)) {
+        return SendOutcome.badTarget; // channel posts take no reactions
+      }
+      try {
+        if (!(await bot.group(target)).isMember(bot.deviceId)) {
+          return SendOutcome.forbidden;
+        }
+      } catch (_) {
+        return SendOutcome.forbidden; // unknown group or not a member
+      }
+      key = target.toLowerCase();
+    }
+    final id = messageId ?? _lastReceived[key];
+    if (id == null) return SendOutcome.noMessage;
+    try {
+      await bot.sendReaction(to: target, targetMessageId: id, emoji: emoji);
+      return SendOutcome.sent;
+    } on BotSendException catch (e) {
+      _log('/react to $target refused by the runtime: ${e.message}');
+      return SendOutcome.forbidden;
+    } on ArgumentError catch (e) {
+      _log('/react to $target: $e');
+      return SendOutcome.badTarget;
+    } catch (e) {
+      _log('/react to $target failed: $e');
       return SendOutcome.failed;
     }
   }
