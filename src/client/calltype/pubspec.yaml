@@ -69,6 +69,10 @@ dependencies:
   cryptography_flutter: ^2.3.4
   flutter_local_notifications: ^22.3.3
   web: ^1.1.1
+  record: ^6.2.1
+  audioplayers: ^6.7.1
+  video_player: ^2.11.1
+  fc_native_video_thumbnail: ^2.2.0
 
 dev_dependencies:
   flutter_test:

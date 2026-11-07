@@ -3,12 +3,15 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  audioplayers_windows
+  fc_native_video_thumbnail
   file_selector_windows
   firebase_core
   flutter_secure_storage_windows
   flutter_webrtc
   gal
   local_auth_windows
+  record_windows
   share_plus
   url_launcher_windows
 )
