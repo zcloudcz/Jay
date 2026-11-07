@@ -310,65 +310,51 @@ class ChatScreen extends StatelessWidget {
   /// Small plain files keep the inline path old clients read; audio, video
   /// and anything over the inline limit go through the encrypted media path
   /// (contract M12), streamed, up to the platform cap.
-  Future<void> _attachFile(
-    BuildContext context, {
-    required bool business,
-  }) async {
-    final controller = context.read<ChatController>();
-    // Captured before the awaits; the raw exception text is for developers
-    // and is not shown — the user gets one of two localized messages.
-    final l10n = context.l10n;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final file = await AttachmentMedia.instance.pickFile();
-      if (file == null) return;
-      final kind = mediaKindFor(file.name, mime: file.mimeType);
-      final small = await file.length() <= Attachment.maxBytes;
-      if (small &&
-          (business || (kind != MediaKind.audio && kind != MediaKind.video))) {
-        await controller.sendAttachment(file.name, await file.readAsBytes());
-        return;
-      }
-      await _sendMediaFile(controller, file, kind: kind);
-    } on MediaNotAllowed {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            l10n.chatAttachmentTooLarge(Attachment.maxBytes ~/ 1024),
-          ),
-        ),
-      );
-    } on MediaTooLarge catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(l10n.mediaTooLarge(formatMediaSize(e.maxBytes)))),
-      );
-    } catch (_) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(l10n.chatAttachmentFailed)),
-      );
-    }
-  }
+  Future<void> _attachFile(BuildContext context, {required bool business}) =>
+      _sendReportingErrors(context, (controller) async {
+        final file = await AttachmentMedia.instance.pickFile();
+        if (file == null) return;
+        final kind = mediaKindFor(file.name, mime: file.mimeType);
+        final small = await file.length() <= Attachment.maxBytes;
+        if (small &&
+            (business || (kind != MediaKind.audio && kind != MediaKind.video))) {
+          await controller.sendAttachment(file.name, await file.readAsBytes());
+          return;
+        }
+        await _sendMediaFile(controller, file, kind: kind);
+      });
 
   Future<void> _attachMedia(
     BuildContext context,
     Future<PickedMedia?> Function() pick, {
     required MediaKind kind,
-  }) async {
+  }) => _sendReportingErrors(context, (controller) async {
+    final file = await pick();
+    if (file == null) return;
+    await _sendMediaFile(controller, file, kind: kind);
+  });
+
+  /// Runs an attachment send and turns its failure into one localized
+  /// snackbar. Captured before the awaits; the raw exception text is for
+  /// developers and is not shown.
+  Future<void> _sendReportingErrors(
+    BuildContext context,
+    Future<void> Function(ChatController controller) send,
+  ) async {
     final controller = context.read<ChatController>();
     final l10n = context.l10n;
     final messenger = ScaffoldMessenger.of(context);
+    void show(String text) =>
+        messenger.showSnackBar(SnackBar(content: Text(text)));
     try {
-      final file = await pick();
-      if (file == null) return;
-      await _sendMediaFile(controller, file, kind: kind);
+      await send(controller);
+    } on MediaNotAllowed {
+      // Business conversation: only the inline path exists there.
+      show(l10n.chatAttachmentTooLarge(Attachment.maxBytes ~/ 1024));
     } on MediaTooLarge catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(l10n.mediaTooLarge(formatMediaSize(e.maxBytes)))),
-      );
+      show(l10n.mediaTooLarge(formatMediaSize(e.maxBytes)));
     } catch (_) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(l10n.chatAttachmentFailed)),
-      );
+      show(l10n.chatAttachmentFailed);
     }
   }
 
@@ -744,6 +730,166 @@ class ChatScreen extends StatelessWidget {
     return attachment;
   }
 
+  /// One row of the message list: a call log line, a device notice, or a
+  /// bubble with the sender label (groups) and the delivery status (own).
+  Widget _messageRow(
+    BuildContext context,
+    ChatController controller,
+    Message message, {
+    required bool group,
+    required bool business,
+    required List<Contact> allContacts,
+  }) {
+    final l10n = context.l10n;
+    final mine = message.senderId == controller.myIdentityId;
+    if (message.type == 'call-event') {
+      return _CallEventLine(body: message.body ?? '');
+    }
+    if (message.type == 'device-change') {
+      return _DeviceChangeLine(body: message.body ?? '');
+    }
+    final file = message.type == 'file' && !message.deleted
+        ? _attachmentOf(message)
+        : null;
+    final canReact = controller.canReact(
+      message,
+      business: business,
+    );
+    final mediaInfo =
+        message.type == 'media' && !message.deleted
+        ? MediaInfo.tryDecode(message.body)
+        : null;
+    return Column(
+      crossAxisAlignment: mine
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
+      children: [
+        if (group && !mine)
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16,
+            ),
+            child: Text(
+              senderLabel(
+                message.senderId,
+                members: controller.groupMembers,
+                contacts: allContacts,
+              ),
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ),
+        MessageBubble(
+          text: message.body ?? '',
+          time: DateFormat.Hm(l10n.localeName).format(
+            message.createdAt.toLocal(),
+          ),
+          isMine: mine,
+          deleted: message.deleted,
+          forwarded: message.forwarded,
+          edited: message.editedAt != null,
+          // Only under a RECEIVED message of a bot: a human
+          // (or this user's own copy) never gets buttons.
+          buttons: !mine &&
+                  isBotSender(
+                    message.senderId,
+                    members: controller.groupMembers,
+                    contacts: allContacts,
+                  )
+              ? decodeActionsJson(message.actionsJson)
+              : const [],
+          onButton: (button) =>
+              controller.sendAction(message, button),
+          quoteAuthor: message.replySenderId == null
+              ? null
+              : _authorLabel(
+                  context,
+                  controller,
+                  message.replySenderId!,
+                  allContacts,
+                ),
+          quoteText: message.replyPreview,
+          content: mediaInfo != null
+              ? MediaMessageContent(
+                  messageId: message.id,
+                  info: mediaInfo,
+                  media: controller.media,
+                  sending: mine && message.status == 'sending',
+                  onCancelUpload: () =>
+                      controller.cancelMediaUpload(message.id),
+                )
+              : file == null
+              ? null
+              : _attachmentContent(context, file),
+          caption: file?.caption,
+          reactions: controller.reactionsOf(message.id),
+          myReaction: controller.myReactionOf(message.id),
+          onReact: canReact
+              ? (emoji) => _react(
+                  context,
+                  controller,
+                  message,
+                  emoji,
+                )
+              : null,
+          // Own chip: remove; any other: who reacted.
+          onReactionTap: (chip) => chip.mine && canReact
+              ? _react(
+                  context,
+                  controller,
+                  message,
+                  chip.emoji,
+                )
+              : _showReactors(
+                  context,
+                  controller,
+                  message,
+                  contacts: allContacts,
+                  canReact: canReact,
+                ),
+          onReactionLongPress: (_) => _showReactors(
+            context,
+            controller,
+            message,
+            contacts: allContacts,
+            canReact: canReact,
+          ),
+          actions: _actions(
+            context,
+            controller,
+            message,
+            mine: mine,
+            business: business,
+            contacts: allContacts,
+          ),
+        ),
+        if (mine)
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16,
+            ),
+            child:
+                message.status == 'failed' ||
+                    message.status == 'sending'
+                ? TextButton(
+                    onPressed: () =>
+                        controller.retryMessage(message.id),
+                    child: Text(
+                      message.status == 'failed'
+                          ? l10n.chatStatusFailedRetry
+                          : l10n.chatStatusSendingRetry,
+                    ),
+                  )
+                : Text(
+                    l10n.chatStatusSent,
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelSmall,
+                  ),
+          ),
+      ],
+    );
+  }
+
   Widget _attachmentContent(BuildContext context, Attachment file) {
     final download = OutlinedButton.icon(
       onPressed: () => saveAttachment(context, file),
@@ -948,155 +1094,14 @@ class ChatScreen extends StatelessWidget {
                     idOf: (message) => message.id,
                     isMine: (message) =>
                         message.senderId == controller.myIdentityId,
-                    itemBuilder: (context, message) {
-                      final mine = message.senderId == controller.myIdentityId;
-                      if (message.type == 'call-event') {
-                        return _CallEventLine(body: message.body ?? '');
-                      }
-                      if (message.type == 'device-change') {
-                        return _DeviceChangeLine(body: message.body ?? '');
-                      }
-                      final file = message.type == 'file' && !message.deleted
-                          ? _attachmentOf(message)
-                          : null;
-                      final canReact = controller.canReact(
-                        message,
-                        business: conversation?.organizationId != null,
-                      );
-                      final mediaInfo =
-                          message.type == 'media' && !message.deleted
-                          ? MediaInfo.tryDecode(message.body)
-                          : null;
-                      return Column(
-                        crossAxisAlignment: mine
-                            ? CrossAxisAlignment.end
-                            : CrossAxisAlignment.start,
-                        children: [
-                          if (group && !mine)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                              ),
-                              child: Text(
-                                senderLabel(
-                                  message.senderId,
-                                  members: controller.groupMembers,
-                                  contacts: allContacts,
-                                ),
-                                style: Theme.of(context).textTheme.labelSmall,
-                              ),
-                            ),
-                          MessageBubble(
-                            text: message.body ?? '',
-                            time: DateFormat.Hm(l10n.localeName).format(
-                              message.createdAt.toLocal(),
-                            ),
-                            isMine: mine,
-                            deleted: message.deleted,
-                            forwarded: message.forwarded,
-                            edited: message.editedAt != null,
-                            // Only under a RECEIVED message of a bot: a human
-                            // (or this user's own copy) never gets buttons.
-                            buttons: !mine &&
-                                    isBotSender(
-                                      message.senderId,
-                                      members: controller.groupMembers,
-                                      contacts: allContacts,
-                                    )
-                                ? decodeActionsJson(message.actionsJson)
-                                : const [],
-                            onButton: (button) =>
-                                controller.sendAction(message, button),
-                            quoteAuthor: message.replySenderId == null
-                                ? null
-                                : _authorLabel(
-                                    context,
-                                    controller,
-                                    message.replySenderId!,
-                                    allContacts,
-                                  ),
-                            quoteText: message.replyPreview,
-                            content: mediaInfo != null
-                                ? MediaMessageContent(
-                                    messageId: message.id,
-                                    info: mediaInfo,
-                                    media: controller.media,
-                                    sending: mine && message.status == 'sending',
-                                    onCancelUpload: () =>
-                                        controller.cancelMediaUpload(message.id),
-                                  )
-                                : file == null
-                                ? null
-                                : _attachmentContent(context, file),
-                            caption: file?.caption,
-                            reactions: controller.reactionsOf(message.id),
-                            myReaction: controller.myReactionOf(message.id),
-                            onReact: canReact
-                                ? (emoji) => _react(
-                                    context,
-                                    controller,
-                                    message,
-                                    emoji,
-                                  )
-                                : null,
-                            // Own chip: remove; any other: who reacted.
-                            onReactionTap: (chip) => chip.mine && canReact
-                                ? _react(
-                                    context,
-                                    controller,
-                                    message,
-                                    chip.emoji,
-                                  )
-                                : _showReactors(
-                                    context,
-                                    controller,
-                                    message,
-                                    contacts: allContacts,
-                                    canReact: canReact,
-                                  ),
-                            onReactionLongPress: (_) => _showReactors(
-                              context,
-                              controller,
-                              message,
-                              contacts: allContacts,
-                              canReact: canReact,
-                            ),
-                            actions: _actions(
-                              context,
-                              controller,
-                              message,
-                              mine: mine,
-                              business: conversation?.organizationId != null,
-                              contacts: allContacts,
-                            ),
-                          ),
-                          if (mine)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                              ),
-                              child:
-                                  message.status == 'failed' ||
-                                      message.status == 'sending'
-                                  ? TextButton(
-                                      onPressed: () =>
-                                          controller.retryMessage(message.id),
-                                      child: Text(
-                                        message.status == 'failed'
-                                            ? l10n.chatStatusFailedRetry
-                                            : l10n.chatStatusSendingRetry,
-                                      ),
-                                    )
-                                  : Text(
-                                      l10n.chatStatusSent,
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.labelSmall,
-                                    ),
-                            ),
-                        ],
-                      );
-                    },
+                    itemBuilder: (context, message) => _messageRow(
+                      context,
+                      controller,
+                      message,
+                      group: group,
+                      business: conversation?.organizationId != null,
+                      allContacts: allContacts,
+                    ),
                   ),
           ),
           // v1: business conversations stay on the primary (KB2 auditor rules

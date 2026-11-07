@@ -267,51 +267,33 @@ class MessageInboxService {
           return;
         }
         final conversationId = route.conversationId;
-        if (type == 'delete') {
-          await _applyDelete(
-            targetId: payload['body'] as String,
-            senderId: route.senderIdentityId,
-            conversationId: conversationId,
-          );
-          await _db
-              .into(_db.backupState)
-              .insert(
-                BackupStateCompanion.insert(
-                  key: 'control:$messageId',
-                  value: '1',
-                ),
+        // Control messages never create a row and never touch unreadCount.
+        // Legitimate or not, each is acked and remembered by a `control:`
+        // marker, so a redelivery is a no-op.
+        if (type == 'delete' || type == 'edit' || type == reactionType) {
+          switch (type) {
+            case 'delete':
+              await _applyDelete(
+                targetId: payload['body'] as String,
+                senderId: route.senderIdentityId,
+                conversationId: conversationId,
               );
-          return;
-        }
-        if (type == 'edit') {
-          // Contract section 1: an edit never creates a row and never touches
-          // unreadCount; legitimate or not it is acked and remembered by the
-          // same `control:` marker as a delete, so a redelivery is a no-op.
-          await _applyEdit(
-            payload: payload,
-            senderId: route.senderIdentityId,
-            conversationId: conversationId,
-          );
-          await _db
-              .into(_db.backupState)
-              .insert(
-                BackupStateCompanion.insert(
-                  key: 'control:$messageId',
-                  value: '1',
-                ),
+            case 'edit':
+              // Contract section 1 of agent messaging.
+              await _applyEdit(
+                payload: payload,
+                senderId: route.senderIdentityId,
+                conversationId: conversationId,
               );
-          return;
-        }
-        if (type == reactionType) {
-          // Spec 2026-11-07-message-reactions: never a row, never unread,
-          // never moves the chat; acked and remembered like an edit, valid
-          // or not, so a redelivery is a no-op.
-          reacted = await _applyReaction(
-            payload: payload,
-            senderId: route.senderIdentityId,
-            conversationId: conversationId,
-            groupId: groupId,
-          );
+            default:
+              // Spec 2026-11-07-message-reactions: also never moves the chat.
+              reacted = await _applyReaction(
+                payload: payload,
+                senderId: route.senderIdentityId,
+                conversationId: conversationId,
+                groupId: groupId,
+              );
+          }
           await _db
               .into(_db.backupState)
               .insert(
