@@ -30,7 +30,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
-<key>NSCameraUsageDescription</key><string>Scan contact QR codes and make video calls.</string><key>NSMicrophoneUsageDescription</key><string>Use the microphone during voice and video calls.</string><key>NSFaceIDUsageDescription</key><string>Unlock your private conversations.</string>
+<key>NSCameraUsageDescription</key><string>Scan contact QR codes and make video calls.</string><key>NSMicrophoneUsageDescription</key><string>Use the microphone during voice and video calls and to record voice messages.</string><key>NSFaceIDUsageDescription</key><string>Unlock your private conversations.</string>
 </dict>
 </plist>
 

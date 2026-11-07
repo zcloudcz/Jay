@@ -88,7 +88,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-<key>NSCameraUsageDescription</key><string>Scan contact QR codes, make video calls and take photos to send as encrypted attachments.</string><key>NSMicrophoneUsageDescription</key><string>Use the microphone during voice and video calls.</string><key>NSFaceIDUsageDescription</key><string>Unlock your private conversations.</string>
+<key>NSCameraUsageDescription</key><string>Scan contact QR codes, make video calls and take photos to send as encrypted attachments.</string><key>NSMicrophoneUsageDescription</key><string>Use the microphone during voice and video calls and to record voice messages.</string><key>NSFaceIDUsageDescription</key><string>Unlock your private conversations.</string>
 <key>NSPhotoLibraryUsageDescription</key><string>Choose photos to send as encrypted attachments.</string>
 <!-- Saving a received photo adds it to Photos (gal plugin); add-only access,
      the app never reads the library for this. -->

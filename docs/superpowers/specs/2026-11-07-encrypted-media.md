@@ -267,6 +267,30 @@ bubble states (not downloaded, downloading, expired, downloaded) with fakes; no 
 - No storage-management screen for local media yet (delete messages to free space).
 - Abuse controls are per device; anonymous device creation means the global cap is the real cost bound.
 - iOS native behaviour (mic permission prompt, gallery save of videos) is unverified until a TestFlight build.
+- Windows (and Linux) encrypt and decrypt with the pure Dart AES-GCM of `package:cryptography` (no native
+  backend there), noticeably slower than Android / iOS / macOS (native) and web (WebCrypto).
+- Web: an unfinished upload cannot resume after a page reload (the picked file lived in memory); the row stays
+  `failed`.
+- Android "Save to device" of a non-image file over 100 MiB opens the share sheet (Files / Drive) instead of
+  the save dialog: the Storage Access Framework target is a content URI and file_picker needs the bytes in memory.
+- "Open" on iOS / Android goes through the share sheet (no maintained open-with plugin added).
+
+## App implementation notes (`feat/encrypted-media-app`)
+
+- Plugins: `record` 6.2.1 (voice), `audioplayers` 6.7.1 (inline player, rate 1x/1.5x/2x), `video_player` 2.11.1
+  (Android, iOS, macOS, web), `fc_native_video_thumbnail` 2.2.0 (video thumbnail on Android, iOS, macOS, Windows;
+  macOS 11.0 like the app; its Linux part needs FFmpeg dev libraries, the app has no Linux target). The newest
+  majors need Flutter 3.44, the repo is on 3.41. No video compression (no maintained plugin fits), the original
+  is sent. Video duration and size come from `video_player` where it exists.
+- Expiry is shown as "Available until <date, time>" (localized `DateFormat`) instead of "expires in X": same
+  information, no plural forms in 19 languages.
+- Forwarding a media message re-sends the same `media` object; the action is hidden once `expiresAt` passed (no
+  re-upload in v1).
+- Upload resume after a restart is implemented: the row body holds the draft `media` object (id, key, nonce,
+  sha256 once known) and `mediaup:<messageId>` the local folder; the outbox retry asks `GET /media/{id}/upload`
+  and sends only missing chunks, a 404 / 410 starts a new upload with a new key.
+- A delete for everyone of a media message (sent or received) also removes the local file when no other row
+  references the media id.
 
 ## Ops (deploy notes)
 

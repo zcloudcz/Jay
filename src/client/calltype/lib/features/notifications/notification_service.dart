@@ -9,6 +9,7 @@ import '../../core/network/push_service.dart';
 import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../chat/attachment.dart';
+import '../media/media_message.dart';
 import 'local_notifier.dart';
 import 'notification_content.dart';
 
@@ -426,6 +427,17 @@ class NotificationService extends ChangeNotifier {
       } catch (_) {
         return const MessagePreview.label(PreviewKind.file);
       }
+    }
+    if (message.type == 'media') {
+      final info = MediaInfo.tryDecode(body);
+      return switch (info?.kind) {
+        null => const MessagePreview.label(PreviewKind.file),
+        MediaKind.image => const MessagePreview.label(PreviewKind.photo),
+        MediaKind.video => const MessagePreview.label(PreviewKind.video),
+        MediaKind.voice => const MessagePreview.label(PreviewKind.voice),
+        MediaKind.audio => const MessagePreview.label(PreviewKind.audio),
+        MediaKind.file => MessagePreview.fileName(info!.name),
+      };
     }
     return MessagePreview.text(body);
   }
