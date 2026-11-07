@@ -51,6 +51,16 @@ messages, therefore:
 | `PROGRESS_MAX_EDITS` | no, default `30` | progress edits per turn; then it stays until the answer replaces it |
 | `BOT_COMMANDS` | no | `cmd:description;cmd2:description` published as the bot's "/" menu at start (a bad entry stops the start; an old server without the endpoint is logged and ignored) |
 | `REACTION_MODE` | no, default `silent` | what an owner's emoji reaction in Jay does: `silent` (one Hermes turn, the answer is not posted), `batch` (no turn; sent along with the owner's next message), `reply` (normal turn, the answer is posted), `off`. See "Reactions" below; an unknown value stops the start |
+| `MEDIA_MODE` | no, default `on` | `off`: received files are not processed, Hermes sees only the sender's fallback text (as before). See "Voice messages, images and files" |
+| `MEDIA_DIR` | no, default `media` next to `BOT_STORE_PATH` (`/data/media` in the image) | where received files are saved, one folder per message, mode 700 |
+| `MEDIA_MAX_BYTES` | no, default `200000000` | larger files are not downloaded, Hermes gets only their metadata |
+| `MEDIA_RETENTION_DAYS` | no, default `7` | saved files are deleted after this many days (checked at start and every 6 h) |
+| `STT_ELEVENLABS_API_KEY` | no | ElevenLabs API key for transcribing voice messages and audio (Speech-to-Text, language auto-detected). `ELEVENLABS_API_KEY` is read when this is unset. No key = Hermes gets a note that a voice message arrived but cannot be transcribed, plus the file path |
+| `STT_MODEL` | no, default `scribe_v2` | ElevenLabs STT model (`scribe_v1` also works) |
+| `STT_MAX_SECONDS` | no, default `600` | longer voice/audio (sender-declared duration) is not transcribed, only saved |
+| `STT_MAX_BYTES` | no, default `25000000` | larger voice/audio is not transcribed, only saved |
+| `IMAGE_INPUT` | no, default `true` | images (JPEG, PNG, GIF, WebP) up to `IMAGE_MAX_BYTES` go to Hermes as image input (`image_url` content part); `false` = saved and passed as a path |
+| `IMAGE_MAX_BYTES` | no, default `5000000` | larger images are saved and passed as a path (Hermes' request body cap is 10 MB, the image travels base64) |
 | `PEER_REPLY_LIMIT`, `PEER_REPLY_WINDOW_MINUTES` | obsolete | ignored with a log line; limits now come from the group setting |
 
 ## Run
@@ -86,6 +96,34 @@ docker run -d --restart unless-stopped --network host -v hermes-bridge:/data \
 
 Docker image (built by `.github/workflows/hermes-bridge-image.yml`):
 `docker run ... ghcr.io/zcloudcz/jay-hermes-bridge:latest` (same flags as above).
+
+## Voice messages, images and files
+
+Jay sends voice messages, audio, video, large files and (newer apps) images as encrypted media (spec
+`docs/superpowers/specs/2026-11-07-encrypted-media.md`): the message carries the key, the server keeps only ciphertext
+for 72 h. Small photos still come as an old inline `file` message. For an OWNER's message the bridge downloads,
+decrypts and verifies the file (calltype_core chunk format, SHA-256) and Hermes reads:
+
+| Received | Hermes sees (the caption, if any, follows on the next line) |
+| --- | --- |
+| voice message | `[hlasová zpráva 0:10, přepis]: <transcript>` |
+| audio file | `[zvuková nahrávka song.mp3 3:20, přepis]: <transcript>` |
+| voice/audio, no STT key | `[hlasová zpráva 0:10: přepis není k dispozici, bridge nemá nastavený ELEVENLABS_API_KEY; soubor: <path>]` |
+| voice/audio over 10 min / 25 MB | `[hlasová zpráva 12:30, 3.1 MB: příliš dlouhá na přepis (limit 10 min / 25.0 MB); soubor: <path>]` |
+| image (JPEG/PNG/GIF/WebP, up to 5 MB) | `[obrázek photo.jpg, 120 KB]` + the image itself as an `image_url` part |
+| other image, or `IMAGE_INPUT=false` | `[obrázek: photo.heic, 2.1 MB, image/heic, <path>]` |
+| video, any other file | `[soubor: clip.mp4, 12.4 MB, video/mp4, <path>]` |
+| file over `MEDIA_MAX_BYTES` | `[soubor: big.zip, 300 MB, application/zip, nestaženo: nad limit 200 MB]` |
+| expired / damaged download | `[... : stažení selhalo: platnost na serveru vypršela]` (or `soubor je poškozený`) |
+
+- Transcription: ElevenLabs Speech-to-Text (`POST /v1/speech-to-text`, model `STT_MODEL`), language detected
+  automatically. A failing STT call becomes a note with the file path; the turn still runs.
+- Saved files: `MEDIA_DIR/<message id>/<file name>`, folder mode 700, deleted after `MEDIA_RETENTION_DAYS`. Hermes
+  runs on the same host (or shares the volume) to open the path; in Docker mount `/data` where Hermes can read it, or
+  treat the path as informational.
+- Files from other bots (group bot talk) are never downloaded: Hermes gets only the metadata line.
+- The images are stored in the Hermes session like any user message (base64 in Hermes' session store).
+- `MEDIA_MODE=off` restores the old behaviour (fallback text only, inline files ignored).
 
 ## Two bots in one group
 

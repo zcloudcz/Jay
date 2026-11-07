@@ -7,12 +7,14 @@ import 'package:calltype_bot/calltype_bot.dart';
 
 import 'src/bot_talk.dart';
 import 'src/hermes_events.dart';
+import 'src/media.dart';
 import 'src/progress.dart';
 import 'src/reply_directive.dart';
 import 'src/send_endpoint.dart';
 
 export 'src/bot_talk.dart';
 export 'src/hermes_events.dart';
+export 'src/media.dart';
 export 'src/progress.dart';
 export 'src/reply_directive.dart';
 export 'src/send_endpoint.dart';
@@ -27,6 +29,15 @@ typedef Backend =
 /// [HermesClient.chat] in production; tests feed scripted events.
 typedef StreamingBackend =
     Stream<HermesEvent> Function(String text, {required String conversationId});
+
+/// A turn whose user message carries images ([HermesImage]) besides the
+/// text; [HermesClient.chat] with `images` in production.
+typedef MultimodalBackend =
+    Stream<HermesEvent> Function(
+      String text,
+      List<HermesImage> images, {
+      required String conversationId,
+    });
 
 /// Answers a pending approval: [choice] is `once`, `session` or `deny`.
 typedef ApprovalBackend =
@@ -77,12 +88,20 @@ class HermesClient {
   final _http = HttpClient();
 
   /// The single place that knows Hermes' URL and JSON shape.
-  Future<String> ask(String text, {required String conversationId}) async {
+  ///
+  /// [images] go along as `image_url` content parts (Hermes' API server
+  /// accepts OpenAI-style multimodal `message` content).
+  Future<String> ask(
+    String text, {
+    required String conversationId,
+    List<HermesImage> images = const [],
+  }) async {
     // One Hermes session per CallType conversation. The prefix keeps our
     // sessions recognisable in Hermes' own session list.
     final session = 'calltype-$conversationId';
     final chat = 'api/sessions/$session/chat';
-    var response = await _post(chat, {'message': text});
+    final message = _message(text, images);
+    var response = await _post(chat, {'message': message});
     if (response.status == 404) {
       // First message of this conversation: create the session, then chat.
       // 409 = it already exists (a parallel create won) — equally fine.
@@ -90,7 +109,7 @@ class HermesClient {
       if (created.status != 201 && created.status != 409) {
         throw HttpException('Hermes session create: HTTP ${created.status}');
       }
-      response = await _post(chat, {'message': text});
+      response = await _post(chat, {'message': message});
     }
     if (response.status != 200) {
       throw HttpException('Hermes chat: HTTP ${response.status}');
@@ -113,14 +132,17 @@ class HermesClient {
   Stream<HermesEvent> chat(
     String text, {
     required String conversationId,
+    List<HermesImage> images = const [],
   }) async* {
     if (!stream || _streamUnsupported) {
-      yield HermesCompleted(await ask(text, conversationId: conversationId));
+      yield HermesCompleted(
+        await ask(text, conversationId: conversationId, images: images),
+      );
       return;
     }
     final session = 'calltype-$conversationId';
     final path = 'api/sessions/$session/chat/stream';
-    final body = {'message': text};
+    final body = {'message': _message(text, images)};
     var response = await _openStream(path, body);
     if (response.statusCode == 404) {
       await response.drain<void>();
@@ -134,7 +156,9 @@ class HermesClient {
       await response.drain<void>();
       _streamUnsupported = true;
       _log('Hermes has no streaming chat route: using /chat from now on.');
-      yield HermesCompleted(await ask(text, conversationId: conversationId));
+      yield HermesCompleted(
+        await ask(text, conversationId: conversationId, images: images),
+      );
       return;
     }
     if (response.statusCode != 200) {
@@ -143,6 +167,15 @@ class HermesClient {
     }
     yield* _readSse(response);
   }
+
+  /// The `message` field: plain text, or text + image parts.
+  static Object _message(String text, List<HermesImage> images) =>
+      images.isEmpty
+      ? text
+      : [
+          {'type': 'text', 'text': text},
+          for (final image in images) image.toContentPart(),
+        ];
 
   /// Parses SSE frames (`event:` + `data:` lines, blank line = end of frame,
   /// `:` lines = keepalive comments) until `done`.
@@ -452,6 +485,8 @@ class HermesBridge {
     this._progress,
     this._log,
     this._reactionMode,
+    this._media,
+    this._multimodal,
   );
 
   final CallTypeBot bot;
@@ -465,6 +500,11 @@ class HermesBridge {
   final ProgressSettings _progress;
   final void Function(String) _log;
   final ReactionMode _reactionMode;
+
+  /// Received files (voice, images, other); null = attachments are ignored
+  /// and the agent sees the sender's fallback text, as before.
+  final MediaProcessor? _media;
+  final MultimodalBackend? _multimodal;
 
   /// [ReactionMode.batch]: notes per conversation, oldest first, until the
   /// owner's next message takes them along.
@@ -554,13 +594,32 @@ class HermesBridge {
     // Batched reactions of this conversation ride along, oldest first.
     final batched = _pendingReactions.remove(message.conversationId);
     final fromBot = human == null;
+    // A file: the agent reads a description (a transcript for a voice
+    // message) instead of the fallback text. Only owners' files are
+    // downloaded; a bot's file stays metadata.
+    var text = message.text;
+    var images = const <HermesImage>[];
+    final attachment = message.attachment;
+    final media = _media;
+    if (attachment != null && media != null) {
+      final input = await media.describe(
+        message,
+        attachment,
+        download: !fromBot,
+        imageInput: _multimodal != null,
+      );
+      text = input.text;
+      images = input.images;
+    }
     await _runTurn(
       message,
       [
         ...?batched,
-        '$label: ${_withContext(message)}${fromBot ? botSilenceHint : ''}',
+        '$label: ${_withContext(message, text)}'
+            '${fromBot ? botSilenceHint : ''}',
       ].join('\n'),
       fromBot: fromBot,
+      images: images,
     );
   }
 
@@ -639,11 +698,11 @@ class HermesBridge {
   /// What the agent sees besides the text: the quoted message (people reply
   /// to something specific; without it "yes, do that" is meaningless) or the
   /// fact that a button was pressed.
-  static String _withContext(BotMessage message) {
+  static String _withContext(BotMessage message, String text) {
     if (message.action != null) return '[Button: ${message.text}]';
     final quote = message.replyTo;
-    if (quote == null || quote.preview.trim().isEmpty) return message.text;
-    return '[Replying to: "${quote.preview}"]\n${message.text}';
+    if (quote == null || quote.preview.trim().isEmpty) return text;
+    return '[Replying to: "${quote.preview}"]\n$text';
   }
 
   /// One backend turn: progress message after a while, approvals as
@@ -657,6 +716,7 @@ class HermesBridge {
     BotMessage message,
     String prompt, {
     bool fromBot = false,
+    List<HermesImage> images = const [],
   }) async {
     final progress = ProgressReporter(
       settings: fromBot ? ProgressSettings.never : _progress,
@@ -667,10 +727,11 @@ class HermesBridge {
     try {
       final answer = StringBuffer();
       String? completed;
-      await for (final event in _backend(
-        prompt,
-        conversationId: message.conversationId,
-      )) {
+      final multimodal = _multimodal;
+      final events = images.isNotEmpty && multimodal != null
+          ? multimodal(prompt, images, conversationId: message.conversationId)
+          : _backend(prompt, conversationId: message.conversationId);
+      await for (final event in events) {
         switch (event) {
           case HermesDelta(:final text):
             answer.write(text);
@@ -1028,6 +1089,11 @@ const channelTargetPrefix = 'channel:';
 ///
 /// [reactions] decides what an owner's emoji reaction does (see
 /// [ReactionMode]); other senders' reactions are never forwarded.
+///
+/// [media] handles received files (voice messages are transcribed, other
+/// files saved); without it the agent sees the fallback text of a media
+/// message, as before. [multimodal] lets images go to Hermes as image
+/// input; without it they are saved and passed as a path.
 Future<HermesBridge> runBridge(
   CallTypeBot bot, {
   required Set<String> allowedHandles,
@@ -1039,6 +1105,8 @@ Future<HermesBridge> runBridge(
   ApprovalBackend? approve,
   ProgressSettings progress = const ProgressSettings(),
   ReactionMode reactions = ReactionMode.silent,
+  MediaProcessor? media,
+  MultimodalBackend? multimodal,
   required void Function(String) log,
 }) async {
   if (stream == null && backend == null) {
@@ -1096,6 +1164,8 @@ Future<HermesBridge> runBridge(
     progress,
     log,
     reactions,
+    media,
+    multimodal,
   );
   // Before onMessage: that call connects, and queued presses arrive at once.
   bot.onAction(bridge._onAction);
@@ -1104,6 +1174,9 @@ Future<HermesBridge> runBridge(
     bridge._handle,
     allowSender: bridge._allowSender,
     allowGroupSender: bridge._admitGroupBot,
+    // Old inline `file` messages (photos up to 256 KiB) only when files are
+    // handled; otherwise they stay acked and ignored as before.
+    receiveFiles: media != null,
   );
   return bridge;
 }

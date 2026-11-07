@@ -327,6 +327,18 @@ bubble states (not downloaded, downloading, expired, downloaded) with fakes; no 
 - Reactions work on `media` rows (the reactions branch predates the media type).
 - The backup export skips in-flight `reaction` rows (an older app's import rejects that type).
 
+## Bots (`fix/bridge-media`)
+
+- The format code is shared: `calltype_core/lib/media/media_crypto.dart` (`MediaCipher`, moved from the app) and
+  `media_info.dart` (`MediaInfo`, `MediaKind`, validation, `jpegDimensions`). The app's `features/media` files
+  re-export them; the bots decrypt with the same code.
+- `calltype_bot`: a received `text` + `media` message is a `BotMessage` with `attachment` (metadata, `saveTo` /
+  `readBytes` = download, chunked decrypt, SHA-256 check); `text` stays the fallback body. Old inline `type: file`
+  only with `onMessage(receiveFiles: true)`. Nothing is downloaded without the bot asking.
+- `hermes_bridge`: owners' voice messages and audio are transcribed (ElevenLabs Speech-to-Text, optional key),
+  images go to Hermes as `image_url` input, other files are saved under `MEDIA_DIR` (7 days, 200 MB cap) and passed as
+  a path. Details and env: `src/bots/hermes_bridge/README.md`, "Voice messages, images and files".
+
 ## Ops (deploy notes)
 
 - New App Service settings only if the defaults should change (section 2.9). The container `media` is created on first

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:calltype_bot/calltype_bot.dart';
@@ -32,6 +33,24 @@ import 'package:hermes_bridge/hermes_bridge.dart';
 /// Hermes may start an answer with a line `[react:EMOJI]` to react to the
 /// owner's message (`[react:]` removes it; only that line = no text), see
 /// README "The bot reacting".
+///
+/// Received files (all optional, see README "Voice messages, images and
+/// files"):
+/// - `MEDIA_MODE`             `on` (default) or `off` (the agent sees only the
+///                            sender's fallback text, as before).
+/// - `MEDIA_DIR`              where files are saved (default `media` next to
+///                            BOT_STORE_PATH), mode 700.
+/// - `MEDIA_MAX_BYTES`        larger files are not downloaded (default 200 MB).
+/// - `MEDIA_RETENTION_DAYS`   saved files are deleted after N days (default 7).
+/// - `STT_ELEVENLABS_API_KEY` ElevenLabs key for voice transcription;
+///                            `ELEVENLABS_API_KEY` is read when it is unset.
+///                            No key = a note instead of a transcript.
+/// - `STT_MODEL`              ElevenLabs model (default `scribe_v2`).
+/// - `STT_MAX_SECONDS` / `STT_MAX_BYTES` longer or larger audio is not
+///                            transcribed (default 600 s / 25 MB).
+/// - `IMAGE_INPUT`            `true` (default): images up to `IMAGE_MAX_BYTES`
+///                            (default 5 MB) go to Hermes as image input;
+///                            `false`: saved and passed as a path.
 ///
 /// Timeouts (all optional):
 /// - `HERMES_ASK_TIMEOUT_SECONDS` longest wait for a Hermes answer (plain
@@ -101,6 +120,45 @@ Future<void> main() async {
     exit(78); // EX_CONFIG
   }
 
+  bool flag(String name, {required bool fallback}) {
+    final raw = (env[name] ?? '').trim().toLowerCase();
+    if (raw.isEmpty) return fallback;
+    if (const {'true', '1', 'yes', 'on'}.contains(raw)) return true;
+    if (const {'false', '0', 'no', 'off'}.contains(raw)) return false;
+    stderr.writeln('$name must be true/false (on/off), got "$raw".');
+    exit(78); // EX_CONFIG
+  }
+
+  final mediaOn = flag('MEDIA_MODE', fallback: true);
+  final storePath = env['BOT_STORE_PATH']?.trim() ?? '';
+  final mediaDirRaw = env['MEDIA_DIR']?.trim() ?? '';
+  final mediaSettings = MediaSettings(
+    dir: mediaDirRaw.isNotEmpty
+        ? mediaDirRaw
+        : '${File(storePath.isEmpty ? 'bot.store' : storePath).parent.path}'
+              '/media',
+    maxFileBytes: positiveInt('MEDIA_MAX_BYTES', 200 * 1000 * 1000),
+    retention: Duration(days: positiveInt('MEDIA_RETENTION_DAYS', 7)),
+    sttMaxBytes: positiveInt('STT_MAX_BYTES', 25 * 1000 * 1000),
+    sttMaxDuration: Duration(seconds: positiveInt('STT_MAX_SECONDS', 600)),
+    imageMaxBytes: positiveInt('IMAGE_MAX_BYTES', 5 * 1000 * 1000),
+    imageInput: flag('IMAGE_INPUT', fallback: true),
+  );
+  final sttKeyName = (env['STT_ELEVENLABS_API_KEY'] ?? '').trim().isNotEmpty
+      ? 'STT_ELEVENLABS_API_KEY'
+      : 'ELEVENLABS_API_KEY';
+  final sttKey = (env[sttKeyName] ?? '').trim();
+  final sttModel = (env['STT_MODEL'] ?? '').trim();
+  final transcriber = sttKey.isEmpty
+      ? null
+      : ElevenLabsTranscriber(
+          apiKey: sttKey,
+          model: sttModel.isEmpty ? 'scribe_v2' : sttModel,
+          baseUrl: env['STT_URL']?.trim().isNotEmpty == true
+              ? env['STT_URL']!.trim()
+              : 'https://api.elevenlabs.io',
+        );
+
   // Bot-to-bot limits now come from each group's "Bot conversation" setting;
   // this is only the operator's ceiling over all of them.
   final peerTurnsCap = positiveInt('PEER_MAX_TURNS_CAP', 50);
@@ -168,6 +226,33 @@ Future<void> main() async {
     }
   }
 
+  MediaProcessor? media;
+  Timer? mediaCleanup;
+  if (mediaOn) {
+    media = MediaProcessor(
+      settings: mediaSettings,
+      transcribe: transcriber?.call,
+      log: log,
+    );
+    final processor = media;
+    Future<void> clean() async {
+      final removed = await processor.cleanup();
+      if (removed > 0) log('Media cleanup: removed $removed old item(s).');
+    }
+
+    await clean();
+    mediaCleanup = Timer.periodic(const Duration(hours: 6), (_) => clean());
+    log(
+      'Media: files in ${mediaSettings.dir} '
+      '(${mediaSettings.retention.inDays} days, '
+      'max ${formatMediaSize(mediaSettings.maxFileBytes)}), voice '
+      '${transcriber == null ? 'NOT transcribed (no ELEVENLABS_API_KEY)' : 'transcribed (${transcriber.model}, key from $sttKeyName)'}, '
+      'images ${mediaSettings.imageInput ? 'as image input' : 'as files'}.',
+    );
+  } else {
+    log('MEDIA_MODE=off: received files reach Hermes as fallback text only.');
+  }
+
   final bridge = await runBridge(
     bot,
     allowedHandles: parseAllowedHandles(env['ALLOWED_HANDLES']),
@@ -177,6 +262,9 @@ Future<void> main() async {
     approve: hermes.approve,
     progress: progress,
     reactions: reactionMode,
+    media: media,
+    multimodal: (text, images, {required conversationId}) =>
+        hermes.chat(text, conversationId: conversationId, images: images),
     log: log,
   );
   log('Connected. Waiting for messages (reactions: ${reactionMode.name}).');
@@ -212,8 +300,10 @@ Future<void> main() async {
   Future<void> shutdown(ProcessSignal _) async {
     log('Shutting down.');
     await endpoint?.close(force: true);
+    mediaCleanup?.cancel();
     await bot.close();
     hermes.close();
+    transcriber?.close();
     exit(0);
   }
 
