@@ -29,6 +29,10 @@ class _SessionOverlayState extends State<SessionOverlay>
   bool _checking = true;
   bool _locked = false;
   bool _callOpen = false;
+
+  /// Whether the app (widget.child) has been built once; from then on it
+  /// stays mounted under the lock screen.
+  bool _appBuilt = false;
   _LockError? _error;
   late WebRTCManager _calls;
   @override
@@ -128,7 +132,40 @@ class _SessionOverlayState extends State<SessionOverlay>
 
   @override
   Widget build(BuildContext context) {
-    if (!_checking && !_locked) return widget.child;
+    final covered = _checking || _locked;
+    if (!covered) _appBuilt = true;
+    // Until the first unlock nothing of the app is built (as before): a cold
+    // start with the lock on must not run any screen behind it.
+    if (!_appBuilt) return _lockScreen(context);
+    // Once built, the app stays MOUNTED under the lock: replacing it with the
+    // lock screen disposed the whole navigator, so an open chat lost the text
+    // being typed every time the app went to the background with the lock
+    // on. While covered it is not painted, not hit-testable, not in the
+    // semantics tree, its animations are paused, and nothing in it can hold
+    // focus (a focused composer would otherwise raise the keyboard over the
+    // lock screen).
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ExcludeFocus(
+          excluding: covered,
+          child: TickerMode(
+            enabled: !covered,
+            child: ExcludeSemantics(
+              excluding: covered,
+              child: IgnorePointer(
+                ignoring: covered,
+                child: Offstage(offstage: covered, child: widget.child),
+              ),
+            ),
+          ),
+        ),
+        if (covered) _lockScreen(context),
+      ],
+    );
+  }
+
+  Widget _lockScreen(BuildContext context) {
     final l10n = context.l10n;
     return Material(
       child: SafeArea(

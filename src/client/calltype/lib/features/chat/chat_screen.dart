@@ -866,6 +866,10 @@ class ChatScreen extends StatelessWidget {
             )
           else
             MessageInput(
+              // A new conversation is a new composer with its own draft.
+              key: ValueKey('composer:$contactId'),
+              loadDraft: controller.loadDraft,
+              saveDraft: controller.saveDraft,
               onSend: controller.sendMessage,
               onSendWithMentions: (text, mentions) =>
                   controller.sendMessage(text, mentions: mentions),

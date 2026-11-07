@@ -1,4 +1,8 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/bot_badge.dart';
@@ -8,9 +12,9 @@ import 'mentions.dart';
 /// Composable message input bar with text field and send button.
 ///
 /// Sits at the bottom of the chat screen. Calls [onSend] with the
-/// trimmed text when the user taps send or presses Enter, then clears
-/// the field. The attachment button is a placeholder for Phase 5 (file
-/// sharing).
+/// trimmed text when the user taps send (or presses Enter where
+/// [enterSends]), then clears the field. The field grows to
+/// [maxComposerLines] lines and scrolls inside after that.
 ///
 /// Owns its own [TextEditingController] and disposes it properly to
 /// avoid memory leaks — this is important because the input bar lives
@@ -27,7 +31,27 @@ class MessageInput extends StatefulWidget {
     this.onSendWithMentions,
     this.commandSuggestions,
     this.initialText,
+    this.loadDraft,
+    this.saveDraft,
+    this.enterSends,
   });
+
+  /// Lines the field grows to before it scrolls inside.
+  static const maxComposerLines = 6;
+
+  /// Whether a hardware Enter sends (Shift+Enter = new line), the default
+  /// on web and desktop. On iOS / Android Enter inserts a new line and the
+  /// send button sends, as in other messengers. Injected by tests; null =
+  /// decided by the platform.
+  final bool? enterSends;
+
+  /// Reads the stored unsent text of this conversation; used only when
+  /// [initialText] is empty (an explicit pre-fill wins).
+  final Future<String?> Function()? loadDraft;
+
+  /// Persists the current text (debounced, flushed when the app goes to the
+  /// background, on dispose and right after a send). Blank = remove.
+  final Future<void> Function(String text)? saveDraft;
   final VoidCallback? onAttachment;
 
   /// Used instead of [onSend] when set: also gets the identity ids of the
@@ -58,9 +82,29 @@ class MessageInput extends StatefulWidget {
   State<MessageInput> createState() => _MessageInputState();
 }
 
-class _MessageInputState extends State<MessageInput> {
+class _MessageInputState extends State<MessageInput>
+    with WidgetsBindingObserver {
   final _controller = TextEditingController();
-  final _focus = FocusNode();
+  late final _focus = FocusNode(onKeyEvent: _onKey);
+
+  Timer? _draftTimer;
+
+  /// The text last handed to [MessageInput.saveDraft] (or loaded): an
+  /// untouched composer never writes.
+  String _savedDraft = '';
+  static const _draftDelay = Duration(milliseconds: 400);
+
+  bool get _enterSends =>
+      widget.enterSends ??
+      (kIsWeb ||
+          switch (defaultTargetPlatform) {
+            TargetPlatform.android ||
+            TargetPlatform.iOS ||
+            TargetPlatform.fuchsia => false,
+            TargetPlatform.linux ||
+            TargetPlatform.macOS ||
+            TargetPlatform.windows => true,
+          });
 
   /// Suggestions currently shown above the field. Kept as state (instead of
   /// recomputed in build) so setState runs only when the visible list changes.
@@ -103,8 +147,71 @@ class _MessageInputState extends State<MessageInput> {
         selection: TextSelection.collapsed(offset: initial.length),
       );
       _hasText = initial.trim().isNotEmpty;
+      // What the user now sees replaces an older stored draft.
+      _flushDraft();
+    } else {
+      _restoreDraft();
     }
     _controller.addListener(_onTextChanged);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  Future<void> _restoreDraft() async {
+    final load = widget.loadDraft;
+    if (load == null) return;
+    String? draft;
+    try {
+      draft = await load();
+    } catch (_) {
+      return;
+    }
+    // Typing that started before the load finished wins over the old draft.
+    if (!mounted || draft == null || _controller.text.isNotEmpty) return;
+    _savedDraft = draft;
+    _controller.value = TextEditingValue(
+      text: draft,
+      selection: TextSelection.collapsed(offset: draft.length),
+    );
+  }
+
+  void _scheduleDraft() {
+    if (widget.saveDraft == null) return;
+    _draftTimer?.cancel();
+    _draftTimer = Timer(_draftDelay, _flushDraft);
+  }
+
+  void _flushDraft() {
+    _draftTimer?.cancel();
+    _draftTimer = null;
+    final save = widget.saveDraft;
+    final text = _controller.text;
+    if (save == null || text == _savedDraft) return;
+    _savedDraft = text;
+    unawaited(save(text).catchError((Object _) {}));
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The OS may kill a backgrounded app without another callback.
+    if (state != AppLifecycleState.resumed) _flushDraft();
+  }
+
+  /// Web / desktop: Enter sends, Shift+Enter falls through to the text
+  /// input, which inserts the new line. Not while an IME is composing:
+  /// there Enter commits the composition.
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (!_enterSends || event is KeyUpEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key != LogicalKeyboardKey.enter &&
+        key != LogicalKeyboardKey.numpadEnter) {
+      return KeyEventResult.ignored;
+    }
+    if (HardwareKeyboard.instance.isShiftPressed ||
+        _controller.value.composing.isValid) {
+      return KeyEventResult.ignored;
+    }
+    unawaited(_submit());
+    return KeyEventResult.handled;
   }
 
   /// Opens / filters / closes the "/" menu for the current text.
@@ -154,6 +261,7 @@ class _MessageInputState extends State<MessageInput> {
   }
 
   void _onTextChanged() {
+    if (_controller.text != _savedDraft) _scheduleDraft();
     final hasText = _controller.text.trim().isNotEmpty;
     final cursor = _controller.selection.baseOffset;
     if (_controller.text.isEmpty) _picked.clear();
@@ -204,7 +312,11 @@ class _MessageInputState extends State<MessageInput> {
       } else {
         await widget.onSend(text);
       }
-      if (mounted && _controller.text.trim() == text) _controller.clear();
+      if (mounted && _controller.text.trim() == text) {
+        _controller.clear();
+        // Sent: the stored draft goes now, not after the debounce.
+        _flushDraft();
+      }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -218,13 +330,20 @@ class _MessageInputState extends State<MessageInput> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _flushDraft();
     _controller.dispose();
     _focus.dispose();
     super.dispose();
   }
 
+  // One tap region with the text field: tapping send, attach or a
+  // suggestion is not a "tap outside" that would drop the keyboard first.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      TextFieldTapRegion(child: _buildBar(context));
+
+  Widget _buildBar(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
 
     return SafeArea(
@@ -238,6 +357,9 @@ class _MessageInputState extends State<MessageInput> {
                 constraints: const BoxConstraints(maxHeight: 200),
                 child: ListView.builder(
                   shrinkWrap: true,
+                  // Scrolling the suggestions must keep the keyboard up.
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.manual,
                   itemCount: _commandMatches.length,
                   itemBuilder: (context, i) {
                     final c = _commandMatches[i];
@@ -266,6 +388,9 @@ class _MessageInputState extends State<MessageInput> {
                 constraints: const BoxConstraints(maxHeight: 200),
                 child: ListView.builder(
                   shrinkWrap: true,
+                  // Scrolling the suggestions must keep the keyboard up.
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.manual,
                   itemCount: _suggestions.length,
                   itemBuilder: (context, i) {
                     final c = _suggestions[i];
@@ -323,8 +448,9 @@ class _MessageInputState extends State<MessageInput> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             child: Row(
+              // Side buttons stay at the bottom line while the field grows.
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // Attachment button — placeholder for Phase 5 file sharing.
                 IconButton(
                   icon: const Icon(Icons.attach_file_rounded),
                   tooltip: context.l10n.chatInputAttach,
@@ -335,8 +461,11 @@ class _MessageInputState extends State<MessageInput> {
                   child: TextField(
                     controller: _controller,
                     focusNode: _focus,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => _submit(),
+                    minLines: 1,
+                    maxLines: MessageInput.maxComposerLines,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction: TextInputAction.newline,
+                    textCapitalization: TextCapitalization.sentences,
                     decoration: InputDecoration(
                       hintText: context.l10n.chatInputHint,
                       filled: true,

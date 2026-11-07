@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:drift/drift.dart';
+import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:calltype/core/network/api_client.dart';
 import 'package:calltype/core/network/signalr_client.dart';
@@ -432,5 +432,49 @@ void main() {
     transport.dispose();
     await web.close();
     await auditor.close();
+  });
+
+  test('composer drafts are kept per conversation and removed when blank', () async {
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    final alice = await TestDevice.create('alice');
+    final transport = Transport();
+    final inbox = MessageInboxService(
+      database: alice.db,
+      sessionManager: alice.sessions,
+      directory: () => alice.directory,
+      incomingMessages: const Stream.empty(),
+    );
+    ChatController controller(String id) => ChatController(
+      database: alice.db,
+      signalRClient: transport,
+      sessionManager: alice.sessions,
+      inbox: inbox,
+      apiClient: ChatApi(const []),
+      conversationId: id,
+      directory: alice.directory,
+    );
+    final one = controller('one');
+    final two = controller('two');
+    expect(await one.loadDraft(), isNull);
+    await one.saveDraft('line 1\nline 2');
+    expect(await one.loadDraft(), 'line 1\nline 2');
+    expect(await two.loadDraft(), isNull);
+    // A controller created later (the app was killed) still finds it.
+    final reopened = controller('one');
+    expect(await reopened.loadDraft(), 'line 1\nline 2');
+    await reopened.saveDraft('  ');
+    expect(await one.loadDraft(), isNull);
+    expect(
+      await (alice.db.select(
+        alice.db.backupState,
+      )..where((s) => s.key.like('draft:%'))).get(),
+      isEmpty,
+    );
+    for (final c in [one, two, reopened]) {
+      c.dispose();
+    }
+    await inbox.dispose();
+    transport.dispose();
+    await alice.close();
   });
 }

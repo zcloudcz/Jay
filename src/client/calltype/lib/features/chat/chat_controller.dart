@@ -313,8 +313,37 @@ class ChatController extends ChangeNotifier {
   }
 
   /// Text the composer starts with (bot deep link `/start <payload>`), set
-  /// once by the route; never sent without the user pressing send.
+  /// once by the route; never sent without the user pressing send. Wins over
+  /// a stored [loadDraft] because the user just asked for it explicitly.
   String? initialDraft;
+
+  String get _draftKey => 'draft:$conversationId';
+
+  /// The unsent composer text of this conversation, or null. Kept in the
+  /// local key-value table (never backed up, never sent) so it survives the
+  /// OS killing the app in the background, not only a locked screen.
+  Future<String?> loadDraft() async {
+    final row = await (_db.select(
+      _db.backupState,
+    )..where((s) => s.key.equals(_draftKey))).getSingleOrNull();
+    final text = row?.value;
+    return text == null || text.trim().isEmpty ? null : text;
+  }
+
+  /// Stores [text] as the draft; blank text removes it (sent or cleared).
+  Future<void> saveDraft(String text) async {
+    if (text.trim().isEmpty) {
+      await (_db.delete(
+        _db.backupState,
+      )..where((s) => s.key.equals(_draftKey))).go();
+      return;
+    }
+    await _db
+        .into(_db.backupState)
+        .insertOnConflictUpdate(
+          BackupStateCompanion.insert(key: _draftKey, value: text),
+        );
+  }
 
   Message? _replyingTo;
 

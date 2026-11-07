@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../features/organization/emergency/emergency_drill_overlay.dart';
 import '../l10n/l10n.dart';
+import 'keyboard_dismiss.dart';
 import 'router.dart';
 import 'theme.dart';
 import 'session_overlay.dart';
@@ -28,8 +29,9 @@ class CallTypeApp extends StatelessWidget {
       darkTheme: AppTheme.dark,
       themeMode: ThemeMode.system,
       routerConfig: router,
-      builder: (context, child) =>
-          SessionOverlay(child: EmergencyDrillOverlay(child: child!)),
+      builder: (context, child) => KeyboardDismiss(
+        child: SessionOverlay(child: EmergencyDrillOverlay(child: child!)),
+      ),
       debugShowCheckedModeBanner: false,
     );
   }

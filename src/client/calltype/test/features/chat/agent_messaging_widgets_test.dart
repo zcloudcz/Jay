@@ -83,7 +83,8 @@ void main() {
       await tester.tap(find.text('Boss bot'));
       await tester.pump();
       await tester.enterText(find.byType(TextField), '@Hermes deploy');
-      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pump();
+      await tester.tap(find.byTooltip(l10nEn.chatInputSend));
       await tester.pump();
       expect(sent.single.$1, '@Hermes deploy');
       expect(sent.single.$2, ['b0000000-0000-4000-8000-000000000001']);
@@ -99,7 +100,8 @@ void main() {
       await tester.tap(find.text('Boss bot'));
       await tester.pump();
       await tester.enterText(find.byType(TextField), 'never mind');
-      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pump();
+      await tester.tap(find.byTooltip(l10nEn.chatInputSend));
       await tester.pump();
       expect(sent.single, isEmpty);
     });
