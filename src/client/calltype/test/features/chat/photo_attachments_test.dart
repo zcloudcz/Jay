@@ -8,6 +8,7 @@ import 'package:calltype/features/chat/chat_controller.dart';
 import 'package:calltype/features/chat/chat_screen.dart';
 import 'package:calltype/features/chat/image_attachment.dart';
 import 'package:calltype/features/chat/message_inbox_service.dart';
+import 'package:calltype/features/chat/photo_send_preview.dart';
 import 'package:calltype/features/chat_list/chat_list_controller.dart';
 import 'package:calltype/features/contacts/contacts_controller.dart';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
@@ -299,8 +300,8 @@ void main() {
     });
 
     testWidgets(
-      'photos from the library are converted to JPEG and each is sent as '
-      'its own attachment',
+      'photos from the library are converted to JPEG, reviewed, and each is '
+      'sent as its own attachment with the caption on the first',
       (tester) async {
         debugDefaultTargetPlatformOverride = TargetPlatform.android;
         media.gallery = [
@@ -315,18 +316,37 @@ void main() {
         await tester.pump();
         // The progress dialog is up while the photos are prepared.
         expect(find.byType(CircularProgressIndicator), findsOneWidget);
-        // Compression runs in a real isolate and the send in real DB work:
-        // advance both clocks until both messages went out.
+        // Compression runs in a real isolate: advance both clocks until
+        // the review screen is up. Nothing is sent before the user confirms.
+        for (
+          var i = 0;
+          i < 200 && find.byType(PhotoSendPreview).evaluate().isEmpty;
+          i++
+        ) {
+          await settle(tester);
+        }
+        await tester.pumpAndSettle();
+        expect(find.byType(PhotoSendPreview), findsOneWidget);
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(r.hub.sent, isEmpty);
+        expect(find.text(l10nEn.chatPhotoPreviewTitle(2)), findsOneWidget);
+        await tester.enterText(
+          find.widgetWithText(TextField, l10nEn.chatPhotoCaptionHint),
+          '  Two views  ',
+        );
+        await tester.tap(find.byTooltip(l10nEn.chatInputSend));
+        // The send is real DB work: advance until both messages went out.
         for (var i = 0; i < 200 && r.hub.sent.length < 2; i++) {
           await settle(tester);
         }
         expect(media.calls, ['gallery']);
         expect(r.hub.sent, hasLength(2));
-        expect(find.byType(CircularProgressIndicator), findsNothing);
         final rows = (await tester.runAsync(
-          () => (r.alice.db.select(
-            r.alice.db.messages,
-          )..where((m) => m.senderId.equals('alice'))).get(),
+          () =>
+              (r.alice.db.select(r.alice.db.messages)
+                    ..where((m) => m.senderId.equals('alice'))
+                    ..orderBy([(m) => OrderingTerm(expression: m.createdAt)]))
+                  .get(),
         ))!;
         expect(rows, hasLength(2));
         for (final row in rows) {
@@ -336,6 +356,42 @@ void main() {
           expect(sent.bytes.sublist(0, 2), [0xFF, 0xD8]);
           expect(sent.bytes.length, lessThanOrEqualTo(Attachment.maxBytes));
         }
+        final first = Attachment.decode(rows.first.body!);
+        expect(first.name, isNot(endsWith('_2.jpg')));
+        expect(first.caption, 'Two views');
+        expect(Attachment.decode(rows.last.body!).caption, isNull);
+        // The caption is shown under the photo in the chat.
+        await settle(tester);
+        expect(find.text('Two views'), findsOneWidget);
+        debugDefaultTargetPlatformOverride = null;
+      },
+      timeout: const Timeout(Duration(seconds: 90)),
+    );
+
+    testWidgets(
+      'cancelling the review sends nothing',
+      (tester) async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        media.cameraImage = PickedMedia.bytes('cam.png', testPng(120, 80));
+        final r = await pumpChat(tester);
+        await tester.tap(find.byIcon(Icons.attach_file_rounded));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(l10nEn.chatAttachCamera));
+        for (
+          var i = 0;
+          i < 200 && find.byType(PhotoSendPreview).evaluate().isEmpty;
+          i++
+        ) {
+          await settle(tester);
+        }
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip(l10nEn.commonCancel));
+        await tester.pumpAndSettle();
+        for (var i = 0; i < 10; i++) {
+          await settle(tester);
+        }
+        expect(find.byType(PhotoSendPreview), findsNothing);
+        expect(r.hub.sent, isEmpty);
         debugDefaultTargetPlatformOverride = null;
       },
       timeout: const Timeout(Duration(seconds: 90)),

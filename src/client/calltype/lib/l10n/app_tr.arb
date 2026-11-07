@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "Cihaz sıfırlanamadı. Hiçbir şey bağlanmadı. Tekrar deneyin.",
   "accountNoChatsTitle": "Sohbetlerim nerede?",
   "accountNoChatsBody": "Sohbetleriniz uçtan uca şifrelidir ve yalnızca cihazlarınızda bulunur. Hesabınıza giriş yapmak yedekler içindir ve onları buraya getirmez. Onları burada görmek için bu tarayıcıyı telefonunuza bağlayın.",
-  "accountNoChatsAction": "Telefonuma bağla"
+  "accountNoChatsAction": "Telefonuma bağla",
+  "chatPhotoPreviewTitle": "{count, plural, =1{Fotoğrafı gönder} other{{count} fotoğraf gönder}}",
+  "chatPhotoPreviewRemove": "Fotoğrafı kaldır",
+  "chatPhotoCaptionHint": "Açıklama ekle",
+  "notificationPhotoCaption": "Fotoğraf: {caption}"
 }

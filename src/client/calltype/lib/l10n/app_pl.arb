@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "Nie udało się zresetować urządzenia. Nic nie zostało połączone. Spróbuj ponownie.",
   "accountNoChatsTitle": "Gdzie są moje czaty?",
   "accountNoChatsBody": "Twoje czaty są szyfrowane end-to-end i są tylko na Twoich urządzeniach. Logowanie do konta służy kopiom zapasowym i nie przenosi ich tutaj. Aby je tu zobaczyć, połącz tę przeglądarkę z telefonem.",
-  "accountNoChatsAction": "Połącz z moim telefonem"
+  "accountNoChatsAction": "Połącz z moim telefonem",
+  "chatPhotoPreviewTitle": "{count, plural, one{Wyślij zdjęcie} few{Wyślij {count} zdjęcia} many{Wyślij {count} zdjęć} other{Wyślij {count} zdjęcia}}",
+  "chatPhotoPreviewRemove": "Usuń zdjęcie",
+  "chatPhotoCaptionHint": "Dodaj podpis",
+  "notificationPhotoCaption": "Zdjęcie: {caption}"
 }

@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "Impossibile reimpostare il dispositivo. Non è stato collegato nulla. Riprova.",
   "accountNoChatsTitle": "Dove sono le mie chat?",
   "accountNoChatsBody": "Le tue chat sono crittografate end-to-end e si trovano solo sui tuoi dispositivi. L'accesso all'account serve per i backup e non le porta qui. Per vederle qui, collega questo browser al telefono.",
-  "accountNoChatsAction": "Collega al mio telefono"
+  "accountNoChatsAction": "Collega al mio telefono",
+  "chatPhotoPreviewTitle": "{count, plural, =1{Invia foto} other{Invia {count} foto}}",
+  "chatPhotoPreviewRemove": "Rimuovi foto",
+  "chatPhotoCaptionHint": "Aggiungi una didascalia",
+  "notificationPhotoCaption": "Foto: {caption}"
 }

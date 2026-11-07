@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "Das Gerät konnte nicht zurückgesetzt werden. Es wurde nichts verknüpft. Versuche es erneut.",
   "accountNoChatsTitle": "Wo sind meine Chats?",
   "accountNoChatsBody": "Deine Chats sind Ende-zu-Ende-verschlüsselt und liegen nur auf deinen Geräten. Die Anmeldung beim Konto dient Backups und bringt sie nicht hierher. Um sie hier zu sehen, verknüpfe diesen Browser mit deinem Handy.",
-  "accountNoChatsAction": "Mit meinem Handy verknüpfen"
+  "accountNoChatsAction": "Mit meinem Handy verknüpfen",
+  "chatPhotoPreviewTitle": "{count, plural, =1{Foto senden} other{{count} Fotos senden}}",
+  "chatPhotoPreviewRemove": "Foto entfernen",
+  "chatPhotoCaptionHint": "Bildunterschrift hinzufügen",
+  "notificationPhotoCaption": "Foto: {caption}"
 }

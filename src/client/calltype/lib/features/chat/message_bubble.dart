@@ -37,6 +37,7 @@ class MessageBubble extends StatelessWidget {
     required this.isMine,
     this.actions = const [],
     this.content,
+    this.caption,
     this.quoteAuthor,
     this.quoteText,
     this.forwarded = false,
@@ -61,6 +62,9 @@ class MessageBubble extends StatelessWidget {
 
   /// Replaces the text, e.g. the download button of a file attachment.
   final Widget? content;
+
+  /// Text under [content] (a photo caption); ignored without [content].
+  final String? caption;
 
   /// Quoted message shown above the content (reply).
   final String? quoteAuthor;
@@ -259,6 +263,23 @@ class MessageBubble extends StatelessWidget {
                             color: textColor.withAlpha(150),
                             fontStyle: FontStyle.italic,
                           ),
+                        )
+                      else if (content != null && caption != null)
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            content!,
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                caption!,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: textColor,
+                                ),
+                              ),
+                            ),
+                          ],
                         )
                       else
                         content ??

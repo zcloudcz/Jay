@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "L'appareil n'a pas pu être réinitialisé. Rien n'a été associé. Réessayez.",
   "accountNoChatsTitle": "Où sont mes discussions ?",
   "accountNoChatsBody": "Vos discussions sont chiffrées de bout en bout et ne se trouvent que sur vos appareils. La connexion au compte sert aux sauvegardes et ne les amène pas ici. Pour les voir ici, associez ce navigateur à votre téléphone.",
-  "accountNoChatsAction": "Associer à mon téléphone"
+  "accountNoChatsAction": "Associer à mon téléphone",
+  "chatPhotoPreviewTitle": "{count, plural, =1{Envoyer la photo} other{Envoyer {count} photos}}",
+  "chatPhotoPreviewRemove": "Retirer la photo",
+  "chatPhotoCaptionHint": "Ajouter une légende",
+  "notificationPhotoCaption": "Photo : {caption}"
 }

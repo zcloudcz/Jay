@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "Não foi possível redefinir o dispositivo. Nada foi vinculado. Tente novamente.",
   "accountNoChatsTitle": "Onde estão minhas conversas?",
   "accountNoChatsBody": "Suas conversas têm criptografia de ponta a ponta e ficam só nos seus dispositivos. Entrar na conta serve para backups e não as traz para cá. Para vê-las aqui, vincule este navegador ao seu celular.",
-  "accountNoChatsAction": "Vincular ao meu celular"
+  "accountNoChatsAction": "Vincular ao meu celular",
+  "chatPhotoPreviewTitle": "{count, plural, =1{Enviar foto} other{Enviar {count} fotos}}",
+  "chatPhotoPreviewRemove": "Remover foto",
+  "chatPhotoCaptionHint": "Adicionar legenda",
+  "notificationPhotoCaption": "Foto: {caption}"
 }

@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "Het apparaat kon niet worden gereset. Er is niets gekoppeld. Probeer het opnieuw.",
   "accountNoChatsTitle": "Waar zijn mijn chats?",
   "accountNoChatsBody": "Je chats zijn end-to-end versleuteld en staan alleen op je apparaten. Inloggen op je account is voor back-ups en brengt ze niet hierheen. Koppel deze browser aan je telefoon om ze hier te zien.",
-  "accountNoChatsAction": "Koppelen met mijn telefoon"
+  "accountNoChatsAction": "Koppelen met mijn telefoon",
+  "chatPhotoPreviewTitle": "{count, plural, =1{Foto versturen} other{{count} foto's versturen}}",
+  "chatPhotoPreviewRemove": "Foto verwijderen",
+  "chatPhotoCaptionHint": "Bijschrift toevoegen",
+  "notificationPhotoCaption": "Foto: {caption}"
 }

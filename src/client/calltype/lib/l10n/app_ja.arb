@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "デバイスをリセットできませんでした。何もリンクされていません。もう一度お試しください。",
   "accountNoChatsTitle": "チャットはどこ？",
   "accountNoChatsBody": "チャットはエンドツーエンドで暗号化され、あなたのデバイスにのみ保存されます。アカウントへのサインインはバックアップ用で、チャットはここに表示されません。ここで見るには、このブラウザをスマートフォンとリンクしてください。",
-  "accountNoChatsAction": "スマートフォンとリンク"
+  "accountNoChatsAction": "スマートフォンとリンク",
+  "chatPhotoPreviewTitle": "{count, plural, =1{写真を送信} other{{count}枚の写真を送信}}",
+  "chatPhotoPreviewRemove": "写真を削除",
+  "chatPhotoCaptionHint": "キャプションを追加",
+  "notificationPhotoCaption": "写真: {caption}"
 }

@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "डिवाइस रीसेट नहीं हो सका। कुछ भी लिंक नहीं हुआ। फिर से कोशिश करें।",
   "accountNoChatsTitle": "मेरी चैट कहाँ हैं?",
   "accountNoChatsBody": "आपकी चैट एंड-टू-एंड एन्क्रिप्टेड हैं और केवल आपके डिवाइसों पर रहती हैं। खाते में साइन इन करना बैकअप के लिए है और उन्हें यहाँ नहीं लाता। उन्हें यहाँ देखने के लिए इस ब्राउज़र को अपने फ़ोन से लिंक करें।",
-  "accountNoChatsAction": "मेरे फ़ोन से लिंक करें"
+  "accountNoChatsAction": "मेरे फ़ोन से लिंक करें",
+  "chatPhotoPreviewTitle": "{count, plural, =1{फ़ोटो भेजें} other{{count} फ़ोटो भेजें}}",
+  "chatPhotoPreviewRemove": "फ़ोटो हटाएँ",
+  "chatPhotoCaptionHint": "कैप्शन जोड़ें",
+  "notificationPhotoCaption": "फ़ोटो: {caption}"
 }

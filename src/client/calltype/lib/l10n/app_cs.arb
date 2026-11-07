@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "Zařízení se nepodařilo vynulovat. Nic se nepropojilo. Zkuste to znovu.",
   "accountNoChatsTitle": "Kde jsou moje chaty?",
   "accountNoChatsBody": "Vaše chaty jsou šifrované end-to-end a jsou jen ve vašich zařízeních. Přihlášení k účtu slouží pro zálohy a chaty sem nepřinese. Aby byly vidět i tady, propojte tento prohlížeč s telefonem.",
-  "accountNoChatsAction": "Propojit s telefonem"
+  "accountNoChatsAction": "Propojit s telefonem",
+  "chatPhotoPreviewTitle": "{count, plural, one{Odeslat fotku} few{Odeslat {count} fotky} many{Odeslat {count} fotky} other{Odeslat {count} fotek}}",
+  "chatPhotoPreviewRemove": "Odebrat fotku",
+  "chatPhotoCaptionHint": "Přidat popisek",
+  "notificationPhotoCaption": "Fotka: {caption}"
 }

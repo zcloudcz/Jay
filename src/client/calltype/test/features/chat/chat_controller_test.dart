@@ -477,4 +477,36 @@ void main() {
     transport.dispose();
     await alice.close();
   });
+
+  test('a quoted photo shows its caption, else its name', () {
+    Message file(Attachment a) => Message(
+      id: 'm',
+      conversationId: 'c',
+      senderId: 's',
+      body: a.encode(),
+      type: 'file',
+      status: 'sent',
+      createdAt: DateTime(2026),
+      deleted: false,
+      forwarded: false,
+    );
+    expect(
+      ChatController.replyPreviewOf(
+        file(
+          Attachment(
+            name: 'IMG_1.jpg',
+            bytes: Uint8List(1),
+            caption: 'Sunset',
+          ),
+        ),
+      ),
+      'Sunset',
+    );
+    expect(
+      ChatController.replyPreviewOf(
+        file(Attachment(name: 'IMG_1.jpg', bytes: Uint8List(1))),
+      ),
+      'IMG_1.jpg',
+    );
+  });
 }

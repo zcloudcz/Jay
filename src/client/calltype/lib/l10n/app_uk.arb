@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "Не вдалося скинути пристрій. Нічого не прив'язано. Спробуйте ще раз.",
   "accountNoChatsTitle": "Де мої чати?",
   "accountNoChatsBody": "Ваші чати мають наскрізне шифрування й зберігаються лише на ваших пристроях. Вхід в обліковий запис потрібен для резервних копій і не переносить їх сюди. Щоб бачити їх тут, прив'яжіть цей браузер до телефона.",
-  "accountNoChatsAction": "Прив'язати до телефона"
+  "accountNoChatsAction": "Прив'язати до телефона",
+  "chatPhotoPreviewTitle": "{count, plural, =1{Надіслати фото} one{Надіслати фото ({count})} few{Надіслати фото ({count})} many{Надіслати фото ({count})} other{Надіслати фото ({count})}}",
+  "chatPhotoPreviewRemove": "Видалити фото",
+  "chatPhotoCaptionHint": "Додати підпис",
+  "notificationPhotoCaption": "Фото: {caption}"
 }

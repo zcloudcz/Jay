@@ -361,14 +361,16 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// What a quote of [message] shows: the text, or the file name for a file,
-  /// cut to [maxReplyPreview]. It is copied into the outgoing payload because
-  /// the receiver may not have the original.
+  /// What a quote of [message] shows: the text, or for a file its caption
+  /// (photo with a caption) or else its name, cut to [maxReplyPreview]. It
+  /// is copied into the outgoing payload because the receiver may not have
+  /// the original.
   static String replyPreviewOf(Message message) {
     var text = message.body ?? '';
     if (message.type == 'file') {
       try {
-        text = Attachment.decode(text).name;
+        final file = Attachment.decode(text);
+        text = file.caption ?? file.name;
       } catch (_) {
         text = '';
       }
@@ -544,8 +546,15 @@ class ChatController extends ChangeNotifier {
     }
   }
 
-  Future<void> sendAttachment(String name, Uint8List bytes) =>
-      _send(Attachment(name: name, bytes: bytes).encode(), 'file');
+  /// [caption] travels inside the attachment body (see [Attachment]).
+  Future<void> sendAttachment(
+    String name,
+    Uint8List bytes, {
+    String? caption,
+  }) => _send(
+    Attachment(name: name, bytes: bytes, caption: caption).encode(),
+    'file',
+  );
 
   /// Sends [body] into THIS conversation marked as forwarded. The forward UI
   /// navigates to the target chat first and calls this on that chat's own

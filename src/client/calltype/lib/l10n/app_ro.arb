@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "Dispozitivul nu a putut fi resetat. Nu s-a asociat nimic. Încearcă din nou.",
   "accountNoChatsTitle": "Unde sunt conversațiile mele?",
   "accountNoChatsBody": "Conversațiile tale sunt criptate end-to-end și se află doar pe dispozitivele tale. Conectarea la cont este pentru backupuri și nu le aduce aici. Ca să le vezi aici, asociază acest browser cu telefonul.",
-  "accountNoChatsAction": "Asociază cu telefonul meu"
+  "accountNoChatsAction": "Asociază cu telefonul meu",
+  "chatPhotoPreviewTitle": "{count, plural, one{Trimite fotografia} few{Trimite {count} fotografii} other{Trimite {count} de fotografii}}",
+  "chatPhotoPreviewRemove": "Elimină fotografia",
+  "chatPhotoCaptionHint": "Adaugă o descriere",
+  "notificationPhotoCaption": "Fotografie: {caption}"
 }

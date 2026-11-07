@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "Az eszközt nem sikerült visszaállítani. Semmi sem lett összekapcsolva. Próbáld újra.",
   "accountNoChatsTitle": "Hol vannak a csevegéseim?",
   "accountNoChatsBody": "A csevegéseid végponttól végpontig titkosítottak, és csak az eszközeiden vannak. A fiókba való bejelentkezés a biztonsági mentésekre szolgál, és nem hozza ide őket. Hogy itt is lásd őket, kapcsold össze ezt a böngészőt a telefonoddal.",
-  "accountNoChatsAction": "Összekapcsolás a telefonommal"
+  "accountNoChatsAction": "Összekapcsolás a telefonommal",
+  "chatPhotoPreviewTitle": "{count, plural, =1{Fénykép küldése} other{{count} fénykép küldése}}",
+  "chatPhotoPreviewRemove": "Fénykép eltávolítása",
+  "chatPhotoCaptionHint": "Képaláírás hozzáadása",
+  "notificationPhotoCaption": "Fénykép: {caption}"
 }

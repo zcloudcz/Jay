@@ -420,8 +420,10 @@ class NotificationService extends ChangeNotifier {
     if (body == null) return null;
     if (message.type == 'file') {
       try {
+        final file = Attachment.decode(body);
         return MessagePreview.label(
-          attachmentPreviewKind(Attachment.decode(body).name),
+          attachmentPreviewKind(file.name),
+          caption: file.caption,
         );
       } catch (_) {
         return const MessagePreview.label(PreviewKind.file);

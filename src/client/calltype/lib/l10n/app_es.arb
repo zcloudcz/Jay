@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "No se pudo restablecer el dispositivo. No se vinculó nada. Inténtalo de nuevo.",
   "accountNoChatsTitle": "¿Dónde están mis chats?",
   "accountNoChatsBody": "Tus chats están cifrados de extremo a extremo y solo están en tus dispositivos. Iniciar sesión en tu cuenta sirve para las copias de seguridad y no los trae aquí. Para verlos aquí, vincula este navegador con tu teléfono.",
-  "accountNoChatsAction": "Vincular con mi teléfono"
+  "accountNoChatsAction": "Vincular con mi teléfono",
+  "chatPhotoPreviewTitle": "{count, plural, =1{Enviar foto} other{Enviar {count} fotos}}",
+  "chatPhotoPreviewRemove": "Quitar foto",
+  "chatPhotoCaptionHint": "Añadir un comentario",
+  "notificationPhotoCaption": "Foto: {caption}"
 }

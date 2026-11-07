@@ -217,6 +217,19 @@ void main() {
       expect(body(PreviewKind.file), 'File');
       expect(body(PreviewKind.poll), 'Poll');
       expect(attachmentPreviewKind('IMG_1.JPG'), PreviewKind.photo);
+      expect(
+        notificationText(
+          l10n: l10nEn,
+          kind: NotificationKind.message,
+          title: 'A',
+          previews: true,
+          preview: const MessagePreview.label(
+            PreviewKind.photo,
+            caption: 'Sunset\nover the lake',
+          ),
+        ).body,
+        'Photo: Sunset over the lake',
+      );
       expect(attachmentPreviewKind('report.pdf'), PreviewKind.file);
     });
 

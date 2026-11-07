@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "تعذّرت إعادة تعيين الجهاز. لم يُربط أي شيء. حاول مرة أخرى.",
   "accountNoChatsTitle": "أين محادثاتي؟",
   "accountNoChatsBody": "محادثاتك مشفرة من طرف إلى طرف وموجودة على أجهزتك فقط. تسجيل الدخول إلى حسابك مخصص للنسخ الاحتياطية ولا ينقلها إلى هنا. لرؤيتها هنا، اربط هذا المتصفح بهاتفك.",
-  "accountNoChatsAction": "الربط بهاتفي"
+  "accountNoChatsAction": "الربط بهاتفي",
+  "chatPhotoPreviewTitle": "{count, plural, zero{إرسال الصور} one{إرسال الصورة} two{إرسال صورتين} few{إرسال {count} صور} many{إرسال {count} صورة} other{إرسال {count} صورة}}",
+  "chatPhotoPreviewRemove": "إزالة الصورة",
+  "chatPhotoCaptionHint": "أضف تعليقًا",
+  "notificationPhotoCaption": "صورة: {caption}"
 }

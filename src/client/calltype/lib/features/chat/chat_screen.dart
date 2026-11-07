@@ -20,6 +20,7 @@ import 'attachment_media.dart';
 import 'attachment_sheet.dart';
 import 'image_attachment.dart';
 import 'image_compression.dart';
+import 'photo_send_preview.dart';
 import 'bot_commands.dart';
 import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
@@ -213,7 +214,9 @@ class ChatScreen extends StatelessWidget {
   /// Photos are re-encoded to fit the inline attachment limit instead of
   /// being rejected: a phone photo (2-6 MB) is ten times the limit, and the
   /// wire format (`type: file`, name + base64 data) stays what old clients
-  /// already read.
+  /// already read. The converted photos are shown for review first: the
+  /// user can drop some, add a caption (carried by the first photo) or
+  /// cancel the whole send.
   Future<void> _sendPhotos(
     BuildContext context,
     List<PickedMedia> photos,
@@ -228,18 +231,27 @@ class ChatScreen extends StatelessWidget {
     );
     var tooLarge = false;
     var failed = false;
+    final ready = <PreparedPhoto>[];
     for (final photo in prepared) {
-      final bytes = photo.bytes;
-      if (bytes == null) {
-        if (photo.decoded) {
-          tooLarge = true;
-        } else {
-          failed = true;
-        }
-        continue;
+      if (photo.bytes != null) {
+        ready.add(photo);
+      } else if (photo.decoded) {
+        tooLarge = true;
+      } else {
+        failed = true;
       }
+    }
+    PhotoSendResult? review;
+    if (ready.isNotEmpty && context.mounted) {
+      review = await showPhotoSendPreview(context, ready);
+    }
+    for (final (index, photo) in (review?.photos ?? const []).indexed) {
       try {
-        await controller.sendAttachment(photo.name, bytes);
+        await controller.sendAttachment(
+          photo.name,
+          photo.bytes!,
+          caption: index == 0 ? review!.caption : null,
+        );
       } catch (_) {
         failed = true;
       }
@@ -815,6 +827,7 @@ class ChatScreen extends StatelessWidget {
                             content: file == null
                                 ? null
                                 : _attachmentContent(context, file),
+                            caption: file?.caption,
                             actions: _actions(
                               context,
                               controller,

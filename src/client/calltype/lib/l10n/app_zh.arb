@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "无法重置此设备。没有关联任何设备。请重试。",
   "accountNoChatsTitle": "我的聊天在哪里？",
   "accountNoChatsBody": "你的聊天经过端到端加密，只保存在你的设备上。登录账户用于备份，不会把聊天带到这里。要在这里查看，请将此浏览器与手机关联。",
-  "accountNoChatsAction": "与我的手机关联"
+  "accountNoChatsAction": "与我的手机关联",
+  "chatPhotoPreviewTitle": "{count, plural, =1{发送照片} other{发送 {count} 张照片}}",
+  "chatPhotoPreviewRemove": "移除照片",
+  "chatPhotoCaptionHint": "添加说明",
+  "notificationPhotoCaption": "照片：{caption}"
 }

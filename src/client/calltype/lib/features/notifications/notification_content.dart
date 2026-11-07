@@ -142,12 +142,13 @@ NotificationSkip? notificationSkip({
 }
 
 /// What a message is, for the notification body. Only [text] carries
-/// content; the others become a localized label.
+/// content; the others become a localized label (a photo with a caption:
+/// the label plus the caption).
 enum PreviewKind { text, photo, file, poll }
 
 class MessagePreview {
   const MessagePreview.text(this.text) : kind = PreviewKind.text;
-  const MessagePreview.label(this.kind) : text = null;
+  const MessagePreview.label(this.kind, {String? caption}) : text = caption;
 
   final PreviewKind kind;
   final String? text;
@@ -192,7 +193,10 @@ NotificationText notificationText({
   }
   final content = switch (preview.kind) {
     PreviewKind.text => truncatePreview(preview.text ?? ''),
-    PreviewKind.photo => l10n.notificationPhoto,
+    PreviewKind.photo =>
+      preview.text == null || preview.text!.trim().isEmpty
+          ? l10n.notificationPhoto
+          : l10n.notificationPhotoCaption(truncatePreview(preview.text!)),
     PreviewKind.file => l10n.notificationFile,
     PreviewKind.poll => l10n.notificationPoll,
   };

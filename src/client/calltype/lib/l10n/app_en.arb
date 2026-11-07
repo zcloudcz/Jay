@@ -1280,5 +1280,31 @@
   "accountNoChatsAction": "Link with my phone",
   "@accountNoChatsAction": {
     "description": "Button on that card that opens the link screen."
+  },
+  "chatPhotoPreviewTitle": "{count, plural, =1{Send photo} other{Send {count} photos}}",
+  "@chatPhotoPreviewTitle": {
+    "description": "Title of the review screen shown after picking photos, before they are sent.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatPhotoPreviewRemove": "Remove photo",
+  "@chatPhotoPreviewRemove": {
+    "description": "Tooltip of the x on a photo thumbnail in the review screen; removes it from the send."
+  },
+  "chatPhotoCaptionHint": "Add a caption",
+  "@chatPhotoCaptionHint": {
+    "description": "Hint of the caption field in the photo review screen. The caption is shown under the (first) photo."
+  },
+  "notificationPhotoCaption": "Photo: {caption}",
+  "@notificationPhotoCaption": {
+    "description": "Notification body for a photo with a caption; same label as notificationPhoto, then the caption.",
+    "placeholders": {
+      "caption": {
+        "type": "String"
+      }
+    }
   }
 }

@@ -646,5 +646,9 @@
   "disconnectAndLinkFailed": "Zariadenie sa nepodarilo vynulovať. Nič sa neprepojilo. Skúste to znova.",
   "accountNoChatsTitle": "Kde sú moje chaty?",
   "accountNoChatsBody": "Vaše chaty sú šifrované end-to-end a sú len vo vašich zariadeniach. Prihlásenie do účtu slúži na zálohy a chaty sem neprinesie. Aby boli vidieť aj tu, prepojte tento prehliadač s telefónom.",
-  "accountNoChatsAction": "Prepojiť s telefónom"
+  "accountNoChatsAction": "Prepojiť s telefónom",
+  "chatPhotoPreviewTitle": "{count, plural, one{Odoslať fotku} few{Odoslať {count} fotky} many{Odoslať {count} fotky} other{Odoslať {count} fotiek}}",
+  "chatPhotoPreviewRemove": "Odstrániť fotku",
+  "chatPhotoCaptionHint": "Pridať popis",
+  "notificationPhotoCaption": "Fotka: {caption}"
 }
