@@ -293,6 +293,8 @@ class DeviceService extends ChangeNotifier {
     await _db.transaction(() async {
       await _db.delete(_db.messages).go();
       await _db.delete(_db.messageReactions).go();
+      await _db.delete(_db.messagePins).go();
+      await _db.delete(_db.pollVotes).go();
       await _db.delete(_db.conversations).go();
       await _db.delete(_db.contacts).go();
       await (_db.delete(_db.backupState)..where(
@@ -328,6 +330,8 @@ class DeviceService extends ChangeNotifier {
       await _db.transaction(() async {
         await _db.delete(_db.messages).go();
         await _db.delete(_db.messageReactions).go();
+        await _db.delete(_db.messagePins).go();
+        await _db.delete(_db.pollVotes).go();
         await _db.delete(_db.conversations).go();
         await _db.delete(_db.contacts).go();
         await _db.delete(_db.signalSessions).go();

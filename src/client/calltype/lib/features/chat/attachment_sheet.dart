@@ -29,6 +29,9 @@ enum AttachSource {
 
   /// An audio file, sent with an inline player (media path).
   audio,
+
+  /// Create a poll (spec 2026-11-08-chat-extras); no file at all.
+  poll,
 }
 
 /// Bottom sheet with the attachment sources of this platform. A separate
@@ -37,10 +40,12 @@ enum AttachSource {
 ///
 /// [media] false hides the sources that need the encrypted media path
 /// (video, audio): business conversations have no media (see
-/// `ChatController.sendMedia`).
+/// `ChatController.sendMedia`). [poll] false hides the poll entry (business
+/// conversations have no polls in v1).
 Future<AttachSource?> showAttachSourceSheet(
   BuildContext context, {
   bool media = true,
+  bool poll = false,
 }) {
   final mobile = AttachmentMedia.isMobile;
   final camera = mobile && AttachmentMedia.instance.supportsCamera;
@@ -104,6 +109,12 @@ Future<AttachSource?> showAttachSourceSheet(
                 Icons.insert_drive_file_outlined,
                 l10n.chatAttachFile,
               ),
+              if (poll)
+                tile(
+                  AttachSource.poll,
+                  Icons.poll_outlined,
+                  l10n.chatAttachPoll,
+                ),
             ],
           ),
         ),

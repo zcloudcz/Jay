@@ -12,6 +12,10 @@ import '../chat_list/chat_list_controller.dart';
 import 'chat_controller.dart';
 import 'chat_message_list.dart';
 import 'message_bubble.dart';
+import 'pin_widgets.dart';
+import 'pins.dart' show maxPinsPerConversation;
+import 'poll_widgets.dart';
+import 'polls.dart';
 import 'reaction_widgets.dart';
 import 'message_input.dart';
 import 'mentions.dart';
@@ -197,12 +201,18 @@ class ChatScreen extends StatelessWidget {
   /// [business]: no encrypted media there (see ChatController.sendMedia),
   /// only photos and small inline files.
   Future<void> _attach(BuildContext context, {required bool business}) async {
-    final source = await showAttachSourceSheet(context, media: !business);
+    final source = await showAttachSourceSheet(
+      context,
+      media: !business,
+      // No polls in business conversations (v1, spec 2026-11-08).
+      poll: !business,
+    );
     if (source == null || !context.mounted) return;
     final media = AttachmentMedia.instance;
     if (source == AttachSource.file) {
       return _attachFile(context, business: business);
     }
+    if (source == AttachSource.poll) return _createPoll(context);
     final device = MediaDevice.instance;
     switch (source) {
       case AttachSource.video:
@@ -571,6 +581,79 @@ class ChatScreen extends StatelessWidget {
     );
   }
 
+  /// The poll composer, then the send (spec 2026-11-08-chat-extras).
+  Future<void> _createPoll(BuildContext context) async {
+    final controller = context.read<ChatController>();
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    final poll = await showPollComposer(context);
+    if (poll == null) return;
+    var sent = false;
+    try {
+      sent = await controller.sendPoll(poll);
+    } catch (_) {}
+    if (!sent) {
+      messenger.showSnackBar(SnackBar(content: Text(l10n.pollSendFailed)));
+    }
+  }
+
+  /// A tap on a poll option: sends the new full set of picks.
+  Future<void> _vote(
+    BuildContext context,
+    ChatController controller,
+    Message message,
+    List<int> options,
+  ) async {
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    if (!await controller.vote(message.id, options)) {
+      messenger.showSnackBar(SnackBar(content: Text(l10n.pollVoteFailed)));
+    }
+  }
+
+  /// Pin or unpin; at the cap the user confirms that the oldest pin goes.
+  Future<void> _togglePin(
+    BuildContext context,
+    ChatController controller,
+    Message message,
+  ) async {
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    final pin = !controller.isPinned(message.id);
+    if (pin && controller.pinReplacesOldest(message.id)) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(l10n.chatPinReplaceTitle),
+          content: Text(l10n.chatPinReplaceBody(maxPinsPerConversation)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(l10n.commonCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(l10n.chatMessagePin),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+    }
+    if (!await controller.setPinned(message.id, pin)) {
+      messenger.showSnackBar(SnackBar(content: Text(l10n.chatPinFailed)));
+    }
+  }
+
+  /// Opens the in-chat search; a tapped hit comes back as its message id.
+  Future<void> _searchInChat(
+    BuildContext context,
+    ChatController controller,
+  ) async {
+    final messageId = await context.push<String>('/chats/$contactId/search');
+    if (messageId != null) controller.jumpTo(messageId);
+  }
+
   /// Lists the other chats; picking one opens it and the route sends the
   /// message there (see `ForwardDraft`).
   Future<void> _forward(
@@ -642,8 +725,10 @@ class ChatScreen extends StatelessWidget {
   }) {
     final l10n = context.l10n;
     final isMedia = message.type == 'media';
-    // A media body is JSON with the key: never copied to the clipboard.
-    final isFile = message.type == 'file' || isMedia;
+    final isPoll = message.type == pollMessageType;
+    // A media body is JSON with the key: never copied to the clipboard; a
+    // poll body is JSON too.
+    final isFile = message.type == 'file' || isMedia || isPoll;
     final pending = message.status == 'sending' || message.status == 'failed';
     final mediaInfo = isMedia ? MediaInfo.tryDecode(message.body) : null;
     final delete = MessageAction(
@@ -677,6 +762,18 @@ class ChatScreen extends StatelessWidget {
         label: l10n.chatMessageReply,
         onSelected: () => controller.startReply(message),
       ),
+      if (controller.canPin(message, business: business))
+        controller.isPinned(message.id)
+            ? MessageAction(
+                icon: Icons.push_pin_outlined,
+                label: l10n.chatMessageUnpin,
+                onSelected: () => _togglePin(context, controller, message),
+              )
+            : MessageAction(
+                icon: Icons.push_pin_outlined,
+                label: l10n.chatMessagePin,
+                onSelected: () => _togglePin(context, controller, message),
+              ),
       if (!isFile) copy,
       // Save to device for every downloaded media message (contract M10).
       if (mediaInfo != null &&
@@ -691,10 +788,12 @@ class ChatScreen extends StatelessWidget {
       // Forwarding re-sends the same `media` object, which only works while
       // the server copy lives; after expiry the action is hidden (contract
       // section 3, the app branch's choice).
-      if (!isMedia ||
-          (mediaInfo != null &&
-              !mediaInfo.isDraft &&
-              !mediaInfo.isExpired(DateTime.now())))
+      // A poll is not forwarded: its votes belong to this conversation.
+      if (!isPoll &&
+          (!isMedia ||
+              (mediaInfo != null &&
+                  !mediaInfo.isDraft &&
+                  !mediaInfo.isExpired(DateTime.now()))))
         MessageAction(
           icon: Icons.forward_rounded,
           label: l10n.chatMessageForward,
@@ -759,6 +858,8 @@ class ChatScreen extends StatelessWidget {
         message.type == 'media' && !message.deleted
         ? MediaInfo.tryDecode(message.body)
         : null;
+    final pollResults = controller.pollResultsOf(message);
+    final colors = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: mine
           ? CrossAxisAlignment.end
@@ -808,7 +909,24 @@ class ChatScreen extends StatelessWidget {
                   allContacts,
                 ),
           quoteText: message.replyPreview,
-          content: mediaInfo != null
+          content: pollResults != null
+              ? PollCard(
+                  results: pollResults,
+                  textColor: mine
+                      ? colors.onPrimaryContainer
+                      : colors.onSurface,
+                  onVote: controller.canVote(message, business: business)
+                      ? (options) =>
+                            _vote(context, controller, message, options)
+                      : null,
+                  onShowVoters: () => showPollVotersSheet(
+                    context,
+                    results: pollResults,
+                    nameOf: (id) =>
+                        _authorLabel(context, controller, id, allContacts),
+                  ),
+                )
+              : mediaInfo != null
               ? MediaMessageContent(
                   messageId: message.id,
                   info: mediaInfo,
@@ -1049,6 +1167,12 @@ class ChatScreen extends StatelessWidget {
                 ]);
               },
             ),
+          IconButton(
+            key: const ValueKey('chat-search'),
+            icon: const Icon(Icons.search_rounded),
+            tooltip: l10n.searchInChatTooltip,
+            onPressed: () => _searchInChat(context, controller),
+          ),
           // Group ids and 1:1 ids (the peer's identity) are both the
           // conversation id, so one button serves both kinds of chat.
           MuteButton(conversationId: contactId, group: group),
@@ -1086,11 +1210,34 @@ class ChatScreen extends StatelessWidget {
             BusinessBanner(organizationName: organizationName),
             AuditorMemberTile(organizationName: organizationName),
           ],
+          PinnedMessageBar(
+            pins: controller.pinnedMessages,
+            previewOf: (message) =>
+                ChatController.replyPreviewOf(message, l10n),
+            onJump: (message) => controller.jumpTo(message.id),
+            onShowAll: () => showPinnedMessagesSheet(
+              context,
+              pins: controller.pinnedMessages,
+              previewOf: (message) =>
+                  ChatController.replyPreviewOf(message, l10n),
+              authorOf: (message) => _authorLabel(
+                context,
+                controller,
+                message.senderId,
+                allContacts,
+              ),
+              onJump: (message) => controller.jumpTo(message.id),
+              onUnpin: conversation?.organizationId != null
+                  ? null
+                  : (message) => _togglePin(context, controller, message),
+            ),
+          ),
           Expanded(
             child: controller.messages.isEmpty
                 ? Center(child: Text(l10n.chatEmpty))
                 : ChatMessageList<Message>(
                     items: controller.messages,
+                    jumpRequest: controller.jumpRequest,
                     idOf: (message) => message.id,
                     isMine: (message) =>
                         message.senderId == controller.myIdentityId,

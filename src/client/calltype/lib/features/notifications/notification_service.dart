@@ -9,6 +9,7 @@ import '../../core/network/push_service.dart';
 import '../../core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../chat/attachment.dart';
+import '../chat/polls.dart' show PollPayload, pollMessageType;
 import '../chat/reactions.dart' show AppliedReaction;
 import '../media/media_message.dart';
 import 'local_notifier.dart';
@@ -489,6 +490,10 @@ class NotificationService extends ChangeNotifier {
         MediaKind.audio => const MessagePreview.label(PreviewKind.audio),
         MediaKind.file => MessagePreview.fileName(info!.name),
       };
+    }
+    if (message.type == pollMessageType) {
+      final poll = PollPayload.tryDecode(body);
+      if (poll != null) return MessagePreview.text('📊 ${poll.question}');
     }
     return MessagePreview.text(body);
   }

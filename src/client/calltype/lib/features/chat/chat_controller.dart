@@ -27,6 +27,9 @@ import '../../core/storage/database.dart';
 import 'message_inbox_service.dart';
 import 'attachment.dart';
 import 'bot_commands.dart';
+import 'chat_message_list.dart' show JumpRequest;
+import 'pins.dart';
+import 'polls.dart';
 import 'reactions.dart';
 
 /// Handed to the chat route (`GoRouter` `extra`) by the forward dialog; the
@@ -39,7 +42,14 @@ class ForwardDraft {
 
 /// Local `messages.type` values that are outbox control messages, never
 /// chat bubbles.
-const controlTypes = ['delete', 'edit', reactionType];
+const controlTypes = ['delete', 'edit', reactionType, pinType, pollVoteType];
+
+/// Handed to the chat route (`GoRouter` `extra`) by search: the chat opens
+/// scrolled to [messageId].
+class JumpToMessage {
+  const JumpToMessage(this.messageId);
+  final String messageId;
+}
 
 /// Handed to the chat route (`GoRouter` `extra`) by the bot deep link: text
 /// put into the composer, NEVER sent on its own (the user presses send).
@@ -104,6 +114,7 @@ class ChatController extends ChangeNotifier {
             .watch()
             .listen((rows) {
               _messages = rows;
+              _byId = {for (final m in rows) m.id: m};
               if (!_disposed) notifyListeners();
             });
     // Bound to THIS conversation: a reaction stored under another
@@ -124,6 +135,29 @@ class ChatController extends ChangeNotifier {
               };
               if (!_disposed) notifyListeners();
             });
+    // Pins and votes, bound to THIS conversation like the reactions.
+    _pinSubscription =
+        (_db.select(
+          _db.messagePins,
+        )..where((p) => p.conversationId.equals(conversationId))).watch().listen(
+          (rows) {
+            _pins = rows;
+            if (!_disposed) notifyListeners();
+          },
+        );
+    _voteSubscription =
+        (_db.select(
+          _db.pollVotes,
+        )..where((v) => v.conversationId.equals(conversationId))).watch().listen(
+          (rows) {
+            final byPoll = <String, List<PollVote>>{};
+            for (final row in rows) {
+              (byPoll[row.pollId] ??= []).add(row);
+            }
+            _votes = byPoll;
+            if (!_disposed) notifyListeners();
+          },
+        );
     _incoming = inbox.persistedMessages.listen((message) {
       if (message.conversationId == conversationId) _markRead();
     });
@@ -269,6 +303,43 @@ class ChatController extends ChangeNotifier {
     }
     return null;
   }
+  late StreamSubscription<List<MessagePin>> _pinSubscription;
+  late StreamSubscription<List<PollVote>> _voteSubscription;
+  List<MessagePin> _pins = const [];
+  Map<String, List<PollVote>> _votes = const {};
+  Map<String, Message> _byId = const {};
+
+  /// The pinned messages this chat shows, newest pin first (at most
+  /// [maxPinsPerConversation]).
+  List<Message> get pinnedMessages => visiblePins(_pins, _byId);
+
+  bool isPinned(String messageId) =>
+      pinnedMessages.any((m) => m.id == messageId);
+
+  /// Totals of the poll [message]; null when it is not a valid poll.
+  PollResults? pollResultsOf(Message message) {
+    if (message.type != pollMessageType || message.deleted) return null;
+    final poll = PollPayload.tryDecode(message.body);
+    if (poll == null) return null;
+    return tallyPoll(
+      poll,
+      _votes[message.id] ?? const [],
+      myId: myIdentityId,
+    );
+  }
+
+  JumpRequest? _jumpRequest;
+
+  /// The last "scroll to this message" request (search, pinned bar); the
+  /// message list carries it out once per request.
+  JumpRequest? get jumpRequest => _jumpRequest;
+
+  /// Scrolls the chat to [messageId] and highlights it.
+  void jumpTo(String messageId) {
+    _jumpRequest = JumpRequest(messageId);
+    if (!_disposed) notifyListeners();
+  }
+
   late StreamSubscription<Message> _incoming;
   bool _disposed = false;
   List<Message> _messages = [];
@@ -421,6 +492,9 @@ class ChatController extends ChangeNotifier {
     } else if (message.type == 'media') {
       final info = MediaInfo.tryDecode(text);
       text = info == null ? '' : mediaSummary(l10n ?? _english, info);
+    } else if (message.type == pollMessageType) {
+      final poll = PollPayload.tryDecode(text);
+      text = poll == null ? '' : '📊 ${poll.question}';
     }
     return text.length > maxReplyPreview
         ? text.substring(0, maxReplyPreview)
@@ -900,6 +974,213 @@ class ChatController extends ChangeNotifier {
     return sent;
   }
 
+  /// Whether the local user may pin or unpin [message] here: any member
+  /// (spec decision), a real sent bubble or poll, outside business.
+  bool canPin(Message message, {required bool business}) =>
+      !business &&
+      !message.deleted &&
+      pinnableTypes.contains(message.type) &&
+      message.status != 'sending' &&
+      message.status != 'failed';
+
+  /// Pinning [messageId] now would push the oldest pin out (the cap of
+  /// [maxPinsPerConversation]); the UI asks first.
+  bool pinReplacesOldest(String messageId) =>
+      !isPinned(messageId) &&
+      pinnedMessages.length >= maxPinsPerConversation;
+
+  /// Pins ([pinned] true) or unpins [messageId] for everyone in the
+  /// conversation through a `type: pin` control message. At the cap the
+  /// oldest pin is unpinned first (an explicit unpin, so every member ends
+  /// with the same three). Applied locally at once, restored if the send
+  /// fails. Returns false when not allowed or a send failed.
+  Future<bool> setPinned(String messageId, bool pinned) async {
+    final target = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(messageId))).getSingleOrNull();
+    if (target == null ||
+        target.conversationId != conversationId ||
+        (pinned && !canPin(target, business: false))) {
+      return false;
+    }
+    if (!await _outsideBusiness()) return false;
+    if (pinned && pinReplacesOldest(messageId)) {
+      final oldest = pinnedMessages.last;
+      if (!await _sendPin(oldest.id, false)) return false;
+    }
+    return _sendPin(messageId, pinned);
+  }
+
+  Future<bool> _sendPin(String messageId, bool pinned) async {
+    final previous = await pinOf(_db, conversationId, messageId);
+    final now = DateTime.now();
+    final changedAt = now.millisecondsSinceEpoch;
+    return _sendControl(
+      type: pinType,
+      body: PinPayload(targetId: messageId, pinned: pinned).encode(),
+      at: now,
+      applyLocally: () => applyPin(
+        _db,
+        conversationId: conversationId,
+        messageId: messageId,
+        pinned: pinned,
+        pinnedBy: myIdentityId,
+        changedAt: changedAt,
+      ),
+      restore: () async {
+        final current = await pinOf(_db, conversationId, messageId);
+        if (current == null || current.changedAt != changedAt) return;
+        if (previous == null) {
+          await (_db.delete(_db.messagePins)..where(
+                (p) =>
+                    p.conversationId.equals(conversationId) &
+                    p.messageId.equals(messageId),
+              ))
+              .go();
+        } else {
+          await _db.into(_db.messagePins).insertOnConflictUpdate(previous);
+        }
+      },
+    );
+  }
+
+  /// Sends [poll] into this conversation (spec 2026-11-08-chat-extras): a
+  /// local row of type `poll` that goes out as `text` + fallback + `poll`.
+  /// Returns false in a business conversation (no polls there in v1).
+  Future<bool> sendPoll(PollPayload poll) async {
+    if (!await _outsideBusiness()) return false;
+    final id = _uuid.v4();
+    final now = DateTime.now();
+    final reply = _replyingTo;
+    if (reply != null) cancelReply();
+    await _db.transaction(() async {
+      await _db
+          .into(_db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: id,
+              conversationId: conversationId,
+              senderId: myIdentityId,
+              body: Value(poll.encode()),
+              type: const Value(pollMessageType),
+              status: const Value('sending'),
+              createdAt: now,
+              replyToId: Value(reply?.id),
+              replySenderId: Value(reply?.senderId),
+              replyPreview: Value(
+                reply == null ? null : replyPreviewOf(reply, localizations),
+              ),
+            ),
+          );
+      await (_db.update(_db.conversations)
+            ..where((c) => c.id.equals(conversationId)))
+          .write(ConversationsCompanion(lastMessageAt: Value(now)));
+    });
+    await retryMessage(id);
+    return true;
+  }
+
+  /// Whether the local user may vote on the poll [message] now.
+  bool canVote(Message message, {required bool business}) =>
+      !business &&
+      message.type == pollMessageType &&
+      !message.deleted &&
+      message.status != 'sending' &&
+      message.status != 'failed';
+
+  /// Sets the local user's vote on [pollId] to [options] (empty withdraws
+  /// it) through a `type: poll-vote` control message. Applied locally at
+  /// once, restored if the send fails. Returns false when not allowed or
+  /// the send failed.
+  Future<bool> vote(String pollId, Iterable<int> options) async {
+    final message = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(pollId))).getSingleOrNull();
+    final poll = message == null ? null : PollPayload.tryDecode(message.body);
+    final payload = PollVotePayload(pollId: pollId, options: options);
+    if (message == null ||
+        poll == null ||
+        message.conversationId != conversationId ||
+        !canVote(message, business: false) ||
+        !voteFits(poll, payload.options)) {
+      return false;
+    }
+    if (!await _outsideBusiness()) return false;
+    final previous = await voteOf(_db, pollId, myIdentityId);
+    final now = DateTime.now();
+    final votedAt = now.millisecondsSinceEpoch;
+    return _sendControl(
+      type: pollVoteType,
+      body: payload.encode(),
+      at: now,
+      applyLocally: () => applyVote(
+        _db,
+        pollId: pollId,
+        voterId: myIdentityId,
+        conversationId: conversationId,
+        options: payload.options,
+        votedAt: votedAt,
+      ),
+      restore: () async {
+        final current = await voteOf(_db, pollId, myIdentityId);
+        if (current == null || current.votedAt != votedAt) return;
+        if (previous == null) {
+          await (_db.delete(_db.pollVotes)..where(
+                (v) =>
+                    v.pollId.equals(pollId) & v.voterId.equals(myIdentityId),
+              ))
+              .go();
+        } else {
+          await _db.into(_db.pollVotes).insertOnConflictUpdate(previous);
+        }
+      },
+    );
+  }
+
+  /// The shared path of pins and votes (like [react]): apply locally, send
+  /// a transient control row through the outbox (own devices get it from
+  /// the same fan-out), and on failure [restore] the previous state. The
+  /// `createdAt` goes out with milliseconds (the column keeps seconds),
+  /// because receivers order by it.
+  Future<bool> _sendControl({
+    required String type,
+    required String body,
+    required DateTime at,
+    required Future<Object?> Function() applyLocally,
+    required Future<void> Function() restore,
+  }) async {
+    final controlId = _uuid.v4();
+    await _db.transaction(() async {
+      await applyLocally();
+      await _db
+          .into(_db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: controlId,
+              conversationId: conversationId,
+              senderId: myIdentityId,
+              body: Value(body),
+              type: Value(type),
+              status: const Value('sending'),
+              createdAt: at,
+            ),
+          );
+      await _storeExtra(controlId, {
+        'createdAt': at.toUtc().toIso8601String(),
+      });
+    });
+    await retryMessage(controlId);
+    final control = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(controlId))).getSingleOrNull();
+    final sent = control?.status == 'sent';
+    await _db.transaction(() async {
+      if (!sent) await restore();
+      await _dropControl(controlId);
+    });
+    return sent;
+  }
+
   /// Removes the message from this device only. Works for any message,
   /// including tombstones and failed sends (also drops its pending outbox).
   Future<void> deleteForMe(String messageId) async {
@@ -908,6 +1189,8 @@ class ChatController extends ChangeNotifier {
     )..where((m) => m.id.equals(messageId))).getSingleOrNull();
     await _db.transaction(() async {
       await deleteReactionsOf(_db, messageId);
+      await deletePinsOf(_db, messageId);
+      await deleteVotesOf(_db, messageId);
       await (_db.delete(
         _db.messages,
       )..where((m) => m.id.equals(messageId))).go();
@@ -1083,14 +1366,26 @@ class ChatController extends ChangeNotifier {
             (mediaInfo == null || mediaInfo.isDraft)) {
           throw StateError('Media message is not uploaded');
         }
+        // Spec 2026-11-08-chat-extras: a poll goes out the same way, as
+        // `text` with a fallback body plus the `poll` object.
+        final poll = message.type == pollMessageType
+            ? PollPayload.tryDecode(message.body)
+            : null;
+        if (message.type == pollMessageType && poll == null) {
+          throw StateError('Invalid poll');
+        }
+        final l10n = localizations ?? _english;
         final payload = jsonEncode({
           'v': 1,
           'id': messageId,
-          'body': mediaInfo == null
-              ? message.body
-              : mediaFallbackBody(localizations ?? _english, mediaInfo),
-          'type': mediaInfo == null ? message.type : 'text',
+          'body': mediaInfo != null
+              ? mediaFallbackBody(l10n, mediaInfo)
+              : poll != null
+              ? poll.fallbackText(l10n.pollFallbackUpdate)
+              : message.body,
+          'type': mediaInfo == null && poll == null ? message.type : 'text',
           if (mediaInfo != null) 'media': mediaInfo.toJson(),
+          if (poll != null) pollKey: poll.toJson(),
           'groupId': groupId,
           'groupName': groupId == null ? null : conversation.title,
           'createdAt': message.createdAt.toUtc().toIso8601String(),
@@ -1340,6 +1635,8 @@ class ChatController extends ChangeNotifier {
     _disposed = true;
     _subscription.cancel();
     _reactionSubscription.cancel();
+    _pinSubscription.cancel();
+    _voteSubscription.cancel();
     _incoming.cancel();
     super.dispose();
   }

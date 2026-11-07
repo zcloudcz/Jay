@@ -1,6 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+
+/// "Show me this message" (a search result, a pin). A new instance per
+/// request: the list carries out each instance once, so asking for the same
+/// message twice scrolls twice.
+class JumpRequest {
+  JumpRequest(this.messageId);
+  final String messageId;
+}
 
 /// The message list of a chat (newest at the bottom) with a "jump to
 /// latest" button, like WhatsApp and Telegram.
@@ -15,6 +25,10 @@ import '../../l10n/l10n.dart';
 /// heights need to be known, and the button counts what arrived meanwhile.
 /// Back at the bottom (or on the button tap, or when the user sends) the
 /// anchor is dropped again and the list follows new messages as before.
+///
+/// The same anchor jumps to an older message ([jumpRequest]): the target
+/// becomes the center sliver, so it is laid out at once without knowing the
+/// heights of the messages in between, and it is highlighted briefly.
 class ChatMessageList<T> extends StatefulWidget {
   const ChatMessageList({
     super.key,
@@ -23,7 +37,11 @@ class ChatMessageList<T> extends StatefulWidget {
     required this.isMine,
     required this.itemBuilder,
     this.padding = const EdgeInsets.symmetric(vertical: 8),
+    this.jumpRequest,
   });
+
+  /// Scroll to this message and highlight it (once per instance).
+  final JumpRequest? jumpRequest;
 
   /// Newest first, the same order the chat controller keeps.
   final List<T> items;
@@ -48,6 +66,19 @@ class _ChatMessageListState<T> extends State<ChatMessageList<T>> {
   String? _anchorId;
   bool _showButton = false;
 
+  /// The newest message the user had when the anchor was set: only what
+  /// arrives after it counts as new (a jump anchors far above the bottom,
+  /// and the messages below the target are not new).
+  String? _seenId;
+
+  /// Message highlighted after a jump, cleared by [_highlightTimer].
+  String? _highlightId;
+  Timer? _highlightTimer;
+  JumpRequest? _handledJump;
+
+  /// How long a jumped-to message stays highlighted.
+  static const highlightDuration = Duration(seconds: 2);
+
   /// Below this distance from the newest message the list counts as being
   /// at the bottom (float rounding of the scroll physics).
   static const _bottomSlack = 1.0;
@@ -66,16 +97,31 @@ class _ChatMessageListState<T> extends State<ChatMessageList<T>> {
     return index < 0 ? 0 : index;
   }
 
+  /// Number of items newer than [_seenId] (0 when not anchored).
+  int get _seenIndex {
+    final seen = _seenId;
+    if (_anchorId == null || seen == null) return 0;
+    final index = widget.items.indexWhere((i) => widget.idOf(i) == seen);
+    return index < 0 ? 0 : index;
+  }
+
   int get _newCount => widget.items
-      .take(_anchorIndex)
+      .take(_seenIndex)
       .where((item) => !widget.isMine(item))
       .length;
 
   @override
+  void initState() {
+    super.initState();
+    _maybeJump();
+  }
+
+  @override
   void didUpdateWidget(ChatMessageList<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (_maybeJump()) return;
     if (_anchorId == null) return;
-    final newer = widget.items.take(_anchorIndex);
+    final newer = widget.items.take(_seenIndex);
     if (newer.any(widget.isMine)) {
       // The user sent something while reading history: show it.
       _anchorId = null;
@@ -87,8 +133,41 @@ class _ChatMessageListState<T> extends State<ChatMessageList<T>> {
 
   @override
   void dispose() {
+    _highlightTimer?.cancel();
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// Carries out a new [ChatMessageList.jumpRequest]; true when it did.
+  bool _maybeJump() {
+    final request = widget.jumpRequest;
+    if (request == null || identical(request, _handledJump)) return false;
+    _handledJump = request;
+    final index = widget.items.indexWhere(
+      (i) => widget.idOf(i) == request.messageId,
+    );
+    if (index < 0) return false;
+    _anchorId = request.messageId;
+    _seenId = widget.idOf(widget.items.first);
+    _highlightId = request.messageId;
+    _highlightTimer?.cancel();
+    _highlightTimer = Timer(highlightDuration, () {
+      if (mounted) setState(() => _highlightId = null);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final position = _scroll.position;
+      // Offset 0 puts the target at the bottom edge; a third of the screen
+      // below it shows the messages that followed, like a search result in
+      // WhatsApp. Clamped: there may be fewer newer messages than that.
+      final target = (-position.viewportDimension / 3).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      );
+      position.jumpTo(target);
+      _handleMetrics(position);
+    });
+    return true;
   }
 
   bool _onScroll(ScrollNotification n) {
@@ -113,6 +192,7 @@ class _ChatMessageListState<T> extends State<ChatMessageList<T>> {
         widget.items.isNotEmpty) {
       // Same layout (nothing is newer yet); only later arrivals change.
       _anchorId = widget.idOf(widget.items.first);
+      _seenId = _anchorId;
     }
     final show =
         distance > _buttonDistance(m) ||
@@ -129,6 +209,7 @@ class _ChatMessageListState<T> extends State<ChatMessageList<T>> {
     final hadNewer = _anchorIndex > 0;
     setState(() {
       _anchorId = null;
+      _seenId = null;
       _showButton = false;
     });
     if (hadNewer) position.correctPixels(fromBottom);
@@ -150,6 +231,19 @@ class _ChatMessageListState<T> extends State<ChatMessageList<T>> {
       curve: Curves.easeOut,
     );
     if (mounted) _dropAnchor();
+  }
+
+  /// One row; the jumped-to message gets a short highlight. Always wrapped
+  /// (also when not highlighted) so the row keeps its state when the
+  /// highlight comes and goes.
+  Widget _item(BuildContext context, T item) {
+    final highlighted = widget.idOf(item) == _highlightId;
+    final color = Theme.of(context).colorScheme.primary;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      color: color.withValues(alpha: highlighted ? 0.16 : 0),
+      child: widget.itemBuilder(context, item),
+    );
   }
 
   @override
@@ -174,16 +268,14 @@ class _ChatMessageListState<T> extends State<ChatMessageList<T>> {
               slivers: [
                 SliverList.builder(
                   itemCount: newer.length,
-                  itemBuilder: (context, i) =>
-                      widget.itemBuilder(context, newer[i]),
+                  itemBuilder: (context, i) => _item(context, newer[i]),
                 ),
                 SliverPadding(
                   key: _centerKey,
                   padding: widget.padding,
                   sliver: SliverList.builder(
                     itemCount: older.length,
-                    itemBuilder: (context, i) =>
-                        widget.itemBuilder(context, older[i]),
+                    itemBuilder: (context, i) => _item(context, older[i]),
                   ),
                 ),
               ],

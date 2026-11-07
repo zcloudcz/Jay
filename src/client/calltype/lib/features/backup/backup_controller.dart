@@ -1,5 +1,8 @@
 import 'dart:convert';
+import 'dart:ui' show Locale;
 
+import 'package:calltype_core/messaging/pin.dart' show pinType;
+import 'package:calltype_core/messaging/poll.dart';
 import 'package:calltype_core/messaging/reaction.dart' show reactionType;
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -180,18 +183,30 @@ class BackupController extends ChangeNotifier {
         () async => (
           await _db.select(_db.contacts).get(),
           await _db.select(_db.conversations).get(),
-          // An in-flight reaction send is a local row too; an older app's
-          // import rejects that type and would fail the whole restore.
-          await (_db.select(
-            _db.messages,
-          )..where((m) => m.type.isNotValue(reactionType))).get(),
+          // An in-flight reaction, pin or vote send is a local row too; an
+          // older app's import rejects those types and would fail the whole
+          // restore.
+          await (_db.select(_db.messages)..where(
+                (m) => m.type.isNotIn([reactionType, pinType, pollVoteType]),
+              ))
+              .get(),
           await _db.select(_db.messageReactions).get(),
+          await _db.select(_db.messagePins).get(),
+          await _db.select(_db.pollVotes).get(),
         ),
       );
       final contacts = snapshot.$1;
       final conversations = snapshot.$2;
       final messages = snapshot.$3;
       final reactions = snapshot.$4;
+      final pins = snapshot.$5;
+      final votes = snapshot.$6;
+      // Spec 2026-11-08-chat-extras: a poll row goes into the backup the
+      // way it goes over the wire, as text with the fallback plus `poll`,
+      // so an older app restores it as text instead of failing the restore.
+      final fallbackHint = lookupAppLocalizations(
+        const Locale('en'),
+      ).pollFallbackUpdate;
 
       final backupData = {
         'version': 1,
@@ -220,30 +235,7 @@ class BackupController extends ChangeNotifier {
               },
             )
             .toList(),
-        'messages': messages
-            .map(
-              (m) => {
-                'id': m.id,
-                'conversationId': m.conversationId,
-                'senderId': m.senderId,
-                'body': m.body,
-                'type': m.type,
-                'status': m.status,
-                'createdAt': m.createdAt.toIso8601String(),
-                'receivedAt': m.receivedAt?.toIso8601String(),
-                'replyToId': m.replyToId,
-                'replySenderId': m.replySenderId,
-                'replyPreview': m.replyPreview,
-                'forwarded': m.forwarded,
-                'deleted': m.deleted,
-                // Agent messaging (contract section 3): carried like the
-                // reply fields so a restored bot message keeps its buttons
-                // and an edited one its label.
-                'editedAt': m.editedAt?.toIso8601String(),
-                'actionsJson': m.actionsJson,
-              },
-            )
-            .toList(),
+        'messages': [for (final m in messages) _messageJson(m, fallbackHint)],
         // Additive (spec 2026-11-07-message-reactions): older backups have
         // no such key and restore without reactions.
         'reactions': reactions
@@ -257,6 +249,27 @@ class BackupController extends ChangeNotifier {
               },
             )
             .toList(),
+        // Additive (spec 2026-11-08-chat-extras), like the reactions.
+        'pins': [
+          for (final p in pins)
+            {
+              'conversationId': p.conversationId,
+              'messageId': p.messageId,
+              'pinned': p.pinned,
+              'pinnedBy': p.pinnedBy,
+              'changedAt': p.changedAt,
+            },
+        ],
+        'pollVotes': [
+          for (final v in votes)
+            {
+              'pollId': v.pollId,
+              'voterId': v.voterId,
+              'conversationId': v.conversationId,
+              'options': decodeVoteOptions(v.options),
+              'votedAt': v.votedAt,
+            },
+        ],
       };
 
       final jsonString = jsonEncode(backupData);
@@ -435,3 +448,30 @@ class BackupController extends ChangeNotifier {
 
 Uint8List _deriveBackupKey((String, Uint8List) input) =>
     BackupCrypto.deriveKey(input.$1, input.$2);
+
+/// One `messages` row of the backup. A poll is written as `text` with the
+/// fallback body plus the `poll` object (spec 2026-11-08-chat-extras).
+Map<String, Object?> _messageJson(Message m, String pollFallbackHint) {
+  final poll = m.type == pollMessageType ? PollPayload.tryDecode(m.body) : null;
+  return {
+    'id': m.id,
+    'conversationId': m.conversationId,
+    'senderId': m.senderId,
+    'body': poll == null ? m.body : poll.fallbackText(pollFallbackHint),
+    'type': poll == null ? m.type : 'text',
+    'poll': ?poll?.toJson(),
+    'status': m.status,
+    'createdAt': m.createdAt.toIso8601String(),
+    'receivedAt': m.receivedAt?.toIso8601String(),
+    'replyToId': m.replyToId,
+    'replySenderId': m.replySenderId,
+    'replyPreview': m.replyPreview,
+    'forwarded': m.forwarded,
+    'deleted': m.deleted,
+    // Agent messaging (contract section 3): carried like the reply fields
+    // so a restored bot message keeps its buttons and an edited one its
+    // label.
+    'editedAt': m.editedAt?.toIso8601String(),
+    'actionsJson': m.actionsJson,
+  };
+}

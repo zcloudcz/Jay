@@ -1549,5 +1549,149 @@
   "mediaOpenBlocked": "Jay does not open programs or scripts. Save the file and check it first.",
   "@mediaOpenBlocked": {
     "description": "Snackbar on desktop when the user taps Open on a received program, script or shortcut (exe, bat, sh, app, ...): Jay refuses to run it."
+  },
+  "searchMessagesTooltip": "Search messages",
+  "@searchMessagesTooltip": {
+    "description": "Tooltip of the search button in the chat list app bar (searches all conversations on this device)."
+  },
+  "searchHint": "Search messages",
+  "@searchHint": {
+    "description": "Hint text in the message search field."
+  },
+  "searchInChatTooltip": "Search in this chat",
+  "@searchInChatTooltip": {
+    "description": "Tooltip of the search button in an open chat (searches only that conversation)."
+  },
+  "searchNoResults": "No messages found.",
+  "@searchNoResults": {
+    "description": "Shown when the message search has no results."
+  },
+  "searchPrompt": "Search the messages stored on this device.",
+  "@searchPrompt": {
+    "description": "Empty state of the search screen before the user types. Explains that only messages on this device are searched (end-to-end encryption: the server cannot search)."
+  },
+  "searchResultsLimited": "Showing the first {count} results.",
+  "@searchResultsLimited": {
+    "description": "Note under the search results when the result list was cut at its limit.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "chatMessagePin": "Pin",
+  "@chatMessagePin": {
+    "description": "Message menu action: pin this message for everyone in the chat."
+  },
+  "chatMessageUnpin": "Unpin",
+  "@chatMessageUnpin": {
+    "description": "Message menu action: unpin this message for everyone in the chat."
+  },
+  "chatPinnedLabel": "Pinned message",
+  "@chatPinnedLabel": {
+    "description": "Label of the pinned-message bar at the top of a chat."
+  },
+  "chatPinnedListTitle": "Pinned messages",
+  "@chatPinnedListTitle": {
+    "description": "Title of the list of all pinned messages of a chat (also the tooltip of the button that opens it)."
+  },
+  "chatPinReplaceTitle": "Replace the oldest pin?",
+  "@chatPinReplaceTitle": {
+    "description": "Dialog title when the user pins a message while the chat already has the maximum number of pinned messages."
+  },
+  "chatPinReplaceBody": "Up to {max} messages can be pinned. Pinning this one unpins the oldest for everyone.",
+  "@chatPinReplaceBody": {
+    "description": "Dialog body explaining the pin limit. max = the limit (3).",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "chatPinFailed": "Could not change the pinned message.",
+  "@chatPinFailed": {
+    "description": "Snackbar when sending a pin or unpin failed."
+  },
+  "chatAttachPoll": "Poll",
+  "@chatAttachPoll": {
+    "description": "Attachment sheet entry that opens the poll composer."
+  },
+  "pollCreateTitle": "New poll",
+  "@pollCreateTitle": {
+    "description": "Title of the poll composer dialog."
+  },
+  "pollQuestionLabel": "Question",
+  "@pollQuestionLabel": {
+    "description": "Label of the question field in the poll composer."
+  },
+  "pollOptionLabel": "Option {number}",
+  "@pollOptionLabel": {
+    "description": "Label of an answer field in the poll composer. number = 1-based position.",
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "pollAddOption": "Add option",
+  "@pollAddOption": {
+    "description": "Button in the poll composer that adds another answer field."
+  },
+  "pollRemoveOption": "Remove option",
+  "@pollRemoveOption": {
+    "description": "Tooltip of the button that removes an answer field in the poll composer."
+  },
+  "pollMultipleAnswers": "Allow multiple answers",
+  "@pollMultipleAnswers": {
+    "description": "Switch in the poll composer: voters may pick several options."
+  },
+  "pollSend": "Send",
+  "@pollSend": {
+    "description": "Button that sends the poll from the composer."
+  },
+  "pollInvalid": "Write a question and at least two different options.",
+  "@pollInvalid": {
+    "description": "Error in the poll composer when the question or the options are missing, too long or duplicated."
+  },
+  "pollSelectOne": "Select one",
+  "@pollSelectOne": {
+    "description": "Hint under a poll question: single-choice poll."
+  },
+  "pollSelectMany": "Select one or more",
+  "@pollSelectMany": {
+    "description": "Hint under a poll question: multiple-choice poll."
+  },
+  "pollVotesCount": "Votes: {count}",
+  "@pollVotesCount": {
+    "description": "Total number of people who voted in a poll, under the options.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "pollViewVotes": "View votes",
+  "@pollViewVotes": {
+    "description": "Button under a poll that opens who voted for which option."
+  },
+  "pollVotersTitle": "Votes",
+  "@pollVotersTitle": {
+    "description": "Title of the sheet listing who voted for which poll option."
+  },
+  "pollNoVotes": "No votes yet.",
+  "@pollNoVotes": {
+    "description": "Shown for a poll option nobody voted for, in the voters sheet."
+  },
+  "pollFallbackUpdate": "(Update Jay to vote in this poll.)",
+  "@pollFallbackUpdate": {
+    "description": "Last line of the plain-text version of a poll that older app versions show instead of the poll. Written in the sender's language."
+  },
+  "pollSendFailed": "Could not send the poll.",
+  "@pollSendFailed": {
+    "description": "Snackbar when a poll could not be sent (e.g. business conversation or network)."
+  },
+  "pollVoteFailed": "Could not send your vote.",
+  "@pollVoteFailed": {
+    "description": "Snackbar when a poll vote could not be sent."
   }
 }

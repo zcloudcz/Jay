@@ -16,7 +16,7 @@ void main() {
     for (var i = n - 1; i >= 0; i--) (id: 'm$i', mine: false),
   ];
 
-  Widget app(List<_Msg> items) => localizedApp(
+  Widget app(List<_Msg> items, {JumpRequest? jump}) => localizedApp(
     home: Scaffold(
       body: SizedBox(
         height: 600,
@@ -25,6 +25,7 @@ void main() {
           items: items,
           idOf: (m) => m.id,
           isMine: (m) => m.mine,
+          jumpRequest: jump,
           itemBuilder: (context, m) => SizedBox(
             height: itemHeight,
             child: Text(m.id, key: ValueKey(m.id)),
@@ -154,5 +155,82 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('own'), findsOneWidget);
     expect(button, findsNothing);
+  });
+
+  group('jump to a message (search, pins)', () {
+    Color highlightOf(WidgetTester tester, String id) {
+      final box = tester.widget<AnimatedContainer>(
+        find.ancestor(
+          of: find.text(id),
+          matching: find.byType(AnimatedContainer),
+        ),
+      );
+      return (box.decoration! as BoxDecoration).color!;
+    }
+
+    testWidgets('scrolls an old message into view and highlights it briefly', (
+      tester,
+    ) async {
+      await tester.pumpWidget(app(history(300)));
+      await tester.pumpAndSettle();
+      expect(find.text('m10'), findsNothing);
+
+      await tester.pumpWidget(app(history(300), jump: JumpRequest('m10')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('m10'), findsOneWidget);
+      expect(highlightOf(tester, 'm10').a, greaterThan(0));
+      expect(highlightOf(tester, 'm11').a, 0);
+      // Far from the bottom: the button shows, without a "new" badge.
+      expect(button, findsOneWidget);
+      expect(
+        tester
+            .widget<Badge>(
+              find.byKey(const ValueKey('chat-jump-to-latest-badge')),
+            )
+            .isLabelVisible,
+        isFalse,
+      );
+
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(highlightOf(tester, 'm10').a, 0);
+    });
+
+    testWidgets('a new request for the same message jumps again; an unknown '
+        'id is ignored', (tester) async {
+      await tester.pumpWidget(app(history(300), jump: JumpRequest('m10')));
+      await tester.pumpAndSettle();
+      expect(find.text('m10'), findsOneWidget);
+      await scrollUp(tester, -3000);
+      expect(find.text('m10'), findsNothing);
+
+      await tester.pumpWidget(app(history(300), jump: JumpRequest('nope')));
+      await tester.pumpAndSettle();
+      expect(find.text('m10'), findsNothing);
+
+      await tester.pumpWidget(app(history(300), jump: JumpRequest('m10')));
+      await tester.pumpAndSettle();
+      expect(find.text('m10'), findsOneWidget);
+    });
+
+    testWidgets('after a jump only later arrivals count as new', (
+      tester,
+    ) async {
+      final items = history(300);
+      final jump = JumpRequest('m10');
+      await tester.pumpWidget(app(items, jump: jump));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        app([(id: 'm300', mine: false), ...items], jump: jump),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('m10'), findsOneWidget, reason: 'the view stays put');
+      final badge = tester.widget<Badge>(
+        find.byKey(const ValueKey('chat-jump-to-latest-badge')),
+      );
+      expect(badge.isLabelVisible, isTrue);
+      expect(find.text('1'), findsOneWidget);
+    });
   });
 }

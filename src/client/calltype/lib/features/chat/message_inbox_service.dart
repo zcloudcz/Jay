@@ -13,6 +13,8 @@ import '../media/media_cleanup.dart';
 import '../media/media_message.dart';
 import '../media/media_service.dart';
 import 'attachment.dart';
+import 'pins.dart';
+import 'polls.dart';
 import 'reactions.dart';
 
 /// One queue per device database protects ratchet updates across chats and inbox.
@@ -36,9 +38,12 @@ const maxReplyPreview = 140;
 /// the receiver (a `delete` control message) and the sender (after the control
 /// message was sent) so both sides end in exactly the same state.
 ///
-/// Its reactions go with it: there is nothing left to react to.
+/// Its reactions, pins and (for a poll) votes go with it: there is nothing
+/// left to react to, look at or vote on.
 Future<void> tombstoneMessage(AppDatabase db, String messageId) async {
   await deleteReactionsOf(db, messageId);
+  await deletePinsOf(db, messageId);
+  await deleteVotesOf(db, messageId);
   await (db.update(db.messages)..where((m) => m.id.equals(messageId))).write(
     const MessagesCompanion(
       body: Value(null),
@@ -225,16 +230,19 @@ class MessageInboxService {
           );
         }
         var type = payload['type'] as String? ?? 'text';
-        // 'delete', 'edit' and 'reaction' are control messages added after
-        // the first release. An OLD client throws here, so the message stays
-        // queued on the server for it (accepted: that client keeps showing
-        // the original message and never shows a reaction as text).
+        // 'delete', 'edit', 'reaction', 'pin' and 'poll-vote' are control
+        // messages added after the first release. An OLD client throws here,
+        // so the message stays queued on the server for it (accepted: that
+        // client keeps showing the original message and never shows a
+        // reaction, pin or vote as text).
         if (type != 'text' &&
             type != 'file' &&
             type != 'call-event' &&
             type != 'delete' &&
             type != 'edit' &&
-            type != reactionType) {
+            type != reactionType &&
+            type != pinType &&
+            type != pollVoteType) {
           throw const FormatException('Unsupported message type');
         }
         var body = payload['body'] as String;
@@ -247,6 +255,19 @@ class MessageInboxService {
           if (media != null) {
             type = 'media';
             body = media.encode();
+          }
+        }
+        // Spec 2026-11-08-chat-extras: a poll is `text` + fallback body +
+        // `poll`, read exactly like media (an invalid object keeps the text).
+        // Media wins when a message carries both.
+        final fallbackBody = body;
+        if (type == 'text' &&
+            payload['media'] == null &&
+            payload[pollKey] != null) {
+          final poll = PollPayload.tryParse(payload[pollKey]);
+          if (poll != null) {
+            type = pollMessageType;
+            body = poll.encode();
           }
         }
         // Who sent it and where it belongs. `to` is honoured only for copies
@@ -270,7 +291,11 @@ class MessageInboxService {
         // Control messages never create a row and never touch unreadCount.
         // Legitimate or not, each is acked and remembered by a `control:`
         // marker, so a redelivery is a no-op.
-        if (type == 'delete' || type == 'edit' || type == reactionType) {
+        if (type == 'delete' ||
+            type == 'edit' ||
+            type == reactionType ||
+            type == pinType ||
+            type == pollVoteType) {
           switch (type) {
             case 'delete':
               await _applyDelete(
@@ -284,6 +309,21 @@ class MessageInboxService {
                 payload: payload,
                 senderId: route.senderIdentityId,
                 conversationId: conversationId,
+              );
+            case pinType:
+              // Spec 2026-11-08-chat-extras: never moves the chat either.
+              await _applyPin(
+                payload: payload,
+                senderId: route.senderIdentityId,
+                conversationId: conversationId,
+                groupId: groupId,
+              );
+            case pollVoteType:
+              await _applyVote(
+                payload: payload,
+                senderId: route.senderIdentityId,
+                conversationId: conversationId,
+                groupId: groupId,
               );
             default:
               // Spec 2026-11-07-message-reactions: also never moves the chat.
@@ -326,6 +366,12 @@ class MessageInboxService {
         } else if (conversation.type !=
             (groupId == null ? 'direct' : 'group')) {
           throw const FormatException('Conflicting conversation type');
+        }
+        // No polls in business conversations (v1, like reactions): the
+        // archive only has the text, so this device shows the text too.
+        if (type == pollMessageType && conversation?.organizationId != null) {
+          type = 'text';
+          body = fallbackBody;
         }
         // WHY defensive: replyTo is attacker-controlled JSON; a malformed one
         // must drop the quote, never the message. The preview is the SENDER's
@@ -500,6 +546,96 @@ class MessageInboxService {
       reactorId: senderId,
       emoji: reaction.emoji,
       target: target,
+    );
+  }
+
+  /// The conversation a pin or vote may change: known, not business, and of
+  /// the kind the delivery claims. Null otherwise (the caller drops it).
+  Future<Conversation?> _controlConversation(
+    String conversationId,
+    String? groupId,
+  ) async {
+    final conversation = await (_db.select(
+      _db.conversations,
+    )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
+    if (conversation == null ||
+        conversation.organizationId != null ||
+        conversation.type != (groupId == null ? 'direct' : 'group')) {
+      return null;
+    }
+    return conversation;
+  }
+
+  /// Applies a `type: pin` if it is legitimate and newer than the stored
+  /// state; anything else is dropped silently (the caller still acks).
+  Future<void> _applyPin({
+    required Map<String, dynamic> payload,
+    required String senderId,
+    required String conversationId,
+    required String? groupId,
+  }) async {
+    final pin = PinPayload.decode(payload['body']);
+    if (pin == null) return;
+    if (await _controlConversation(conversationId, groupId) == null) return;
+    final target = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(pin.targetId))).getSingleOrNull();
+    // Any member may pin (spec decision); the pinner is the AUTHENTICATED
+    // sender. A known target must live in this very conversation; an
+    // unknown one is stored and shows only once it arrives here.
+    if (target != null &&
+        (target.conversationId != conversationId ||
+            target.deleted ||
+            !pinnableTypes.contains(target.type))) {
+      return;
+    }
+    final createdAt = DateTime.tryParse(payload['createdAt'] as String? ?? '');
+    await applyPin(
+      _db,
+      conversationId: conversationId,
+      messageId: pin.targetId,
+      pinned: pin.pinned,
+      pinnedBy: senderId,
+      changedAt: (createdAt ?? DateTime.now()).millisecondsSinceEpoch,
+    );
+  }
+
+  /// Applies a `type: poll-vote` if it is legitimate and newer than the
+  /// voter's stored vote; anything else is dropped silently.
+  Future<void> _applyVote({
+    required Map<String, dynamic> payload,
+    required String senderId,
+    required String conversationId,
+    required String? groupId,
+  }) async {
+    final vote = PollVotePayload.decode(payload['body']);
+    if (vote == null) return;
+    if (await _controlConversation(conversationId, groupId) == null) return;
+    final poll = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(vote.pollId))).getSingleOrNull();
+    // SECURITY: the voter is the AUTHENTICATED sender, so nobody votes in
+    // someone else's name; the poll must be in this conversation. A vote
+    // for a poll that has not arrived yet is stored and checked when shown.
+    if (poll != null) {
+      final parsed = poll.type == pollMessageType
+          ? PollPayload.tryDecode(poll.body)
+          : null;
+      if (poll.conversationId != conversationId ||
+          poll.deleted ||
+          parsed == null ||
+          !voteFits(parsed, vote.options)) {
+        return;
+      }
+    }
+    final createdAt = DateTime.tryParse(payload['createdAt'] as String? ?? '');
+    await applyVote(
+      _db,
+      pollId: vote.pollId,
+      voterId: senderId,
+      conversationId: conversationId,
+      options: vote.options,
+      votedAt: (createdAt ?? DateTime.now()).millisecondsSinceEpoch,
     );
   }
 

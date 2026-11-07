@@ -87,6 +87,13 @@ class _ChatListScreenState extends State<ChatListScreen> {
       appBar: AppBar(
         title: const Text('Jay'),
         actions: [
+          // Spec 2026-11-08-chat-extras: searches this device's history.
+          IconButton(
+            key: const ValueKey('chat-list-search'),
+            icon: const Icon(Icons.search_rounded),
+            tooltip: l10n.searchMessagesTooltip,
+            onPressed: () => context.push('/search'),
+          ),
           // A companion would become a group member on its own; groups are
           // created from the primary (the server refuses it too).
           if (!devices.isCompanion)

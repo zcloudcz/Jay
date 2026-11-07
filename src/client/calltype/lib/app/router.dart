@@ -27,7 +27,12 @@ import '../features/channels/updates_screen.dart';
 import '../features/chat/chat_controller.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/chat/message_inbox_service.dart';
+import '../features/chat/mentions.dart' show senderLabel;
+import '../features/chat_list/chat_list_controller.dart';
 import '../features/chat_list/chat_list_screen.dart';
+import '../features/contacts/contacts_controller.dart';
+import '../features/search/message_search.dart' show SearchHit;
+import '../features/search/search_screen.dart';
 import '../features/contacts/bot_link.dart';
 import '../features/contacts/contacts_screen.dart';
 import '../features/contacts/qr_scanner_screen.dart';
@@ -64,6 +69,8 @@ import '../features/settings/identity_screen.dart';
 ///   /onboarding?link=1 - link this device to a phone (link UX)
 ///   /chats             — main conversation list (initial location)
 ///   /chats/:id         — single conversation view
+///   /chats/:id/search  - search inside that conversation (pops the hit id)
+///   /search            - message search over all conversations
 ///   /contacts           — contact list / discovery
 ///   /contacts/scan      — QR code scanner for adding contacts
 ///   /updates            — followed channels ("Updates" tab)
@@ -203,12 +210,25 @@ final router = GoRouter(
                 if (draft is ComposerDraft) {
                   controller.initialDraft = draft.text;
                 }
+                // Search result: open scrolled to that message.
+                if (draft is JumpToMessage) controller.jumpTo(draft.messageId);
                 return controller;
               },
               child: ChatScreen(contactId: id),
             );
           },
           routes: [
+            // Search in this chat: the chat screen awaits the tapped hit's
+            // message id and jumps there itself (its controller is not
+            // reachable from this sibling page).
+            GoRoute(
+              path: 'search',
+              builder: (context, state) => _searchScreen(
+                context,
+                conversationId: state.pathParameters['id']!,
+                onOpen: (hit) => context.pop(hit.message.id),
+              ),
+            ),
             // Group "Bot conversation" setting. Its own route-scoped
             // controller: it listens to GroupChanged hints only while open.
             GoRoute(
@@ -234,6 +254,16 @@ final router = GoRouter(
           ],
         ),
       ],
+    ),
+    GoRoute(
+      path: '/search',
+      builder: (context, state) => _searchScreen(
+        context,
+        onOpen: (hit) => context.push(
+          '/chats/${hit.message.conversationId}',
+          extra: JumpToMessage(hit.message.id),
+        ),
+      ),
     ),
     GoRoute(
       path: '/bot/:handle',
@@ -468,5 +498,31 @@ class _BackupRouteState extends State<_BackupRoute> {
             : const BackupSettingsScreen(),
       );
     },
+  );
+}
+
+/// The message search page with its names resolved from the providers
+/// (spec 2026-11-08-chat-extras); [conversationId] limits it to one chat.
+Widget _searchScreen(
+  BuildContext context, {
+  String? conversationId,
+  required void Function(SearchHit hit) onOpen,
+}) {
+  final contacts = context.read<ContactsController>().contacts;
+  final conversations = context.read<ChatListController>().conversations;
+  return SearchScreen(
+    database: context.read<AppDatabase>(),
+    myIdentityId: context.read<DeviceService>().directory.selfIdentityId,
+    conversationId: conversationId,
+    conversationTitle: (id) {
+      final conversation = conversations.where((c) => c.id == id).firstOrNull;
+      final contact = contacts.where((c) => c.deviceId == id).firstOrNull;
+      return conversation?.title ??
+          contact?.displayName ??
+          contact?.userHandle ??
+          id;
+    },
+    senderName: (id) => senderLabel(id, members: const [], contacts: contacts),
+    onOpen: onOpen,
   );
 }

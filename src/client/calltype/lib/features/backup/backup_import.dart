@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:drift/drift.dart';
 import '../../core/storage/database.dart';
+import '../chat/polls.dart';
 import '../chat/reactions.dart';
 
 Future<void> importBackup(AppDatabase db, dynamic input) async {
@@ -62,21 +63,31 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
         (m) =>
             m['type'] != 'delete' &&
             m['type'] != 'edit' &&
-            m['type'] != 'reaction',
+            m['type'] != 'reaction' &&
+            m['type'] != 'pin' &&
+            m['type'] != pollVoteType,
       )
       .map((m) {
     final conversationId = requiredText(m, 'conversationId');
     if (!conversationIds.contains(conversationId)) {
       throw const FormatException('Missing conversation');
     }
-    final type = requiredText(m, 'type');
+    var type = requiredText(m, 'type');
     final status = requiredText(m, 'status');
+    // Spec 2026-11-08-chat-extras: a poll is backed up as text + `poll`
+    // (what an older app restores); an invalid object keeps the text.
+    var body = m['body'] as String?;
+    final poll = type == 'text' ? PollPayload.tryParse(m['poll']) : null;
+    if (poll != null) {
+      type = pollMessageType;
+      body = poll.encode();
+    }
     // Every type the app itself writes into `messages` must restore:
     // 'call-event' (business call log) and 'device-change' (multi-device
     // notice) are rows like any other. 'media' rows carry the `media` object
     // (id + key) but not the file: it downloads again while the server copy
     // lives (encrypted media contract M11).
-    if (!['text', 'image', 'file', 'audio', 'video', 'media', 'call-event', 'device-change']
+    if (!['text', 'image', 'file', 'audio', 'video', 'media', pollMessageType, 'call-event', 'device-change']
             .contains(type) ||
         !['sending', 'sent', 'delivered', 'read', 'failed'].contains(status)) {
       throw const FormatException('Invalid message type or status');
@@ -85,7 +96,7 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
       id: requiredText(m, 'id'),
       conversationId: conversationId,
       senderId: requiredText(m, 'senderId'),
-      body: Value(m['body'] as String?),
+      body: Value(body),
       type: Value(type),
       status: Value(status == 'sending' ? 'failed' : status),
       createdAt: DateTime.parse(requiredText(m, 'createdAt')),
@@ -139,8 +150,56 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
             reactedAt: r['reactedAt'] as int,
           ),
   ];
+  // Same leniency for pins and votes (spec 2026-11-08-chat-extras).
+  final rawPins = input['pins'];
+  final pins = <MessagePinsCompanion>[
+    if (rawPins is List)
+      for (final p in rawPins)
+        if (p is Map &&
+            p['conversationId'] is String &&
+            conversationIds.contains(p['conversationId']) &&
+            p['messageId'] is String &&
+            p['pinned'] is bool &&
+            p['pinnedBy'] is String &&
+            p['changedAt'] is int)
+          MessagePinsCompanion.insert(
+            conversationId: p['conversationId'] as String,
+            messageId: p['messageId'] as String,
+            pinned: p['pinned'] as bool,
+            pinnedBy: p['pinnedBy'] as String,
+            changedAt: p['changedAt'] as int,
+          ),
+  ];
+  final rawVotes = input['pollVotes'];
+  final votes = <PollVotesCompanion>[
+    if (rawVotes is List)
+      for (final v in rawVotes)
+        if (v is Map &&
+            v['pollId'] is String &&
+            v['voterId'] is String &&
+            v['conversationId'] is String &&
+            conversationIds.contains(v['conversationId']) &&
+            v['options'] is List &&
+            (v['options'] as List).every((o) => o is int) &&
+            validVoteOptions((v['options'] as List).cast<int>()) &&
+            v['votedAt'] is int)
+          PollVotesCompanion.insert(
+            pollId: v['pollId'] as String,
+            voterId: v['voterId'] as String,
+            conversationId: v['conversationId'] as String,
+            options: jsonEncode(
+              PollVotePayload(
+                pollId: v['pollId'] as String,
+                options: (v['options'] as List).cast<int>(),
+              ).options,
+            ),
+            votedAt: v['votedAt'] as int,
+          ),
+  ];
   await db.transaction(() async {
     await db.batch((batch) {
+      batch.insertAll(db.messagePins, pins, mode: InsertMode.insertOrIgnore);
+      batch.insertAll(db.pollVotes, votes, mode: InsertMode.insertOrIgnore);
       batch.insertAll(
         db.messageReactions,
         reactions,
