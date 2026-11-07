@@ -117,6 +117,17 @@ idempotent for an already deleted row.
   blob deletion post-commit, best effort + logged, same pattern as backups.
 - `GET /accounts/{id}/export`: add `media: [{id, sizeBytes, status, createdAt, expiresAt}]` of the linked devices.
 
+### 2.7a Edge cases decided in `feat/encrypted-media-server`
+- `GET /media/{id}/upload` on a `Deleted` row -> 404 `media_not_found`.
+- `POST /media/{id}/complete` on a `Deleted` row -> 409 `media_not_uploading`; past the upload window -> 410 `media_expired`.
+- Download with a range starting at or past the end -> 416 with `Content-Range: bytes */<size>`. A suffix range,
+  several ranges or a malformed `Range` header are ignored (200, whole file).
+- After completion, `uploadExpiresAt` in the upload state is `CreatedAt + UploadWindowHours` (`ExpiresAt` then holds
+  the retention end).
+- `MaxTotalBytes` is serialized per device only (row lock on `Devices`): concurrent creates from different devices
+  can overshoot the global cap by at most one file each.
+- `POST /media` with a valid JWT whose device row is gone -> 401. Export shows `status` in lowercase.
+
 ### 2.8 Data model
 Entity `MediaUpload` (table `MediaUploads`), migration `AddMediaUploads`:
 `Id` Guid (PK, `Guid.NewGuid()`), `UploaderDeviceId` Guid (no FK, deleted explicitly with blobs), `SizeBytes` long
