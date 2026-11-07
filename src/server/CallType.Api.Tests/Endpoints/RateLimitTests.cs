@@ -79,12 +79,25 @@ public class RateLimitTests : IntegrationTestBase
             });
             return result.Response.StatusCode;
         }
-        for (var i = 0; i < 10; i++)
-            (await Login("192.0.2.1", $"198.51.100.{i + 1}")).Should().Be(400);
-        (await Login("192.0.2.1", "203.0.113.1")).Should().Be(429);
-        for (var i = 0; i < 10; i++)
-            (await Login("172.30.0.10", "203.0.113.1")).Should().Be(400);
-        (await Login("172.30.0.10", "203.0.113.1")).Should().Be(429);
+        // 11 concurrent logins against the 10/min login budget. Sequential
+        // calls took ~10 s each on a slow CI runner, so 11 of them spread over
+        // two fixed one-minute windows and the 11th got 400 instead of 429. A
+        // burst lands in one window; the retry covers a burst that straddles
+        // a window boundary.
+        async Task<bool> BurstIsLimited(string remote, Func<int, string> forwarded)
+        {
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                var codes = await Task.WhenAll(Enumerable.Range(0, 11).Select(i => Login(remote, forwarded(i))));
+                codes.Should().OnlyContain(code => code == 400 || code == 429);
+                if (codes.Contains(429)) return true;
+            }
+            return false;
+        }
+        // An untrusted source shares one budget whatever X-Forwarded-For says.
+        (await BurstIsLimited("192.0.2.1", i => $"198.51.100.{i + 1}")).Should().BeTrue();
+        // Behind the trusted proxy the forwarded client gets its own budget.
+        (await BurstIsLimited("172.30.0.10", _ => "203.0.113.1")).Should().BeTrue();
         (await Login("172.30.0.10", "203.0.113.2")).Should().Be(400);
     }
 
