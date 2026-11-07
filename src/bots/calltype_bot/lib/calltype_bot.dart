@@ -10,6 +10,7 @@ import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/devices/fanout_sender.dart';
+import 'package:calltype_core/network/media_api.dart';
 import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:calltype_core/messaging/reaction.dart';
 import 'package:calltype_core/network/api_client.dart';
@@ -22,10 +23,15 @@ import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
+import 'src/attachment.dart';
 import 'src/encrypted_file_store.dart';
 import 'src/group_info.dart';
 import 'src/ws_hub_transport.dart';
 
+export 'package:calltype_core/media/media_crypto.dart'
+    show MediaHashMismatch, MediaTampered;
+export 'package:calltype_core/media/media_info.dart'
+    show MediaKind, formatMediaDuration, formatMediaSize;
 export 'package:calltype_core/messaging/agent_payload.dart'
     show ActionRef, MessageButton, maxActionId, maxActionLabel, maxActions;
 export 'package:calltype_core/messaging/reaction.dart'
@@ -38,6 +44,7 @@ export 'package:calltype_core/messaging/reaction.dart'
 export 'package:calltype_core/network/bot_dtos.dart' show BotCommand;
 export 'package:calltype_core/network/group_dtos.dart'
     show BotTalkMode, BotTalkSettings, MuteMode, MuteSetting;
+export 'src/attachment.dart';
 export 'src/encrypted_file_store.dart';
 export 'src/group_info.dart';
 export 'src/ws_hub_transport.dart';
@@ -157,6 +164,7 @@ class BotMessage {
     this.mentions = const [],
     this.replyTo,
     this.action,
+    this.attachment,
   }) : _groupName = groupName,
        _textMentionsBot = textMentionsBot,
        _ackSenderId = ackSenderId;
@@ -191,6 +199,14 @@ class BotMessage {
   /// A button press, if any: [ActionRef.messageId] names the message that
   /// carried the button (usually one of this bot's), [text] is its label.
   final ActionRef? action;
+
+  /// A file that came with the message (voice message, image, audio,
+  /// video, any file), or null. For an encrypted media message [text] is
+  /// the sender's fallback body (what an old client shows, caption on its
+  /// own line), so a text-only handler keeps working; for an inline `file`
+  /// message (only with `receiveFiles`, see [CallTypeBot.onMessage]) it is
+  /// the caption or ''. Nothing is downloaded until the handler asks.
+  final BotAttachment? attachment;
 
   /// The structured mentions name the bot, or the text says `@handle` /
   /// `@display name` (fallback for clients without structured mentions).
@@ -371,6 +387,7 @@ class CallTypeBot {
   BotMessageHandler? _handler;
   BotMessageHandler? _actionHandler;
   BotReactionHandler? _reactionHandler;
+  bool _receiveFiles = false;
 
   /// Ids of messages this bot sent WITH buttons (lower-case). Mirrored in
   /// `backupState` as `sent-actions:<id>` so a press after a restart is still
@@ -554,12 +571,21 @@ class CallTypeBot {
   /// so a bot can admit other bots of groups it is in without knowing them in
   /// advance; the final decision still belongs to the handler, which sees the
   /// authenticated group id.
+  ///
+  /// Encrypted media messages (voice, images, files; spec
+  /// 2026-11-07-encrypted-media) always reach [handler] with
+  /// [BotMessage.attachment] set; they are `text` on the wire, so older
+  /// runtimes already delivered their fallback text. Old inline `type: file`
+  /// messages reach it only with [receiveFiles] (older runtimes acked and
+  /// ignored them, and a text-only bot would get an empty text).
   Future<void> onMessage(
     BotMessageHandler handler, {
     bool Function(String senderId)? allowSender,
     GroupSenderCheck? allowGroupSender,
+    bool receiveFiles = false,
   }) async {
     _handler = handler;
+    _receiveFiles = receiveFiles;
     _allowSender = allowSender;
     _allowGroupSender = allowGroupSender;
     if (_subscription == null) {
@@ -1021,13 +1047,30 @@ class CallTypeBot {
       );
       return;
     }
-    // Text only. Other types (also `edit`: a bot keeps no history to edit,
-    // and `delete`) are acknowledged and ignored.
-    if ((payload['type'] ?? 'text') != 'text') {
+    // Text, media (`text` + `media` object) and, when asked for, inline
+    // files. Other types (also `edit`: a bot keeps no history to edit, and
+    // `delete`) are acknowledged and ignored.
+    final type = payload['type'] ?? 'text';
+    BotAttachment? attachment;
+    var body = payload['body'] as String;
+    if ((type == 'text' || type == 'media') && payload['media'] != null) {
+      // An invalid `media` object leaves the fallback text, never drops the
+      // message (contract section 3).
+      attachment = BotAttachment.fromMedia(payload['media'], _fetchMedia);
+    } else if (type == 'file' && _receiveFiles) {
+      attachment = BotAttachment.fromInlineBody(body);
+      if (attachment == null) {
+        if (_reportedFailures.add(messageId)) {
+          _log('Dropped invalid inline file $messageId from $senderId');
+        }
+        await _ack(senderId, messageId);
+        return;
+      }
+      body = attachment.caption ?? '';
+    } else if (type != 'text') {
       await _ack(senderId, messageId);
       return;
     }
-    final body = payload['body'] as String;
     final groupName = payload['groupName'] as String?;
     final message = BotMessage._(
       this,
@@ -1047,6 +1090,7 @@ class CallTypeBot {
       mentions: parseMentions(payload['mentions']),
       replyTo: BotReplyRef.parse(payload['replyTo']),
       action: parseActionRef(payload['action']),
+      attachment: attachment,
     );
     // In groups the bot speaks only when addressed: mentioned, or replied
     // to (which a button press always is). Everything else is acknowledged
@@ -1207,6 +1251,11 @@ class CallTypeBot {
     ];
     await (_db.delete(_db.backupState)..where((r) => r.key.isIn(drop))).go();
   }
+
+  /// GET /media/{id} for [BotAttachment]: the encrypted stream. Outside the
+  /// crypto queue: a download never touches ratchet state.
+  Future<MediaDownload> _fetchMedia(String mediaId) =>
+      _api.downloadMedia(mediaId);
 
   Future<bool> _isOwnButtonMessage(String messageId) async {
     final id = messageId.toLowerCase();

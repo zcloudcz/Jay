@@ -137,6 +137,29 @@ await bot.removeReaction(to: groupId, targetMessageId: id); // emoji ''
 - A reaction is its own message (fresh id, `createdAt`); receivers keep the
   newest per sender, so a later reaction replaces an earlier one.
 
+### Files: voice messages, images, any file
+
+Encrypted media (`type: text` + `media` object, spec 2026-11-07-encrypted-media) arrives as a normal `BotMessage`
+with `attachment` set; `text` stays the sender's fallback body, so text-only bots behave as before. Old inline
+`type: file` messages (`{name, data, caption?}`, up to 256 KiB) reach the handler only with
+`onMessage(..., receiveFiles: true)`; their `text` is the caption or `''`.
+
+```dart
+await bot.onMessage((m) async {
+  final a = m.attachment;
+  if (a == null) return;
+  // a.kind (MediaKind.voice/image/audio/video/file), a.name, a.mime, a.size,
+  // a.duration, a.caption, a.expiresAt, a.width/height, a.isInline
+  final file = await a.saveTo('/tmp/${a.name}', maxBytes: 50 << 20);
+  final small = await a.readBytes(maxBytes: 5 << 20); // e.g. an image
+}, receiveFiles: true);
+```
+
+Nothing is downloaded until `saveTo`/`readBytes`. `saveTo` streams `GET /media/{id}` through calltype_core's
+`MediaCipher` (4 MiB AES-256-GCM chunks, the app's code) into `<path>.part`, verifies the SHA-256 and renames; on any
+error the partial file is deleted. Errors: `BotMediaTooLarge` (before any request), `BotMediaExpired` (404/410),
+`MediaTampered`, `MediaHashMismatch`. An invalid `media` object leaves a plain text message (never dropped).
+
 ## What the runtime guarantees
 
 - **Registration** with `isBot: true` on first start; identity is reused afterwards.

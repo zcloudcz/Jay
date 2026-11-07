@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:calltype_core/crypto/device_list.dart';
 import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
+import 'package:calltype_core/media/media_crypto.dart';
+import 'package:calltype_core/media/media_info.dart';
 import 'package:calltype_core/network/hub_transport.dart';
 import 'package:calltype_core/storage/database.dart';
 import 'package:calltype_core/storage/secret_store.dart';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:drift/native.dart';
 
 /// 32 zero bytes — a valid BOT_STORE_KEY for tests.
@@ -204,6 +208,12 @@ class FakeApi {
   /// (status, error body or null for the server's bodyless role 403).
   final channelPostFailures = <(int, Map<String, dynamic>?)>[];
 
+  /// GET /media/{id}: encrypted blobs by media id (lower-case).
+  final media = <String, List<int>>{};
+
+  /// GET /media/{id} answers this status instead (e.g. 410 expired).
+  final mediaStatus = <String, int>{};
+
   String get url => 'http://127.0.0.1:${_server.port}';
 
   int _nextOneTimeKey = 0;
@@ -232,6 +242,21 @@ class FakeApi {
     final segments = request.uri.pathSegments;
     requests.add('${request.method} $path');
     Object? body;
+    if (segments.length == 2 &&
+        segments[0] == 'media' &&
+        request.method == 'GET') {
+      final id = segments[1].toLowerCase();
+      final blob = media[id];
+      final status = mediaStatus[id] ?? (blob == null ? 404 : 200);
+      request.response.statusCode = status;
+      if (status == 200) {
+        request.response.headers.contentType = ContentType.binary;
+        request.response.contentLength = blob!.length;
+        request.response.add(blob);
+      }
+      await request.response.close();
+      return;
+    }
     if (request.method == 'POST' && path == '/devices') {
       registrations.add(
         jsonDecode(await utf8.decodeStream(request)) as Map<String, dynamic>,
@@ -335,4 +360,48 @@ Future<Map<String, dynamic>> signedDeviceList(
     'payload': signed.payload,
     'signature': signed.signature,
   };
+}
+
+/// Encrypts [plain] exactly like the app's upload (calltype_core
+/// MediaCipher), stores the blob on [api] under [id] and returns the
+/// `media` object the app puts into the message.
+Future<Map<String, Object?>> uploadMedia(
+  FakeApi api,
+  Uint8List plain, {
+  String id = '11111111-2222-4333-8444-555555555555',
+  MediaKind kind = MediaKind.voice,
+  String name = 'voice.m4a',
+  String mime = 'audio/mp4',
+  int chunkSize = mediaMinChunkSize,
+  int? durationMs = 10400,
+  String? caption,
+}) async {
+  final keys = newMediaKey();
+  final cipher = MediaCipher(
+    key: keys.key,
+    noncePrefix: keys.nonce,
+    size: plain.length,
+    chunkSize: chunkSize,
+  );
+  final blob = BytesBuilder();
+  for (var i = 0; i < cipher.chunkCount; i++) {
+    final start = i * chunkSize;
+    final end = start + mediaPlainChunkLength(plain.length, chunkSize, i);
+    blob.add(await cipher.encryptChunk(i, plain.sublist(start, end)));
+  }
+  api.media[id] = blob.toBytes();
+  return MediaInfo(
+    id: id,
+    kind: kind,
+    name: name,
+    mime: mime,
+    size: plain.length,
+    sha256: Uint8List.fromList(crypto.sha256.convert(plain).bytes),
+    key: keys.key,
+    nonce: keys.nonce,
+    chunkSize: chunkSize,
+    expiresAt: DateTime.now().toUtc().add(const Duration(days: 3)),
+    durationMs: durationMs,
+    caption: caption,
+  ).toJson();
 }
