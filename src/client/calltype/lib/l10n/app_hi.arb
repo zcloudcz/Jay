@@ -693,5 +693,7 @@
   "voiceHoldToRecord": "रिकॉर्ड करने के लिए दबाकर रखें, भेजने के लिए छोड़ें।",
   "voiceSlideToCancel": "रद्द करने के लिए स्लाइड करें",
   "voiceMicrophoneDenied": "Jay माइक्रोफ़ोन का उपयोग नहीं कर सकता। सेटिंग्स में अनुमति दें।",
-  "voiceRecordFailed": "रिकॉर्ड नहीं हो सका।"
+  "voiceRecordFailed": "रिकॉर्ड नहीं हो सका।",
+  "chatJumpToLatest": "नवीनतम संदेशों पर जाएं",
+  "chatNewMessagesBadge": "{count, plural, one{1 नया संदेश} other{{count} नए संदेश}}"
 }

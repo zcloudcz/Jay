@@ -693,5 +693,7 @@
   "voiceHoldToRecord": "Удерживайте для записи, отпустите для отправки.",
   "voiceSlideToCancel": "Проведите, чтобы отменить",
   "voiceMicrophoneDenied": "Jay не может использовать микрофон. Разрешите это в Настройках.",
-  "voiceRecordFailed": "Не удалось записать."
+  "voiceRecordFailed": "Не удалось записать.",
+  "chatJumpToLatest": "К последним сообщениям",
+  "chatNewMessagesBadge": "{count, plural, one{{count} новое сообщение} few{{count} новых сообщения} many{{count} новых сообщений} other{{count} нового сообщения}}"
 }

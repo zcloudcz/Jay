@@ -693,5 +693,7 @@
   "voiceHoldToRecord": "Ține apăsat pentru a înregistra, eliberează pentru a trimite.",
   "voiceSlideToCancel": "Glisează pentru a anula",
   "voiceMicrophoneDenied": "Jay nu poate folosi microfonul. Permite-l în Setări.",
-  "voiceRecordFailed": "Înregistrarea nu a reușit."
+  "voiceRecordFailed": "Înregistrarea nu a reușit.",
+  "chatJumpToLatest": "Mergi la cele mai noi mesaje",
+  "chatNewMessagesBadge": "{count, plural, one{1 mesaj nou} few{{count} mesaje noi} other{{count} de mesaje noi}}"
 }

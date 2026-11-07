@@ -693,5 +693,7 @@
   "voiceHoldToRecord": "Mantén pulsado para grabar, suelta para enviar.",
   "voiceSlideToCancel": "Desliza para cancelar",
   "voiceMicrophoneDenied": "Jay no puede usar el micrófono. Permítelo en Ajustes.",
-  "voiceRecordFailed": "No se pudo grabar."
+  "voiceRecordFailed": "No se pudo grabar.",
+  "chatJumpToLatest": "Ir a los mensajes más recientes",
+  "chatNewMessagesBadge": "{count, plural, one{1 mensaje nuevo} other{{count} mensajes nuevos}}"
 }

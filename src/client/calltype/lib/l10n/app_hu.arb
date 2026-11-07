@@ -693,5 +693,7 @@
   "voiceHoldToRecord": "Tartsd lenyomva a felvételhez, engedd el a küldéshez.",
   "voiceSlideToCancel": "Csúsztasd a megszakításhoz",
   "voiceMicrophoneDenied": "A Jay nem használhatja a mikrofont. Engedélyezd a Beállításokban.",
-  "voiceRecordFailed": "A felvétel nem sikerült."
+  "voiceRecordFailed": "A felvétel nem sikerült.",
+  "chatJumpToLatest": "Ugrás a legújabb üzenetekhez",
+  "chatNewMessagesBadge": "{count, plural, one{1 új üzenet} other{{count} új üzenet}}"
 }

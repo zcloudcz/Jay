@@ -693,5 +693,7 @@
   "voiceHoldToRecord": "Kaydetmek için basılı tutun, göndermek için bırakın.",
   "voiceSlideToCancel": "İptal için kaydırın",
   "voiceMicrophoneDenied": "Jay mikrofonu kullanamıyor. Ayarlar'dan izin verin.",
-  "voiceRecordFailed": "Kayıt yapılamadı."
+  "voiceRecordFailed": "Kayıt yapılamadı.",
+  "chatJumpToLatest": "En yeni mesajlara git",
+  "chatNewMessagesBadge": "{count, plural, one{1 yeni mesaj} other{{count} yeni mesaj}}"
 }

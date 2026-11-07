@@ -693,5 +693,7 @@
   "voiceHoldToRecord": "按住录音，松开发送。",
   "voiceSlideToCancel": "滑动取消",
   "voiceMicrophoneDenied": "Jay 无法使用麦克风。请在设置中允许。",
-  "voiceRecordFailed": "无法录音。"
+  "voiceRecordFailed": "无法录音。",
+  "chatJumpToLatest": "跳到最新消息",
+  "chatNewMessagesBadge": "{count, plural, other{{count} 条新消息}}"
 }

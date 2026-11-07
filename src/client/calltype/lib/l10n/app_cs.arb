@@ -693,5 +693,7 @@
   "voiceHoldToRecord": "Podržte pro nahrávání, pusťte pro odeslání.",
   "voiceSlideToCancel": "Posunutím zrušíte",
   "voiceMicrophoneDenied": "Jay nesmí používat mikrofon. Povolte to v Nastavení.",
-  "voiceRecordFailed": "Nahrávání se nezdařilo."
+  "voiceRecordFailed": "Nahrávání se nezdařilo.",
+  "chatJumpToLatest": "Přejít na nejnovější zprávy",
+  "chatNewMessagesBadge": "{count, plural, one{1 nová zpráva} few{{count} nové zprávy} many{{count} nové zprávy} other{{count} nových zpráv}}"
 }

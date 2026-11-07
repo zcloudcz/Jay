@@ -693,5 +693,7 @@
   "voiceHoldToRecord": "Maintenez pour enregistrer, relâchez pour envoyer.",
   "voiceSlideToCancel": "Glissez pour annuler",
   "voiceMicrophoneDenied": "Jay n’a pas accès au micro. Autorisez-le dans les Réglages.",
-  "voiceRecordFailed": "Enregistrement impossible."
+  "voiceRecordFailed": "Enregistrement impossible.",
+  "chatJumpToLatest": "Aller aux derniers messages",
+  "chatNewMessagesBadge": "{count, plural, one{1 nouveau message} other{{count} nouveaux messages}}"
 }

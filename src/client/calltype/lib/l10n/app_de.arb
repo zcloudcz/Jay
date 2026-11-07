@@ -693,5 +693,7 @@
   "voiceHoldToRecord": "Zum Aufnehmen halten, zum Senden loslassen.",
   "voiceSlideToCancel": "Zum Abbrechen wischen",
   "voiceMicrophoneDenied": "Jay darf das Mikrofon nicht verwenden. Erlaube es in den Einstellungen.",
-  "voiceRecordFailed": "Aufnahme nicht möglich."
+  "voiceRecordFailed": "Aufnahme nicht möglich.",
+  "chatJumpToLatest": "Zu den neuesten Nachrichten",
+  "chatNewMessagesBadge": "{count, plural, one{1 neue Nachricht} other{{count} neue Nachrichten}}"
 }

@@ -1532,5 +1532,18 @@
   "voiceRecordFailed": "Unable to record.",
   "@voiceRecordFailed": {
     "description": "Snackbar when recording could not start or stop."
+  },
+  "chatJumpToLatest": "Jump to latest messages",
+  "@chatJumpToLatest": {
+    "description": "Tooltip and accessibility label of the round down-arrow button over the message list that scrolls to the newest message; shown after the user scrolled up about one screen."
+  },
+  "chatNewMessagesBadge": "{count, plural, =1{1 new message} other{{count} new messages}}",
+  "@chatNewMessagesBadge": {
+    "description": "Accessibility label of the number badge on the jump-to-latest button: messages that arrived while the user was reading older ones.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

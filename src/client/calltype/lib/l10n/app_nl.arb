@@ -693,5 +693,7 @@
   "voiceHoldToRecord": "Houd ingedrukt om op te nemen, laat los om te versturen.",
   "voiceSlideToCancel": "Schuif om te annuleren",
   "voiceMicrophoneDenied": "Jay mag de microfoon niet gebruiken. Sta het toe in Instellingen.",
-  "voiceRecordFailed": "Opnemen mislukt."
+  "voiceRecordFailed": "Opnemen mislukt.",
+  "chatJumpToLatest": "Naar de nieuwste berichten",
+  "chatNewMessagesBadge": "{count, plural, one{1 nieuw bericht} other{{count} nieuwe berichten}}"
 }

@@ -10,6 +10,7 @@ import '../../core/network/signalr_client.dart';
 import '../contacts/contacts_controller.dart';
 import '../chat_list/chat_list_controller.dart';
 import 'chat_controller.dart';
+import 'chat_message_list.dart';
 import 'message_bubble.dart';
 import 'reaction_widgets.dart';
 import 'message_input.dart';
@@ -927,12 +928,12 @@ class ChatScreen extends StatelessWidget {
           Expanded(
             child: controller.messages.isEmpty
                 ? Center(child: Text(l10n.chatEmpty))
-                : ListView.builder(
-                    reverse: true,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: controller.messages.length,
-                    itemBuilder: (context, index) {
-                      final message = controller.messages[index];
+                : ChatMessageList<Message>(
+                    items: controller.messages,
+                    idOf: (message) => message.id,
+                    isMine: (message) =>
+                        message.senderId == controller.myIdentityId,
+                    itemBuilder: (context, message) {
                       final mine = message.senderId == controller.myIdentityId;
                       if (message.type == 'call-event') {
                         return _CallEventLine(body: message.body ?? '');
