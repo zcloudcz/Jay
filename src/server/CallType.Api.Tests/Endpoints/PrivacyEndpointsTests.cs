@@ -19,6 +19,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using CallType.Api.Data;
 using CallType.Api.Models;
+using CallType.Api.Services;
 using CallType.Api.Tests.TestFixtures;
 using CallType.Audit.Domain;
 using CallType.Audit.Infrastructure;
@@ -362,5 +363,96 @@ public class PrivacyEndpointsTests : IntegrationTestBase
         list.GetProperty("primaryDeviceId").GetGuid().Should().Be(device.DeviceId);
         list.GetProperty("version").GetInt32().Should().Be(4);
         list.GetProperty("payload").GetString().Should().Be(Convert.ToBase64String([9, 9]));
+    }
+
+    // ------------------------------------------------------------------
+    // Encrypted media (spec 2026-11-07-encrypted-media.md section 2.7)
+    // ------------------------------------------------------------------
+
+    private async Task<bool> MediaRowExistsAsync(Guid id)
+    {
+        using var scope = Factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().MediaUploads.AnyAsync(m => m.Id == id);
+    }
+
+    private async Task<bool> MediaBlobExistsAsync(Guid id) =>
+        (await MediaBlobStore.GetBlob(Factory.Services.GetRequiredService<BlobServiceClient>(), id).ExistsAsync()).Value;
+
+    private async Task<bool> MediaBlocksStagedAsync(Guid id) =>
+        (await MediaBlobStore.GetStagedChunksAsync(
+            MediaBlobStore.GetBlob(Factory.Services.GetRequiredService<BlobServiceClient>(), id), CancellationToken.None)).Count > 0;
+
+    [Fact]
+    public async Task Delete_device_removes_its_media_rows_and_blobs_but_not_other_devices_media()
+    {
+        var device = await NewDeviceAsync();
+        var other = await NewDeviceAsync();
+        var completed = await MediaTestHelpers.UploadCompletedAsync(device.Http, MediaTestHelpers.Bytes(100));
+        var uploading = await MediaTestHelpers.CreateOkAsync(device.Http, MediaTestHelpers.ChunkSize + 100);
+        (await MediaTestHelpers.PutChunkAsync(device.Http, uploading, 1, MediaTestHelpers.Bytes(100)))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var foreign = await MediaTestHelpers.UploadCompletedAsync(other.Http, MediaTestHelpers.Bytes(100));
+
+        var delete = await device.Http.DeleteAsync($"/devices/{device.DeviceId}");
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await MediaRowExistsAsync(completed)).Should().BeFalse();
+        (await MediaRowExistsAsync(uploading)).Should().BeFalse();
+        (await MediaBlobExistsAsync(completed)).Should().BeFalse();
+        (await MediaBlocksStagedAsync(uploading)).Should().BeFalse();
+        (await MediaRowExistsAsync(foreign)).Should().BeTrue();
+        (await MediaBlobExistsAsync(foreign)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Delete_account_removes_media_of_every_linked_device()
+    {
+        var first = await NewDeviceAsync();
+        var accountId = await RegisterAccountAsync(first);
+        var second = await NewDeviceAsync();
+        (await second.Http.PostAsJsonAsync($"/accounts/{accountId}/devices/{second.DeviceId}", new { authKey = AuthKey }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        var outsider = await NewDeviceAsync();
+
+        var firstMedia = await MediaTestHelpers.UploadCompletedAsync(first.Http, MediaTestHelpers.Bytes(100));
+        var secondMedia = await MediaTestHelpers.UploadCompletedAsync(second.Http, MediaTestHelpers.Bytes(200));
+        var outsiderMedia = await MediaTestHelpers.UploadCompletedAsync(outsider.Http, MediaTestHelpers.Bytes(100));
+
+        var delete = await first.Http.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/accounts/{accountId}")
+        {
+            Content = JsonContent.Create(new { authKey = AuthKey })
+        });
+        delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        foreach (var id in new[] { firstMedia, secondMedia })
+        {
+            (await MediaRowExistsAsync(id)).Should().BeFalse();
+            (await MediaBlobExistsAsync(id)).Should().BeFalse();
+        }
+        (await MediaRowExistsAsync(outsiderMedia)).Should().BeTrue();
+        (await MediaBlobExistsAsync(outsiderMedia)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Export_lists_the_media_of_the_linked_devices()
+    {
+        var device = await NewDeviceAsync();
+        var accountId = await RegisterAccountAsync(device);
+        var other = await NewDeviceAsync();
+        var completed = await MediaTestHelpers.UploadCompletedAsync(device.Http, MediaTestHelpers.Bytes(100));
+        var uploading = await MediaTestHelpers.CreateOkAsync(device.Http, 300);
+        var foreign = await MediaTestHelpers.UploadCompletedAsync(other.Http, MediaTestHelpers.Bytes(100));
+
+        var export = await device.Http.GetFromJsonAsync<JsonElement>($"/accounts/{accountId}/export");
+
+        var media = export.GetProperty("media").EnumerateArray().ToList();
+        media.Select(m => m.GetProperty("id").GetGuid()).Should().BeEquivalentTo([completed, uploading]);
+        media.Select(m => m.GetProperty("id").GetGuid()).Should().NotContain(foreign);
+        var done = media.Single(m => m.GetProperty("id").GetGuid() == completed);
+        done.GetProperty("sizeBytes").GetInt64().Should().Be(100);
+        done.GetProperty("status").GetString().Should().Be("completed");
+        done.TryGetProperty("createdAt", out _).Should().BeTrue();
+        done.TryGetProperty("expiresAt", out _).Should().BeTrue();
+        media.Single(m => m.GetProperty("id").GetGuid() == uploading).GetProperty("status").GetString().Should().Be("uploading");
     }
 }

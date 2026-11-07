@@ -143,6 +143,30 @@ TOTP MFA must be enabled for the account first (app: Settings -> Account).
 | `Moderation:OperatorHandles` | Array of device handles, case-insensitive (`Moderation__OperatorHandles__0=CT-77NN-3FMS`); the account the device is linked to is the operator |
 | `Moderation:SessionMinutes` | Operator token lifetime, default 30 (no refresh) |
 
+### Encrypted media (`/media/*`)
+
+Contract: `docs/superpowers/specs/2026-11-07-encrypted-media.md`. Large files,
+voice, audio and video are encrypted on the client (AES-256-GCM per chunk,
+key only inside the Signal message) and relayed through the API in chunks:
+each chunk is staged as an Azure block of blob `media/{id}`, `complete`
+commits the block list. The server never sees plaintext or keys. Completed
+media lives `RetentionHours` after completion, an unfinished upload
+`UploadWindowHours` after creation; `MediaCleanupService` deletes blob + row.
+Device and account deletion (N09) delete the media of the device(s) at once.
+All byte limits are encrypted bytes.
+
+| Setting (env: `__` for `:`) | Default | Meaning |
+|---|---|---|
+| `Media:MaxFileBytes` | 5368709120 (5 GiB) | Max encrypted size of one file |
+| `Media:RetentionHours` | 72 | Completed media lifetime from completion |
+| `Media:UploadWindowHours` | 24 | Time to finish an upload |
+| `Media:MaxActiveBytesPerDevice` | 10737418240 (10 GiB) | Uploading + completed, not expired, per uploader device |
+| `Media:MaxDailyBytesPerDevice` | 21474836480 (20 GiB) | Declared bytes of uploads created in a rolling 24 h (deleted ones count) |
+| `Media:MaxUploadsPerDay` | 500 | Uploads created per device in a rolling 24 h |
+| `Media:MaxTotalBytes` | 536870912000 (500 GiB) | Whole installation, active bytes |
+| `Media:CleanupIntervalMinutes` | 10 | Cleanup period |
+| `RateLimiting:MediaPermitLimit` | 600 | Requests/min per device on chunk PUT + download GET (policy `media`) |
+
 ### EF Core migrations
 ```bash
 # Add migration
@@ -163,6 +187,7 @@ dotnet ef database update --project src/server/CallType.Api
 | `Group` | Group chat metadata | `GroupId` (Guid) |
 | `GroupMember` | Group membership + roles | Composite(GroupId, DeviceId) |
 | `Backup` | Backup metadata (blobs in Azure) | `Id` (auto) |
+| `MediaUpload` | Encrypted media metadata (blob `media/{Id}`): uploader device (no FK), encrypted `SizeBytes`, `ChunkSize`, `Status` `Uploading`/`Completed`/`Deleted` (text), `CreatedAt`, `CompletedAt`, `ExpiresAt` (upload deadline, then retention end) | `Id` (random Guid = download capability), index(UploaderDeviceId, CreatedAt), index(ExpiresAt) |
 | `ConversationMute` | Per-device mute of a group or 1:1 (push skip) | `Id` (auto), unique(DeviceId, GroupId), unique(DeviceId, PeerPrimaryDeviceId) |
 | `Channel` | Public one-way channel (plaintext), soft delete, operator suspension `SuspendedUntil` | `ChannelId` (Guid), unique Handle |
 | `ChannelAdmin` | Delegated members, `Role` `admin` or `publisher` (publish + delete own posts only) | Composite(ChannelId, DeviceId) |
@@ -195,6 +220,12 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `POST /backups` | Upload backup metadata | ✅ Done |
 | `GET /backups/{accountId}` | List backups | ✅ Done |
 | `GET /turn/credentials` | Time-limited TURN credentials | ✅ Done |
+| `POST /media` | Create an encrypted media upload `{"size","chunkSize"}` (encrypted bytes, chunk 1 MiB+16..8 MiB+16) -> 201 `{id, chunkSize, chunkCount, uploadExpiresAt}`; 400 `invalid_media_size`, 413 `media_too_large`, 409 `media_quota_exceeded`, 429 `media_rate_limited`, 503 `media_storage_full` | ✅ Done |
+| `PUT /media/{id}/chunks/{index}` | Stage one encrypted chunk (raw body, exact length), uploader only (else 404 `media_not_found`), rate policy `media`; 400 `invalid_chunk`, 409 `media_not_uploading`, 410 `media_expired`; 204 | ✅ Done |
+| `GET /media/{id}/upload` | Resume state `{id, status, chunkCount, received, uploadExpiresAt, expiresAt?}`, uploader only | ✅ Done |
+| `POST /media/{id}/complete` | Commit chunks -> 200 `{id, size, expiresAt}` (idempotent); 409 `media_incomplete` + `missing` | ✅ Done |
+| `DELETE /media/{id}` | Cancel/delete (blob gone, row `Deleted` until createdAt + 24 h for the daily caps), uploader only, 204 idempotent | ✅ Done |
+| `GET /media/{id}` | Download by ANY authenticated device (id = capability), 200 or 206 for `Range: bytes=a-`/`a-b`, `Cache-Control: no-store`, rate policy `media`; 404 `media_not_found`, 410 `media_expired` | ✅ Done |
 | `POST /channels/{id}/report` | Abuse report with `category`/`contactEmail`/`goodFaith`, 200 receipt `{reportId, createdAt}` | ✅ Done |
 | `GET /channels/reports/mine`, `GET /channels/{id}/moderation` | Reporter outcome / statements of reasons for owner, admin, publisher | ✅ Done |
 | `PUT /channels/{id}/admins/{deviceId}` | Owner appoints `admin` or `publisher` (body `{"role"}` optional); bot posts labelled `byBot`, limited by `Channels:MaxBotPostsPerDay` (429 `bot_post_limit`); suspended channel -> 403 `channel_suspended` | ✅ Done |

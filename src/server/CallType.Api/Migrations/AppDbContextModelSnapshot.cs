@@ -602,6 +602,43 @@ namespace CallType.Api.Migrations
                     b.ToTable("GroupMembers");
                 });
 
+            modelBuilder.Entity("CallType.Api.Models.MediaUpload", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ChunkSize")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("UploaderDeviceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("UploaderDeviceId", "CreatedAt");
+
+                    b.ToTable("MediaUploads");
+                });
+
             modelBuilder.Entity("CallType.Api.Models.ModerationDecision", b =>
                 {
                     b.Property<long>("Id")

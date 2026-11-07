@@ -34,6 +34,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<ConversationMute> ConversationMutes => Set<ConversationMute>();
     public DbSet<Backup> Backups => Set<Backup>();
+    public DbSet<MediaUpload> MediaUploads => Set<MediaUpload>();
     public DbSet<Channel> Channels => Set<Channel>();
     public DbSet<ChannelAdmin> ChannelAdmins => Set<ChannelAdmin>();
     public DbSet<ChannelPost> ChannelPosts => Set<ChannelPost>();
@@ -294,6 +295,25 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                   .WithMany(a => a.Backups)
                   .HasForeignKey(b => b.AccountId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // -----------------------------------------------------------------
+        // MediaUpload (encrypted media, spec 2026-11-07-encrypted-media.md)
+        // -----------------------------------------------------------------
+        modelBuilder.Entity<MediaUpload>(entity =>
+        {
+            entity.HasKey(m => m.Id);
+            // Generated in code (Guid.NewGuid, random v4): the id is the
+            // download capability, a DB sequence or v7 would be guessable.
+            entity.Property(m => m.Id).ValueGeneratedNever();
+            entity.Property(m => m.Status).HasConversion<string>().HasMaxLength(20);
+            entity.Ignore(m => m.ChunkCount);
+
+            // Per-device quotas filter by uploader and the rolling 24 h window.
+            entity.HasIndex(m => new { m.UploaderDeviceId, m.CreatedAt });
+            // MediaCleanupService scans by expiry.
+            entity.HasIndex(m => m.ExpiresAt);
+            // No FK to Device on purpose: see MediaUpload.UploaderDeviceId.
         });
 
         // -----------------------------------------------------------------
