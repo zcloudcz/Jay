@@ -54,10 +54,13 @@ void main() {
 
     setUp(() async {
       hermes = await FakeHermes.start();
+      // Generous: the first request of the run pays for JIT and a busy
+      // machine (300 ms failed under a parallel test load). Only the
+      // timeout test uses a short one, on its own client.
       client = HermesClient(
         baseUrl: hermes.url,
         apiKey: 'key',
-        timeout: const Duration(milliseconds: 300),
+        timeout: const Duration(seconds: 10),
         retryDelay: Duration.zero,
       );
     });
@@ -109,8 +112,15 @@ void main() {
         await Future<void>.delayed(const Duration(seconds: 1));
         return (200, _reply('too late'));
       };
+      final short = HermesClient(
+        baseUrl: hermes.url,
+        apiKey: 'key',
+        timeout: const Duration(milliseconds: 300),
+        retryDelay: Duration.zero,
+      );
+      addTearDown(short.close);
       await expectLater(
-        client.ask('hi', conversationId: 'c'),
+        short.ask('hi', conversationId: 'c'),
         throwsA(isA<TimeoutException>()),
       );
       expect(hermes.requests, hasLength(1));
