@@ -292,4 +292,49 @@ void main() {
       expect(sawEvent, isFalse);
     });
   });
+
+  group('pin and poll-vote (spec 2026-11-08-chat-extras)', () {
+    Future<Map<String, dynamic>> deliverControl(String type, String body) async =>
+        alice.messageTo(
+          'archiver',
+          {...await archiverKeys.getSignedIdentityBundle()},
+          body,
+          groupId: 'g1',
+          type: type,
+        );
+
+    for (final (type, body) in [
+      ('pin', '{"targetId":"m1","pinned":true}'),
+      ('poll-vote', '{"pollId":"p1","options":[0,2]}'),
+    ]) {
+      test('a valid $type is archived as text metadata', () async {
+        final data = await deliverControl(type, body);
+        final first = source.messages.first;
+        hub.deliver(data);
+        final event = await first;
+        expect(event.kind, 'text');
+        expect(event.detailsJson, isNull);
+        expect(event.sizeBytes, utf8.encode(body).length);
+        expect(
+          event.contentHashHex,
+          crypto.sha256.convert(utf8.encode(body)).toString(),
+        );
+      });
+    }
+
+    for (final (type, body) in [
+      ('pin', '{"targetId":"m1"}'),
+      ('poll-vote', '{"pollId":"p1","options":[42]}'),
+    ]) {
+      test('a malformed $type is rejected, not emitted', () async {
+        final data = await deliverControl(type, body);
+        var sawEvent = false;
+        final sub = source.messages.listen((_) => sawEvent = true);
+        hub.deliver(data);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await sub.cancel();
+        expect(sawEvent, isFalse);
+      });
+    }
+  });
 }

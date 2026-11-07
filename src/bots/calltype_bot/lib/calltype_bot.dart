@@ -11,6 +11,7 @@ import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/devices/fanout_sender.dart';
 import 'package:calltype_core/messaging/agent_payload.dart';
+import 'package:calltype_core/messaging/poll.dart';
 import 'package:calltype_core/messaging/reaction.dart';
 import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/network/bot_dtos.dart';
@@ -35,6 +36,9 @@ export 'package:calltype_core/messaging/reaction.dart'
         maxReactionTargetLength,
         quickReactions,
         reactionType;
+export 'package:calltype_core/messaging/pin.dart' show pinType;
+export 'package:calltype_core/messaging/poll.dart'
+    show PollPayload, pollKey, pollVoteType;
 export 'package:calltype_core/network/bot_dtos.dart' show BotCommand;
 export 'package:calltype_core/network/group_dtos.dart'
     show BotTalkMode, BotTalkSettings, MuteMode, MuteSetting;
@@ -157,6 +161,7 @@ class BotMessage {
     this.mentions = const [],
     this.replyTo,
     this.action,
+    this.poll,
   }) : _groupName = groupName,
        _textMentionsBot = textMentionsBot,
        _ackSenderId = ackSenderId;
@@ -191,6 +196,12 @@ class BotMessage {
   /// A button press, if any: [ActionRef.messageId] names the message that
   /// carried the button (usually one of this bot's), [text] is its label.
   final ActionRef? action;
+
+  /// The poll this message carries (spec 2026-11-08-chat-extras), or null.
+  /// [text] is then the poll's plain-text fallback (question and options),
+  /// which is what a bot that ignores this field works with. Votes
+  /// (`poll-vote`) and pins (`pin`) never reach the handler.
+  final PollPayload? poll;
 
   /// The structured mentions name the bot, or the text says `@handle` /
   /// `@display name` (fallback for clients without structured mentions).
@@ -1022,7 +1033,8 @@ class CallTypeBot {
       return;
     }
     // Text only. Other types (also `edit`: a bot keeps no history to edit,
-    // and `delete`) are acknowledged and ignored.
+    // `delete`, and the chat extras `pin` / `poll-vote`, spec 2026-11-08)
+    // are acknowledged and ignored.
     if ((payload['type'] ?? 'text') != 'text') {
       await _ack(senderId, messageId);
       return;
@@ -1047,6 +1059,10 @@ class CallTypeBot {
       mentions: parseMentions(payload['mentions']),
       replyTo: BotReplyRef.parse(payload['replyTo']),
       action: parseActionRef(payload['action']),
+      // A poll is `text` + fallback + `poll`; media wins, like in the app.
+      poll: payload['media'] == null
+          ? PollPayload.tryParse(payload[pollKey])
+          : null,
     );
     // In groups the bot speaks only when addressed: mentioned, or replied
     // to (which a button press always is). Everything else is acknowledged

@@ -137,6 +137,17 @@ await bot.removeReaction(to: groupId, targetMessageId: id); // emoji ''
 - A reaction is its own message (fresh id, `createdAt`); receivers keep the
   newest per sender, so a later reaction replaces an earlier one.
 
+### Polls and pins
+
+Spec `docs/superpowers/specs/2026-11-08-chat-extras.md`.
+
+- A poll arrives as a normal text message: `text` is its plain-text fallback
+  (question and options) and `message.poll` holds the parsed `PollPayload`
+  (null for every other message, or when the poll object is invalid).
+- Votes (`type: poll-vote`) and pins (`type: pin`) are acknowledged and
+  ignored; they never reach a handler. Bots cannot create polls, vote or pin
+  in v1.
+
 ## What the runtime guarantees
 
 - **Registration** with `isBot: true` on first start; identity is reused afterwards.

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:calltype_core/messaging/pin.dart';
+import 'package:calltype_core/messaging/poll.dart';
 import 'package:calltype_core/messaging/reaction.dart';
 import 'package:calltype_core/network/signalr_client.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
@@ -150,13 +152,17 @@ class SignalGroupMessageSource implements GroupMessageSource {
       final type = payload['type'] as String? ?? 'text';
       // "text"/"file" are the app's own wire types (message_inbox_service.dart);
       // "call-event" (H1) is a client-generated report of a finished/missed
-      // call; "reaction" is an emoji reaction (spec 2026-11-07, archived as
-      // text metadata below). Anything else is an unsupported message this
-      // archiver version cannot hash meaningfully.
+      // call; "reaction" is an emoji reaction (spec 2026-11-07), "pin" and
+      // "poll-vote" are chat extras (spec 2026-11-08); those three are
+      // archived as text metadata below. A poll itself is `text`. Anything
+      // else is an unsupported message this archiver version cannot hash
+      // meaningfully.
       if (type != 'text' &&
           type != 'file' &&
           type != 'call-event' &&
-          type != 'reaction') {
+          type != 'reaction' &&
+          type != pinType &&
+          type != pollVoteType) {
         throw FormatException('Unsupported message type "$type"');
       }
 
@@ -193,6 +199,15 @@ class SignalGroupMessageSource implements GroupMessageSource {
         if (ReactionPayload.decode(body) == null) {
           throw const FormatException('reaction body is invalid');
         }
+      }
+      // Same reasoning for pins and votes (spec 2026-11-08-chat-extras): the
+      // app sends none into business groups in v1; archived defensively,
+      // metadata only.
+      if (type == pinType && PinPayload.decode(body) == null) {
+        throw const FormatException('pin body is invalid');
+      }
+      if (type == pollVoteType && PollVotePayload.decode(body) == null) {
+        throw const FormatException('poll-vote body is invalid');
       }
 
       final int sizeBytes;
