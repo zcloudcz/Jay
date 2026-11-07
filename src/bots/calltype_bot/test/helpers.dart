@@ -214,6 +214,21 @@ class FakeApi {
   /// GET /media/{id} answers this status instead (e.g. 410 expired).
   final mediaStatus = <String, int>{};
 
+  /// Uploads in progress (POST /media .. complete): id -> declared sizes
+  /// and the chunks received. `complete` moves the blob into [media].
+  final uploads =
+      <String, ({int size, int chunkSize, Map<int, List<int>> chunks})>{};
+
+  /// Ids withdrawn with DELETE /media/{id}.
+  final deletedMedia = <String>[];
+
+  /// Scripted refusal of the next POST /media: (status, error code).
+  (int, String)? mediaCreateFailure;
+
+  /// The next N chunk PUTs answer 503 (a transient error to retry).
+  int failChunkPuts = 0;
+  int _nextMediaId = 1;
+
   String get url => 'http://127.0.0.1:${_server.port}';
 
   int _nextOneTimeKey = 0;
@@ -256,6 +271,10 @@ class FakeApi {
       }
       await request.response.close();
       return;
+    }
+    if (segments.isNotEmpty && segments[0] == 'media') {
+      final handled = await _serveMediaUpload(request, segments);
+      if (handled) return;
     }
     if (request.method == 'POST' && path == '/devices') {
       registrations.add(
@@ -323,6 +342,101 @@ class FakeApi {
     request.response.headers.contentType = ContentType.json;
     request.response.write(jsonEncode(body));
     await request.response.close();
+  }
+
+  /// The upload half of the media relay (contract section 2), strict about
+  /// sizes like the real server. Returns false for routes it does not own.
+  Future<bool> _serveMediaUpload(
+    HttpRequest request,
+    List<String> segments,
+  ) async {
+    Future<bool> answer(int status, [Object? body]) async {
+      request.response.statusCode = status;
+      request.response.headers.contentType = ContentType.json;
+      if (body != null) request.response.write(jsonEncode(body));
+      await request.response.close();
+      return true;
+    }
+
+    final method = request.method;
+    if (segments.length == 1 && method == 'POST') {
+      final json =
+          jsonDecode(await utf8.decodeStream(request)) as Map<String, dynamic>;
+      final failure = mediaCreateFailure;
+      if (failure != null) {
+        mediaCreateFailure = null;
+        return answer(failure.$1, {'error': 'refused', 'code': failure.$2});
+      }
+      final size = json['size'] as int;
+      final chunkSize = json['chunkSize'] as int;
+      if (chunkSize < mediaMinChunkSize + 16 ||
+          chunkSize > mediaMaxChunkSize + 16 ||
+          size < 16) {
+        return answer(400, {'code': 'invalid_media_size'});
+      }
+      final id =
+          '00000000-0000-4000-8000-${(_nextMediaId++).toString().padLeft(12, '0')}';
+      uploads[id] = (size: size, chunkSize: chunkSize, chunks: {});
+      return answer(201, {
+        'id': id,
+        'chunkSize': chunkSize,
+        'chunkCount': (size + chunkSize - 1) ~/ chunkSize,
+        'uploadExpiresAt': DateTime.now()
+            .add(const Duration(hours: 24))
+            .toUtc()
+            .toIso8601String(),
+      });
+    }
+    final id = segments.length > 1 ? segments[1].toLowerCase() : '';
+    final upload = uploads[id];
+    if (segments.length == 4 && segments[2] == 'chunks' && method == 'PUT') {
+      final bytes = BytesBuilder();
+      await for (final chunk in request) {
+        bytes.add(chunk);
+      }
+      if (failChunkPuts > 0) {
+        failChunkPuts--;
+        return answer(503, {'code': 'unavailable'});
+      }
+      if (upload == null) return answer(404, {'code': 'media_not_found'});
+      final index = int.parse(segments[3]);
+      final count = (upload.size + upload.chunkSize - 1) ~/ upload.chunkSize;
+      final expected = index == count - 1
+          ? upload.size - upload.chunkSize * (count - 1)
+          : upload.chunkSize;
+      if (index < 0 || index >= count || bytes.length != expected) {
+        return answer(400, {'code': 'invalid_chunk'});
+      }
+      upload.chunks[index] = bytes.toBytes();
+      return answer(204);
+    }
+    if (segments.length == 3 && segments[2] == 'complete' && method == 'POST') {
+      if (upload == null) return answer(404, {'code': 'media_not_found'});
+      final count = (upload.size + upload.chunkSize - 1) ~/ upload.chunkSize;
+      final missing = [
+        for (var i = 0; i < count; i++)
+          if (!upload.chunks.containsKey(i)) i,
+      ];
+      if (missing.isNotEmpty) {
+        return answer(409, {'code': 'media_incomplete', 'missing': missing});
+      }
+      media[id] = [for (var i = 0; i < count; i++) ...upload.chunks[i]!];
+      return answer(200, {
+        'id': id,
+        'size': upload.size,
+        'expiresAt': DateTime.now()
+            .add(const Duration(hours: 72))
+            .toUtc()
+            .toIso8601String(),
+      });
+    }
+    if (segments.length == 2 && method == 'DELETE') {
+      deletedMedia.add(id);
+      uploads.remove(id);
+      media.remove(id);
+      return answer(204);
+    }
+    return false;
   }
 
   Future<void> close() => _server.close(force: true);
