@@ -9,6 +9,9 @@ import 'package:drift/drift.dart';
 import '../../core/crypto/session_manager.dart';
 import '../../core/network/api_client.dart';
 import '../../core/storage/database.dart';
+import '../media/media_cleanup.dart';
+import '../media/media_message.dart';
+import '../media/media_service.dart';
 import 'attachment.dart';
 
 /// One queue per device database protects ratchet updates across chats and inbox.
@@ -61,7 +64,9 @@ class MessageInboxService {
     required DeviceDirectory Function() directory,
     ApiClient? apiClient,
     Future<void> Function(String senderId, String messageId)? acknowledge,
+    MediaService? media,
   }) : _db = database,
+       _media = media,
        _sessionManager = sessionManager,
        _incoming = incomingMessages,
        _directory = directory,
@@ -81,6 +86,10 @@ class MessageInboxService {
   final ApiClient? _api;
 
   final Future<void> Function(String, String)? _acknowledge;
+
+  /// Where a deleted media message's local file is removed; the app-wide
+  /// service unless a test injects one.
+  final MediaService? _media;
   StreamSubscription<Map<String, dynamic>>? _subscription;
   final _persisted = StreamController<Message>.broadcast();
   final _errors = StreamController<Object>.broadcast();
@@ -203,7 +212,7 @@ class MessageInboxService {
             'Encrypted message context does not match delivery',
           );
         }
-        final type = payload['type'] as String? ?? 'text';
+        var type = payload['type'] as String? ?? 'text';
         // 'delete' and 'edit' are control messages added after the first
         // release. An OLD client throws here, so the message stays queued on
         // the server for it (accepted: that client keeps showing the original
@@ -214,6 +223,18 @@ class MessageInboxService {
             type != 'delete' &&
             type != 'edit') {
           throw const FormatException('Unsupported message type');
+        }
+        var body = payload['body'] as String;
+        // Contract M7: media arrives as `text` + fallback body + `media`. A
+        // valid object becomes a local `media` row (canonical JSON body); an
+        // invalid one or a newer version keeps the fallback text, so the
+        // message is never dropped and never blocks the inbox.
+        if (type == 'text' && payload['media'] != null) {
+          final media = MediaInfo.tryParse(payload['media']);
+          if (media != null) {
+            type = 'media';
+            body = media.encode();
+          }
         }
         // Who sent it and where it belongs. `to` is honoured only for copies
         // from our own devices (DeviceDirectory.routeInbound): a peer cannot
@@ -315,7 +336,7 @@ class MessageInboxService {
                 id: messageId,
                 conversationId: conversationId,
                 senderId: route.senderIdentityId,
-                body: Value(payload['body'] as String),
+                body: Value(body),
                 type: Value(type),
                 // A copy of what our other device sent is OUR message: shown
                 // as sent, like on the device that wrote it.
@@ -400,6 +421,18 @@ class MessageInboxService {
     // deleting for everyone (the client does not send it either).
     if (conversation == null || conversation.organizationId != null) return;
     await tombstoneMessage(_db, targetId);
+    if (target.type == 'media') {
+      // After the transaction (the caller's), outside its zone: the file
+      // is not part of the database state and must not hold it open.
+      final media = _media ?? MediaService.instance;
+      Zone.root.run(
+        () => unawaited(
+          Future(
+            () => deleteUnreferencedMedia(_db, media, target.body, targetId),
+          ),
+        ),
+      );
+    }
   }
 
   /// Applies a `type: edit` (contract section 1) if, and only if, it is

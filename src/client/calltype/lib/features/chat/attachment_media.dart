@@ -7,23 +7,41 @@ import 'package:share_plus/share_plus.dart';
 
 /// A file chosen by the user. Length and bytes are separate so a huge file
 /// from the document picker can be rejected before it is read into memory.
+/// [openRead] streams it (the media path never reads a large file at once);
+/// without a stream source it falls back to [readAsBytes].
 class PickedMedia {
   PickedMedia({
     required this.name,
     required Future<int> Function() length,
     required Future<Uint8List> Function() read,
+    Stream<List<int>> Function()? openRead,
+    this.mimeType,
+    this.path,
   }) : _length = length,
-       _read = read;
+       _read = read,
+       _openRead = openRead;
 
-  PickedMedia.bytes(this.name, Uint8List bytes)
+  PickedMedia.bytes(this.name, Uint8List bytes, {this.mimeType})
     : _length = (() async => bytes.length),
-      _read = (() async => bytes);
+      _read = (() async => bytes),
+      _openRead = null,
+      path = null;
 
   final String name;
+
+  /// File system path when the picker gave one (not on web); used to probe
+  /// a video for duration and thumbnail.
+  final String? path;
+
+  /// MIME type when the picker knows it (untrusted, picks a viewer only).
+  final String? mimeType;
   final Future<int> Function() _length;
   final Future<Uint8List> Function() _read;
+  final Stream<List<int>> Function()? _openRead;
   Future<int> length() => _length();
   Future<Uint8List> readAsBytes() => _read();
+  Stream<List<int>> openRead() =>
+      _openRead?.call() ?? Stream.fromFuture(_read());
 }
 
 /// Thrown by [AttachmentMedia.saveToGallery] when the user refused the
@@ -77,11 +95,22 @@ abstract class AttachmentMedia {
 class PluginAttachmentMedia implements AttachmentMedia {
   final _picker = ImagePicker();
 
-  PickedMedia _fromXFile(XFile file) =>
-      PickedMedia(name: file.name, length: file.length, read: file.readAsBytes);
+  PickedMedia _fromXFile(XFile file) => PickedMedia(
+    name: file.name,
+    length: file.length,
+    read: file.readAsBytes,
+    openRead: file.openRead,
+  );
 
-  PickedMedia _fromPlatformFile(PlatformFile file) =>
-      PickedMedia(name: file.name, length: file.length, read: file.readAsBytes);
+  PickedMedia _fromPlatformFile(PlatformFile file) => PickedMedia(
+    name: file.name,
+    length: file.length,
+    read: file.readAsBytes,
+    // Streams the document picker's file: the media path takes files of
+    // gigabytes, which must never be read into memory at once.
+    openRead: file.readAsByteStream,
+    path: kIsWeb ? null : file.path,
+  );
 
   @override
   bool get supportsCamera {
