@@ -29,7 +29,12 @@ import 'src/ws_hub_transport.dart';
 export 'package:calltype_core/messaging/agent_payload.dart'
     show ActionRef, MessageButton, maxActionId, maxActionLabel, maxActions;
 export 'package:calltype_core/messaging/reaction.dart'
-    show ReactionPayload, isValidReactionEmoji, quickReactions, reactionType;
+    show
+        ReactionPayload,
+        isValidReactionEmoji,
+        maxReactionTargetLength,
+        quickReactions,
+        reactionType;
 export 'package:calltype_core/network/bot_dtos.dart' show BotCommand;
 export 'package:calltype_core/network/group_dtos.dart'
     show BotTalkMode, BotTalkSettings, MuteMode, MuteSetting;
@@ -225,6 +230,18 @@ class BotMessage {
         ? BotReplyRef(id: id, senderId: senderId, preview: _preview(this.text))
         : null,
   );
+
+  /// Puts [emoji] on this message, in the conversation it came from (see
+  /// [CallTypeBot.sendReaction]; no handle lookup needed).
+  Future<void> react(String emoji) => _bot._sendReactionBody(
+    conversationId,
+    _bot._reactionBody(id, emoji),
+    groupId: isGroup ? conversationId : null,
+    groupName: _groupName,
+  );
+
+  /// Removes the bot's reaction from this message.
+  Future<void> removeReaction() => react('');
 }
 
 /// Characters of a sent message the bot remembers for [BotReaction.targetText].
@@ -674,10 +691,51 @@ class CallTypeBot {
     required String text,
     List<MessageButton> actions = const [],
   }) async {
-    final target = to.trim();
     if (text.trim().isEmpty) {
       throw ArgumentError.value(text, 'text', 'must not be empty');
     }
+    final target = await _resolveTarget(to);
+    return _sendText(
+      target.conversationId,
+      text,
+      groupId: target.groupId,
+      groupName: target.groupName,
+      actions: actions,
+    );
+  }
+
+  /// Puts [emoji] on the message [targetMessageId] (`type: reaction`, the
+  /// app's wire format, spec 2026-11-07-message-reactions). [to] addresses
+  /// the conversation exactly like [send]'s `to`. An empty [emoji] removes
+  /// the bot's reaction (see [removeReaction]); otherwise it must be ONE
+  /// emoji ([isValidReactionEmoji]). Invalid values throw [ArgumentError]
+  /// before anything is resolved or sent.
+  Future<void> sendReaction({
+    required String to,
+    required String targetMessageId,
+    required String emoji,
+  }) async {
+    final body = _reactionBody(targetMessageId, emoji);
+    final target = await _resolveTarget(to);
+    await _sendReactionBody(
+      target.conversationId,
+      body,
+      groupId: target.groupId,
+      groupName: target.groupName,
+    );
+  }
+
+  /// Removes the bot's reaction from [targetMessageId] (an empty emoji).
+  Future<void> removeReaction({
+    required String to,
+    required String targetMessageId,
+  }) => sendReaction(to: to, targetMessageId: targetMessageId, emoji: '');
+
+  /// Resolves [to] (a handle or a group id, see [send]) to where a message
+  /// goes, or throws [BotSendException].
+  Future<({String conversationId, String? groupId, String? groupName})>
+  _resolveTarget(String to) async {
+    final target = to.trim();
     if (_handlePattern.hasMatch(target)) {
       final id = await deviceIdForHandle(target.toUpperCase());
       if (id == null) throw BotSendException('Unknown handle $target.');
@@ -697,7 +755,7 @@ class CallTypeBot {
       if (identity == deviceId.toLowerCase()) {
         throw const BotSendException('A bot cannot message itself.');
       }
-      return _sendText(identity, text, actions: actions);
+      return (conversationId: identity, groupId: null, groupName: null);
     }
     var info = await group(target);
     if (!info.isMember(deviceId)) {
@@ -708,12 +766,10 @@ class CallTypeBot {
         throw BotSendException('The bot is not a member of group $target.');
       }
     }
-    return _sendText(
-      target,
-      text,
+    return (
+      conversationId: target,
       groupId: target,
       groupName: _groupNames[target.toLowerCase()],
-      actions: actions,
     );
   }
 
@@ -1308,6 +1364,38 @@ class CallTypeBot {
       await _rememberSent(target.id, target.conversationId, text);
     }
   }
+
+  /// The reaction `body` for [targetMessageId] / [emoji] ('' removes), or
+  /// [ArgumentError] for values a receiver would drop.
+  String _reactionBody(String targetMessageId, String emoji) {
+    if (targetMessageId.trim().isEmpty ||
+        targetMessageId.length > maxReactionTargetLength) {
+      throw ArgumentError.value(
+        targetMessageId,
+        'targetMessageId',
+        'must be 1..$maxReactionTargetLength characters',
+      );
+    }
+    if (emoji.isNotEmpty && !isValidReactionEmoji(emoji)) {
+      throw ArgumentError.value(emoji, 'emoji', 'must be one emoji or empty');
+    }
+    return ReactionPayload(targetId: targetMessageId, emoji: emoji).encode();
+  }
+
+  /// A reaction is its own message on the wire (own id, own ack); receivers
+  /// keep the newest one per sender by createdAt, which [_send] sets.
+  Future<void> _sendReactionBody(
+    String conversationId,
+    String body, {
+    String? groupId,
+    String? groupName,
+  }) => _send(
+    conversationId,
+    _uuidV4(),
+    {'type': reactionType, 'body': body},
+    groupId: groupId,
+    groupName: groupName,
+  );
 
   /// Encrypts and sends one payload; [content] holds the type-specific keys.
   Future<void> _send(

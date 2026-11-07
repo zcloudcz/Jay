@@ -121,6 +121,22 @@ bot.onReaction((r) async {          // set before onMessage
 - Runs in the conversation's queue, no typing indicator, acked after the
   handler; a failing handler is only logged (no apology message).
 
+Sending reactions (the app's wire format, 1:1 and groups):
+
+```dart
+await message.react('👍');           // on an incoming message, in its conversation
+await message.removeReaction();
+await bot.sendReaction(to: 'CT-XXXX-XXXX', targetMessageId: id, emoji: '✅');
+await bot.removeReaction(to: groupId, targetMessageId: id); // emoji ''
+```
+
+- `to` is resolved exactly like `send()`'s (handle with device list, or a
+  group the bot is in; `BotSendException` otherwise).
+- `emoji` must be ONE emoji (`isValidReactionEmoji`) or `''`; the target id
+  1..64 characters. Anything else throws `ArgumentError` before sending.
+- A reaction is its own message (fresh id, `createdAt`); receivers keep the
+  newest per sender, so a later reaction replaces an earlier one.
+
 ## What the runtime guarantees
 
 - **Registration** with `isBot: true` on first start; identity is reused afterwards.
