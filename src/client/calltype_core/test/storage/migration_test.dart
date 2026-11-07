@@ -120,7 +120,7 @@ void main() {
     expect(message.deleted, isFalse);
 
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 7);
+    expect(version.read<int>('user_version'), 8);
   });
 
   test('a fresh install creates the v2 schema directly', () async {
@@ -196,6 +196,8 @@ void main() {
             raw.execute('ALTER TABLE channels DROP COLUMN suspended_until');
             raw.execute('ALTER TABLE channel_posts DROP COLUMN by_bot');
             raw.execute('ALTER TABLE channel_posts DROP COLUMN published_here');
+            // ...and without the v8 table.
+            raw.execute('DROP TABLE message_reactions');
             raw.execute(
               "INSERT INTO messages (id, conversation_id, sender_id, body, "
               "created_at, reply_to_id) VALUES ('m1', 'bob', 'bob', 'hello', "
@@ -224,7 +226,7 @@ void main() {
       expect(updated.editedAt!.toUtc(), edited);
       expect(updated.actionsJson, '[{"id":"a","label":"A"}]');
       final version = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(version.read<int>('user_version'), 7);
+      expect(version.read<int>('user_version'), 8);
     },
   );
 
@@ -254,6 +256,7 @@ void main() {
             raw.execute('ALTER TABLE channels DROP COLUMN suspended_until');
             raw.execute('ALTER TABLE channel_posts DROP COLUMN by_bot');
             raw.execute('ALTER TABLE channel_posts DROP COLUMN published_here');
+            raw.execute('DROP TABLE message_reactions');
             raw.execute(
               "INSERT INTO channels (channel_id, handle, name) "
               "VALUES ('c1', 'CH-AAAA-BBBB', 'News')",
@@ -276,7 +279,58 @@ void main() {
       expect(post.byBot, isFalse);
       expect(post.publishedHere, isFalse);
       final version = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(version.read<int>('user_version'), 7);
+      expect(version.read<int>('user_version'), 8);
     },
   );
+
+  test('v7 -> v8 adds message_reactions, messages survive', () async {
+    final fresh = AppDatabase(NativeDatabase.memory());
+    final ddl = [
+      for (final row
+          in await fresh
+              .customSelect(
+                "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL "
+                "AND name NOT LIKE 'sqlite_%'",
+              )
+              .get())
+        row.read<String>('sql'),
+    ];
+    await fresh.close();
+
+    final db = AppDatabase(
+      NativeDatabase.memory(
+        setup: (raw) {
+          for (final statement in ddl) {
+            raw.execute(statement);
+          }
+          raw.execute('DROP TABLE message_reactions');
+          raw.execute(
+            "INSERT INTO messages (id, conversation_id, sender_id, body, "
+            "created_at) VALUES ('m1', 'bob', 'bob', 'hello', 1700000001)",
+          );
+          raw.execute('PRAGMA user_version = 7');
+        },
+      ),
+    );
+    addTearDown(db.close);
+
+    expect((await db.select(db.messages).getSingle()).body, 'hello');
+    expect(await db.select(db.messageReactions).get(), isEmpty);
+    await db
+        .into(db.messageReactions)
+        .insert(
+          MessageReactionsCompanion.insert(
+            messageId: 'm1',
+            reactorId: 'alice',
+            conversationId: 'bob',
+            emoji: '👍',
+            reactedAt: 1700000002000,
+          ),
+        );
+    final reaction = await db.select(db.messageReactions).getSingle();
+    expect(reaction.emoji, '👍');
+    expect(reaction.reactedAt, 1700000002000);
+    final version = await db.customSelect('PRAGMA user_version').getSingle();
+    expect(version.read<int>('user_version'), 8);
+  });
 }

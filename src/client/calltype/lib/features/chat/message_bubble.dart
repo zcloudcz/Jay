@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import 'reaction_widgets.dart';
+import 'reactions.dart';
 
 /// One entry of the message menu. The same list feeds the three-dots popup
 /// (web/desktop) and the long-press bottom sheet (touch).
@@ -45,7 +47,37 @@ class MessageBubble extends StatelessWidget {
     this.edited = false,
     this.buttons = const [],
     this.onButton,
+    this.reactions = const [],
+    this.myReaction,
+    this.onReact,
+    this.onReactionTap,
+    this.onReactionLongPress,
+    this.pickEmoji = showReactionEmojiPicker,
   });
+
+  /// Reaction chips drawn under the bubble.
+  final List<ReactionSummary> reactions;
+
+  /// The local user's current reaction (highlighted in the quick bar).
+  final String? myReaction;
+
+  /// A pick from the quick bar or the full picker. Null = no reacting here
+  /// (tombstone, pending send, business conversation): no quick bar.
+  final void Function(String emoji)? onReact;
+
+  /// Tap / long-press on a chip (remove own, show who reacted).
+  final void Function(ReactionSummary chip)? onReactionTap;
+  final void Function(ReactionSummary chip)? onReactionLongPress;
+
+  /// Opens the full picker behind "+" (a test seam).
+  final EmojiPickerLauncher pickEmoji;
+
+  /// "+" in the quick bar: the full picker, then the same path as a quick
+  /// pick. [context] must outlive the sheet/menu that was just closed.
+  Future<void> _pickMore(BuildContext context) async {
+    final emoji = await pickEmoji(context);
+    if (emoji != null) onReact?.call(emoji);
+  }
 
   /// Shows the small "edited" label next to the time.
   final bool edited;
@@ -91,31 +123,55 @@ class MessageBubble extends StatelessWidget {
     final errorColor = Theme.of(context).colorScheme.error;
     showModalBottomSheet<void>(
       context: context,
+      // Scrollable: the quick bar plus five actions is taller than the
+      // sheet on a small or landscape screen.
       builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final action in actions)
-              ListTile(
-                leading: Icon(
-                  action.icon,
-                  color: action.destructive ? errorColor : null,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (onReact != null) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: ReactionQuickBar(
+                      selected: myReaction,
+                      onPick: (emoji) {
+                        Navigator.of(sheetContext).pop();
+                        onReact!(emoji);
+                      },
+                      onMore: () {
+                        Navigator.of(sheetContext).pop();
+                        _pickMore(context);
+                      },
+                    ),
+                  ),
                 ),
-                title: Text(
-                  action.label,
-                  style: action.destructive
-                      ? TextStyle(color: errorColor)
-                      : null,
+                if (actions.isNotEmpty) const Divider(height: 1),
+              ],
+              for (final action in actions)
+                ListTile(
+                  leading: Icon(
+                    action.icon,
+                    color: action.destructive ? errorColor : null,
+                  ),
+                  title: Text(
+                    action.label,
+                    style: action.destructive
+                        ? TextStyle(color: errorColor)
+                        : null,
+                  ),
+                  // onSelected runs inside the tap handler itself, not after
+                  // the sheet's future completes: browsers (Safari above all)
+                  // only allow clipboard writes directly within a user gesture.
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    action.onSelected();
+                  },
                 ),
-                // onSelected runs inside the tap handler itself, not after
-                // the sheet's future completes: browsers (Safari above all)
-                // only allow clipboard writes directly within a user gesture.
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  action.onSelected();
-                },
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -140,8 +196,9 @@ class MessageBubble extends StatelessWidget {
     // discovers "hold the left button". So wherever a mouse is likely (web,
     // desktop) every message gets a three-dots menu; long-press stays as the
     // familiar shortcut on touch screens.
+    final hasMenu = actions.isNotEmpty || onReact != null;
     final showMenuButton =
-        actions.isNotEmpty &&
+        hasMenu &&
         (kIsWeb ||
             const {
               TargetPlatform.windows,
@@ -158,6 +215,14 @@ class MessageBubble extends StatelessWidget {
             ),
             padding: EdgeInsets.zero,
             itemBuilder: (_) => [
+              // The quick bar on top of the menu: the desktop / web way to
+              // react (right click belongs to the browser, see above).
+              if (onReact != null)
+                _ReactionMenuEntry(
+                  selected: myReaction,
+                  onPick: onReact!,
+                  onMore: () => _pickMore(context),
+                ),
               for (final action in actions)
                 PopupMenuItem(
                   // PopupMenuItem.onTap runs synchronously in the tap
@@ -201,135 +266,156 @@ class MessageBubble extends StatelessWidget {
                 maxWidth: MediaQuery.sizeOf(context).width * 0.75,
               ),
               child: GestureDetector(
-                onLongPress: actions.isEmpty ? null : () => _showSheet(context),
-                child: Container(
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: backgroundColor,
-                    // Asymmetric border radius: the corner on the sender's side is
-                    // sharper to create a visual "tail" effect pointing toward the
-                    // message author. Directional so the tail follows the bubble
-                    // when the layout is mirrored for RTL.
-                    borderRadius: BorderRadiusDirectional.only(
-                      topStart: const Radius.circular(16),
-                      topEnd: const Radius.circular(16),
-                      bottomStart: Radius.circular(isMine ? 16 : 4),
-                      bottomEnd: Radius.circular(isMine ? 4 : 16),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      if (forwarded && !deleted)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.forward_rounded,
-                                size: 14,
-                                color: textColor.withAlpha(150),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                context.l10n.chatMessageForwarded,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: textColor.withAlpha(150),
-                                  fontStyle: FontStyle.italic,
-                                ),
-                              ),
-                            ],
-                          ),
+                onLongPress: hasMenu ? () => _showSheet(context) : null,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: isMine
+                      ? CrossAxisAlignment.end
+                      : CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: backgroundColor,
+                        // Asymmetric border radius: the corner on the sender's side is
+                        // sharper to create a visual "tail" effect pointing toward the
+                        // message author. Directional so the tail follows the bubble
+                        // when the layout is mirrored for RTL.
+                        borderRadius: BorderRadiusDirectional.only(
+                          topStart: const Radius.circular(16),
+                          topEnd: const Radius.circular(16),
+                          bottomStart: Radius.circular(isMine ? 16 : 4),
+                          bottomEnd: Radius.circular(isMine ? 4 : 16),
                         ),
-                      if (quoteText != null && !deleted)
-                        _Quote(
-                          author: quoteAuthor,
-                          text: quoteText!,
-                          textColor: textColor,
-                          accent: colorScheme.primary,
-                        ),
-                      if (deleted)
-                        Text(
-                          context.l10n.chatMessageDeleted,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: textColor.withAlpha(150),
-                            fontStyle: FontStyle.italic,
-                          ),
-                        )
-                      else if (content != null && caption != null)
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            content!,
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(
-                                caption!,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: textColor,
-                                ),
-                              ),
-                            ),
-                          ],
-                        )
-                      else
-                        content ??
-                            Text(
-                              text,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: textColor,
-                              ),
-                            ),
-                      if (buttons.isNotEmpty && !deleted)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: [
-                              for (final button in buttons)
-                                OutlinedButton(
-                                  onPressed: onButton == null
-                                      ? null
-                                      : () => onButton!(button),
-                                  child: Text(button.label),
-                                ),
-                            ],
-                          ),
-                        ),
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          if (edited && !deleted) ...[
+                          if (forwarded && !deleted)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.forward_rounded,
+                                    size: 14,
+                                    color: textColor.withAlpha(150),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    context.l10n.chatMessageForwarded,
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: textColor.withAlpha(150),
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (quoteText != null && !deleted)
+                            _Quote(
+                              author: quoteAuthor,
+                              text: quoteText!,
+                              textColor: textColor,
+                              accent: colorScheme.primary,
+                            ),
+                          if (deleted)
                             Text(
-                              context.l10n.chatMessageEdited,
-                              style: theme.textTheme.labelSmall?.copyWith(
+                              context.l10n.chatMessageDeleted,
+                              style: theme.textTheme.bodyMedium?.copyWith(
                                 color: textColor.withAlpha(150),
                                 fontStyle: FontStyle.italic,
                               ),
+                            )
+                          else if (content != null && caption != null)
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                content!,
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Text(
+                                    caption!,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: textColor,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          else
+                            content ??
+                                Text(
+                                  text,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: textColor,
+                                  ),
+                                ),
+                          if (buttons.isNotEmpty && !deleted)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  for (final button in buttons)
+                                    OutlinedButton(
+                                      onPressed: onButton == null
+                                          ? null
+                                          : () => onButton!(button),
+                                      child: Text(button.label),
+                                    ),
+                                ],
+                              ),
                             ),
-                            const SizedBox(width: 6),
-                          ],
-                          Text(
-                            time,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: textColor.withAlpha(150),
-                            ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (edited && !deleted) ...[
+                                Text(
+                                  context.l10n.chatMessageEdited,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: textColor.withAlpha(150),
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                              Text(
+                                time,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: textColor.withAlpha(150),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
+                    ),
+                    if (reactions.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(
+                          left: 12,
+                          right: 12,
+                          bottom: 4,
+                        ),
+                        child: ReactionChips(
+                          reactions: reactions,
+                          onTap: onReactionTap,
+                          onLongPress: onReactionLongPress,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -339,6 +425,51 @@ class MessageBubble extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The quick bar as the first entry of the three-dots menu. Not selectable
+/// itself; each emoji closes the menu and reacts.
+class _ReactionMenuEntry extends PopupMenuEntry<void> {
+  const _ReactionMenuEntry({
+    required this.selected,
+    required this.onPick,
+    required this.onMore,
+  });
+
+  final String? selected;
+  final void Function(String emoji) onPick;
+  final VoidCallback onMore;
+
+  @override
+  double get height => 52;
+
+  @override
+  bool represents(void value) => false;
+
+  @override
+  State<_ReactionMenuEntry> createState() => _ReactionMenuEntryState();
+}
+
+class _ReactionMenuEntryState extends State<_ReactionMenuEntry> {
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 4),
+    // The menu is at most 280 wide; the bar shrinks instead of overflowing.
+    child: FittedBox(
+      fit: BoxFit.scaleDown,
+      child: ReactionQuickBar(
+        selected: widget.selected,
+        onPick: (emoji) {
+          Navigator.of(context).pop();
+          widget.onPick(emoji);
+        },
+        onMore: () {
+          Navigator.of(context).pop();
+          widget.onMore();
+        },
+      ),
+    ),
+  );
 }
 
 /// Quoted message block: inset, with an accent border on the start side

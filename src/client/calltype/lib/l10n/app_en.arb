@@ -1306,5 +1306,36 @@
         "type": "String"
       }
     }
+  },
+  "chatReactionMore": "More reactions",
+  "@chatReactionMore": {
+    "description": "Tooltip of the '+' button in the reaction quick bar; opens the full emoji picker."
+  },
+  "chatReactionsTitle": "Reactions",
+  "@chatReactionsTitle": {
+    "description": "Title of the sheet that lists who reacted to a message with which emoji."
+  },
+  "chatReactionTapToRemove": "Tap to remove",
+  "@chatReactionTapToRemove": {
+    "description": "Subtitle of the user's own row in the 'who reacted' sheet; tapping it removes the reaction."
+  },
+  "chatReactionFailed": "Could not send the reaction.",
+  "@chatReactionFailed": {
+    "description": "Snackbar when sending (or removing) an emoji reaction failed."
+  },
+  "notificationReaction": "{name} reacted {emoji} to: {preview}",
+  "@notificationReaction": {
+    "description": "Local notification body when someone reacts to the user's message. name = who reacted, emoji = the reaction, preview = start of the reacted-to message.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "emoji": {
+        "type": "String"
+      },
+      "preview": {
+        "type": "String"
+      }
+    }
   }
 }

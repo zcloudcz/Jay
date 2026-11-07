@@ -55,6 +55,17 @@ void main() {
               deleted: const Value(true),
             ),
           );
+      await source
+          .into(source.messageReactions)
+          .insert(
+            MessageReactionsCompanion.insert(
+              messageId: 'm1',
+              reactorId: 'peer',
+              conversationId: 'chat',
+              emoji: '❤️',
+              reactedAt: 1767225600123,
+            ),
+          );
       final dio = Dio();
       Uint8List? encrypted;
       dio.interceptors.add(
@@ -116,6 +127,10 @@ void main() {
         isTrue,
       );
       expect(restored['m1']!.actionsJson, '[{"id":"ok","label":"OK"}]');
+      // Reactions (spec 2026-11-07-message-reactions).
+      final reaction = await target.select(target.messageReactions).getSingle();
+      expect(reaction.emoji, '❤️');
+      expect(reaction.reactedAt, 1767225600123);
     },
   );
   test(

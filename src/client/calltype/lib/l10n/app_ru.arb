@@ -650,5 +650,10 @@
   "chatPhotoPreviewTitle": "{count, plural, =1{Отправить фото} one{Отправить фото ({count})} few{Отправить фото ({count})} many{Отправить фото ({count})} other{Отправить фото ({count})}}",
   "chatPhotoPreviewRemove": "Удалить фото",
   "chatPhotoCaptionHint": "Добавить подпись",
-  "notificationPhotoCaption": "Фото: {caption}"
+  "notificationPhotoCaption": "Фото: {caption}",
+  "chatReactionMore": "Другие реакции",
+  "chatReactionsTitle": "Реакции",
+  "chatReactionTapToRemove": "Нажмите, чтобы удалить",
+  "chatReactionFailed": "Не удалось отправить реакцию.",
+  "notificationReaction": "{name} отреагировал(а) {emoji} на: {preview}"
 }

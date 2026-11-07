@@ -650,5 +650,10 @@
   "chatPhotoPreviewTitle": "{count, plural, =1{फ़ोटो भेजें} other{{count} फ़ोटो भेजें}}",
   "chatPhotoPreviewRemove": "फ़ोटो हटाएँ",
   "chatPhotoCaptionHint": "कैप्शन जोड़ें",
-  "notificationPhotoCaption": "फ़ोटो: {caption}"
+  "notificationPhotoCaption": "फ़ोटो: {caption}",
+  "chatReactionMore": "और प्रतिक्रियाएँ",
+  "chatReactionsTitle": "प्रतिक्रियाएँ",
+  "chatReactionTapToRemove": "हटाने के लिए टैप करें",
+  "chatReactionFailed": "प्रतिक्रिया नहीं भेजी जा सकी।",
+  "notificationReaction": "{name} ने {emoji} से प्रतिक्रिया दी: {preview}"
 }

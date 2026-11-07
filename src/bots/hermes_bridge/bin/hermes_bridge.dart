@@ -24,6 +24,10 @@ import 'package:hermes_bridge/hermes_bridge.dart';
 /// - `PROGRESS_EDIT_SECONDS`  min seconds between progress edits (default 5).
 /// - `PROGRESS_MAX_EDITS`     progress edits per turn (default 30).
 /// - `BOT_COMMANDS`           `cmd:description;cmd2:description` for the "/" menu.
+/// - `REACTION_MODE`          what an owner's emoji reaction does: `silent`
+///                            (default: one Hermes turn, answer not posted),
+///                            `batch` (sent along with the next message),
+///                            `reply` (normal turn, answer posted), `off`.
 ///
 /// Timeouts (all optional):
 /// - `HERMES_ASK_TIMEOUT_SECONDS` longest wait for a Hermes answer (plain
@@ -80,6 +84,14 @@ Future<void> main() async {
   final List<BotCommand> commands;
   try {
     commands = parseBotCommands(env['BOT_COMMANDS']);
+  } on FormatException catch (error) {
+    stderr.writeln(error.message);
+    exit(78); // EX_CONFIG
+  }
+
+  final ReactionMode reactionMode;
+  try {
+    reactionMode = parseReactionMode(env['REACTION_MODE']);
   } on FormatException catch (error) {
     stderr.writeln(error.message);
     exit(78); // EX_CONFIG
@@ -160,9 +172,10 @@ Future<void> main() async {
     stream: hermes.chat,
     approve: hermes.approve,
     progress: progress,
+    reactions: reactionMode,
     log: log,
   );
-  log('Connected. Waiting for messages.');
+  log('Connected. Waiting for messages (reactions: ${reactionMode.name}).');
   if (commands.isNotEmpty) {
     try {
       await bot.setCommands(commands);

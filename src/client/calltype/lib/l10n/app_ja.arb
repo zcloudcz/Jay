@@ -650,5 +650,10 @@
   "chatPhotoPreviewTitle": "{count, plural, =1{写真を送信} other{{count}枚の写真を送信}}",
   "chatPhotoPreviewRemove": "写真を削除",
   "chatPhotoCaptionHint": "キャプションを追加",
-  "notificationPhotoCaption": "写真: {caption}"
+  "notificationPhotoCaption": "写真: {caption}",
+  "chatReactionMore": "その他のリアクション",
+  "chatReactionsTitle": "リアクション",
+  "chatReactionTapToRemove": "タップして削除",
+  "chatReactionFailed": "リアクションを送信できませんでした。",
+  "notificationReaction": "{name}さんが{emoji}でリアクションしました: {preview}"
 }

@@ -650,5 +650,10 @@
   "chatPhotoPreviewTitle": "{count, plural, one{Wyślij zdjęcie} few{Wyślij {count} zdjęcia} many{Wyślij {count} zdjęć} other{Wyślij {count} zdjęcia}}",
   "chatPhotoPreviewRemove": "Usuń zdjęcie",
   "chatPhotoCaptionHint": "Dodaj podpis",
-  "notificationPhotoCaption": "Zdjęcie: {caption}"
+  "notificationPhotoCaption": "Zdjęcie: {caption}",
+  "chatReactionMore": "Więcej reakcji",
+  "chatReactionsTitle": "Reakcje",
+  "chatReactionTapToRemove": "Dotknij, aby usunąć",
+  "chatReactionFailed": "Nie udało się wysłać reakcji.",
+  "notificationReaction": "{name} reaguje {emoji} na: {preview}"
 }

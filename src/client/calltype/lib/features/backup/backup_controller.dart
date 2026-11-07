@@ -180,11 +180,13 @@ class BackupController extends ChangeNotifier {
           await _db.select(_db.contacts).get(),
           await _db.select(_db.conversations).get(),
           await _db.select(_db.messages).get(),
+          await _db.select(_db.messageReactions).get(),
         ),
       );
       final contacts = snapshot.$1;
       final conversations = snapshot.$2;
       final messages = snapshot.$3;
+      final reactions = snapshot.$4;
 
       final backupData = {
         'version': 1,
@@ -234,6 +236,19 @@ class BackupController extends ChangeNotifier {
                 // and an edited one its label.
                 'editedAt': m.editedAt?.toIso8601String(),
                 'actionsJson': m.actionsJson,
+              },
+            )
+            .toList(),
+        // Additive (spec 2026-11-07-message-reactions): older backups have
+        // no such key and restore without reactions.
+        'reactions': reactions
+            .map(
+              (r) => {
+                'messageId': r.messageId,
+                'reactorId': r.reactorId,
+                'conversationId': r.conversationId,
+                'emoji': r.emoji,
+                'reactedAt': r.reactedAt,
               },
             )
             .toList(),

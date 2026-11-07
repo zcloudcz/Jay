@@ -11,6 +11,7 @@ import '../contacts/contacts_controller.dart';
 import '../chat_list/chat_list_controller.dart';
 import 'chat_controller.dart';
 import 'message_bubble.dart';
+import 'reaction_widgets.dart';
 import 'message_input.dart';
 import 'mentions.dart';
 import '../contacts/rename_contact_dialog.dart';
@@ -423,6 +424,41 @@ class ChatScreen extends StatelessWidget {
     }
   }
 
+  /// A pick from the quick bar / picker or a tap on an own chip: the
+  /// controller toggles (same emoji again = remove).
+  Future<void> _react(
+    BuildContext context,
+    ChatController controller,
+    Message message,
+    String emoji,
+  ) async {
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    if (!await controller.react(message.id, emoji)) {
+      messenger.showSnackBar(SnackBar(content: Text(l10n.chatReactionFailed)));
+    }
+  }
+
+  /// Who reacted to [message]; the own row removes the own reaction.
+  void _showReactors(
+    BuildContext context,
+    ChatController controller,
+    Message message, {
+    required List<Contact> contacts,
+    required bool canReact,
+  }) {
+    final mine = controller.myReactionOf(message.id);
+    showReactorsSheet(
+      context,
+      reactions: controller.reactionsOf(message.id),
+      nameOf: (id) => _authorLabel(context, controller, id, contacts),
+      myId: controller.myIdentityId,
+      onRemoveMine: mine == null || !canReact
+          ? null
+          : () => _react(context, controller, message, mine),
+    );
+  }
+
   /// Lists the other chats; picking one opens it and the route sends the
   /// message there (see `ForwardDraft`).
   Future<void> _forward(
@@ -775,6 +811,10 @@ class ChatScreen extends StatelessWidget {
                       final file = message.type == 'file' && !message.deleted
                           ? _attachmentOf(message)
                           : null;
+                      final canReact = controller.canReact(
+                        message,
+                        business: conversation?.organizationId != null,
+                      );
                       return Column(
                         crossAxisAlignment: mine
                             ? CrossAxisAlignment.end
@@ -828,6 +868,38 @@ class ChatScreen extends StatelessWidget {
                                 ? null
                                 : _attachmentContent(context, file),
                             caption: file?.caption,
+                            reactions: controller.reactionsOf(message.id),
+                            myReaction: controller.myReactionOf(message.id),
+                            onReact: canReact
+                                ? (emoji) => _react(
+                                    context,
+                                    controller,
+                                    message,
+                                    emoji,
+                                  )
+                                : null,
+                            // Own chip: remove; any other: who reacted.
+                            onReactionTap: (chip) => chip.mine && canReact
+                                ? _react(
+                                    context,
+                                    controller,
+                                    message,
+                                    chip.emoji,
+                                  )
+                                : _showReactors(
+                                    context,
+                                    controller,
+                                    message,
+                                    contacts: allContacts,
+                                    canReact: canReact,
+                                  ),
+                            onReactionLongPress: (_) => _showReactors(
+                              context,
+                              controller,
+                              message,
+                              contacts: allContacts,
+                              canReact: canReact,
+                            ),
                             actions: _actions(
                               context,
                               controller,

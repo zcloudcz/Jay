@@ -650,5 +650,10 @@
   "chatPhotoPreviewTitle": "{count, plural, =1{Envoyer la photo} other{Envoyer {count} photos}}",
   "chatPhotoPreviewRemove": "Retirer la photo",
   "chatPhotoCaptionHint": "Ajouter une légende",
-  "notificationPhotoCaption": "Photo : {caption}"
+  "notificationPhotoCaption": "Photo : {caption}",
+  "chatReactionMore": "Plus de réactions",
+  "chatReactionsTitle": "Réactions",
+  "chatReactionTapToRemove": "Touchez pour retirer",
+  "chatReactionFailed": "Impossible d'envoyer la réaction.",
+  "notificationReaction": "{name} a réagi {emoji} à : {preview}"
 }

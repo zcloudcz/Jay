@@ -650,5 +650,10 @@
   "chatPhotoPreviewTitle": "{count, plural, one{Trimite fotografia} few{Trimite {count} fotografii} other{Trimite {count} de fotografii}}",
   "chatPhotoPreviewRemove": "Elimină fotografia",
   "chatPhotoCaptionHint": "Adaugă o descriere",
-  "notificationPhotoCaption": "Fotografie: {caption}"
+  "notificationPhotoCaption": "Fotografie: {caption}",
+  "chatReactionMore": "Mai multe reacții",
+  "chatReactionsTitle": "Reacții",
+  "chatReactionTapToRemove": "Atingeți pentru a elimina",
+  "chatReactionFailed": "Reacția nu a putut fi trimisă.",
+  "notificationReaction": "{name} a reacționat {emoji} la: {preview}"
 }

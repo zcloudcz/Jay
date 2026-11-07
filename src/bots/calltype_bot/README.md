@@ -102,6 +102,25 @@ bot.deepLink(start: 'invite_42'); // calltype://bot/CT-XXXX-XXXX?start=invite_42
   Without `onAction` presses reach the normal handler (body = button label).
 - Edits from others are acknowledged and ignored (the bot keeps no history).
 
+### Reactions
+
+```dart
+bot.onReaction((r) async {          // set before onMessage
+  if (r.removed || !r.targetIsOwn) return;
+  print('${r.senderId} reacted ${r.emoji} to "${r.targetText}"');
+});
+```
+
+- `type: reaction` messages (spec
+  `docs/superpowers/specs/2026-11-07-message-reactions.md`). Without a handler
+  they are acknowledged and ignored, like every non-text type before.
+- 1:1: every valid reaction. Group: only reactions to the bot's own messages.
+- `targetText` is the first 200 characters of the bot's message: while a
+  handler is set the runtime remembers the start of the last 500 messages it
+  sent (`sent-text:` rows in the local store, updated by `edit`).
+- Runs in the conversation's queue, no typing indicator, acked after the
+  handler; a failing handler is only logged (no apology message).
+
 ## What the runtime guarantees
 
 - **Registration** with `isBot: true` on first start; identity is reused afterwards.

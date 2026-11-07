@@ -187,6 +187,7 @@ void main() async {
     },
   );
   inbox.persistedMessages.listen((m) => unawaited(notifications.onMessage(m)));
+  inbox.appliedReactions.listen((r) => unawaited(notifications.onReaction(r)));
   channels.newPosts.listen((p) => unawaited(notifications.onChannelPost(p)));
   // An incoming call while the app is in the background: ring visibly. The
   // notification is withdrawn as soon as the call stops ringing.

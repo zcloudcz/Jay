@@ -10,6 +10,7 @@ import '../../core/crypto/session_manager.dart';
 import '../../core/network/api_client.dart';
 import '../../core/storage/database.dart';
 import 'attachment.dart';
+import 'reactions.dart';
 
 /// One queue per device database protects ratchet updates across chats and inbox.
 class MessageProcessingQueue {
@@ -31,21 +32,25 @@ const maxReplyPreview = 140;
 /// Turns a stored message into its "deleted for everyone" tombstone. Shared by
 /// the receiver (a `delete` control message) and the sender (after the control
 /// message was sent) so both sides end in exactly the same state.
-Future<void> tombstoneMessage(AppDatabase db, String messageId) =>
-    (db.update(db.messages)..where((m) => m.id.equals(messageId))).write(
-      const MessagesCompanion(
-        body: Value(null),
-        type: Value('text'),
-        attachmentPath: Value(null),
-        // A deleted bot message must not keep pressable buttons.
-        actionsJson: Value(null),
-        replyToId: Value(null),
-        replySenderId: Value(null),
-        replyPreview: Value(null),
-        forwarded: Value(false),
-        deleted: Value(true),
-      ),
-    );
+///
+/// Its reactions go with it: there is nothing left to react to.
+Future<void> tombstoneMessage(AppDatabase db, String messageId) async {
+  await deleteReactionsOf(db, messageId);
+  await (db.update(db.messages)..where((m) => m.id.equals(messageId))).write(
+    const MessagesCompanion(
+      body: Value(null),
+      type: Value('text'),
+      attachmentPath: Value(null),
+      // A deleted bot message must not keep pressable buttons.
+      actionsJson: Value(null),
+      replyToId: Value(null),
+      replySenderId: Value(null),
+      replyPreview: Value(null),
+      forwarded: Value(false),
+      deleted: Value(true),
+    ),
+  );
+}
 
 /// Persists incoming messages before acknowledging their server queue entries.
 ///
@@ -83,8 +88,14 @@ class MessageInboxService {
   final Future<void> Function(String, String)? _acknowledge;
   StreamSubscription<Map<String, dynamic>>? _subscription;
   final _persisted = StreamController<Message>.broadcast();
+  final _reactions = StreamController<AppliedReaction>.broadcast();
   final _errors = StreamController<Object>.broadcast();
   Stream<Message> get persistedMessages => _persisted.stream;
+
+  /// Reactions of OTHER people (and our other devices) just applied; feeds
+  /// the local notification. Never carries a message row: a reaction is
+  /// not a message.
+  Stream<AppliedReaction> get appliedReactions => _reactions.stream;
   Stream<Object> get errors => _errors.stream;
   Future<void> _pending = Future.value();
 
@@ -175,6 +186,7 @@ class MessageInboxService {
       // Membership was authorized by the relay when it accepted the message.
       // Current membership can differ after an offline recipient reconnects.
       Message? inserted;
+      AppliedReaction? reacted;
       await _db.transaction(() async {
         final envelope = utf8.decode(
           base64Decode(data['encryptedBody'] as String),
@@ -204,15 +216,16 @@ class MessageInboxService {
           );
         }
         final type = payload['type'] as String? ?? 'text';
-        // 'delete' and 'edit' are control messages added after the first
-        // release. An OLD client throws here, so the message stays queued on
-        // the server for it (accepted: that client keeps showing the original
-        // message).
+        // 'delete', 'edit' and 'reaction' are control messages added after
+        // the first release. An OLD client throws here, so the message stays
+        // queued on the server for it (accepted: that client keeps showing
+        // the original message and never shows a reaction as text).
         if (type != 'text' &&
             type != 'file' &&
             type != 'call-event' &&
             type != 'delete' &&
-            type != 'edit') {
+            type != 'edit' &&
+            type != reactionType) {
           throw const FormatException('Unsupported message type');
         }
         // Who sent it and where it belongs. `to` is honoured only for copies
@@ -257,6 +270,26 @@ class MessageInboxService {
             payload: payload,
             senderId: route.senderIdentityId,
             conversationId: conversationId,
+          );
+          await _db
+              .into(_db.backupState)
+              .insert(
+                BackupStateCompanion.insert(
+                  key: 'control:$messageId',
+                  value: '1',
+                ),
+              );
+          return;
+        }
+        if (type == reactionType) {
+          // Spec 2026-11-07-message-reactions: never a row, never unread,
+          // never moves the chat; acked and remembered like an edit, valid
+          // or not, so a redelivery is a no-op.
+          reacted = await _applyReaction(
+            payload: payload,
+            senderId: route.senderIdentityId,
+            conversationId: conversationId,
+            groupId: groupId,
           );
           await _db
               .into(_db.backupState)
@@ -355,6 +388,7 @@ class MessageInboxService {
       });
       await _sessionManager.finalizePreKeyCleanup();
       if (inserted != null) _persisted.add(inserted!);
+      if (reacted != null) _reactions.add(reacted!);
       await _acknowledge?.call(senderId, messageId);
     } catch (error) {
       // Leave failures queued on the server; never report corrupt ciphertext as delivered.
@@ -400,6 +434,58 @@ class MessageInboxService {
     // deleting for everyone (the client does not send it either).
     if (conversation == null || conversation.organizationId != null) return;
     await tombstoneMessage(_db, targetId);
+  }
+
+  /// Applies a `type: reaction` if it is legitimate and newer than the
+  /// stored one; anything else is dropped silently (the caller still acks).
+  /// Returns what was applied, for the notification.
+  Future<AppliedReaction?> _applyReaction({
+    required Map<String, dynamic> payload,
+    required String senderId,
+    required String conversationId,
+    required String? groupId,
+  }) async {
+    final reaction = ReactionPayload.decode(payload['body']);
+    if (reaction == null) return null;
+    final conversation = await (_db.select(
+      _db.conversations,
+    )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
+    // A reaction never opens a conversation, and business conversations
+    // have none in v1 (the archive would need them too).
+    if (conversation == null ||
+        conversation.organizationId != null ||
+        conversation.type != (groupId == null ? 'direct' : 'group')) {
+      return null;
+    }
+    final target = await (_db.select(
+      _db.messages,
+    )..where((m) => m.id.equals(reaction.targetId))).getSingleOrNull();
+    // SECURITY: the reactor is the AUTHENTICATED sender, so nobody can react
+    // in someone else's name. The target must live in this very
+    // conversation; a target that has not arrived yet is stored anyway and
+    // shows only under a message of this conversation (ChatController).
+    if (target != null &&
+        (target.conversationId != conversationId ||
+            target.deleted ||
+            !reactableTypes.contains(target.type))) {
+      return null;
+    }
+    final createdAt = DateTime.tryParse(payload['createdAt'] as String? ?? '');
+    final applied = await applyReaction(
+      _db,
+      messageId: reaction.targetId,
+      reactorId: senderId,
+      conversationId: conversationId,
+      emoji: reaction.emoji,
+      reactedAt: (createdAt ?? DateTime.now()).millisecondsSinceEpoch,
+    );
+    if (!applied) return null;
+    return AppliedReaction(
+      conversationId: conversationId,
+      reactorId: senderId,
+      emoji: reaction.emoji,
+      target: target,
+    );
   }
 
   /// Applies a `type: edit` (contract section 1) if, and only if, it is
@@ -460,6 +546,7 @@ class MessageInboxService {
     await _subscription?.cancel();
     await _pending;
     await _persisted.close();
+    await _reactions.close();
     await _errors.close();
   }
 }
