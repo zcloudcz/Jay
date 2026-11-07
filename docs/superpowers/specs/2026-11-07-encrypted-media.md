@@ -338,6 +338,15 @@ bubble states (not downloaded, downloading, expired, downloaded) with fakes; no 
 - `hermes_bridge`: owners' voice messages and audio are transcribed (ElevenLabs Speech-to-Text, optional key),
   images go to Hermes as `image_url` input, other files are saved under `MEDIA_DIR` (7 days, 200 MB cap) and passed as
   a path. Details and env: `src/bots/hermes_bridge/README.md`, "Voice messages, images and files".
+- Bots SEND files too: `CallTypeBot.sendFile` / `BotMessage.replyFile` encrypt with `MediaCipher` and upload through
+  section 2 exactly like the app (fresh key, 4 MiB chunks streamed from disk, `complete`, then `text` + English
+  fallback + `media`). Small images (<= 256 KiB) go inline as `type: file` like the app's photos (M12). Voice: AAC-LC
+  mono `.m4a` (`audio/mp4`) via ffmpeg when available (the app's recording format), with `durationMs` and a 64-bar
+  `waveform` on the app's scale; without ffmpeg the file goes as is (MP3 plays on every client). Images and videos get
+  width/height and a <= 320 px / <= 24 KiB JPEG thumbnail via ffmpeg. No server change.
+- `hermes_bridge` sends files the agent names (`MEDIA:/path`, `[file:/path]`, `[voice:/path]`) from allowed roots only
+  (real path check, symlinks and `..` resolved), and voice replies via ElevenLabs TTS (`VOICE_REPLY_MODE`). Details:
+  README "Sending files and voice replies".
 
 ## Ops (deploy notes)
 

@@ -11,5 +11,7 @@ dependencies:
     path: ../calltype_bot
 
 dev_dependencies:
+  calltype_core:
+    path: ../../client/calltype_core
   test: ^1.25.0
   lints: ^6.0.0

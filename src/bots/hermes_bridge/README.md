@@ -61,6 +61,16 @@ messages, therefore:
 | `STT_MAX_BYTES` | no, default `25000000` | larger voice/audio is not transcribed, only saved |
 | `IMAGE_INPUT` | no, default `true` | images (JPEG, PNG, GIF, WebP) up to `IMAGE_MAX_BYTES` go to Hermes as image input (`image_url` content part); `false` = saved and passed as a path |
 | `IMAGE_MAX_BYTES` | no, default `5000000` | larger images are saved and passed as a path (Hermes' request body cap is 10 MB, the image travels base64) |
+| `MEDIA_SEND` | no, default `on` | `off`: replies are text only, `MEDIA:` lines and `[voice]` stay in the text (as before). See "Sending files and voice replies" |
+| `MEDIA_SEND_ROOTS` | no, default: Hermes' media dirs under `HERMES_HOME` (`~/.hermes`): `image_cache`, `audio_cache`, `video_cache`, `document_cache`, `browser_screenshots`, `cache/{images,audio,videos,documents,screenshots,generated,scratch}`, plus `MEDIA_DIR` | comma-separated absolute directories the agent may send files from; a file is sent only when its real path (symlinks and `..` resolved) is inside one. Missing directories are skipped |
+| `MEDIA_SEND_MAX_BYTES` | no, default `200000000` | larger files are not sent |
+| `VOICE_REPLY_MODE` | no, default `auto` | `auto`: the answer is also spoken when the owner sent a voice message, asked for a voice reply ("odpověz hlasovkou", "reply with a voice message") or the agent wrote `[voice]`; `always`: every answer to an owner; `off`: never. An unknown value stops the start |
+| `VOICE_REPLY_WITH_TEXT` | no, default `true` | a voice reply also posts the text; `false` = voice only (the text still goes out when the TTS fails) |
+| `ELEVENLABS_VOICE_ID` | no | ElevenLabs voice for voice replies. No voice id or no key = no voice replies (logged at start) |
+| `TTS_ELEVENLABS_API_KEY` | no | ElevenLabs key for Text-to-Speech; `ELEVENLABS_API_KEY` is read when unset |
+| `TTS_MODEL` | no, default `eleven_v4` | ElevenLabs TTS model |
+| `TTS_MAX_CHARS` | no, default `2500` | longer answers are spoken up to the last sentence end before this (the full text is posted anyway) |
+| `FFMPEG_PATH`, `FFPROBE_PATH` | no, default `ffmpeg` / `ffprobe` on `PATH` (the image has them) | converts voice replies to AAC `.m4a`, adds duration, waveform and thumbnails. Without ffmpeg voice goes as MP3 (plays on every client), without waveform |
 | `PEER_REPLY_LIMIT`, `PEER_REPLY_WINDOW_MINUTES` | obsolete | ignored with a log line; limits now come from the group setting |
 
 ## Run
@@ -124,6 +134,39 @@ decrypts and verifies the file (calltype_core chunk format, SHA-256) and Hermes 
 - Files from other bots (group bot talk) are never downloaded: Hermes gets only the metadata line.
 - The images are stored in the Hermes session like any user message (base64 in Hermes' session store).
 - `MEDIA_MODE=off` restores the old behaviour (fallback text only, inline files ignored).
+
+## Sending files and voice replies
+
+The bridge sends files with the bot runtime's `sendFile` (calltype_bot): encrypted with a fresh key in the app's chunk
+format (calltype_core `MediaCipher`), streamed from disk to the media relay, so every Jay client shows it like a file a
+person sent. Small images (JPEG/PNG/GIF/WebP up to 256 KiB) go inline like the app's photos and show without a
+download tap. The server's 5 GB cap and per-device quotas apply; `MEDIA_SEND_MAX_BYTES` is the bridge's own cap.
+
+In Hermes' answer, these are taken out of the text and sent:
+
+| In the answer | Sent as |
+| --- | --- |
+| a line or token `MEDIA:/abs/path` (Hermes' convention; quoted with backticks or quotes when the path has spaces) | a file; the kind (image, video, audio, file) comes from the name |
+| `[file:/abs/path]` | the same |
+| `[voice:/abs/path]`, or an audio `MEDIA:` with Hermes' `[[audio_as_voice]]` | a voice message (converted to AAC `.m4a`) |
+| `[voice]` | the answer is also spoken (TTS) and sent as a voice message |
+
+- Tags in code blocks, inline code or quoted lines (`> ...`) are left alone, so the agent can explain the syntax.
+- One file and a short text (up to 1024 characters): the text becomes the file's caption. Otherwise the text is posted
+  first, then the files.
+- Allowed roots: only files whose REAL path lies in `MEDIA_SEND_ROOTS` are sent. `../` and symlinks pointing out of a
+  root are refused, as are missing files, directories and files over the cap. A refused file is logged
+  (`File <path> for message <id> refused: ...`) and the owner gets `Soubor se nepodařilo poslat: <name>: <reason>`.
+  WHY: the answer is untrusted text; a prompt injection must not be able to mail out `~/.ssh` or the bridge env.
+- Voice replies (`VOICE_REPLY_MODE`, ElevenLabs TTS with `ELEVENLABS_VOICE_ID`, model `eleven_v4`): the answer without
+  markdown, code and links is spoken, converted to AAC-LC mono 44.1 kHz `.m4a` (`audio/mp4`, what the app records and
+  plays on iOS, Android, macOS, Windows and web) with duration and a 64-bar waveform, and sent after the text. When the
+  owner's turn will be spoken, Hermes is told so in front of the message (write it to be read aloud). A failing TTS is
+  logged; with `VOICE_REPLY_WITH_TEXT=false` the text is then posted instead.
+- Without ffmpeg the voice goes as the TTS's MP3 (`audio/mpeg`), which the app also plays everywhere, without waveform.
+- Hermes learns the syntax once per conversation (per bridge run) from a hint in front of the owner's first message,
+  next to the `[react:EMOJI]` hint.
+- Only owners' turns get voice replies; files may also go to a group in a bot exchange (they count like a text answer).
 
 ## Two bots in one group
 
@@ -247,7 +290,23 @@ curl -sS -X POST http://127.0.0.1:8650/send \
 | 429 | `bot_post_limit`: the bot's daily post limit in that channel is used up (server `Channels:MaxBotPostsPerDay`, default 20 per 24 h); do not retry today |
 | 502 | allowed, but the hub (or the API, for a channel) did not take it (retry later) |
 
-Text only; reference artifacts by commit or path.
+### Files and voice messages over `/send`
+
+```bash
+# a file (absolute path under MEDIA_SEND_ROOTS), optional caption / kind / text
+curl -sS -X POST http://127.0.0.1:8650/send -H "Authorization: Bearer ***" -H 'Content-Type: application/json' \
+  -d '{"to": "CT-XXXX-XXXX", "file": "/home/me/.hermes/cache/documents/report.pdf", "caption": "report"}'
+# a voice message: the text is spoken with the TTS (nothing else is posted)
+curl -sS -X POST http://127.0.0.1:8650/send -H "Authorization: Bearer ***" -H 'Content-Type: application/json' \
+  -d '{"to": "CT-XXXX-XXXX", "text": "Deploy je hotovy.", "voice": true}'
+```
+
+Fields: `file` (absolute path), `kind` (`image`, `video`, `audio`, `voice`, `file`; default from the name), `caption`
+(max 4096), `voice` (`true`: the file as a voice message, or without a file the `text` spoken), `text` (with a file:
+posted as a normal message first). Same targets and rules as text (owners' handles, groups the bot is in; no
+channels). Extra statuses: 403 `file_not_allowed` (outside the roots, missing, not a regular file), 413
+`file_too_large`, 503 `media_unavailable` (`MEDIA_SEND=off`, or `voice` without a TTS key and voice id), 400
+`bad_target` for a channel.
 
 ### Reacting from outside: `/react`
 

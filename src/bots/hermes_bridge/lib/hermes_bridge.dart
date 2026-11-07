@@ -8,6 +8,7 @@ import 'package:calltype_bot/calltype_bot.dart';
 import 'src/bot_talk.dart';
 import 'src/hermes_events.dart';
 import 'src/media.dart';
+import 'src/outgoing.dart';
 import 'src/progress.dart';
 import 'src/reply_directive.dart';
 import 'src/send_endpoint.dart';
@@ -15,6 +16,7 @@ import 'src/send_endpoint.dart';
 export 'src/bot_talk.dart';
 export 'src/hermes_events.dart';
 export 'src/media.dart';
+export 'src/outgoing.dart';
 export 'src/progress.dart';
 export 'src/reply_directive.dart';
 export 'src/send_endpoint.dart';
@@ -421,6 +423,19 @@ const reactDirectiveHint =
     '(You may start your reply with a line [react:EMOJI] to react to this '
     'message with one emoji; a reply of only that line sends no text.)';
 
+/// Told to the agent once per conversation next to [reactDirectiveHint]
+/// when the bridge can send files and voice.
+const filesDirectiveHint =
+    '(To send a file, put a line MEDIA:/absolute/path in your reply. Add '
+    'a line [voice] to also send your answer as a voice message; do that '
+    'when the user asks for a voice reply.)';
+
+/// In front of a turn whose answer will be spoken (the owner sent a voice
+/// message or asked for one, or VOICE_REPLY_MODE=always).
+const voiceReplyHint =
+    '(Your answer will also be sent as a voice message: write it to be '
+    'read aloud, short, without markdown, code or links.)';
+
 /// What a progress message becomes when the answer was only a reaction
 /// directive: the bot cannot delete it, and "Working on it..." would stay.
 const reactedProgressText = 'Done.';
@@ -487,6 +502,7 @@ class HermesBridge {
     this._reactionMode,
     this._media,
     this._multimodal,
+    this._outgoing,
   );
 
   final CallTypeBot bot;
@@ -505,6 +521,10 @@ class HermesBridge {
   /// and the agent sees the sender's fallback text, as before.
   final MediaProcessor? _media;
   final MultimodalBackend? _multimodal;
+
+  /// Files and voice in replies; null = replies are text only, as before
+  /// (directives then stay in the text).
+  final OutgoingMedia? _outgoing;
 
   /// [ReactionMode.batch]: notes per conversation, oldest first, until the
   /// owner's next message takes them along.
@@ -561,7 +581,9 @@ class HermesBridge {
       if (groupId != null) policy.humanSpoke(groupId);
       label = '[from $human]';
       if (_hinted.add(message.conversationId.toLowerCase())) {
-        label = '$reactDirectiveHint\n$label';
+        label = _outgoing == null
+            ? '$reactDirectiveHint\n$label'
+            : '$reactDirectiveHint\n$filesDirectiveHint\n$label';
       }
     } else {
       // WHY groups only: a 1:1 bot-to-bot chat has no human watching it.
@@ -611,15 +633,32 @@ class HermesBridge {
       text = input.text;
       images = input.images;
     }
+    // Voice reply: decided from what the owner did; the agent's [voice]
+    // directive can still ask for it in auto mode (see _runTurn).
+    final outgoing = _outgoing;
+    final userSentVoice = !fromBot && attachment?.kind == MediaKind.voice;
+    final userAskedForVoice = !fromBot && asksForVoiceReply(text);
+    final willSpeak =
+        !fromBot &&
+        outgoing != null &&
+        outgoing.canSpeak &&
+        wantsVoiceReply(
+          outgoing.voiceMode,
+          userSentVoice: userSentVoice,
+          userAskedForVoice: userAskedForVoice,
+          agentDirective: false,
+        );
     await _runTurn(
       message,
       [
         ...?batched,
+        if (willSpeak) voiceReplyHint,
         '$label: ${_withContext(message, text)}'
             '${fromBot ? botSilenceHint : ''}',
       ].join('\n'),
       fromBot: fromBot,
       images: images,
+      speak: willSpeak,
     );
   }
 
@@ -717,6 +756,7 @@ class HermesBridge {
     String prompt, {
     bool fromBot = false,
     List<HermesImage> images = const [],
+    bool speak = false,
   }) async {
     final progress = ProgressReporter(
       settings: fromBot ? ProgressSettings.never : _progress,
@@ -773,7 +813,29 @@ class HermesBridge {
           _log('Reaction to message ${message.id} failed: $e');
         }
       }
-      if (directive.text.trim().isEmpty) {
+      // Files and the voice directive (README "Sending files and voice
+      // replies"); without outgoing media the text stays as it is.
+      final outgoing = _outgoing;
+      var body = directive.text;
+      var files = const <FileRef>[];
+      if (outgoing != null) {
+        final parsed = parseOutgoingDirectives(body);
+        body = parsed.text;
+        files = parsed.files;
+        if (parsed.voice && !fromBot && outgoing.canSpeak) {
+          speak =
+              speak ||
+              wantsVoiceReply(
+                outgoing.voiceMode,
+                userSentVoice: false,
+                userAskedForVoice: false,
+                agentDirective: true,
+              );
+        }
+      }
+      if (outgoing == null || !outgoing.canSpeak) speak = false;
+      final hasText = body.trim().isNotEmpty;
+      if (!hasText && files.isEmpty) {
         // A stripped invalid directive and nothing else: no answer at all.
         if (emoji == null) {
           throw const FormatException('Hermes returned no assistant text.');
@@ -783,10 +845,93 @@ class HermesBridge {
         await progress.finish(reactedProgressText);
         return;
       }
-      final chunks = splitMessage(directive.text);
-      final replaced = await progress.finish(chunks.first);
-      for (final chunk in replaced ? chunks.skip(1) : chunks) {
-        await message.reply(chunk);
+      // Voice only (VOICE_REPLY_WITH_TEXT=false) still posts the text when
+      // the TTS fails, below.
+      final postText = hasText && !(speak && !outgoing!.voiceWithText);
+      String? caption;
+      var textSent = false;
+      if (postText) {
+        if (files.length == 1 &&
+            !speak &&
+            body.trim().length <= outgoing!.captionMaxChars) {
+          // One file and a short text: the text is the file's caption,
+          // unless a progress message on screen can take it.
+          if (await progress.finish(body.trim())) {
+            textSent = true;
+          } else {
+            caption = body.trim();
+          }
+        } else {
+          final chunks = splitMessage(body);
+          final replaced = await progress.finish(chunks.first);
+          for (final chunk in replaced ? chunks.skip(1) : chunks) {
+            await message.reply(chunk);
+          }
+          textSent = true;
+        }
+      } else {
+        await progress.finish(reactedProgressText);
+      }
+      final failures = <String>[];
+      for (final ref in files) {
+        final name = ref.path.split('/').last;
+        try {
+          final real = await outgoing!.roots.check(ref.path);
+          await message.replyFile(
+            real,
+            kind: ref.voice ? MediaKind.voice : null,
+            caption: caption,
+          );
+          if (caption != null) textSent = true;
+          caption = null;
+        } on FileRefused catch (e) {
+          _log(
+            'File ${ref.path} for message ${message.id} refused: ${e.reason}',
+          );
+          failures.add('$name: ${e.reason}');
+        } catch (e) {
+          _log('File ${ref.path} for message ${message.id} failed: $e');
+          failures.add('$name: ${_sendFailure(e)}');
+        }
+      }
+      if (hasText && postText && !textSent) {
+        // The file that should have carried the text as caption failed.
+        for (final chunk in splitMessage(body)) {
+          await message.reply(chunk);
+        }
+        textSent = true;
+      }
+      if (failures.isNotEmpty) {
+        await message.reply(
+          'Soubor se nepodařilo poslat: ${failures.join('; ')}',
+        );
+      }
+      if (speak && hasText) {
+        File? audio;
+        try {
+          audio = await outgoing!.tts(body);
+          await message.replyFile(audio.path, kind: MediaKind.voice);
+          _log('Voice reply sent for message ${message.id}.');
+        } catch (e) {
+          _log('Voice reply for message ${message.id} failed: $e');
+          if (!textSent) {
+            for (final chunk in splitMessage(body)) {
+              await message.reply(chunk);
+            }
+          }
+        } finally {
+          try {
+            await audio?.delete();
+          } catch (_) {}
+        }
+        if (!outgoing!.voiceWithText &&
+            body.length > outgoing.ttsMaxChars &&
+            !textSent) {
+          // Only the beginning was spoken: the whole answer goes as text.
+          for (final chunk in splitMessage(body)) {
+            await message.reply(chunk);
+          }
+        }
       }
     } catch (e) {
       // With a progress message on screen the apology replaces it; without
@@ -801,6 +946,17 @@ class HermesBridge {
       await _expire(issued);
     }
   }
+
+  /// Czech reason for a file that could not be sent, shown to the owner.
+  static String _sendFailure(Object e) => switch (e) {
+    BotMediaTooLarge() => 'nad limit',
+    BotMediaRefused(code: 'media_quota_exceeded') => 'plná kvóta na serveru',
+    BotMediaRefused(code: 'media_rate_limited') => 'denní limit na serveru',
+    BotMediaRefused(code: 'media_too_large') => 'nad limit serveru',
+    BotMediaRefused(code: 'media_storage_full') => 'server je plný',
+    BotMediaRefused(:final statusCode) => 'server odmítl (HTTP $statusCode)',
+    _ => 'odeslání selhalo',
+  };
 
   /// Posts the approval request with its buttons and remembers it.
   Future<String> _requestApproval(
@@ -924,27 +1080,8 @@ class HermesBridge {
         text,
       );
     }
-    final handle = target.toUpperCase();
-    if (_handlePattern.hasMatch(handle)) {
-      // WHY owners only: the endpoint must not turn the bot into a way to
-      // message arbitrary people (or other bots 1:1, which nobody watches).
-      if (!_allowedHandles.contains(handle) ||
-          !_allowedIds.containsValue(handle)) {
-        return SendOutcome.forbidden;
-      }
-    } else {
-      final GroupInfo group;
-      try {
-        group = await bot.group(target);
-      } catch (_) {
-        return SendOutcome
-            .forbidden; // unknown group or not a member: fail closed
-      }
-      if (!group.isMember(bot.deviceId) ||
-          policy.checkOwnSend(group) != PeerVerdict.allow) {
-        return SendOutcome.forbidden;
-      }
-    }
+    final refused = await _checkLocalTarget(target);
+    if (refused != null) return refused;
     try {
       for (final chunk in splitMessage(text)) {
         await bot.send(to: target, text: chunk);
@@ -956,6 +1093,102 @@ class HermesBridge {
     } catch (e) {
       _log('/send to $target failed: $e');
       return SendOutcome.failed;
+    }
+  }
+
+  /// Owners' handles and groups the bot may post in (a group post counts as
+  /// a bot turn); null = allowed, else the refusal.
+  Future<SendOutcome?> _checkLocalTarget(String target) async {
+    final handle = target.toUpperCase();
+    if (_handlePattern.hasMatch(handle)) {
+      // WHY owners only: the endpoint must not turn the bot into a way to
+      // message arbitrary people (or other bots 1:1, which nobody watches).
+      if (!_allowedHandles.contains(handle) ||
+          !_allowedIds.containsValue(handle)) {
+        return SendOutcome.forbidden;
+      }
+      return null;
+    }
+    final GroupInfo group;
+    try {
+      group = await bot.group(target);
+    } catch (_) {
+      return SendOutcome
+          .forbidden; // unknown group or not a member: fail closed
+    }
+    if (!group.isMember(bot.deviceId) ||
+        policy.checkOwnSend(group) != PeerVerdict.allow) {
+      return SendOutcome.forbidden;
+    }
+    return null;
+  }
+
+  /// The /send path with a file or a voice message ([LocalMediaRequest]):
+  /// the same targets as [sendFromLocal] (no channels: a channel post is
+  /// plain text). The file must pass [FileRoots]; `voice` without a file
+  /// speaks [LocalMediaRequest.text] with the TTS instead of posting it.
+  Future<SendOutcome> sendMediaFromLocal(LocalMediaRequest request) async {
+    final outgoing = _outgoing;
+    final target = request.to.trim();
+    if (target.toLowerCase().startsWith(channelTargetPrefix)) {
+      return SendOutcome.badTarget;
+    }
+    if (outgoing == null) return SendOutcome.mediaUnavailable;
+    final refused = await _checkLocalTarget(target);
+    if (refused != null) return refused;
+    final file = request.file;
+    final text = request.text?.trim() ?? '';
+    String? real;
+    if (file != null) {
+      try {
+        real = await outgoing.roots.check(file);
+      } on FileRefused catch (e) {
+        _log('/send: file $file refused: ${e.reason}');
+        return e.reason.startsWith('nad limit')
+            ? SendOutcome.fileTooLarge
+            : SendOutcome.fileNotAllowed;
+      }
+    } else if (!outgoing.canSpeak) {
+      _log('/send: voice requested but no TTS is configured');
+      return SendOutcome.mediaUnavailable;
+    }
+    File? audio;
+    try {
+      if (real != null) {
+        if (text.isNotEmpty) {
+          for (final chunk in splitMessage(text)) {
+            await bot.send(to: target, text: chunk);
+          }
+        }
+        await bot.sendFile(
+          to: target,
+          path: real,
+          kind: request.voice ? MediaKind.voice : request.kind,
+          caption: request.caption,
+        );
+      } else {
+        audio = await outgoing.tts(text);
+        await bot.sendFile(
+          to: target,
+          path: audio.path,
+          kind: MediaKind.voice,
+          caption: request.caption,
+        );
+      }
+      _log('/send: ${real == null ? 'voice message' : 'file'} sent to $target');
+      return SendOutcome.sent;
+    } on BotSendException catch (e) {
+      _log('/send to $target refused by the runtime: ${e.message}');
+      return SendOutcome.forbidden;
+    } on BotMediaTooLarge {
+      return SendOutcome.fileTooLarge;
+    } catch (e) {
+      _log('/send of a file to $target failed: $e');
+      return SendOutcome.failed;
+    } finally {
+      try {
+        await audio?.delete();
+      } catch (_) {}
     }
   }
 
@@ -1094,6 +1327,9 @@ const channelTargetPrefix = 'channel:';
 /// files saved); without it the agent sees the fallback text of a media
 /// message, as before. [multimodal] lets images go to Hermes as image
 /// input; without it they are saved and passed as a path.
+///
+/// [outgoing] lets replies carry files (`MEDIA:/path`, `[file:/path]`) and
+/// voice messages (TTS); without it replies stay text only.
 Future<HermesBridge> runBridge(
   CallTypeBot bot, {
   required Set<String> allowedHandles,
@@ -1107,6 +1343,7 @@ Future<HermesBridge> runBridge(
   ReactionMode reactions = ReactionMode.silent,
   MediaProcessor? media,
   MultimodalBackend? multimodal,
+  OutgoingMedia? outgoing,
   required void Function(String) log,
 }) async {
   if (stream == null && backend == null) {
@@ -1166,6 +1403,7 @@ Future<HermesBridge> runBridge(
     reactions,
     media,
     multimodal,
+    outgoing,
   );
   // Before onMessage: that call connects, and queued presses arrive at once.
   bot.onAction(bridge._onAction);
