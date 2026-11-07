@@ -152,6 +152,17 @@ builder.Services.AddOptions<ModerationOptions>()
         config.GetSection(ModerationOptions.SectionName).Bind(options));
 builder.Services.AddScoped<ModerationService>();
 
+// End-to-end encrypted media (docs/superpowers/specs/2026-11-07-encrypted-media.md).
+// Bound through the DI-resolved IConfiguration for the same reason as
+// ModerationOptions: tests set Media:* limits via WebApplicationFactory, which
+// applies its configuration after these top-level statements run.
+// MediaCleanupService deletes expired media (blob + row) every
+// Media:CleanupIntervalMinutes.
+builder.Services.AddOptions<MediaOptions>()
+    .Configure<IConfiguration>((options, config) =>
+        config.GetSection(MediaOptions.SectionName).Bind(options));
+builder.Services.AddHostedService<MediaCleanupService>();
+
 // BlobServiceClient for Azure Blob Storage — used by backup endpoints to upload
 // and download encrypted backup files. Registered as singleton because the client
 // is thread-safe and maintains an internal connection pool.
@@ -249,12 +260,17 @@ builder.Services.AddCors(options =>
 
         policy.AllowAnyHeader()
               .AllowAnyMethod()
+              // Browsers hide every non-safelisted response header from JS
+              // unless exposed. The web client needs Content-Length (progress),
+              // Content-Range and Accept-Ranges (resumed media downloads).
+              .WithExposedHeaders("Content-Length", "Content-Range", "Accept-Ranges")
               .AllowCredentials(); // Required for SignalR
     });
 });
 
 // --- Rate Limiting ----------------------------------------------------------
-// Two buckets: "api" for general endpoints (100 req/min) and "auth" for
+// Buckets: "api" for general endpoints (100 req/min), "media" for media chunk
+// upload and download (600 req/min, see below) and "auth" for
 // authentication endpoints (10 req/min). The auth limiter is stricter to
 // slow down credential brute-force attempts.
 // Limits are configurable (default matches the previous hardcoded values) so
@@ -263,21 +279,31 @@ builder.Services.AddCors(options =>
 // default. See RateLimiting__AuthPermitLimit in docker-compose.yml.
 var apiPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:ApiPermitLimit") ?? 100;
 var authPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:AuthPermitLimit") ?? 10;
+// "media" covers only the byte-moving media routes (chunk PUT, download GET):
+// a 5 GB file is ~1280 chunk requests, far above the "api" budget, while
+// 600 x 4 MiB per minute (40 MiB/s) is still above a phone uplink.
+var mediaPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:MediaPermitLimit") ?? 600;
+// Per device when authenticated (NAT/carrier IPs are shared by many phones),
+// per IP otherwise. The policy name is part of the key so "api" and "media"
+// count separately for the same device.
+static RateLimitPartition<string> DeviceOrIpPartition(HttpContext context, string policy, int permitLimit)
+{
+    var device = context.User.Identity?.IsAuthenticated == true
+        ? context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.User.FindFirstValue("sub")
+        : null;
+    var key = device is null
+        ? $"{policy}:ip:{context.Connection.RemoteIpAddress?.ToString() ?? "unknown"}"
+        : $"{policy}:device:{device}";
+    return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
+    {
+        PermitLimit = permitLimit, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+    });
+}
+
 builder.Services.AddRateLimiter(options =>
 {
-    options.AddPolicy("api", context =>
-    {
-        var device = context.User.Identity?.IsAuthenticated == true
-            ? context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? context.User.FindFirstValue("sub")
-            : null;
-        var key = device is null
-            ? $"ip:{context.Connection.RemoteIpAddress?.ToString() ?? "unknown"}"
-            : $"device:{device}";
-        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = apiPermitLimit, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
-        });
-    });
+    options.AddPolicy("api", context => DeviceOrIpPartition(context, "api", apiPermitLimit));
+    options.AddPolicy("media", context => DeviceOrIpPartition(context, "media", mediaPermitLimit));
     options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
         context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions
@@ -421,6 +447,7 @@ app.MapMfaEndpoints();
 app.MapGroupEndpoints();
 app.MapMuteEndpoints();
 app.MapBackupEndpoints();
+app.MapMediaEndpoints(); // encrypted media: /media/*
 app.MapChannelEndpoints();
 app.MapModerationEndpoints(); // operator web: /admin/* (channel moderation)
 app.MapTurnCredentialEndpoints();
