@@ -60,12 +60,15 @@ add_subdirectory("runner")
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
 include(flutter/generated_plugins.cmake)
-# local_auth_windows 2.x uses MSVC's legacy coroutine header. VS 2026
-# requires this explicit compatibility opt-in until the plugin migrates.
-if(TARGET local_auth_windows_plugin)
-  target_compile_definitions(local_auth_windows_plugin PRIVATE
-    _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
-endif()
+# local_auth_windows 2.x and audioplayers_windows 4.x use MSVC's legacy
+# coroutine header. VS 2026 requires this explicit compatibility opt-in until
+# the plugins migrate.
+foreach(legacy_coroutine_plugin local_auth_windows_plugin audioplayers_windows_plugin)
+  if(TARGET ${legacy_coroutine_plugin})
+    target_compile_definitions(${legacy_coroutine_plugin} PRIVATE
+      _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+  endif()
+endforeach()
 
 
 # === Installation ===
