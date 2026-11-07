@@ -11,6 +11,7 @@ import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/devices/fanout_sender.dart';
 import 'package:calltype_core/messaging/agent_payload.dart';
+import 'package:calltype_core/messaging/reaction.dart';
 import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/network/bot_dtos.dart';
 import 'package:calltype_core/network/channel_dtos.dart' show parseErrorCode;
@@ -27,6 +28,8 @@ import 'src/ws_hub_transport.dart';
 
 export 'package:calltype_core/messaging/agent_payload.dart'
     show ActionRef, MessageButton, maxActionId, maxActionLabel, maxActions;
+export 'package:calltype_core/messaging/reaction.dart'
+    show ReactionPayload, isValidReactionEmoji, quickReactions, reactionType;
 export 'package:calltype_core/network/bot_dtos.dart' show BotCommand;
 export 'package:calltype_core/network/group_dtos.dart'
     show BotTalkMode, BotTalkSettings, MuteMode, MuteSetting;
@@ -35,6 +38,9 @@ export 'src/group_info.dart';
 export 'src/ws_hub_transport.dart';
 
 typedef BotMessageHandler = Future<void> Function(BotMessage message);
+
+/// Handles one emoji reaction, see [CallTypeBot.onReaction].
+typedef BotReactionHandler = Future<void> Function(BotReaction reaction);
 
 /// Second-chance pre-decrypt check for a sender [allowSender] refused, when
 /// the server says the message belongs to group [groupId]. See [CallTypeBot.onMessage].
@@ -221,6 +227,58 @@ class BotMessage {
   );
 }
 
+/// Characters of a sent message the bot remembers for [BotReaction.targetText].
+const reactionTargetChars = 200;
+
+/// How many sent messages the bot remembers for reactions (oldest go first).
+const rememberedSentMessages = 500;
+
+/// One emoji reaction (`type: reaction`, spec
+/// docs/superpowers/specs/2026-11-07-message-reactions.md): [senderId] put
+/// [emoji] on the message [targetId], or removed their reaction ([removed]).
+class BotReaction {
+  const BotReaction({
+    required this.id,
+    required this.targetId,
+    required this.emoji,
+    required this.senderId,
+    required this.conversationId,
+    required this.isGroup,
+    this.groupId,
+    this.targetIsOwn = false,
+    this.targetText,
+  });
+
+  /// Id of the reaction message itself (the idempotence key).
+  final String id;
+
+  /// The reacted-to message.
+  final String targetId;
+
+  /// One emoji grapheme; '' when the reaction was removed.
+  final String emoji;
+  bool get removed => emoji.isEmpty;
+
+  /// The reactor's IDENTITY (authenticated, like [BotMessage.senderId]).
+  final String senderId;
+
+  /// Peer identity id (1:1) or group id, like [BotMessage.conversationId].
+  final String conversationId;
+  final bool isGroup;
+  final String? groupId;
+
+  /// The target is a message this bot sent (one it still remembers).
+  final bool targetIsOwn;
+
+  /// The first [reactionTargetChars] characters of that message, when
+  /// [targetIsOwn]; null otherwise.
+  final String? targetText;
+
+  @override
+  String toString() =>
+      'BotReaction(${removed ? 'removed' : emoji} on $targetId by $senderId)';
+}
+
 /// A message this bot sent; it can still be edited.
 class BotSentMessage {
   BotSentMessage._(
@@ -295,6 +353,7 @@ class CallTypeBot {
 
   BotMessageHandler? _handler;
   BotMessageHandler? _actionHandler;
+  BotReactionHandler? _reactionHandler;
 
   /// Ids of messages this bot sent WITH buttons (lower-case). Mirrored in
   /// `backupState` as `sent-actions:<id>` so a press after a restart is still
@@ -507,6 +566,22 @@ class CallTypeBot {
   /// this press (an approval), so queueing the press behind it would
   /// deadlock. Without this handler presses go to the normal handler.
   void onAction(BotMessageHandler handler) => _actionHandler = handler;
+
+  /// Handles emoji reactions (`type: reaction`). Set it BEFORE [onMessage],
+  /// which connects. Without it reactions are acknowledged and ignored, as
+  /// by older runtimes.
+  ///
+  /// 1:1: every valid reaction arrives. Group: only reactions to this bot's
+  /// own messages (the bot is not addressed otherwise). A reaction runs in
+  /// its conversation's queue (after a turn in progress), without a typing
+  /// indicator, and is acknowledged after the handler; a failing handler is
+  /// logged, never answered.
+  ///
+  /// While a handler is set the runtime remembers the first
+  /// [reactionTargetChars] characters of the last [rememberedSentMessages]
+  /// messages it sends (local store, `sent-text:` rows), so
+  /// [BotReaction.targetText] can say what the reaction was about.
+  void onReaction(BotReactionHandler handler) => _reactionHandler = handler;
 
   /// Publishes the "/" commands the app suggests for this bot (replaces the
   /// whole list; empty = clear).
@@ -880,6 +955,16 @@ class CallTypeBot {
     }
     final payload = result.payload;
     final route = result.route;
+    if (payload['type'] == reactionType) {
+      await _receiveReaction(
+        payload,
+        route: route,
+        messageId: messageId,
+        ackSenderId: senderId,
+        groupId: groupId,
+      );
+      return;
+    }
     // Text only. Other types (also `edit`: a bot keeps no history to edit,
     // and `delete`) are acknowledged and ignored.
     if ((payload['type'] ?? 'text') != 'text') {
@@ -943,6 +1028,128 @@ class CallTypeBot {
       }
     });
     _conversations[message.conversationId] = next;
+  }
+
+  /// A decrypted `type: reaction`: to the handler (see [onReaction]) or
+  /// acknowledged and dropped.
+  Future<void> _receiveReaction(
+    Map<String, dynamic> payload, {
+    required InboundRoute route,
+    required String messageId,
+    required String ackSenderId,
+    required String? groupId,
+  }) async {
+    final handler = _reactionHandler;
+    final reaction = handler == null
+        ? null
+        : ReactionPayload.decode(payload['body']);
+    if (handler == null || reaction == null) {
+      await _ack(ackSenderId, messageId);
+      return;
+    }
+    final sent = await _sentText(reaction.targetId);
+    // Only a message of THIS conversation counts as ours: a reaction naming
+    // the id of a message the bot sent elsewhere learns nothing about it.
+    final own =
+        sent != null &&
+        sent.conversationId.toLowerCase() == route.conversationId.toLowerCase();
+    if (groupId != null && !own) {
+      await _ack(ackSenderId, messageId);
+      return;
+    }
+    final event = BotReaction(
+      id: messageId,
+      targetId: reaction.targetId,
+      emoji: reaction.emoji,
+      senderId: route.senderIdentityId,
+      conversationId: route.conversationId,
+      isGroup: groupId != null,
+      groupId: groupId,
+      targetIsOwn: own,
+      targetText: own ? sent.text : null,
+    );
+    final key = route.conversationId;
+    final tail = _conversations[key] ?? Future.value();
+    late final Future<void> next;
+    next = tail
+        .then((_) async {
+          try {
+            await handler(event);
+          } catch (error, stack) {
+            _log('Reaction handler failed for $messageId: $error\n$stack');
+          }
+          await _ack(ackSenderId, messageId);
+        })
+        .whenComplete(() {
+          if (_conversations[key] == next) _conversations.remove(key);
+        });
+    _conversations[key] = next;
+  }
+
+  static String _sentTextKey(String messageId) =>
+      'sent-text:${messageId.toLowerCase()}';
+
+  /// What the bot remembers of a message it sent (see [onReaction]).
+  Future<({String conversationId, String text})?> _sentText(
+    String messageId,
+  ) async {
+    final row = await (_db.select(
+      _db.backupState,
+    )..where((r) => r.key.equals(_sentTextKey(messageId)))).getSingleOrNull();
+    if (row == null) return null;
+    try {
+      final json = jsonDecode(row.value) as Map<String, dynamic>;
+      return (conversationId: json['c'] as String, text: json['t'] as String);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  var _rememberedSince = 0;
+
+  /// Remembers the start of a sent message for reactions, and keeps only
+  /// the newest [rememberedSentMessages] (pruned every 50 sends).
+  Future<void> _rememberSent(
+    String messageId,
+    String conversationId,
+    String text,
+  ) async {
+    if (_reactionHandler == null) return;
+    final short = text.runes.length <= reactionTargetChars
+        ? text
+        : String.fromCharCodes(text.runes.take(reactionTargetChars));
+    await _db
+        .into(_db.backupState)
+        .insertOnConflictUpdate(
+          BackupStateCompanion.insert(
+            key: _sentTextKey(messageId),
+            value: jsonEncode({
+              'c': conversationId,
+              't': short,
+              'at': DateTime.now().millisecondsSinceEpoch,
+            }),
+          ),
+        );
+    if (++_rememberedSince < 50) return;
+    _rememberedSince = 0;
+    final rows = await (_db.select(
+      _db.backupState,
+    )..where((r) => r.key.like('sent-text:%'))).get();
+    if (rows.length <= rememberedSentMessages) return;
+    int at(BackupStateData row) {
+      try {
+        return (jsonDecode(row.value) as Map<String, dynamic>)['at'] as int;
+      } catch (_) {
+        return 0;
+      }
+    }
+
+    rows.sort((a, b) => at(a).compareTo(at(b)));
+    final drop = [
+      for (final row in rows.take(rows.length - rememberedSentMessages))
+        row.key,
+    ];
+    await (_db.delete(_db.backupState)..where((r) => r.key.isIn(drop))).go();
   }
 
   Future<bool> _isOwnButtonMessage(String messageId) async {
@@ -1065,6 +1272,7 @@ class CallTypeBot {
       groupId: groupId,
       groupName: groupName,
     );
+    await _rememberSent(messageId, conversationId, text);
     return BotSentMessage._(
       this,
       id: messageId,
@@ -1095,6 +1303,10 @@ class CallTypeBot {
       groupId: target.groupId,
       groupName: target._groupName,
     );
+    // A reaction to the edited message is about its CURRENT text.
+    if (await _sentText(target.id) != null) {
+      await _rememberSent(target.id, target.conversationId, text);
+    }
   }
 
   /// Encrypts and sends one payload; [content] holds the type-specific keys.

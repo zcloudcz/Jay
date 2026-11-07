@@ -50,6 +50,7 @@ messages, therefore:
 | `PROGRESS_EDIT_SECONDS` | no, default `5` | min seconds between progress edits (current tool) |
 | `PROGRESS_MAX_EDITS` | no, default `30` | progress edits per turn; then it stays until the answer replaces it |
 | `BOT_COMMANDS` | no | `cmd:description;cmd2:description` published as the bot's "/" menu at start (a bad entry stops the start; an old server without the endpoint is logged and ignored) |
+| `REACTION_MODE` | no, default `silent` | what an owner's emoji reaction in Jay does: `silent` (one Hermes turn, the answer is not posted), `batch` (no turn; sent along with the owner's next message), `reply` (normal turn, the answer is posted), `off`. See "Reactions" below; an unknown value stops the start |
 | `PEER_REPLY_LIMIT`, `PEER_REPLY_WINDOW_MINUTES` | obsolete | ignored with a log line; limits now come from the group setting |
 
 ## Run
@@ -137,6 +138,30 @@ the bridges. A bot answers another bot in group G only if all hold:
   Hermes ids: run id (36) + request id (32) do not fit the 64-character button
   id limit, and only requests this bridge issued (and still waits for) can be
   answered.
+
+## Reactions
+
+Owners can react to the bot's messages with an emoji (long-press / message
+menu in Jay) to give quick feedback without writing. Spec:
+`docs/superpowers/specs/2026-11-07-message-reactions.md`.
+
+- Hermes sees one line per reaction, in the conversation's own session:
+  `[from CT-XXXX-XXXX] [reaction 👍 to your message: "<first 200 chars>"]`
+  (`to a message` when the bot no longer remembers the text; it keeps the
+  start of its last 500 messages in its local store for this).
+- Only `ALLOWED_HANDLES` owners count. Removing a reaction, and reactions of
+  other bots, are ignored (no bot-to-bot loops). In groups only reactions to
+  the bot's own messages arrive at all.
+- `REACTION_MODE=silent` (default): one Hermes turn per reaction with the
+  hint that the answer is not shown; the answer is discarded, there is no
+  progress message, and an approval Hermes asks for in that turn is DENIED.
+  Costs one agent turn per reaction.
+- `batch`: no turn. Notes are kept in memory per conversation (at most 20,
+  lost on restart) and put in front of the owner's next message.
+- `reply`: like `silent` but the answer is posted into the chat (approvals are
+  still denied).
+- `off`: ignored.
+- A reaction waits behind a turn already running in its conversation.
 
 ## Starting a message: local `/send`
 

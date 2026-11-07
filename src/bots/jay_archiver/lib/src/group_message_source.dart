@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:calltype_core/messaging/reaction.dart';
 import 'package:calltype_core/network/signalr_client.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:crypto/crypto.dart' as crypto;
@@ -149,9 +150,13 @@ class SignalGroupMessageSource implements GroupMessageSource {
       final type = payload['type'] as String? ?? 'text';
       // "text"/"file" are the app's own wire types (message_inbox_service.dart);
       // "call-event" (H1) is a client-generated report of a finished/missed
-      // call. Anything else is an unsupported message this archiver version
-      // cannot hash meaningfully.
-      if (type != 'text' && type != 'file' && type != 'call-event') {
+      // call; "reaction" is an emoji reaction (spec 2026-11-07, archived as
+      // text metadata below). Anything else is an unsupported message this
+      // archiver version cannot hash meaningfully.
+      if (type != 'text' &&
+          type != 'file' &&
+          type != 'call-event' &&
+          type != 'reaction') {
         throw FormatException('Unsupported message type "$type"');
       }
 
@@ -175,6 +180,19 @@ class SignalGroupMessageSource implements GroupMessageSource {
           // Verbatim — the server re-hashes this and must match contentHashHex.
           detailsJson: body,
         );
+      }
+
+      if (type == 'reaction') {
+        // WHY archived and not skipped: K01 "no ack without a durable write"
+        // holds for every message a member sends. The app sends no reactions
+        // into business groups (v1), so this is the defensive path for a
+        // modified or future client. Kind `text`, because the audit API
+        // knows no other kind and needs no change: the record carries only
+        // size and hash of the body ({targetId, emoji}), never the content.
+        // A malformed body is not emitted, like a malformed call-event.
+        if (ReactionPayload.decode(body) == null) {
+          throw const FormatException('reaction body is invalid');
+        }
       }
 
       final int sizeBytes;

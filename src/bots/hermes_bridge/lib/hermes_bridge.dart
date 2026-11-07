@@ -331,6 +331,55 @@ List<BotCommand> parseBotCommands(String? raw) {
   return commands;
 }
 
+/// What the bridge does with an owner's emoji reaction (env `REACTION_MODE`,
+/// spec docs/superpowers/specs/2026-11-07-message-reactions.md).
+enum ReactionMode {
+  /// One Hermes turn per reaction; its answer is NOT posted (default).
+  silent,
+
+  /// No turn: kept in memory and put in front of the owner's next message.
+  batch,
+
+  /// A normal turn whose answer is posted into the chat.
+  reply,
+
+  /// Ignored.
+  off,
+}
+
+/// `REACTION_MODE` -> [ReactionMode]; empty = [ReactionMode.silent]. Throws
+/// [FormatException] for anything else, so a typo stops the start.
+ReactionMode parseReactionMode(String? raw) {
+  final value = (raw ?? '').trim().toLowerCase();
+  if (value.isEmpty) return ReactionMode.silent;
+  for (final mode in ReactionMode.values) {
+    if (mode.name == value) return mode;
+  }
+  throw FormatException(
+    'REACTION_MODE must be one of '
+    '${ReactionMode.values.map((m) => m.name).join(', ')}, got "$raw"',
+  );
+}
+
+/// What the agent reads for one reaction, e.g.
+/// `[reaction 👍 to your message: "Deployed to beta."]`.
+String reactionNote(BotReaction reaction) {
+  final text = reaction.targetText;
+  if (!reaction.targetIsOwn || text == null || text.trim().isEmpty) {
+    return '[reaction ${reaction.emoji} to a message]';
+  }
+  return '[reaction ${reaction.emoji} to your message: "$text"]';
+}
+
+/// Most reactions kept per conversation in [ReactionMode.batch].
+const maxBatchedReactions = 20;
+
+/// Appended to a [ReactionMode.silent] turn, so the agent does not write a
+/// reply nobody will read.
+const silentReactionHint =
+    '(Feedback only. Your answer to this is not shown to the user; no reply '
+    'is needed.)';
+
 /// The one notice a bot posts when a bot-only exchange hits its limit.
 const botLimitNotice = 'Bot limit reached, waiting for a human.';
 
@@ -377,6 +426,7 @@ class HermesBridge {
     this._approve,
     this._progress,
     this._log,
+    this._reactionMode,
   );
 
   final CallTypeBot bot;
@@ -389,6 +439,11 @@ class HermesBridge {
   final ApprovalBackend? _approve;
   final ProgressSettings _progress;
   final void Function(String) _log;
+  final ReactionMode _reactionMode;
+
+  /// [ReactionMode.batch]: notes per conversation, oldest first, until the
+  /// owner's next message takes them along.
+  final _pendingReactions = <String, List<String>>{};
 
   /// Approval requests still waiting, by token (see [_approvalButtonId]).
   final _approvals = <String, _PendingApproval>{};
@@ -456,7 +511,76 @@ class HermesBridge {
           '[from ${peer?.handle ?? peer?.displayName ?? message.senderId} (bot)]';
     }
     // The prefix tells the agent who is speaking (and that it is a bot).
-    await _runTurn(message, '$label: ${_withContext(message)}');
+    // Batched reactions of this conversation ride along, oldest first.
+    final batched = _pendingReactions.remove(message.conversationId);
+    await _runTurn(
+      message,
+      [...?batched, '$label: ${_withContext(message)}'].join('\n'),
+    );
+  }
+
+  /// An emoji reaction (runtime: in the conversation's queue, after a turn
+  /// in progress). Only owners' reactions reach Hermes: a peer bot's would
+  /// feed bot-to-bot loops, and removals carry no feedback.
+  Future<void> _onReaction(BotReaction reaction) async {
+    final human = _owner(reaction.senderId);
+    if (human == null || reaction.removed) return;
+    final line = '[from $human] ${reactionNote(reaction)}';
+    switch (_reactionMode) {
+      case ReactionMode.off:
+        return;
+      case ReactionMode.batch:
+        final list = _pendingReactions.putIfAbsent(
+          reaction.conversationId,
+          () => [],
+        );
+        list.add(line);
+        if (list.length > maxBatchedReactions) list.removeAt(0);
+      case ReactionMode.silent:
+        await _quietTurn('$line\n$silentReactionHint', reaction.conversationId);
+        _log('Reaction ${reaction.emoji} from $human passed to Hermes.');
+      case ReactionMode.reply:
+        final answer = await _quietTurn(line, reaction.conversationId);
+        if (answer.trim().isEmpty) return;
+        // A 1:1 is addressed by the owner's handle, a group by its id.
+        final to = reaction.groupId ?? human;
+        for (final chunk in splitMessage(answer)) {
+          await bot.send(to: to, text: chunk);
+        }
+    }
+  }
+
+  /// A turn without progress messages or approval buttons: nobody waits for
+  /// it in the chat. An approval Hermes asks for here is DENIED (a reaction
+  /// must never end up running a command). Returns the answer text.
+  Future<String> _quietTurn(String prompt, String conversationId) async {
+    final answer = StringBuffer();
+    String? completed;
+    await for (final event in _backend(
+      prompt,
+      conversationId: conversationId,
+    )) {
+      switch (event) {
+        case HermesDelta(:final text):
+          answer.write(text);
+        case HermesToolEvent():
+          break;
+        case HermesApprovalRequest(:final runId, :final requestId):
+          _log('Approval requested in a reaction turn: denied.');
+          try {
+            await _approve?.call(runId, requestId, 'deny');
+          } catch (e) {
+            _log('Could not deny approval $runId/$requestId: $e');
+          }
+        case HermesCompleted(:final content):
+          completed = content;
+        case HermesError(message: final error):
+          throw HermesTurnException(error);
+      }
+    }
+    return completed != null && completed.trim().isNotEmpty
+        ? completed
+        : answer.toString();
   }
 
   /// What the agent sees besides the text: the quoted message (people reply
@@ -755,6 +879,9 @@ const channelTargetPrefix = 'channel:';
 /// Give either [stream] (events: progress, approvals, answer) or the simple
 /// [backend]. [approve] answers approval buttons; without it a press is
 /// refused as no longer pending.
+///
+/// [reactions] decides what an owner's emoji reaction does (see
+/// [ReactionMode]); other senders' reactions are never forwarded.
 Future<HermesBridge> runBridge(
   CallTypeBot bot, {
   required Set<String> allowedHandles,
@@ -765,6 +892,7 @@ Future<HermesBridge> runBridge(
   StreamingBackend? stream,
   ApprovalBackend? approve,
   ProgressSettings progress = const ProgressSettings(),
+  ReactionMode reactions = ReactionMode.silent,
   required void Function(String) log,
 }) async {
   if (stream == null && backend == null) {
@@ -821,9 +949,11 @@ Future<HermesBridge> runBridge(
     approve,
     progress,
     log,
+    reactions,
   );
   // Before onMessage: that call connects, and queued presses arrive at once.
   bot.onAction(bridge._onAction);
+  if (reactions != ReactionMode.off) bot.onReaction(bridge._onReaction);
   await bot.onMessage(
     bridge._handle,
     allowSender: bridge._allowSender,

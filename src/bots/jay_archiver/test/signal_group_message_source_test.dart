@@ -255,4 +255,41 @@ void main() {
       expect(event.detailsJson, body);
     });
   });
+
+  group('reaction (spec 2026-11-07-message-reactions)', () {
+    Future<Map<String, dynamic>> deliverReaction(String body) async =>
+        alice.messageTo(
+          'archiver',
+          {...await archiverKeys.getSignedIdentityBundle()},
+          body,
+          groupId: 'g1',
+          type: 'reaction',
+        );
+
+    test('a valid reaction is archived as text metadata (hash and size '
+        'only), so it can be acked', () async {
+      const body = '{"targetId":"m1","emoji":"👍"}';
+      final data = await deliverReaction(body);
+      final first = source.messages.first;
+      hub.deliver(data);
+      final event = await first;
+      expect(event.kind, 'text');
+      expect(event.detailsJson, isNull);
+      expect(event.sizeBytes, utf8.encode(body).length);
+      expect(
+        event.contentHashHex,
+        crypto.sha256.convert(utf8.encode(body)).toString(),
+      );
+    });
+
+    test('a malformed reaction is rejected, not emitted', () async {
+      final data = await deliverReaction('{"targetId":"m1","emoji":"lol"}');
+      var sawEvent = false;
+      final sub = source.messages.listen((_) => sawEvent = true);
+      hub.deliver(data);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await sub.cancel();
+      expect(sawEvent, isFalse);
+    });
+  });
 }
