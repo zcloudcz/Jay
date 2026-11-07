@@ -332,3 +332,52 @@ class MessageReactions extends Table {
   @override
   Set<Column> get primaryKey => {messageId, reactorId};
 }
+
+/// Pinned messages (`type: pin`, spec 2026-11-08-chat-extras.md): the
+/// CURRENT pin state of each message that was ever pinned in a
+/// conversation. An unpin is kept as a row ([pinned] false) so an older pin
+/// delivered late cannot bring it back.
+class MessagePins extends Table {
+  /// Conversation the pin was sent in; a pin shows only there.
+  TextColumn get conversationId => text()();
+
+  /// The pinned message ([Messages.id]); it may not have arrived yet.
+  TextColumn get messageId => text()();
+
+  BoolColumn get pinned => boolean()();
+
+  /// IDENTITY of whoever pinned / unpinned last.
+  TextColumn get pinnedBy => text()();
+
+  /// Sender's `createdAt` in milliseconds since epoch: last writer wins.
+  IntColumn get changedAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {conversationId, messageId};
+}
+
+/// Poll votes (`type: poll-vote`, spec 2026-11-08-chat-extras.md): the
+/// CURRENT vote of each person on a poll.
+///
+/// WHY a table and not a column on [Messages]: a vote may arrive before its
+/// poll (another sender's queue), and every member has one.
+class PollVotes extends Table {
+  /// The poll message ([Messages.id]).
+  TextColumn get pollId => text()();
+
+  /// IDENTITY of the voter (a user's primary device id).
+  TextColumn get voterId => text()();
+
+  /// Conversation the vote was sent in; counted only for a poll there.
+  TextColumn get conversationId => text()();
+
+  /// JSON list of option indexes; '[]' = vote withdrawn (kept as a row so
+  /// an older vote that arrives late cannot bring it back).
+  TextColumn get options => text()();
+
+  /// Sender's `createdAt` in milliseconds since epoch: last writer wins.
+  IntColumn get votedAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {pollId, voterId};
+}

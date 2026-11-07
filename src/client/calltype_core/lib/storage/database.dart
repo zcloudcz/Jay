@@ -30,6 +30,8 @@ part 'database.g.dart';
     KnownDeviceLists,
     KnownDeviceListMembers,
     MessageReactions,
+    MessagePins,
+    PollVotes,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -40,7 +42,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   /// Schema history:
   ///   1 — contacts, conversations, messages, sessions, backup state
@@ -57,6 +59,7 @@ class AppDatabase extends _$AppDatabase {
   ///   7 - channels.status / suspended_until, channel_posts.by_bot /
   ///       published_here (channel moderation and bot publishers)
   ///   8 - message_reactions (chat reactions)
+  ///   9 - message_pins / poll_votes (pinned messages and chat polls)
   ///
   /// WHY explicit steps instead of destructive recreation: this database
   /// holds the user's only copy of their decrypted history and the ratchet
@@ -101,6 +104,10 @@ class AppDatabase extends _$AppDatabase {
       }
       if (from < 8) {
         await m.createTable(messageReactions);
+      }
+      if (from < 9) {
+        await m.createTable(messagePins);
+        await m.createTable(pollVotes);
       }
     },
   );

@@ -120,7 +120,7 @@ void main() {
     expect(message.deleted, isFalse);
 
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 8);
+    expect(version.read<int>('user_version'), 9);
   });
 
   test('a fresh install creates the v2 schema directly', () async {
@@ -198,6 +198,8 @@ void main() {
             raw.execute('ALTER TABLE channel_posts DROP COLUMN published_here');
             // ...and without the v8 table.
             raw.execute('DROP TABLE message_reactions');
+            raw.execute('DROP TABLE message_pins');
+            raw.execute('DROP TABLE poll_votes');
             raw.execute(
               "INSERT INTO messages (id, conversation_id, sender_id, body, "
               "created_at, reply_to_id) VALUES ('m1', 'bob', 'bob', 'hello', "
@@ -226,7 +228,7 @@ void main() {
       expect(updated.editedAt!.toUtc(), edited);
       expect(updated.actionsJson, '[{"id":"a","label":"A"}]');
       final version = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(version.read<int>('user_version'), 8);
+      expect(version.read<int>('user_version'), 9);
     },
   );
 
@@ -257,6 +259,8 @@ void main() {
             raw.execute('ALTER TABLE channel_posts DROP COLUMN by_bot');
             raw.execute('ALTER TABLE channel_posts DROP COLUMN published_here');
             raw.execute('DROP TABLE message_reactions');
+            raw.execute('DROP TABLE message_pins');
+            raw.execute('DROP TABLE poll_votes');
             raw.execute(
               "INSERT INTO channels (channel_id, handle, name) "
               "VALUES ('c1', 'CH-AAAA-BBBB', 'News')",
@@ -279,7 +283,7 @@ void main() {
       expect(post.byBot, isFalse);
       expect(post.publishedHere, isFalse);
       final version = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(version.read<int>('user_version'), 8);
+      expect(version.read<int>('user_version'), 9);
     },
   );
 
@@ -304,6 +308,8 @@ void main() {
             raw.execute(statement);
           }
           raw.execute('DROP TABLE message_reactions');
+          raw.execute('DROP TABLE message_pins');
+          raw.execute('DROP TABLE poll_votes');
           raw.execute(
             "INSERT INTO messages (id, conversation_id, sender_id, body, "
             "created_at) VALUES ('m1', 'bob', 'bob', 'hello', 1700000001)",
@@ -331,6 +337,75 @@ void main() {
     expect(reaction.emoji, '👍');
     expect(reaction.reactedAt, 1700000002000);
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 8);
+    expect(version.read<int>('user_version'), 9);
+  });
+
+  test('v8 -> v9 adds message_pins and poll_votes, rows survive', () async {
+    final fresh = AppDatabase(NativeDatabase.memory());
+    final ddl = [
+      for (final row
+          in await fresh
+              .customSelect(
+                "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL "
+                "AND name NOT LIKE 'sqlite_%'",
+              )
+              .get())
+        row.read<String>('sql'),
+    ];
+    await fresh.close();
+
+    final db = AppDatabase(
+      NativeDatabase.memory(
+        setup: (raw) {
+          for (final statement in ddl) {
+            raw.execute(statement);
+          }
+          raw.execute('DROP TABLE message_pins');
+          raw.execute('DROP TABLE poll_votes');
+          raw.execute(
+            "INSERT INTO messages (id, conversation_id, sender_id, body, "
+            "created_at) VALUES ('m1', 'bob', 'bob', 'hello', 1700000001)",
+          );
+          raw.execute(
+            "INSERT INTO message_reactions (message_id, reactor_id, "
+            "conversation_id, emoji, reacted_at) "
+            "VALUES ('m1', 'alice', 'bob', 'x', 1)",
+          );
+          raw.execute('PRAGMA user_version = 8');
+        },
+      ),
+    );
+    addTearDown(db.close);
+
+    expect((await db.select(db.messages).getSingle()).body, 'hello');
+    expect(await db.select(db.messageReactions).get(), hasLength(1));
+    expect(await db.select(db.messagePins).get(), isEmpty);
+    expect(await db.select(db.pollVotes).get(), isEmpty);
+    await db
+        .into(db.messagePins)
+        .insert(
+          MessagePinsCompanion.insert(
+            conversationId: 'bob',
+            messageId: 'm1',
+            pinned: true,
+            pinnedBy: 'alice',
+            changedAt: 1700000002000,
+          ),
+        );
+    await db
+        .into(db.pollVotes)
+        .insert(
+          PollVotesCompanion.insert(
+            pollId: 'm1',
+            voterId: 'alice',
+            conversationId: 'bob',
+            options: '[0]',
+            votedAt: 1700000003000,
+          ),
+        );
+    expect((await db.select(db.messagePins).getSingle()).pinned, isTrue);
+    expect((await db.select(db.pollVotes).getSingle()).options, '[0]');
+    final version = await db.customSelect('PRAGMA user_version').getSingle();
+    expect(version.read<int>('user_version'), 9);
   });
 }
