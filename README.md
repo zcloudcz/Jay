@@ -1,93 +1,89 @@
-# Jay (code name CallType)
+# Jay
 
-> **Naming:** the product is **Jay** (by ZCloud). `CallType` remains the internal code name — solution, namespaces, Dart package, bundle IDs, Azure resources, `CT-` handles and the protocol's domain-separation strings keep it on purpose, because renaming those would break existing identities and installs.
+**Jay** is an anonymous-first, end-to-end encrypted messenger for people and bots. No phone number, no e-mail: a device registers on its own and gets a public handle like `CT-XXXX-XXXX`. The server relays ciphertext it cannot read.
 
-CallType is an anonymous-first messaging beta for Android, iOS, web, Windows and macOS. Devices register without a phone number and use a public `CT-XXXX-XXXX` handle. The repository is named `ZMessanger` for historical reasons.
+- Web: <https://jay.zcloud.cz>
+- Clients: Android, iOS, web, Windows, macOS (Flutter)
+- Status: running in production as a free service. Expect rough edges.
 
-The beta includes direct and group chat, encrypted per-recipient group delivery, attachments up to **256 KiB per file**, voice/video call controls, contacts, and optional account-based encrypted history backup/restore. Platform scaffolding and a CI build matrix are present; this does not mean every platform has passed device testing. See [beta status](docs/beta-status.md).
+> `CallType` is the internal code name. Namespaces, packages, bundle IDs, `CT-` handles and the protocol's domain-separation strings keep it on purpose, because renaming them would break existing identities.
+
+## What it does
+
+- 1:1 and group chat, replies, reactions, polls, pins, attachments, voice messages
+- Voice and video calls (WebRTC, TURN)
+- Multi-device and optional encrypted backup (an account is only needed for these)
+- Channels: public one-way feeds (**not** end-to-end encrypted, by design)
+- Bots as ordinary E2E devices, not a server-side Bot API: commands, buttons, mentions, bot-to-bot conversations in groups with limits
+- Bridges: [Hermes Agent](src/bots/hermes_bridge), any [A2A](https://a2a-protocol.org) agent ([a2a_bridge](src/bots/a2a_bridge))
+- Optional Business mode for organizations: roles, MFA and a **visible** auditor member. There is never a hidden one.
+
+## Security model, honestly
+
+- Messages use a **custom Dart implementation** of X3DH + Double Ratchet (X25519, Ed25519, HKDF-SHA256, AES-256-GCM). It is **not libsignal and has not been independently audited.** See [docs/security/crypto-baseline.md](docs/security/crypto-baseline.md).
+- The server stores ciphertext until delivery. Group names are encrypted and push notifications are generic, so Apple and Google see no sender or group name.
+- The server **does see metadata**: which device sends to which device or group and when, IP addresses, device display names and push tokens.
+- Identity keys are pinned on first use. Compare safety numbers to rule out a man in the middle.
+- The local message database is not SQLCipher-encrypted. It relies on OS and browser storage protection.
+- **Bots see plaintext.** Whoever runs a bot, and any LLM behind it, reads what you send to it.
+
+Found a vulnerability? Report it privately to martin@zcloud.cz (also in the API's `/.well-known/security.txt`) instead of opening a public issue. Process: [docs/security/incident-response.md](docs/security/incident-response.md).
+
+## Repository layout
+
+| Path | What |
+| --- | --- |
+| `src/server/CallType.Api` | ASP.NET Core 10 API: Minimal API endpoints, SignalR hub, EF Core / PostgreSQL |
+| `src/server/CallType.Audit` | Business mode: organizations, audit archive, emergency channel |
+| `src/client/calltype_core` | Pure Dart core shared by the app and bots: crypto, wire payloads, API client, storage |
+| `src/client/calltype` | Flutter app |
+| `src/client/jay_admin` | Operator web (channel moderation) |
+| `src/bots/calltype_bot` | Headless bot runtime (pure Dart) |
+| `src/bots/hermes_bridge`, `src/bots/a2a_bridge`, `src/bots/jay_archiver` | Bridges and the Business archiver built on the bot runtime |
+| `docs/` | Specs, security docs, ops runbooks |
+| `infra/` | Azure Bicep (`beta-appservice.bicep` is the current one) |
 
 ## Run locally
 
-Install Docker, Flutter 3.41.x and the platform toolchain you want to use. Backend development/tests also require .NET 10.
-
-From the repository root:
+Requirements: Docker, .NET 10, Flutter 3.41.x.
 
 ```sh
-docker compose up --build -d
-```
-
-Compose starts the API at `http://localhost:8080`, PostgreSQL and the Azurite backup-storage emulator. Its database migrations run on startup. Development credentials in Compose are for local use.
-
-Start the browser client at the configured CORS origin:
-
-```sh
+docker compose up --build -d          # API on http://localhost:8080 + PostgreSQL + Azurite
 cd src/client/calltype
 flutter pub get
 dart run build_runner build --delete-conflicting-outputs
 flutter run -d chrome --web-port=8090 --dart-define=API_BASE_URL=http://localhost:8080
 ```
 
-The web client needs both `web/sqlite3.wasm` and `web/drift_worker.js`. Keep these assets in the published web output; they provide local SQLite storage. Use localhost for development and HTTPS for hosted camera/microphone access.
+- The secrets in `docker-compose.yml` are local development values only.
+- On a phone, `localhost` is the phone. Pass an API URL the device can reach via `--dart-define=API_BASE_URL=...`.
+- Web builds need `web/sqlite3.wasm` and `web/drift_worker.js` in the published output.
 
-For another platform, select its Flutter device and provide an API URL reachable from that device. `localhost` on a phone refers to the phone, not the development computer. Configure `API_BASE_URL` at build time; its default is `http://localhost:8080`.
-
-```sh
-flutter build web --release --dart-define=API_BASE_URL=https://YOUR_API_HOST
-```
-
-## Architecture and security boundaries
-
-| Component | Implementation |
-| --- | --- |
-| Client | Flutter, Drift/SQLite, platform secure storage |
-| API | ASP.NET Core 10, authenticated SignalR, PostgreSQL/EF Core |
-| Messaging encryption | Custom Dart X3DH/Double Ratchet implementation; X25519, Ed25519 signed identity/prekey bundles, HKDF and AES-GCM |
-| Calls | WebRTC; signaling carries a versioned JSON envelope with a per-call UUID |
-| Backups | Client-side PBKDF2-HMAC-SHA256 (600,000 iterations) and AES-256-GCM; encrypted blobs stored server-side |
-
-This is **not official libsignal and has not undergone an independent cryptographic audit**. Message envelopes use version 2 with an authenticated session ID and signed pre-key prologue. Identity keys are pinned on first use; first-contact authenticity still depends on a trusted key comparison. Older unsigned identities and incompatible message/call formats are rejected.
-
-The relay stores message ciphertext before online or offline delivery. It removes ciphertext after the recipient acknowledges local persistence, retaining deduplication metadata until the 30-day expiry. Pending messages can be replayed after reconnect or while connected. Sender/recipient/group metadata remains visible to the relay.
-
-**Local SQLite is not SQLCipher-encrypted.** Message history and ratchet state are readable in local application storage and rely on OS/browser access protection. Platform secure storage holds long-term private key material. Encrypted transport and backups do not encrypt the local history database.
-
-## Services to configure
+## Server configuration
 
 | Setting | Purpose |
 | --- | --- |
-| `ConnectionStrings__DefaultConnection` | PostgreSQL connection |
-| `ConnectionStrings__BlobStorage` | Azure Blob storage or local Azurite |
-| `Jwt__Secret` | Deployment-specific JWT signing secret, at least 32 characters |
-| `Database__ApplyMigrationsOnStartup` | Run EF migrations at startup (`true` on the hosted beta — single instance, no separate migration step) |
-| `Cors__AllowedOrigins__0` | Browser client origin; local Compose uses `http://localhost:8090` |
-| `Turn__Provider` | `cloudflare` (beta default) or `shared-secret` (self-hosted coturn) |
-| `Turn__Cloudflare__KeyId`, `Turn__Cloudflare__ApiToken` | Cloudflare TURN key; the token is a server-side secret |
-| `Turn__Urls__0`, `Turn__StunUrls__0`, `Turn__SharedSecret` | Only for `shared-secret`: self-hosted TURN/STUN endpoints and the matching secret |
-| `Push__FcmServiceAccountJson` | Firebase service-account configuration for server push |
+| `ConnectionStrings__DefaultConnection` | PostgreSQL |
+| `ConnectionStrings__BlobStorage` | Azure Blob storage or Azurite (backups, media) |
+| `Jwt__Secret` | JWT signing secret, at least 32 characters |
+| `Cors__AllowedOrigins__0` | Browser client origin |
+| `Turn__Provider` | `cloudflare` or `shared-secret` (self-hosted coturn) |
+| `Push__*` | FCM / APNs / Web Push, see [CLAUDE.md](CLAUDE.md) |
+| `ConnectionStrings__Audit` | Enables Business mode |
 
-Compose does not start a TURN service. Reliable calling across restrictive networks requires a TURN provider: the hosted beta uses Cloudflare TURN (UDP/TCP 3478, TLS 5349); self-hosted coturn remains available via `Turn__Provider=shared-secret`. Firebase client configuration and notification permissions are required for push; Apple delivery through Firebase also requires APNs credentials/capabilities. Direct APNs relay support is not implemented. Background incoming-call delivery and platform push behavior still require real-device verification.
-
-The [hosted web beta](https://orange-bush-07e1b5803.6.azurestaticapps.net) runs on Azure Static Web Apps Free, with its API at `https://calltype-beta-zahy.azurewebsites.net` on Linux App Service B1. External PostgreSQL, coturn and private Blob backup storage are configured. The API health check, reliable direct/group and offline delivery checks, backup ownership checks, and authenticated UDP/TCP TURN relay tests passed. Real audio/video across separate networks remains unverified.
-
-See the [Azure beta plan](docs/azure-beta-plan.md) for resources and remaining operational checks. The estimate is USD 14-16/month before tax against the USD 20 maximum, not a hard spending guarantee. PostgreSQL currently encrypts traffic with `SSL Mode=Require` without verifying the server certificate. Earlier VM templates are superseded.
-
-## Verification and builds
-
-Verified locally on 2026-09-13: **108 backend tests passed, 0 skipped, and 120 Flutter tests passed**; release builds succeeded for web, Android (107.9 MiB APK) and Windows (complete runtime ZIP). Two browser identities exchanged encrypted direct messages in both directions, including diacritics, with history preserved after reload. Offline delivery after reopening the recipient was observed once. Group creation and encrypted delivery to the selected member were verified. Flutter analysis reported no issues. The final incremental Android rebuild also succeeded. Apple builds and native-device behavior remain unverified; see [beta status](docs/beta-status.md) for artifact paths and remaining checks.
-
-The current Android APK and `calltype-windows-azure-beta.zip` were rebuilt with the Azure API URL. Two real Flutter browser clients exchanged encrypted Czech direct messages in both directions through the hosted API; both messages persisted after reloading the public web client. Hosted web and API checks do not replace native-device acceptance or Apple builds.
+## Tests
 
 ```sh
-dotnet test src/server/CallType.Api.Tests --configuration Release
+dotnet test src/server/CallType.Api.Tests      # needs Docker (Testcontainers)
+cd src/client/calltype && flutter analyze && flutter test
 ```
 
-The backend integration suite starts PostgreSQL and Azurite through Testcontainers, so Docker must be running. From `src/client/calltype`:
+## Contributing
 
-```sh
-flutter analyze
-flutter test
-```
+Issues and pull requests are welcome. By contributing you agree that your contribution is licensed under the AGPL-3.0 and that ZCloud may also distribute it in the official app-store builds.
 
-[CI](.github/workflows/ci.yml) gates five platform artifact builds on backend tests and Flutter analysis/tests. Set the repository variable `CALLTYPE_API_BASE_URL` before distributing CI artifacts. iOS artifacts are unsigned; macOS distribution signing/notarization and store publication remain separate release steps. CI preparation does not establish that Apple builds have run successfully.
+## License
 
-Historical design material remains in [docs/superpowers/specs](docs/superpowers/specs/). [CLAUDE.md](CLAUDE.md) and [infra](infra/) contain earlier development/deployment material; current implementation and [beta status](docs/beta-status.md) take precedence over older feature claims.
+[GNU Affero General Public License v3.0](LICENSE). If you run a modified Jay server for others, you must offer them its source code.
+
+Copyright © 2026 ZCloud (zcloud.cz)
