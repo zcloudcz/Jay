@@ -14,6 +14,9 @@ The Jay (CallType) end-to-end protocol as a small, pure Dart package:
 - `lib/testing/`: test support only (the deterministic vector scenario),
   so `calltype_core` can replay the same vectors over its drift store.
 
+Language-independent specification of the wire format and the key
+schedule: [`docs/protocol/`](../../../docs/protocol/README.md).
+
 It has no network, no database and no Flutter. Dependencies are `crypto`
 and `cryptography` only; `test/dependency_rule_test.dart` fails on any
 `dio`, `drift`, `signalr`, `flutter`, `sqlite3` or `calltype_core`
@@ -33,7 +36,9 @@ dart analyze
 dart test
 ```
 
-`test/vectors/session_v2.json` holds deterministic test vectors (fixed
-keys, recorded random draws, exact envelopes). Regenerate them only on
-purpose with `dart run tool/generate_vectors.dart`; a test fails when the
-code no longer reproduces the committed file byte for byte.
+`test/vectors/session_v2.json` and `test/vectors/device_list_v1.json` hold
+deterministic test vectors (fixed keys, recorded random draws, exact
+envelopes and signatures; format in `docs/protocol/vectors.md`). Regenerate
+them only on purpose with `dart run tool/generate_vectors.dart`; a test
+fails when the code no longer reproduces the committed files byte for
+byte.

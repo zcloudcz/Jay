@@ -1,23 +1,33 @@
-// Regenerates test/vectors/session_v2.json from the current implementation.
+// Regenerates the committed test vectors from the current implementation:
+// test/vectors/session_v2.json and test/vectors/device_list_v1.json.
 //
-//   dart run tool/generate_vectors.dart [output path]
+//   dart run tool/generate_vectors.dart [output dir]
 //
-// Only do this on purpose: the committed file is the golden reference that
-// test/vectors/session_vectors_test.dart (and calltype_core over its drift
-// store) replays. A diff in it means the wire format or the key schedule
-// changed. With an output path it writes elsewhere, so a run can be diffed
-// against the committed file.
+// Only do this on purpose: the committed files are the golden reference that
+// test/vectors/*_test.dart (and calltype_core over its drift store) replay.
+// A diff in them means the wire format or the key schedule changed. With an
+// output dir the files go there instead, so a run can be diffed against the
+// committed ones.
 import 'dart:io';
 
+import 'package:calltype_protocol/testing/device_list_vector_scenario.dart';
 import 'package:calltype_protocol/testing/memory_vector_device.dart';
 import 'package:calltype_protocol/testing/session_vector_scenario.dart';
 
 Future<void> main(List<String> args) async {
-  final out = args.isEmpty ? vectorFile : args.first;
-  final vectors = await runSessionScenario(
+  String out(String file) =>
+      args.isEmpty ? file : '${args.first}/${file.split('/').last}';
+
+  final session = await runSessionScenario(
     factory: memoryVectorDevice,
     draws: GeneratingDraws(),
   );
-  File(out).writeAsStringSync(encodeVectors(vectors));
-  stdout.writeln('wrote $out (${(vectors['steps'] as List).length} steps)');
+  File(out(vectorFile)).writeAsStringSync(encodeVectors(session));
+  stdout.writeln(
+    'wrote ${out(vectorFile)} (${(session['steps'] as List).length} steps)',
+  );
+
+  final deviceList = await buildDeviceListVectors();
+  File(out(deviceListVectorFile)).writeAsStringSync(encodeVectors(deviceList));
+  stdout.writeln('wrote ${out(deviceListVectorFile)}');
 }

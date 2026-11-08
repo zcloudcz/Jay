@@ -6,6 +6,14 @@
 > kódu, a upraví je při rozporu.
 >
 > **Ověřeno proti commitu:** `b315688774436b9813a928e80ef0339a73719775`
+>
+> **Cesty po rozdělení jádra (2026-11-08):** kód pod `lib/crypto/` je teď
+> v `src/client/calltype_protocol` (`session_manager.dart` místo drift používá
+> rozhraní `ProtocolStore`, `signal_protocol.dart` má testovací seam pro
+> náhodu; formát na drátě beze změny, ověřeno test vectors). Cesty v tomto
+> dokumentu jsou upravené, čísla řádků ale odpovídají commitu výše a v těchto
+> dvou souborech se posunula. Při příští revizi přečíslovat. Přesné kroky
+> protokolu nezávisle na řádcích: `docs/protocol/`.
 
 ## 1. Rozsah a čestný stavový řádek
 

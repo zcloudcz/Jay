@@ -4,20 +4,21 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 
-/// Core cryptographic primitives for the Signal Protocol implementation.
+/// Core cryptographic primitives of the CallType protocol.
 ///
-/// Provides X25519 key exchange, Ed25519 signing, HKDF key derivation,
-/// and AES-256-GCM authenticated encryption — everything needed for X3DH
-/// key agreement and the symmetric ratchet.
+/// Provides X25519 key exchange, Ed25519 signing, HKDF-SHA256 key
+/// derivation, HMAC-SHA256 and AES-256-GCM authenticated encryption: the
+/// building blocks `SessionManager` uses for X3DH key agreement and the full
+/// Double Ratchet (DH ratchet plus symmetric chains, skipped message keys).
 ///
 /// Uses the `cryptography` package which delegates to platform-native
 /// implementations (BoringSSL on mobile, Web Crypto on browser) via
 /// `cryptography_flutter` when available, falling back to pure Dart.
 ///
-/// This is a SIMPLIFIED Signal Protocol — it implements X3DH key agreement
-/// and a single-step symmetric ratchet (chain key → message key), but omits
-/// the full Diffie-Hellman ratchet with header encryption. Acceptable for
-/// MVP; a full Double Ratchet upgrade is planned for Phase 4.
+/// Not implemented: header encryption (the ratchet header is bound to the
+/// ciphertext as AAD instead) and Sender Keys for groups (group messages
+/// are encrypted pairwise per device). Exact steps: docs/protocol/crypto.md;
+/// primitive inventory and limits: docs/security/crypto-baseline.md.
 class SignalProtocol {
   SignalProtocol._();
 
