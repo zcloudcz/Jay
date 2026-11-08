@@ -32,6 +32,12 @@ class Contacts extends Table {
   /// notice and hiding of call buttons (bots cannot take calls).
   BoolColumn get isBot => boolean().withDefault(const Constant(false))();
 
+  /// When [displayName] was last set by the user on any own device, in ms
+  /// since epoch on that device's clock; 0 = never (a profile suggestion or
+  /// an old row). Contact sync between own devices is last writer wins by
+  /// this value (spec 2026-11-08-contact-sync).
+  IntColumn get nameChangedAt => integer().withDefault(const Constant(0))();
+
   @override
   Set<Column> get primaryKey => {deviceId};
 }

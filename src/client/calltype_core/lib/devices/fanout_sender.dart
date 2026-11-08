@@ -5,6 +5,7 @@ import 'package:dio/dio.dart' show DioException;
 import '../crypto/device_list.dart';
 import '../crypto/session_manager.dart';
 import '../network/api_client.dart';
+import '../network/signalr_client.dart' show SignalRClient;
 import 'device_directory.dart';
 
 /// Builds the per-device envelopes of one message and repairs them when the
@@ -107,6 +108,55 @@ class FanoutSender {
       throw const DeviceListException('server_requires_unverified_device');
     }
     return kept;
+  }
+
+  /// Sends [envelopes] with [send] and, while the hub answers
+  /// `device_list_stale`, repairs them with [reconcile] (at most
+  /// [maxRounds] attempts) and hands every repaired set to [persist] before
+  /// the next attempt, so a crash resends exactly those bytes. Any other
+  /// error is rethrown unchanged.
+  ///
+  /// [identityIdsFor] may widen the identities before a repair (a group
+  /// member added since the first attempt); it gets the current ones.
+  ///
+  /// Deliberately NOT inside a database transaction: reconcile refreshes
+  /// device lists, DeviceDirectory serializes its refreshes, and a
+  /// transaction held across that could wait for a refresh that waits for
+  /// the database.
+  Future<void> deliver({
+    required Map<String, String> envelopes,
+    required List<String> identityIds,
+    required String payload,
+    required Future<void> Function(Map<String, String> envelopes) send,
+    required Future<void> Function(
+      Map<String, String> envelopes,
+      List<String> identityIds,
+    )
+    persist,
+    Future<List<String>> Function(List<String> identityIds)? identityIdsFor,
+    void Function(Set<String> required)? onStale,
+    int maxRounds = 3,
+  }) async {
+    var current = envelopes;
+    var ids = identityIds;
+    for (var round = 1; ; round++) {
+      try {
+        await send(current);
+        return;
+      } catch (e) {
+        final required = SignalRClient.staleRequired(e);
+        if (required == null || round == maxRounds) rethrow;
+        onStale?.call(required);
+        if (identityIdsFor != null) ids = await identityIdsFor(ids);
+        current = await reconcile(
+          envelopes: current,
+          required: required,
+          identityIds: ids,
+          payload: payload,
+        );
+        await persist(current, ids);
+      }
+    }
   }
 
   Future<void> _refresh(Iterable<String> deviceIds) async {

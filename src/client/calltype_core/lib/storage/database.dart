@@ -42,7 +42,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.e);
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   /// Schema history:
   ///   1 — contacts, conversations, messages, sessions, backup state
@@ -60,6 +60,7 @@ class AppDatabase extends _$AppDatabase {
   ///       published_here (channel moderation and bot publishers)
   ///   8 - message_reactions (chat reactions)
   ///   9 - message_pins / poll_votes (pinned messages and chat polls)
+  ///  10 - contacts.name_changed_at (contact sync between own devices)
   ///
   /// WHY explicit steps instead of destructive recreation: this database
   /// holds the user's only copy of their decrypted history and the ratchet
@@ -108,6 +109,9 @@ class AppDatabase extends _$AppDatabase {
       if (from < 9) {
         await m.createTable(messagePins);
         await m.createTable(pollVotes);
+      }
+      if (from < 10) {
+        await m.addColumn(contacts, contacts.nameChangedAt);
       }
     },
   );

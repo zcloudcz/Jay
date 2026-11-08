@@ -120,7 +120,7 @@ void main() {
     expect(message.deleted, isFalse);
 
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 9);
+    expect(version.read<int>('user_version'), 10);
   });
 
   test('a fresh install creates the v2 schema directly', () async {
@@ -200,6 +200,7 @@ void main() {
             raw.execute('DROP TABLE message_reactions');
             raw.execute('DROP TABLE message_pins');
             raw.execute('DROP TABLE poll_votes');
+            raw.execute('ALTER TABLE contacts DROP COLUMN name_changed_at');
             raw.execute(
               "INSERT INTO messages (id, conversation_id, sender_id, body, "
               "created_at, reply_to_id) VALUES ('m1', 'bob', 'bob', 'hello', "
@@ -228,7 +229,7 @@ void main() {
       expect(updated.editedAt!.toUtc(), edited);
       expect(updated.actionsJson, '[{"id":"a","label":"A"}]');
       final version = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(version.read<int>('user_version'), 9);
+      expect(version.read<int>('user_version'), 10);
     },
   );
 
@@ -261,6 +262,7 @@ void main() {
             raw.execute('DROP TABLE message_reactions');
             raw.execute('DROP TABLE message_pins');
             raw.execute('DROP TABLE poll_votes');
+            raw.execute('ALTER TABLE contacts DROP COLUMN name_changed_at');
             raw.execute(
               "INSERT INTO channels (channel_id, handle, name) "
               "VALUES ('c1', 'CH-AAAA-BBBB', 'News')",
@@ -283,7 +285,7 @@ void main() {
       expect(post.byBot, isFalse);
       expect(post.publishedHere, isFalse);
       final version = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(version.read<int>('user_version'), 9);
+      expect(version.read<int>('user_version'), 10);
     },
   );
 
@@ -310,6 +312,7 @@ void main() {
           raw.execute('DROP TABLE message_reactions');
           raw.execute('DROP TABLE message_pins');
           raw.execute('DROP TABLE poll_votes');
+          raw.execute('ALTER TABLE contacts DROP COLUMN name_changed_at');
           raw.execute(
             "INSERT INTO messages (id, conversation_id, sender_id, body, "
             "created_at) VALUES ('m1', 'bob', 'bob', 'hello', 1700000001)",
@@ -337,7 +340,7 @@ void main() {
     expect(reaction.emoji, '👍');
     expect(reaction.reactedAt, 1700000002000);
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 9);
+    expect(version.read<int>('user_version'), 10);
   });
 
   test('v8 -> v9 adds message_pins and poll_votes, rows survive', () async {
@@ -362,6 +365,7 @@ void main() {
           }
           raw.execute('DROP TABLE message_pins');
           raw.execute('DROP TABLE poll_votes');
+          raw.execute('ALTER TABLE contacts DROP COLUMN name_changed_at');
           raw.execute(
             "INSERT INTO messages (id, conversation_id, sender_id, body, "
             "created_at) VALUES ('m1', 'bob', 'bob', 'hello', 1700000001)",
@@ -406,6 +410,53 @@ void main() {
     expect((await db.select(db.messagePins).getSingle()).pinned, isTrue);
     expect((await db.select(db.pollVotes).getSingle()).options, '[0]');
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 9);
+    expect(version.read<int>('user_version'), 10);
+  });
+
+  test('v9 -> v10 adds contacts.name_changed_at, rows keep their names', () async {
+    final fresh = AppDatabase(NativeDatabase.memory());
+    final ddl = [
+      for (final row
+          in await fresh
+              .customSelect(
+                "SELECT sql FROM sqlite_master WHERE sql IS NOT NULL "
+                "AND name NOT LIKE 'sqlite_%'",
+              )
+              .get())
+        row.read<String>('sql'),
+    ];
+    await fresh.close();
+
+    final db = AppDatabase(
+      NativeDatabase.memory(
+        setup: (raw) {
+          for (final statement in ddl) {
+            raw.execute(statement);
+          }
+          raw.execute('ALTER TABLE contacts DROP COLUMN name_changed_at');
+          raw.execute(
+            "INSERT INTO contacts (device_id, user_handle, display_name, "
+            "identity_key, verified, added_at, is_bot) VALUES ('bob', "
+            "'CT-BOB0-0001', 'Bob', x'01', 1, 1700000000, 0)",
+          );
+          raw.execute('PRAGMA user_version = 9');
+        },
+      ),
+    );
+    addTearDown(db.close);
+
+    final contact = await db.select(db.contacts).getSingle();
+    expect(contact.displayName, 'Bob');
+    expect(contact.verified, isTrue);
+    expect(contact.nameChangedAt, 0);
+    await db
+        .update(db.contacts)
+        .write(const ContactsCompanion(nameChangedAt: Value(1762590000123)));
+    expect(
+      (await db.select(db.contacts).getSingle()).nameChangedAt,
+      1762590000123,
+    );
+    final version = await db.customSelect('PRAGMA user_version').getSingle();
+    expect(version.read<int>('user_version'), 10);
   });
 }
