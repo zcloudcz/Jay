@@ -407,4 +407,105 @@ public class FanoutHubTests : IntegrationTestBase
 
         push.Pushed.Should().BeEquivalentTo(new[] { bPhone.DeviceId });
     }
+
+    // Spec 2026-11-08-contact-sync: contact sync and history transfer are
+    // direct fan-outs addressed to the sender's OWN primary. No new hub
+    // method; these tests prove the existing one carries them.
+
+    [Fact]
+    public async Task Self_addressed_fanout_from_the_primary_reaches_every_companion()
+    {
+        var aPhone = await RegisterAndAuthenticateAsync();
+        var aWeb = await RegisterAndAuthenticateAsync();
+        var aWeb2 = await RegisterAndAuthenticateAsync();
+        await LinkAsync(aPhone.DeviceId, aWeb.DeviceId, aWeb2.DeviceId);
+        await using var hub = Hub(aPhone.Token);
+        await hub.StartAsync();
+        var messageId = Guid.NewGuid();
+        var targets = new[] { aWeb.DeviceId, aWeb2.DeviceId };
+
+        await hub.InvokeAsync("SendReliableDirectFanout", aPhone.DeviceId, messageId, targets, Payloads(targets));
+
+        (await QueuedForAsync(messageId)).Should().BeEquivalentTo(targets);
+        // The sending device is never a recipient of its own copy.
+        var withSelf = new[] { aPhone.DeviceId, aWeb.DeviceId, aWeb2.DeviceId };
+        await FluentActions.Awaiting(() => hub.InvokeAsync(
+            "SendReliableDirectFanout", aPhone.DeviceId, Guid.NewGuid(), withSelf, Payloads(withSelf)))
+            .Should().ThrowAsync<HubException>().WithMessage("*device_list_stale:*");
+    }
+
+    [Fact]
+    public async Task Self_addressed_fanout_from_a_companion_reaches_the_primary_and_the_other_companions()
+    {
+        var aPhone = await RegisterAndAuthenticateAsync();
+        var aWeb = await RegisterAndAuthenticateAsync();
+        var aWeb2 = await RegisterAndAuthenticateAsync();
+        await LinkAsync(aPhone.DeviceId, aWeb.DeviceId, aWeb2.DeviceId);
+        await using var hub = Hub(aWeb.Token);
+        await hub.StartAsync();
+        var messageId = Guid.NewGuid();
+        var targets = new[] { aPhone.DeviceId, aWeb2.DeviceId };
+
+        await hub.InvokeAsync("SendReliableDirectFanout", aPhone.DeviceId, messageId, targets, Payloads(targets));
+
+        (await QueuedForAsync(messageId)).Should().BeEquivalentTo(targets);
+        // Leaving out the other companion is stale, like for any recipient.
+        var missing = new[] { aPhone.DeviceId };
+        await FluentActions.Awaiting(() => hub.InvokeAsync(
+            "SendReliableDirectFanout", aPhone.DeviceId, Guid.NewGuid(), missing, Payloads(missing)))
+            .Should().ThrowAsync<HubException>().WithMessage("*device_list_stale:*");
+    }
+
+    [Fact]
+    public async Task Self_addressed_fanout_sends_no_push_to_own_devices()
+    {
+        var aPhone = await RegisterAndAuthenticateAsync();
+        var aWeb = await RegisterAndAuthenticateAsync();
+        var aWeb2 = await RegisterAndAuthenticateAsync();
+        await LinkAsync(aPhone.DeviceId, aWeb.DeviceId, aWeb2.DeviceId);
+        var push = new RecordingPush(
+            Factory.Services.GetRequiredService<IServiceScopeFactory>(),
+            Factory.Services.GetServices<IPushSender>(),
+            Factory.Services.GetRequiredService<ILogger<PushNotificationService>>());
+        await using var factory = Factory.WithWebHostBuilder(b =>
+            b.ConfigureServices(sv => sv.AddSingleton<PushNotificationService>(push)));
+        await using var hub = new HubConnectionBuilder()
+            .WithUrl($"{factory.Server.BaseAddress}hub?access_token={aWeb.Token}",
+                o => o.HttpMessageHandlerFactory = _ => factory.Server.CreateHandler())
+            .Build();
+        await hub.StartAsync();
+        var messageId = Guid.NewGuid();
+
+        // Both own devices are offline, so a copy for anyone else would be pushed.
+        var targets = new[] { aPhone.DeviceId, aWeb2.DeviceId };
+        await hub.InvokeAsync("SendReliableDirectFanout", aPhone.DeviceId, messageId, targets, Payloads(targets));
+
+        (await QueuedForAsync(messageId)).Should().BeEquivalentTo(targets);
+        push.Pushed.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Self_addressed_fanout_is_allowed_for_an_enrolled_employee()
+    {
+        var aPhone = await RegisterAndAuthenticateAsync();
+        var aWeb = await RegisterAndAuthenticateAsync();
+        await LinkAsync(aPhone.DeviceId, aWeb.DeviceId);
+        await EnrollAsync(aPhone.DeviceId);
+
+        // From the primary and from the companion: talking to oneself is never
+        // a conversation with an outsider, so the business policy allows it.
+        await using var phoneHub = Hub(aPhone.Token);
+        await phoneHub.StartAsync();
+        var fromPhone = Guid.NewGuid();
+        await phoneHub.InvokeAsync("SendReliableDirectFanout", aPhone.DeviceId, fromPhone,
+            new[] { aWeb.DeviceId }, Payloads(aWeb.DeviceId));
+        (await QueuedForAsync(fromPhone)).Should().BeEquivalentTo(new[] { aWeb.DeviceId });
+
+        await using var webHub = Hub(aWeb.Token);
+        await webHub.StartAsync();
+        var fromWeb = Guid.NewGuid();
+        await webHub.InvokeAsync("SendReliableDirectFanout", aPhone.DeviceId, fromWeb,
+            new[] { aPhone.DeviceId }, Payloads(aPhone.DeviceId));
+        (await QueuedForAsync(fromWeb)).Should().BeEquivalentTo(new[] { aPhone.DeviceId });
+    }
 }
