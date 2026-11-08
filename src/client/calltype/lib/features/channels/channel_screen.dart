@@ -7,7 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/bot_badge.dart';
 import '../chat/attachment_media.dart';

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../../features/channels/channels_controller.dart';
 import '../../features/chat_list/chat_list_controller.dart';
 import '../../features/mute/mute_controller.dart';

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import '../../core/network/push_service.dart';
 import 'web_platform.dart';
 

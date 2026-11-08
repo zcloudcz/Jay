@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/backup/backup_import.dart';
 import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';

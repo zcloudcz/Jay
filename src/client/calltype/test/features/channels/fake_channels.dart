@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:calltype/core/network/api_client.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/channels/channels_controller.dart';
 import 'package:calltype_core/network/channel_dtos.dart';
 import 'package:dio/dio.dart';

@@ -4,7 +4,7 @@ import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/messaging/contact_sync.dart';
 import 'package:drift/drift.dart';
 
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../devices/device_service.dart' show OwnLinkEvent;
 import '../devices/own_device_sender.dart';
 

@@ -5,7 +5,7 @@ import 'package:calltype_core/network/mfa_dtos.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 
 /// Drives TOTP MFA (N03d) for the calling account: status, enrolment,
 /// verification, disable and backup-code regeneration. See

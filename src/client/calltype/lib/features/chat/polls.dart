@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:calltype_core/messaging/poll.dart';
 import 'package:drift/drift.dart';
 
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 
 export 'package:calltype_core/messaging/poll.dart';
 

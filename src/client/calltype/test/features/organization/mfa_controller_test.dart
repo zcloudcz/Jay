@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/features/organization/mfa_controller.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';

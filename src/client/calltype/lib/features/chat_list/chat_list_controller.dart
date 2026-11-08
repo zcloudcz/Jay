@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 
 /// Manages the list of all conversations for the main chat list screen.
 ///

@@ -8,9 +8,9 @@ import 'package:calltype_core/messaging/contact_sync.dart';
 import 'package:calltype_core/messaging/history_transfer.dart';
 import 'package:drift/drift.dart';
 
-import '../../core/crypto/session_manager.dart';
-import '../../core/network/api_client.dart';
-import '../../core/storage/database.dart';
+import 'package:calltype_core/crypto/session_manager.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../contacts/contact_sync.dart';
 import '../media/media_cleanup.dart';
 import '../media/media_message.dart';

@@ -3,9 +3,9 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../../core/crypto/key_manager.dart';
+import 'package:calltype_core/crypto/key_manager.dart';
 import '../../core/network/signalr_client.dart';
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../devices/device_service.dart';
 import '../devices/link_controllers.dart';

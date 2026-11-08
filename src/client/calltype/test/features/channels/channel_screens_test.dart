@@ -1,4 +1,4 @@
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/core/storage/secure_storage.dart';
 import 'package:calltype/features/channels/channel_create_screen.dart';
 import 'package:calltype/features/channels/channel_profile_screen.dart';

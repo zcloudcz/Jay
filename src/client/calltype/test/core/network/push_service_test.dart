@@ -9,7 +9,7 @@
 
 import 'dart:async';
 
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/core/network/push_service.dart';
 import 'package:calltype/features/notifications/web_push_provider.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';

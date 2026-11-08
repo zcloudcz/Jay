@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../l10n/l10n.dart';
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import '../../core/storage/secure_storage.dart';
 import '../devices/device_service.dart';
 

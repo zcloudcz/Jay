@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import '../../core/network/signalr_client.dart';
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../l10n/l10n.dart';
 import '../contacts/contact_sync.dart';

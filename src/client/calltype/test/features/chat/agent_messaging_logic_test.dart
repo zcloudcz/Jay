@@ -1,4 +1,4 @@
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/features/chat/bot_commands.dart';
 import 'package:calltype/features/chat/mentions.dart';
 import 'package:calltype/features/contacts/bot_link.dart';

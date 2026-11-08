@@ -1,4 +1,4 @@
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/devices/device_service.dart';
 import 'package:calltype_core/crypto/device_list.dart';
 import 'package:dio/dio.dart';

@@ -1,4 +1,4 @@
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/chat/chat_controller.dart';
 import 'package:calltype/features/chat/message_inbox_service.dart';
 import 'package:calltype/features/chat/polls.dart';

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/features/groups/bot_talk_controller.dart';
 import 'package:calltype/features/groups/bot_talk_screen.dart';
 import 'package:calltype/shared/widgets/bot_badge.dart';

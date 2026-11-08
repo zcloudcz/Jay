@@ -2,7 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/contacts/contacts_controller.dart';
 import 'package:calltype/features/contacts/contacts_screen.dart';
 

@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/contacts/contacts_controller.dart';
 import 'package:calltype/features/contacts/contacts_screen.dart';
 import 'package:drift/drift.dart' show Value;

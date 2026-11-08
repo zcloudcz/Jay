@@ -1,6 +1,6 @@
 import 'package:drift/drift.dart';
 
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'media_message.dart';
 import 'media_service.dart';
 

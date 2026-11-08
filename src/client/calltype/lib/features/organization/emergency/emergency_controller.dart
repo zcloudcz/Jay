@@ -4,8 +4,8 @@ import 'package:calltype_core/network/mfa_api.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../../core/network/api_client.dart';
-import '../../../core/storage/database.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
 
 /// Drives the Emergency channel screens (E07): admin kit/drill management
 /// for org admins, plus the "I have an emergency code" enroll flow any

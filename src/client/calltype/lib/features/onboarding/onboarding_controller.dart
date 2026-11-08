@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
-import '../../core/crypto/key_manager.dart';
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/crypto/key_manager.dart';
+import 'package:calltype_core/network/api_client.dart';
 import '../../core/storage/secure_storage.dart';
 import '../devices/link_ux.dart';
 

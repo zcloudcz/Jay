@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import '../../l10n/l10n.dart';
 import 'mfa_controller.dart';
 

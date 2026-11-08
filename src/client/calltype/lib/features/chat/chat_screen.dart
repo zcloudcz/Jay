@@ -28,7 +28,7 @@ import 'image_attachment.dart';
 import 'image_compression.dart';
 import 'photo_send_preview.dart';
 import 'bot_commands.dart';
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';

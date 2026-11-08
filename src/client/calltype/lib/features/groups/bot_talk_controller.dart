@@ -4,7 +4,7 @@ import 'package:calltype_core/network/group_dtos.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 
 /// Why saving the bot conversation setting failed. The screen maps it to a
 /// localized message (controllers have no BuildContext, see lib/l10n).

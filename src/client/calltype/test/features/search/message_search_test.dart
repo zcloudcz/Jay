@@ -1,4 +1,4 @@
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/chat/polls.dart';
 import 'package:calltype/features/media/media_message.dart';
 import 'package:calltype/features/search/message_search.dart';

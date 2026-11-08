@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:calltype/core/crypto/key_manager.dart';
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/crypto/key_manager.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/core/storage/secure_storage.dart';
 import 'package:calltype/features/onboarding/onboarding_controller.dart';
 

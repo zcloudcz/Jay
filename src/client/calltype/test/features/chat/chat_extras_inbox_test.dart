@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/chat/message_inbox_service.dart';
 import 'package:calltype/features/chat/pins.dart';
 import 'package:calltype/features/chat/polls.dart';

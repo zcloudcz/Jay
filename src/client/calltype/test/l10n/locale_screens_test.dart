@@ -1,5 +1,5 @@
-import 'package:calltype/core/crypto/key_manager.dart';
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/crypto/key_manager.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/core/storage/secure_storage.dart';
 import 'package:calltype/features/channels/channel_screen.dart';
 import 'package:calltype/features/channels/channels_controller.dart';

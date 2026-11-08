@@ -3,7 +3,7 @@ import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:drift/drift.dart';
 import 'package:calltype_core/messaging/contact_sync.dart';
 
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../contacts/contact_sync.dart';
 import '../chat/polls.dart';
 import '../chat/reactions.dart';

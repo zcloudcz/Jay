@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/backup/backup_controller.dart';
 import 'package:calltype/features/backup/backup_import.dart';
 import 'package:drift/drift.dart' hide isNull, isNotNull;

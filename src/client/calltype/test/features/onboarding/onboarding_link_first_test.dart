@@ -1,6 +1,6 @@
-import 'package:calltype/core/crypto/key_manager.dart';
+import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype/core/network/signalr_client.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/core/storage/secure_storage.dart';
 import 'package:calltype/features/devices/device_service.dart';
 import 'package:calltype/features/devices/link_ux.dart';

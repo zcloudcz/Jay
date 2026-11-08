@@ -1,9 +1,9 @@
 import 'package:drift/native.dart';
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/devices/device_directory.dart';
-import 'package:calltype/core/crypto/key_manager.dart';
-import 'package:calltype/core/crypto/session_manager.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/crypto/key_manager.dart';
+import 'package:calltype_core/crypto/session_manager.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/core/storage/secure_storage.dart';
 
 /// A complete simulated device for crypto/messaging tests: in-memory DB,

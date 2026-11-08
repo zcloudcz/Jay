@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import '../../core/network/push_service.dart';
 import '../../core/storage/secure_storage.dart';
 import 'local_notifier.dart';

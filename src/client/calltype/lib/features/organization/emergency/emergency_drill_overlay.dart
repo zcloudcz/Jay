@@ -2,7 +2,7 @@ import 'package:calltype_core/network/emergency_api.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import '../../../core/network/signalr_client.dart';
 import '../../../l10n/l10n.dart';
 

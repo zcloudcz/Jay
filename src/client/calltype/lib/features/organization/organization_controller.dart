@@ -3,7 +3,7 @@ import 'package:calltype_core/network/organization_api.dart';
 import 'package:calltype_core/network/organization_dtos.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 
 /// Drives the Organization settings screen: join/create/manage a business
 /// organization. See `docs/superpowers/plans/2026-09-18-business-mode.md`

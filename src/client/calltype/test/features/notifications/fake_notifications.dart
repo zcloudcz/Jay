@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/core/network/push_service.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/notifications/local_notifier.dart';
 import 'package:calltype/features/notifications/notification_content.dart';
 import 'package:calltype/features/notifications/notification_service.dart';

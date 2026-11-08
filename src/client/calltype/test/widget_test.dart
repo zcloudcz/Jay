@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:calltype/app/app.dart';
 import 'package:calltype/app/router.dart';
 import 'package:calltype/core/auth/app_lock.dart';
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/core/network/signalr_client.dart';
 import 'package:calltype/core/network/webrtc_manager.dart';
 import 'package:calltype/core/storage/secure_storage.dart';

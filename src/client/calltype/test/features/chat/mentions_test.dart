@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:calltype/core/network/api_client.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/chat/mentions.dart';
 import 'package:flutter_test/flutter_test.dart';
 

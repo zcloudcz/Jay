@@ -4,7 +4,7 @@ import 'package:calltype/features/chat/attachment.dart';
 
 import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/features/chat/message_inbox_service.dart';
 import '../../helpers/test_device.dart';
 

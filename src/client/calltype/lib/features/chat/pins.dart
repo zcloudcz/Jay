@@ -1,7 +1,7 @@
 import 'package:calltype_core/messaging/pin.dart';
 import 'package:drift/drift.dart';
 
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'reactions.dart' show reactableTypes;
 
 export 'package:calltype_core/messaging/pin.dart';

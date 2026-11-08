@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../core/storage/database.dart';
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
+import 'package:calltype_core/network/api_client.dart';
 
 /// Manages the local contact list — devices we have exchanged identity
 /// keys with or intend to communicate with.

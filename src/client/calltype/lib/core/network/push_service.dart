@@ -4,7 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart';
 
-import 'api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 
 /// Observable state of the push subsystem, distinguished per K04 so the UI
 /// can tell "the user said no" apart from "this build has no push config"

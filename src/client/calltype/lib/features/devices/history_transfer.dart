@@ -7,7 +7,7 @@ import 'package:calltype_core/messaging/history_transfer.dart';
 import 'package:cryptography/cryptography.dart' show SimpleKeyPair;
 import 'package:flutter/foundation.dart';
 
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../backup/backup_controller.dart' show buildBackupData;
 import '../backup/backup_import.dart';
 import '../chat/message_inbox_service.dart' show MessageProcessingQueue;

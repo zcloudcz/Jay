@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/core/network/signalr_client.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/backup/backup_import.dart';
 import 'package:calltype/features/chat/attachment_media.dart';
 import 'package:calltype/features/chat/chat_controller.dart';

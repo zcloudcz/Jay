@@ -2,8 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../core/network/api_client.dart';
-import '../../core/storage/database.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
 
 /// Manages group creation and persists group conversations locally.
 ///

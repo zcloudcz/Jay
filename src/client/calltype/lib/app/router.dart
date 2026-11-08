@@ -5,12 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../core/crypto/key_manager.dart';
-import '../core/crypto/session_manager.dart';
-import '../core/network/api_client.dart';
+import 'package:calltype_core/crypto/key_manager.dart';
+import 'package:calltype_core/crypto/session_manager.dart';
+import 'package:calltype_core/network/api_client.dart';
 import '../core/network/signalr_client.dart';
 import '../core/network/webrtc_manager.dart';
-import '../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../core/storage/secure_storage.dart';
 import '../features/backup/backup_controller.dart';
 import '../features/backup/backup_settings_screen.dart';

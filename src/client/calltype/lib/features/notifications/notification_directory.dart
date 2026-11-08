@@ -1,4 +1,4 @@
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../channels/channels_controller.dart';
 import '../devices/device_service.dart';
 import 'notification_service.dart';

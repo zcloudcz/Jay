@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/chat/attachment_sheet.dart';
 import 'package:calltype/features/chat/pin_widgets.dart';
 import 'package:calltype/features/chat/poll_widgets.dart';

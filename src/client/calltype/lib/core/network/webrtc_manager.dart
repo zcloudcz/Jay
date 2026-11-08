@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'signalr_client.dart';
 
 enum CallState { idle, ringing, connecting, connected, ended }

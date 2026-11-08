@@ -1,8 +1,8 @@
 import 'dart:async';
 
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/core/network/signalr_client.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/devices/device_service.dart';
 import 'package:calltype/features/devices/devices_screen.dart';
 import 'package:calltype/features/devices/link_code.dart';

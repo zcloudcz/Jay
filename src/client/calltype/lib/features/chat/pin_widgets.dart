@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../../l10n/l10n.dart';
 
 /// The bar under the app bar of a chat with pinned messages (spec

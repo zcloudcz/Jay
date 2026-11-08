@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:calltype_core/crypto/device_list.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../core/crypto/key_manager.dart';
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/crypto/key_manager.dart';
+import 'package:calltype_core/network/api_client.dart';
 import '../../core/network/signalr_client.dart';
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'device_service.dart';
 import 'link_code.dart';
 

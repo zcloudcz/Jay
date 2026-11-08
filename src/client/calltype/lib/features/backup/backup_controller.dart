@@ -7,11 +7,11 @@ import 'package:calltype_core/messaging/reaction.dart' show reactionType;
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../core/crypto/backup_crypto.dart';
-import '../../core/network/api_client.dart';
-import '../../core/network/backup_api.dart';
+import 'package:calltype_core/crypto/backup_crypto.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/network/backup_api.dart';
 import 'backup_import.dart';
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../../l10n/l10n.dart';
 
 /// Server-side backup quota, mirrored here purely for display copy (K03

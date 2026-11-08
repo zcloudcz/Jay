@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:calltype_core/network/group_dtos.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../core/network/api_client.dart';
-import '../../core/storage/database.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
 
 /// How long a mute chosen in the mute dialog lasts.
 enum MuteDuration {

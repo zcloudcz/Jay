@@ -1,6 +1,6 @@
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/core/network/signalr_client.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/chat/attachment.dart';
 import 'package:calltype/features/chat/attachment_media.dart';
 import 'package:calltype/features/chat/attachment_sheet.dart';

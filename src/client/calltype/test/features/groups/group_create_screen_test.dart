@@ -6,8 +6,8 @@ import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:calltype/core/network/api_client.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/groups/group_create_screen.dart';
 
 import '../../helpers/localized_app.dart';

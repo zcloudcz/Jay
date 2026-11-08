@@ -4,9 +4,9 @@ import 'package:calltype_core/network/channel_dtos.dart' show ChannelPostDto;
 import 'package:calltype_core/network/group_dtos.dart' show MuteMode;
 import 'package:flutter/foundation.dart';
 
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import '../../core/network/push_service.dart';
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../chat/attachment.dart';
 import '../chat/polls.dart' show PollPayload, pollMessageType;

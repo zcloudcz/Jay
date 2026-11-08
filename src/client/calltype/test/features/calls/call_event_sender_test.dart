@@ -3,7 +3,7 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:calltype/core/network/api_client.dart';
+import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/core/network/signalr_client.dart';
 import 'package:calltype/core/network/webrtc_manager.dart';
 import 'package:calltype/features/calls/call_event_sender.dart';

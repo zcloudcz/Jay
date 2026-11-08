@@ -7,8 +7,8 @@ import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../core/network/api_client.dart';
-import '../../core/storage/database.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../../l10n/l10n.dart';
 
 /// Thrown when a blocked channel is opened from a link / QR code. Blocking

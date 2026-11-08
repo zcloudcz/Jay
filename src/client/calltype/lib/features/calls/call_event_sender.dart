@@ -4,12 +4,12 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../core/crypto/group_cipher.dart';
-import '../../core/crypto/session_manager.dart';
-import '../../core/network/api_client.dart';
+import 'package:calltype_core/crypto/group_cipher.dart';
+import 'package:calltype_core/crypto/session_manager.dart';
+import 'package:calltype_core/network/api_client.dart';
 import '../../core/network/signalr_client.dart';
 import '../../core/network/webrtc_manager.dart';
-import '../../core/storage/database.dart';
+import 'package:calltype_core/storage/database.dart';
 import '../chat/message_inbox_service.dart';
 
 /// H2 (Part B): app-wide listener that turns each business [CallReport] into

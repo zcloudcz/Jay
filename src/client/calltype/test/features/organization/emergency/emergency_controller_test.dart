@@ -1,5 +1,5 @@
-import 'package:calltype/core/network/api_client.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/organization/emergency/emergency_controller.dart';
 import 'package:calltype_core/network/emergency_api.dart';
 import 'package:dio/dio.dart';

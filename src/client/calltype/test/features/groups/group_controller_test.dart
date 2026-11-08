@@ -2,8 +2,8 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:calltype/core/network/api_client.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/features/groups/group_controller.dart';
 
 class GroupApi extends ApiClient {

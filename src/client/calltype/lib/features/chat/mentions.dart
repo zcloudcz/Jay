@@ -1,5 +1,5 @@
-import '../../core/network/api_client.dart';
-import '../../core/storage/database.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
 
 /// Pure logic for @mention suggestions in group chats (no Flutter imports so
 /// it is trivially unit-testable).

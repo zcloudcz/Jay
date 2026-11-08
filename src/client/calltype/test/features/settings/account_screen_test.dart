@@ -1,5 +1,5 @@
-import 'package:calltype/core/network/api_client.dart';
-import 'package:calltype/core/storage/database.dart';
+import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/database.dart';
 import 'package:calltype/core/storage/secure_storage.dart';
 import 'package:calltype/features/organization/mfa_section.dart';
 import 'package:calltype/features/settings/account_screen.dart';
