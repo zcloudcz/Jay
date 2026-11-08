@@ -29,9 +29,22 @@ public class RateLimitTests : IntegrationTestBase
             });
             return result.Response.StatusCode;
         }
-        for (var i = 0; i < 10; i++)
-            (await Login("192.0.2.1", $"198.51.100.{i + 1}")).Should().Be(400);
-        (await Login("192.0.2.1", "203.0.113.1")).Should().Be(429);
+        // Bursts of 11 concurrent logins from ONE remote IP (budget 10/min),
+        // each with a different X-Forwarded-For. Sequential requests took
+        // several seconds each on a loaded CI runner (CI run 42514096759), so 11 of
+        // them spread over two fixed one-minute windows and never hit 429. A
+        // burst lands in one window; the retry covers a burst that straddles
+        // a window boundary. Every response must be 400 (bad body) or 429.
+        var limited = false;
+        for (var burst = 0; burst < 3 && !limited; burst++)
+        {
+            var codes = await Task.WhenAll(Enumerable.Range(0, 11)
+                .Select(i => Login("192.0.2.1", $"198.51.100.{i + 1}")));
+            codes.Should().OnlyContain(code => code == 400 || code == 429);
+            limited = codes.Contains(429);
+        }
+        limited.Should().BeTrue("forwarded headers must not give one remote IP extra budget");
+        // Another remote IP has its own, untouched budget.
         (await Login("192.0.2.2", "203.0.113.1")).Should().Be(400);
     }
 
