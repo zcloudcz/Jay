@@ -3,13 +3,12 @@
 # ---------------------------------------------------------------------------
 # Why: operators who want an A2A agent (Copilot Studio, Azure AI Foundry,
 # Google ADK, Hermes, ...) as a Jay contact pull a ready image instead of
-# copying the private sources and building the Dart bridge themselves.
+# building the Dart bridge themselves.
 #
 # One-time: after the first push, make the package public in GitHub package
 # settings (ghcr.io/zcloudcz/jay-a2a-bridge), otherwise hosts need a login.
 #
-# Actions do not start on the private repo (billing): run this only in the
-# short public window described in CLAUDE.md (Deploy section, /gh-actions-public).
+# Run it manually (workflow_dispatch) with a commit SHA.
 # ---------------------------------------------------------------------------
 
 name: A2A bridge image

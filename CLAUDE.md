@@ -380,10 +380,10 @@ App Service / Static Web App → smoke. It never provisions infrastructure; IaC
 lives in `infra/beta-appservice.bicep`. `infra/main.bicep`, `infra/beta-vm.bicep`
 and `infra/beta-compose.yml` are historical and must not be deployed.
 
-GitHub Actions do not start on the private repo (billing) — a run then ends as
-"failure" with zero jobs, which says nothing about the code. CI and deploys run
-in a short PUBLIC window (`/gh-actions-public`): flip to public FIRST, push
-after, always flip back. Each window and each deploy needs the owner's OK.
+The repository is PUBLIC permanently (open source, AGPL-3.0, owner decision
+2026-11-08). Never flip it back to private and never commit secrets: the old
+"public window" (`/gh-actions-public`) procedure is retired. Each deploy still
+needs the owner's OK.
 
 Audit-database migrations are NOT applied by the deploy or at startup on beta
 (`ConnectionStrings__AuditMigrations` is deliberately unset so the ops password
