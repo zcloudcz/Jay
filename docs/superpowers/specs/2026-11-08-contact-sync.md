@@ -1,6 +1,6 @@
 # Contact sync and history transfer between own devices (contract)
 
-Status: draft for the owner (2026-11-08), on `feat/contact-sync`. Nothing is built yet.
+Status: approved by the owner (2026-11-08, "implementuj a nasad"), on `feat/contact-sync` (built on `feat/chat-extras`).
 This is spec 3 (state sync, contacts part) plus spec 2 (history transfer) of the roadmap in
 `2026-10-13-multi-device-sync-design.md`. Read, delete-for-me and call ringing stay in spec 3
 for later.
@@ -73,8 +73,8 @@ from an own device. Unknown or invalid: ack and drop.
 
 ## Local storage
 
-- `contacts.name_changed_at` (int ms, default 0). One schema step (the next free version: v10 if
-  `feat/chat-extras` with v9 is merged first).
+- `contacts.name_changed_at` (int ms, default 0). Schema v10 (this branch is built on
+  `feat/chat-extras`, which has v9).
 - Tombstones for removed contacts: `backupState` key `contact-removed:<deviceId>` = ms, until a
   contact delete exists in the app.
 - Transfer state (source and target) in memory plus temporary files under the media storage;
