@@ -177,100 +177,7 @@ class BackupController extends ChangeNotifier {
       if (!_disposed) notifyListeners();
 
       // -- Step 1: Serialize local data to JSON --------------------------------
-      // Fetch all records from the three content tables. Session data is
-      // excluded intentionally (see class doc).
-      final snapshot = await _db.transaction(
-        () async => (
-          await _db.select(_db.contacts).get(),
-          await _db.select(_db.conversations).get(),
-          // An in-flight reaction, pin or vote send is a local row too; an
-          // older app's import rejects those types and would fail the whole
-          // restore.
-          await (_db.select(_db.messages)..where(
-                (m) => m.type.isNotIn([reactionType, pinType, pollVoteType]),
-              ))
-              .get(),
-          await _db.select(_db.messageReactions).get(),
-          await _db.select(_db.messagePins).get(),
-          await _db.select(_db.pollVotes).get(),
-        ),
-      );
-      final contacts = snapshot.$1;
-      final conversations = snapshot.$2;
-      final messages = snapshot.$3;
-      final reactions = snapshot.$4;
-      final pins = snapshot.$5;
-      final votes = snapshot.$6;
-      // Spec 2026-11-08-chat-extras: a poll row goes into the backup the
-      // way it goes over the wire, as text with the fallback plus `poll`,
-      // so an older app restores it as text instead of failing the restore.
-      final fallbackHint = lookupAppLocalizations(
-        const Locale('en'),
-      ).pollFallbackUpdate;
-
-      final backupData = {
-        'version': 1,
-        'createdAt': DateTime.now().toUtc().toIso8601String(),
-        'contacts': contacts
-            .map(
-              (c) => {
-                'deviceId': c.deviceId,
-                'userHandle': c.userHandle,
-                'displayName': c.displayName,
-                // Identity key stored as base64 for JSON compatibility.
-                'identityKey': base64Encode(c.identityKey),
-                'verified': c.verified,
-                'addedAt': c.addedAt.toIso8601String(),
-              },
-            )
-            .toList(),
-        'conversations': conversations
-            .map(
-              (c) => {
-                'id': c.id,
-                'type': c.type,
-                'title': c.title,
-                'lastMessageAt': c.lastMessageAt?.toIso8601String(),
-                'unreadCount': c.unreadCount,
-              },
-            )
-            .toList(),
-        'messages': [for (final m in messages) _messageJson(m, fallbackHint)],
-        // Additive (spec 2026-11-07-message-reactions): older backups have
-        // no such key and restore without reactions.
-        'reactions': reactions
-            .map(
-              (r) => {
-                'messageId': r.messageId,
-                'reactorId': r.reactorId,
-                'conversationId': r.conversationId,
-                'emoji': r.emoji,
-                'reactedAt': r.reactedAt,
-              },
-            )
-            .toList(),
-        // Additive (spec 2026-11-08-chat-extras), like the reactions.
-        'pins': [
-          for (final p in pins)
-            {
-              'conversationId': p.conversationId,
-              'messageId': p.messageId,
-              'pinned': p.pinned,
-              'pinnedBy': p.pinnedBy,
-              'changedAt': p.changedAt,
-            },
-        ],
-        'pollVotes': [
-          for (final v in votes)
-            {
-              'pollId': v.pollId,
-              'voterId': v.voterId,
-              'conversationId': v.conversationId,
-              'options': decodeVoteOptions(v.options),
-              'votedAt': v.votedAt,
-            },
-        ],
-      };
+      final backupData = await buildBackupData(_db);
 
       final jsonString = jsonEncode(backupData);
       _progress = 0.3;
@@ -444,6 +351,128 @@ class BackupController extends ChangeNotifier {
     _progress = 0.0;
     if (!_disposed) notifyListeners();
   }
+}
+
+/// The backup JSON (`version: 1`) of [db]: contacts, conversations,
+/// messages, reactions, pins and poll votes. Shared by the cloud backup and
+/// the history transfer between own devices (spec 2026-11-08-contact-sync),
+/// which leaves out the messages of conversations [withMessages] rejects
+/// (business ones for a companion).
+///
+/// Signal Protocol session state is NOT included: sessions are ephemeral by
+/// design, a restored device starts fresh sessions (re-keying via X3DH).
+Future<Map<String, Object?>> buildBackupData(
+  AppDatabase db, {
+  bool Function(Conversation conversation)? withMessages,
+}) async {
+  final snapshot = await db.transaction(
+    () async => (
+      await db.select(db.contacts).get(),
+      await db.select(db.conversations).get(),
+      // An in-flight reaction, pin or vote send is a local row too; an
+      // older app's import rejects those types and would fail the whole
+      // restore.
+      await (db.select(db.messages)..where(
+            (m) => m.type.isNotIn([reactionType, pinType, pollVoteType]),
+          ))
+          .get(),
+      await db.select(db.messageReactions).get(),
+      await db.select(db.messagePins).get(),
+      await db.select(db.pollVotes).get(),
+    ),
+  );
+  final contacts = snapshot.$1;
+  final conversations = snapshot.$2;
+  final keep = withMessages == null
+      ? null
+      : {
+          for (final c in conversations)
+            if (withMessages(c)) c.id,
+        };
+  bool kept(String conversationId) =>
+      keep == null || keep.contains(conversationId);
+  final messages = [
+    for (final m in snapshot.$3)
+      if (kept(m.conversationId)) m,
+  ];
+  // Spec 2026-11-08-chat-extras: a poll row goes into the backup the way it
+  // goes over the wire, as text with the fallback plus `poll`, so an older
+  // app restores it as text instead of failing the restore.
+  final fallbackHint = lookupAppLocalizations(
+    const Locale('en'),
+  ).pollFallbackUpdate;
+  return {
+    'version': 1,
+    'createdAt': DateTime.now().toUtc().toIso8601String(),
+    'contacts': contacts
+        .map(
+          (c) => {
+            'deviceId': c.deviceId,
+            'userHandle': c.userHandle,
+            'displayName': c.displayName,
+            // Identity key stored as base64 for JSON compatibility.
+            'identityKey': base64Encode(c.identityKey),
+            'verified': c.verified,
+            'addedAt': c.addedAt.toIso8601String(),
+            // Additive (contact sync): older backups restore with false / 0.
+            'isBot': c.isBot,
+            'nameChangedAt': c.nameChangedAt,
+          },
+        )
+        .toList(),
+    'conversations': conversations
+        .map(
+          (c) => {
+            'id': c.id,
+            'type': c.type,
+            'title': c.title,
+            'lastMessageAt': c.lastMessageAt?.toIso8601String(),
+            'unreadCount': c.unreadCount,
+            // Additive: a business header keeps its badge without waiting
+            // for the server backfill.
+            'organizationId': c.organizationId,
+            'organizationName': c.organizationName,
+          },
+        )
+        .toList(),
+    'messages': [for (final m in messages) _messageJson(m, fallbackHint)],
+    // Additive (spec 2026-11-07-message-reactions): older backups have no
+    // such key and restore without reactions.
+    'reactions': [
+      for (final r in snapshot.$4)
+        if (kept(r.conversationId))
+          {
+            'messageId': r.messageId,
+            'reactorId': r.reactorId,
+            'conversationId': r.conversationId,
+            'emoji': r.emoji,
+            'reactedAt': r.reactedAt,
+          },
+    ],
+    // Additive (spec 2026-11-08-chat-extras), like the reactions.
+    'pins': [
+      for (final p in snapshot.$5)
+        if (kept(p.conversationId))
+          {
+            'conversationId': p.conversationId,
+            'messageId': p.messageId,
+            'pinned': p.pinned,
+            'pinnedBy': p.pinnedBy,
+            'changedAt': p.changedAt,
+          },
+    ],
+    'pollVotes': [
+      for (final v in snapshot.$6)
+        if (kept(v.conversationId))
+          {
+            'pollId': v.pollId,
+            'voterId': v.voterId,
+            'conversationId': v.conversationId,
+            'options': decodeVoteOptions(v.options),
+            'votedAt': v.votedAt,
+          },
+    ],
+  };
 }
 
 Uint8List _deriveBackupKey((String, Uint8List) input) =>

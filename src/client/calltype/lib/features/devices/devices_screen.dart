@@ -10,8 +10,11 @@ import '../../core/network/signalr_client.dart';
 import '../../core/storage/database.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../l10n/l10n.dart';
+import '../contacts/contact_sync.dart';
 import '../contacts/qr_scanner_screen.dart';
 import 'device_service.dart';
+import 'history_transfer.dart';
+import 'history_transfer_screen.dart';
 import 'link_controllers.dart';
 import 'link_ux.dart';
 
@@ -35,13 +38,18 @@ class DevicesScreen extends StatelessWidget {
       body: devices.isCompanion
           ? FutureBuilder<String?>(
               future: devices.linkedPrimaryHandle(),
-              builder: (context, snapshot) => Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  l10n.devicesLinkedTo(
-                    snapshot.data ?? devices.directory.selfIdentityId,
+              builder: (context, snapshot) => ListView(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      l10n.devicesLinkedTo(
+                        snapshot.data ?? devices.directory.selfIdentityId,
+                      ),
+                    ),
                   ),
-                ),
+                  ...ownSyncTiles(context),
+                ],
               ),
             )
           : FutureBuilder<(List<DeviceListEntry>, bool)>(
@@ -118,10 +126,80 @@ class DevicesScreen extends StatelessWidget {
                           }
                         },
                       ),
+                    if (companions.isNotEmpty) ...ownSyncTiles(context),
                   ],
                 );
               },
             ),
+    );
+  }
+
+  /// Contact sync and history transfer (spec 2026-11-08-contact-sync),
+  /// on the primary and on a companion alike. Hidden where the services
+  /// are not provided (older widget tests).
+  static List<Widget> ownSyncTiles(BuildContext context) {
+    final l10n = context.l10n;
+    final sync = context.read<ContactSyncService?>();
+    final transfer = context.read<HistoryTransferService?>();
+    return [
+      if (sync != null)
+        ListTile(
+          leading: const Icon(Icons.sync_rounded),
+          title: Text(l10n.devicesSyncContacts),
+          subtitle: Text(l10n.devicesSyncContactsSubtitle),
+          onTap: () => _syncContacts(context, sync),
+        ),
+      if (transfer != null) ...[
+        ListTile(
+          leading: const Icon(Icons.download_rounded),
+          title: Text(l10n.historyReceiveAction),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ChangeNotifierProvider.value(
+                value: transfer,
+                child: const HistoryReceiveScreen(),
+              ),
+            ),
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Icons.upload_rounded),
+          title: Text(l10n.historySendAction),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ChangeNotifierProvider.value(
+                value: transfer,
+                child: const HistorySendScreen(),
+              ),
+            ),
+          ),
+        ),
+      ],
+    ];
+  }
+
+  static Future<void> _syncContacts(
+    BuildContext context,
+    ContactSyncService sync,
+  ) async {
+    final l10n = context.l10n;
+    final messenger = ScaffoldMessenger.of(context);
+    void say(String text) =>
+        messenger.showSnackBar(SnackBar(content: Text(text)));
+    if ((await sync.otherDevices()).isEmpty) {
+      say(l10n.devicesSyncContactsNoDevices);
+      return;
+    }
+    if (!await sync.sendSnapshot()) {
+      say(l10n.devicesSyncContactsFailed);
+      return;
+    }
+    // Best effort (spec Compatibility): a device that never sent us a sync
+    // message probably runs an app that cannot apply one.
+    say(
+      (await sync.silentDevices()).isEmpty
+          ? l10n.devicesSyncContactsSent
+          : l10n.devicesSyncUpdateHint,
     );
   }
 

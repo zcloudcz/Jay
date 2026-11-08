@@ -4,11 +4,14 @@ import 'dart:convert';
 import 'package:calltype_core/crypto/device_list.dart' show DeviceListException;
 import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/messaging/agent_payload.dart';
+import 'package:calltype_core/messaging/contact_sync.dart';
+import 'package:calltype_core/messaging/history_transfer.dart';
 import 'package:drift/drift.dart';
 
 import '../../core/crypto/session_manager.dart';
 import '../../core/network/api_client.dart';
 import '../../core/storage/database.dart';
+import '../contacts/contact_sync.dart';
 import '../media/media_cleanup.dart';
 import '../media/media_message.dart';
 import '../media/media_service.dart';
@@ -30,6 +33,15 @@ class MessageProcessingQueue {
     return result;
   }
 }
+
+/// Control messages between the devices of one identity (spec
+/// 2026-11-08-contact-sync). Accepted only from an own device.
+const ownSyncTypes = {
+  contactSyncType,
+  contactSyncRequestType,
+  historyTransferType,
+  historyTransferDoneType,
+};
 
 /// Longest quote kept in a `replyTo` preview.
 const maxReplyPreview = 140;
@@ -104,7 +116,17 @@ class MessageInboxService {
   final _persisted = StreamController<Message>.broadcast();
   final _reactions = StreamController<AppliedReaction>.broadcast();
   final _errors = StreamController<Object>.broadcast();
+  final _contactsChanged = StreamController<void>.broadcast();
+  final _ownControls = StreamController<OwnControlMessage>.broadcast();
   Stream<Message> get persistedMessages => _persisted.stream;
+
+  /// A `contact-sync` from an own device changed contacts or conversation
+  /// headers (already written).
+  Stream<void> get contactsChanged => _contactsChanged.stream;
+
+  /// Own-device control messages other services act on (a snapshot
+  /// request, history transfer). Emitted after the transaction committed.
+  Stream<OwnControlMessage> get ownControls => _ownControls.stream;
 
   /// Reactions of OTHER people (and our other devices) just applied; feeds
   /// the local notification. Never carries a message row: a reaction is
@@ -201,6 +223,8 @@ class MessageInboxService {
       // Current membership can differ after an offline recipient reconnects.
       Message? inserted;
       AppliedReaction? reacted;
+      OwnControlMessage? ownControl;
+      var contactsChanged = false;
       await _db.transaction(() async {
         final envelope = utf8.decode(
           base64Decode(data['encryptedBody'] as String),
@@ -242,7 +266,8 @@ class MessageInboxService {
             type != 'edit' &&
             type != reactionType &&
             type != pinType &&
-            type != pollVoteType) {
+            type != pollVoteType &&
+            !ownSyncTypes.contains(type)) {
           throw const FormatException('Unsupported message type');
         }
         var body = payload['body'] as String;
@@ -288,6 +313,42 @@ class MessageInboxService {
           return;
         }
         final conversationId = route.conversationId;
+        // Spec 2026-11-08-contact-sync: only a device of OUR identity may
+        // sync; anything else is acked and dropped. Never a row, never
+        // unread, remembered by the same `control:` marker.
+        if (ownSyncTypes.contains(type)) {
+          if (route.own && groupId == null) {
+            await _db
+                .into(_db.backupState)
+                .insertOnConflictUpdate(
+                  BackupStateCompanion.insert(
+                    key: '$ownSyncSeenPrefix${senderId.toLowerCase()}',
+                    value: '1',
+                  ),
+                );
+            if (type == contactSyncType) {
+              final sync = ContactSyncPayload.decode(body);
+              if (sync != null) {
+                contactsChanged = await applyContactSync(_db, sync);
+              }
+            } else {
+              ownControl = OwnControlMessage(
+                type: type,
+                body: body,
+                senderDeviceId: senderId.toLowerCase(),
+              );
+            }
+          }
+          await _db
+              .into(_db.backupState)
+              .insert(
+                BackupStateCompanion.insert(
+                  key: 'control:$messageId',
+                  value: '1',
+                ),
+              );
+          return;
+        }
         // Control messages never create a row and never touch unreadCount.
         // Legitimate or not, each is acked and remembered by a `control:`
         // marker, so a redelivery is a no-op.
@@ -438,6 +499,8 @@ class MessageInboxService {
       await _sessionManager.finalizePreKeyCleanup();
       if (inserted != null) _persisted.add(inserted!);
       if (reacted != null) _reactions.add(reacted!);
+      if (contactsChanged) _contactsChanged.add(null);
+      if (ownControl != null) _ownControls.add(ownControl!);
       await _acknowledge?.call(senderId, messageId);
     } catch (error) {
       // Leave failures queued on the server; never report corrupt ciphertext as delivered.
@@ -699,5 +762,7 @@ class MessageInboxService {
     await _persisted.close();
     await _reactions.close();
     await _errors.close();
+    await _contactsChanged.close();
+    await _ownControls.close();
   }
 }

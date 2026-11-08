@@ -19,8 +19,11 @@ import 'features/calls/call_event_sender.dart';
 import 'features/channels/channels_controller.dart';
 import 'features/chat/message_inbox_service.dart';
 import 'features/chat_list/chat_list_controller.dart';
+import 'features/contacts/contact_sync.dart';
 import 'features/contacts/contacts_controller.dart';
 import 'features/devices/device_service.dart';
+import 'features/devices/history_transfer.dart';
+import 'features/devices/own_device_sender.dart';
 import 'features/media/media_service.dart';
 import 'features/media/media_store.dart';
 import 'features/mute/mute_controller.dart';
@@ -122,6 +125,30 @@ void main() async {
     acknowledge: signalRClient.acknowledgeMessage,
   );
   inbox.start();
+
+  // Contact sync and history transfer between own devices (spec
+  // 2026-11-08-contact-sync): app-wide like the inbox, so a snapshot request
+  // or a transfer key is handled whatever screen is open.
+  final ownDevices = OwnDeviceSender(
+    database: db,
+    signalRClient: signalRClient,
+    sessionManager: sessionManager,
+    apiClient: apiClient,
+    directory: () => devices.directory,
+  );
+  final contactSync = ContactSyncService(
+    database: db,
+    sender: ownDevices,
+    directory: () => devices.directory,
+    controls: inbox.ownControls,
+    linkEvents: devices.ownLinkEvents,
+  )..start();
+  final historyTransfer = HistoryTransferService(
+    database: db,
+    sender: ownDevices,
+    directory: () => devices.directory,
+    controls: inbox.ownControls,
+  )..start();
 
   // H2: archives every business call as a `call-event` group message as
   // soon as it ends, whether or not that conversation's chat screen is open
@@ -229,6 +256,10 @@ void main() async {
       // A DeviceListChanged hint sent while this device was offline is lost,
       // so a (re)connect re-checks the own list (cheap no-op when unlinked).
       if (devices.isOpen) unawaited(devices.checkOwnList());
+      // Own-device sync messages that failed while offline.
+      if (devices.isOpen) {
+        unawaited(ownDevices.resendPending().catchError((Object _) {}));
+      }
       // A connect is the first moment the device is surely registered (also
       // right after onboarding), and after an outage the chat list may have
       // loaded while GET /mutes failed; one cheap re-read per transition.
@@ -259,6 +290,8 @@ void main() async {
         Provider.value(value: keyManager),
         Provider.value(value: sessionManager),
         Provider.value(value: inbox),
+        Provider.value(value: contactSync),
+        ChangeNotifierProvider.value(value: historyTransfer),
 
         // -- Network providers (ChangeNotifier-based) -----------------------
         // SignalR and WebRTC are ChangeNotifiers so UI can react to
@@ -273,7 +306,14 @@ void main() async {
         // chat screen updates chat list timestamps).
         ChangeNotifierProvider(create: (_) => ChatListController(database: db)),
         ChangeNotifierProvider(
-          create: (_) => ContactsController(database: db, apiClient: apiClient),
+          create: (_) => ContactsController(
+            database: db,
+            apiClient: apiClient,
+            onLocalChange: (deviceId) async {
+              if (devices.isOpen) await contactSync.contactChanged(deviceId);
+            },
+            remoteChanges: inbox.contactsChanged,
+          ),
         ),
         ChangeNotifierProvider.value(value: channels),
         ChangeNotifierProvider.value(value: mutes),

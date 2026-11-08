@@ -1,11 +1,24 @@
 import 'dart:convert';
 import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:drift/drift.dart';
+import 'package:calltype_core/messaging/contact_sync.dart';
+
 import '../../core/storage/database.dart';
+import '../contacts/contact_sync.dart';
 import '../chat/polls.dart';
 import '../chat/reactions.dart';
 
-Future<void> importBackup(AppDatabase db, dynamic input) async {
+/// Imports a backup JSON: insert-or-ignore, so rows already here stay.
+///
+/// [mergeContacts] (history transfer between own devices, spec
+/// 2026-11-08-contact-sync): contacts go through the contact-sync rule
+/// instead (last writer wins on the name), so an archive cannot undo a
+/// newer rename on this device.
+Future<void> importBackup(
+  AppDatabase db,
+  dynamic input, {
+  bool mergeContacts = false,
+}) async {
   if (input is! Map<String, dynamic> || input['version'] != 1) {
     throw const FormatException('Unsupported backup version.');
   }
@@ -37,6 +50,11 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
           identityKey: base64Decode(c['identityKey'] as String),
           verified: const Value(false),
           addedAt: DateTime.parse(requiredText(c, 'addedAt')),
+          // Older backups have neither key.
+          isBot: Value(c['isBot'] == true),
+          nameChangedAt: Value(
+            c['nameChangedAt'] is int ? c['nameChangedAt'] as int : 0,
+          ),
         ),
       )
       .toList();
@@ -51,6 +69,14 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
       title: Value(c['title'] as String?),
       lastMessageAt: Value(date(c['lastMessageAt'])),
       unreadCount: const Value(0),
+      organizationId: Value(
+        c['organizationId'] is String ? c['organizationId'] as String : null,
+      ),
+      organizationName: Value(
+        c['organizationName'] is String
+            ? c['organizationName'] as String
+            : null,
+      ),
     );
   }).toList();
   final conversationIds = conversations.map((c) => c.id.value).toSet();
@@ -197,6 +223,25 @@ Future<void> importBackup(AppDatabase db, dynamic input) async {
           ),
   ];
   await db.transaction(() async {
+    if (mergeContacts) {
+      // New contacts are inserted below like in a restore; only names of
+      // contacts already here are decided by the sync rule.
+      final existing = {
+        for (final c in await db.select(db.contacts).get()) c.deviceId,
+      };
+      await applySyncedContacts(db, [
+        for (final c in contacts)
+          if (existing.contains(c.deviceId.value))
+            SyncedContact(
+              deviceId: c.deviceId.value,
+              userHandle: c.userHandle.value,
+              displayName: c.displayName.value,
+              isBot: c.isBot.value,
+              addedAt: c.addedAt.value,
+              nameChangedAt: c.nameChangedAt.value,
+            ),
+      ]);
+    }
     await db.batch((batch) {
       batch.insertAll(db.messagePins, pins, mode: InsertMode.insertOrIgnore);
       batch.insertAll(db.pollVotes, votes, mode: InsertMode.insertOrIgnore);

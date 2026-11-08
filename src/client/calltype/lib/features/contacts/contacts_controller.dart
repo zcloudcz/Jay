@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
@@ -18,10 +20,24 @@ import '../../core/network/api_client.dart';
 /// performs X3DH. This means a contact can exist in the DB before any
 /// cryptographic session is established.
 class ContactsController extends ChangeNotifier {
-  ContactsController({required AppDatabase database, ApiClient? apiClient})
-    : _db = database,
-      _api = apiClient;
+  ContactsController({
+    required AppDatabase database,
+    ApiClient? apiClient,
+    Future<void> Function(String deviceId)? onLocalChange,
+    Stream<void>? remoteChanges,
+  }) : _db = database,
+       _api = apiClient,
+       _onLocalChange = onLocalChange {
+    _remote = remoteChanges?.listen((_) => unawaited(loadContacts()));
+  }
   final ApiClient? _api;
+
+  /// Contact sync (spec 2026-11-08-contact-sync): told the device id of
+  /// every local add or rename, so our other devices get it.
+  final Future<void> Function(String deviceId)? _onLocalChange;
+
+  /// Contacts changed by another own device: reload.
+  StreamSubscription<void>? _remote;
 
   final AppDatabase _db;
 
@@ -48,8 +64,9 @@ class ContactsController extends ChangeNotifier {
   /// Sets the local nickname of a contact; blank/null clears it so the
   /// handle is shown again.
   ///
-  /// Purely local on purpose: it is never sent to the server, so the other
-  /// person's own profile name (and what bots match on) is unaffected.
+  /// Never sent to the server, so the other person's own profile name (and
+  /// what bots match on) is unaffected; it reaches only our own other
+  /// devices, end-to-end encrypted (contact sync).
   Future<void> renameContact(String deviceId, String? name) async {
     final trimmed = name?.trim();
     await (_db.update(_db.contacts)..where((c) => c.deviceId.equals(deviceId)))
@@ -58,9 +75,19 @@ class ContactsController extends ChangeNotifier {
             displayName: Value(
               trimmed == null || trimmed.isEmpty ? null : trimmed,
             ),
+            nameChangedAt: Value(DateTime.now().millisecondsSinceEpoch),
           ),
         );
     await loadContacts();
+    _changed(deviceId);
+  }
+
+  void _changed(String deviceId) {
+    final notify = _onLocalChange;
+    if (notify == null) return;
+    // Best effort and never blocking the UI: a failed sync stays queued in
+    // the own-device outbox and is retried on reconnect.
+    unawaited(notify(deviceId).catchError((Object _) {}));
   }
 
   /// Adds a contact by their human-readable handle (e.g. CT-A1B2-C3D4).
@@ -161,6 +188,13 @@ class ContactsController extends ChangeNotifier {
 
     await _db.into(_db.contacts).insert(companion);
     await loadContacts();
+    _changed(id);
+  }
+
+  @override
+  void dispose() {
+    _remote?.cancel();
+    super.dispose();
   }
 }
 

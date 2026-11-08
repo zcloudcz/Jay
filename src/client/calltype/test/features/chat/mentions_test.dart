@@ -14,6 +14,7 @@ Contact contact(String id, String handle, {String? name, bool bot = false}) =>
       verified: false,
       addedAt: DateTime(2026),
       isBot: bot,
+      nameChangedAt: 0,
     );
 
 void main() {

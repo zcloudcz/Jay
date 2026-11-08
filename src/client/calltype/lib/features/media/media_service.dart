@@ -509,6 +509,10 @@ class MediaService extends ChangeNotifier {
   Future<Uint8List?> bytesOf(MediaInfo info) =>
       store.readBytes(info.id, info.name);
 
+  /// Withdraws a finished upload from the relay before its retention ends
+  /// (the history transfer target confirmed the import). Best effort.
+  Future<void> deleteRemote(String mediaId) => _remote.delete(mediaId);
+
   static bool _sameBytes(List<int> a, List<int> b) {
     if (a.length != b.length) return false;
     var diff = 0;

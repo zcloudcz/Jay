@@ -1693,5 +1693,173 @@
   "pollVoteFailed": "Could not send your vote.",
   "@pollVoteFailed": {
     "description": "Snackbar when a poll vote could not be sent."
+  },
+  "devicesSyncContacts": "Sync contacts now",
+  "@devicesSyncContacts": {
+    "description": "Settings > Linked devices: tile that sends all contacts and chat names to the user's other devices."
+  },
+  "devicesSyncContactsSubtitle": "Send your contacts and chat names to your other devices",
+  "@devicesSyncContactsSubtitle": {
+    "description": "Subtitle of the 'Sync contacts now' tile."
+  },
+  "devicesSyncContactsSent": "Contacts sent to your other devices.",
+  "@devicesSyncContactsSent": {
+    "description": "Snackbar after the contacts were sent to the user's other devices."
+  },
+  "devicesSyncContactsNoDevices": "You have no other linked device.",
+  "@devicesSyncContactsNoDevices": {
+    "description": "Snackbar when 'Sync contacts now' is used without any other linked device."
+  },
+  "devicesSyncContactsFailed": "Could not send your contacts. Try again later.",
+  "@devicesSyncContactsFailed": {
+    "description": "Snackbar when the contacts could not be sent (network)."
+  },
+  "devicesSyncUpdateHint": "Contacts sent. If a device does not show them, update Jay on all your devices.",
+  "@devicesSyncUpdateHint": {
+    "description": "Snackbar after a sync when one of the user's devices never answered (probably an old app version)."
+  },
+  "historyReceiveAction": "Transfer messages from another device",
+  "@historyReceiveAction": {
+    "description": "Settings > Linked devices: tile on the device that should RECEIVE old messages from another of the user's devices."
+  },
+  "historySendAction": "Send my messages to another device",
+  "@historySendAction": {
+    "description": "Settings > Linked devices: tile on the device that HAS the messages and sends them to another of the user's devices."
+  },
+  "historyReceiveTitle": "Receive messages",
+  "@historyReceiveTitle": {
+    "description": "App bar title of the screen that shows the transfer code on the receiving device."
+  },
+  "historyReceiveInstructions": "On the device that has your messages, open Linked devices > \"Send my messages to another device\" and scan this code.",
+  "@historyReceiveInstructions": {
+    "description": "Instructions under the QR code on the receiving device. 'Linked devices' and the quoted action must match the tile names."
+  },
+  "historyTextCodeHint": "No camera there? Copy this code and paste it on the other device:",
+  "@historyTextCodeHint": {
+    "description": "Above the copyable text version of the transfer code, for devices without a camera (web, Windows, Linux)."
+  },
+  "historyCopyCode": "Copy code",
+  "@historyCopyCode": {
+    "description": "Button that copies the transfer code to the clipboard."
+  },
+  "historyCodeCopied": "Code copied",
+  "@historyCodeCopied": {
+    "description": "Snackbar after the transfer code was copied."
+  },
+  "historySendTitle": "Send messages",
+  "@historySendTitle": {
+    "description": "App bar title of the screen on the device that sends its messages."
+  },
+  "historySendInstructions": "Scan the code shown on the device that should receive your messages, or paste its text code.",
+  "@historySendInstructions": {
+    "description": "Instructions on the sending device before a code was scanned or pasted."
+  },
+  "historyScanCode": "Scan code",
+  "@historyScanCode": {
+    "description": "Button that opens the camera to scan the transfer code."
+  },
+  "historyPasteLabel": "Text code",
+  "@historyPasteLabel": {
+    "description": "Label of the text field where the transfer code can be pasted."
+  },
+  "historyContinue": "Continue",
+  "@historyContinue": {
+    "description": "Button after a code was pasted."
+  },
+  "historyScanHint": "Scan the code on your other device",
+  "@historyScanHint": {
+    "description": "Hint over the camera preview while scanning a transfer code."
+  },
+  "historyConfirm": "Chats: {chats}, about {size} MB. Transfer them to {device}?",
+  "@historyConfirm": {
+    "description": "Confirmation before sending the message history. {chats} = number of chats, {size} = archive size in MB, {device} = target device label like 'Device 1a2b3c4d'.",
+    "placeholders": {
+      "chats": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
+      },
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "historyTransferButton": "Transfer",
+  "@historyTransferButton": {
+    "description": "Confirm button that starts the transfer."
+  },
+  "historyPreparing": "Preparing your messages…",
+  "@historyPreparing": {
+    "description": "Progress text while the archive is built."
+  },
+  "historyUploading": "Sending your messages…",
+  "@historyUploading": {
+    "description": "Progress text while the encrypted archive is uploaded."
+  },
+  "historyWaitingForTarget": "Waiting for the other device to import them…",
+  "@historyWaitingForTarget": {
+    "description": "Shown on the sending device after upload, until the other device confirms the import."
+  },
+  "historyDownloading": "Receiving messages…",
+  "@historyDownloading": {
+    "description": "Progress text while the receiving device downloads the archive."
+  },
+  "historyImporting": "Importing messages…",
+  "@historyImporting": {
+    "description": "Progress text while the receiving device imports the messages."
+  },
+  "historyReceivedDone": "Done. Messages transferred: {count}.",
+  "@historyReceivedDone": {
+    "description": "Success on the receiving device. {count} = number of messages in the transfer.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "historySentDone": "Your messages were transferred.",
+  "@historySentDone": {
+    "description": "Success on the sending device."
+  },
+  "historyTryAgain": "Try again",
+  "@historyTryAgain": {
+    "description": "Button after a failed transfer."
+  },
+  "historyErrorInvalidCode": "This is not a message transfer code.",
+  "@historyErrorInvalidCode": {
+    "description": "Error: the scanned or pasted text is not a transfer code."
+  },
+  "historyErrorNotOwnDevice": "This code belongs to a device that is not linked to your account.",
+  "@historyErrorNotOwnDevice": {
+    "description": "Error: the code belongs to a device that is not in the user's verified device list."
+  },
+  "historyErrorTooLarge": "Your history is too large to transfer in one go.",
+  "@historyErrorTooLarge": {
+    "description": "Error: the history is above the size limit of one transfer."
+  },
+  "historyErrorWrongKey": "This transfer was not made for this code. Show a new code and try again.",
+  "@historyErrorWrongKey": {
+    "description": "Error on the receiving device: the transfer was encrypted for another code."
+  },
+  "historyErrorDamaged": "The received data is damaged. Try again with a new code.",
+  "@historyErrorDamaged": {
+    "description": "Error: the downloaded archive failed the integrity check."
+  },
+  "historyErrorExpired": "The transferred data is no longer available. Try again.",
+  "@historyErrorExpired": {
+    "description": "Error: the archive is no longer on the server."
+  },
+  "historyErrorImportFailed": "The messages could not be imported.",
+  "@historyErrorImportFailed": {
+    "description": "Error: the archive could not be read or imported."
+  },
+  "historyErrorTimeout": "The code expired. Show a new one.",
+  "@historyErrorTimeout": {
+    "description": "Error: the code was shown for more than 15 minutes."
+  },
+  "historyErrorNetwork": "The transfer failed. Check your connection and try again.",
+  "@historyErrorNetwork": {
+    "description": "Error: upload, download or key delivery failed."
   }
 }

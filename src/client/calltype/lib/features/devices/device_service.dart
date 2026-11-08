@@ -47,6 +47,16 @@ const companionOfKey = 'companion_of';
 /// exist, waiting for the user's decision (see [DeviceService.reportVanishedCompanions]).
 const vanishedCompanionsKey = 'vanished_companions';
 
+/// A change of this identity's own device list that contact sync acts on
+/// (spec 2026-11-08-contact-sync).
+enum OwnLinkEvent {
+  /// This primary's verified list gained at least one companion.
+  companionsAdded,
+
+  /// This device just became a companion.
+  becameCompanion,
+}
+
 /// [DeviceService.resetForLinking] refused: this device is a companion, or a
 /// primary that has companions of its own.
 class LinkResetRefused implements Exception {
@@ -86,6 +96,10 @@ class DeviceService extends ChangeNotifier {
   String? _pendingPrimary;
   bool _disposed = false;
   Set<String> _vanished = {};
+  final _ownLinks = StreamController<OwnLinkEvent>.broadcast();
+
+  /// See [OwnLinkEvent].
+  Stream<OwnLinkEvent> get ownLinkEvents => _ownLinks.stream;
 
   bool get isOpen => _directory != null;
 
@@ -206,6 +220,7 @@ class DeviceService extends ChangeNotifier {
       _pendingPrimary = null;
       await _setCompanionMarker(change.identityId);
       _setStatus(CompanionStatus.ok);
+      _emit(OwnLinkEvent.becameCompanion);
       return;
     }
     // Our own identity (as primary or as companion): screens re-read, but no
@@ -213,6 +228,9 @@ class DeviceService extends ChangeNotifier {
     if (change.identityId == directory.selfIdentityId) {
       await _pruneVanished();
       _notify();
+      if (!directory.isCompanion && change.added.isNotEmpty) {
+        _emit(OwnLinkEvent.companionsAdded);
+      }
       return;
     }
     // A FIRST list counts too: the first new reader of an existing
@@ -300,6 +318,7 @@ class DeviceService extends ChangeNotifier {
       await (_db.delete(_db.backupState)..where(
             (s) =>
                 s.key.like('outbox:%') |
+                s.key.like('ownsync:%') |
                 s.key.like('control:%') |
                 s.key.equals(companionOfKey) |
                 s.key.equals(linkedPrimaryHandleKey),
@@ -338,6 +357,7 @@ class DeviceService extends ChangeNotifier {
         await (_db.delete(_db.backupState)..where(
               (s) =>
                   s.key.like('outbox:%') |
+                  s.key.like('ownsync:%') |
                   s.key.like('control:%') |
                   s.key.equals(companionOfKey) |
                   s.key.equals(linkedPrimaryHandleKey) |
@@ -529,11 +549,16 @@ class DeviceService extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
+  void _emit(OwnLinkEvent event) {
+    if (!_ownLinks.isClosed) _ownLinks.add(event);
+  }
+
   @override
   void dispose() {
     _disposed = true;
     _changes?.cancel();
     _hints?.cancel();
+    _ownLinks.close();
     super.dispose();
   }
 }

@@ -1,3 +1,5 @@
+import 'package:calltype_core/messaging/history_transfer.dart'
+    show HistoryTransferCode;
 import 'package:calltype_core/network/channel_dtos.dart' show parseChannelLink;
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -23,13 +25,21 @@ import 'bot_link.dart';
 /// automatically paused when a valid code is found to prevent duplicate
 /// processing of the same QR code.
 class QrScannerScreen extends StatefulWidget {
-  const QrScannerScreen({super.key, this.deviceLink = false});
+  const QrScannerScreen({
+    super.key,
+    this.deviceLink = false,
+    this.historyTransfer = false,
+  });
 
   /// Multi-device "Link a device": accept ONLY `jaylink://` codes, returned
   /// as {'link': raw}. The contact mode never accepts them (and this mode
   /// accepts no contact invites), so neither scan can be mistaken for the
   /// other.
   final bool deviceLink;
+
+  /// History transfer between own devices: accept ONLY
+  /// `calltype://history-transfer` codes, returned as {'history': raw}.
+  final bool historyTransfer;
 
   @override
   State<QrScannerScreen> createState() => _QrScannerScreenState();
@@ -71,7 +81,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
                   borderRadius: BorderRadius.circular(24),
                 ),
                 child: Text(
-                  widget.deviceLink
+                  widget.historyTransfer
+                      ? context.l10n.historyScanHint
+                      : widget.deviceLink
                       ? context.l10n.devicesScanHint
                       : context.l10n.qrScanHint,
                   style: theme.textTheme.bodyMedium?.copyWith(
@@ -98,7 +110,9 @@ class _QrScannerScreenState extends State<QrScannerScreen> {
       final raw = barcode.rawValue;
       if (raw == null) continue;
 
-      final result = widget.deviceLink
+      final result = widget.historyTransfer
+          ? (HistoryTransferCode.parse(raw) == null ? null : {'history': raw})
+          : widget.deviceLink
           ? (LinkCode.parse(raw) == null ? null : {'link': raw})
           : _parseContactUri(raw);
       if (result != null) {
