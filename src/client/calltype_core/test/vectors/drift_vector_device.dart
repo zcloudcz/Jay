@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/storage/database.dart';
+import 'package:calltype_core/storage/drift_protocol_store.dart';
 import 'package:drift/native.dart';
 
 import 'vector_scenario.dart' show StateReader;
@@ -21,7 +22,7 @@ Future<({SessionManager sessions, StateReader readState})> driftVectorDevice(
   }
 
   return (
-    sessions: SessionManager(database: db, keyManager: keys),
+    sessions: SessionManager(store: DriftProtocolStore(db), keyManager: keys),
     readState: read,
   );
 }

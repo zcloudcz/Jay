@@ -1,10 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:crypto/crypto.dart';
 
-import 'package:drift/drift.dart';
-
-import '../storage/database.dart';
 import 'key_manager.dart';
+import 'protocol_store.dart';
 import 'signal_protocol.dart';
 
 /// Manages E2E encrypted sessions for pairwise (1:1) messaging using the
@@ -42,21 +42,29 @@ import 'signal_protocol.dart';
 ///
 /// ## Wire format
 ///
-/// Envelopes are JSON (the caller base64-encodes for transport):
+/// Envelopes are JSON (the caller base64-encodes for transport), version 2
+/// with a session id; the full field list and the AAD layout are in
+/// docs/protocol/envelope.md:
 /// ```json
-/// { "v": 1, "t": "pk" | "m",
-///   "ik": "...", "ek": "...", "pkid": 3,   // pre-key messages only
+/// { "v": 2, "sid": "<64 hex>", "t": "pk" | "m",
+///   "identityBundle": {...}, "ik": "...", "ek": "...", "pkid": 3,
+///                                           // pre-key messages only
 ///   "rk": "...", "pn": 0, "n": 0,           // Double Ratchet header
 ///   "c": "..." }                             // base64 ciphertext
 /// ```
+///
+/// ## Storage
+///
+/// All state goes through one [ProtocolStore] (sessions, identity pins,
+/// one-time pre-key markers). The class itself knows no database, so the
+/// ratchet runs over `MemoryProtocolStore` in tests and over the drift
+/// schema in the client (`DriftProtocolStore` in calltype_core).
 class SessionManager {
-  SessionManager({
-    required AppDatabase database,
-    required KeyManager keyManager,
-  }) : _db = database,
-       _keyManager = keyManager;
+  SessionManager({required ProtocolStore store, required KeyManager keyManager})
+    : _store = store,
+      _keyManager = keyManager;
 
-  final AppDatabase _db;
+  final ProtocolStore _store;
   final KeyManager _keyManager;
 
   /// Maximum number of message keys to skip within one chain. Bounds the
@@ -182,7 +190,7 @@ class SessionManager {
       },
     };
 
-    await _db.transaction(() async {
+    await _store.transaction(() async {
       await _pinPeerIdentity(peerDeviceId, keyBundle);
       await _saveSession(peerDeviceId, state);
     });
@@ -355,7 +363,7 @@ class SessionManager {
     // the regular case clears it on the initiator side).
     state['pending'] = null;
 
-    await _db.transaction(() async {
+    await _store.transaction(() async {
       if (establishing) {
         await _pinPeerIdentity(
           peerDeviceId,
@@ -364,14 +372,7 @@ class SessionManager {
       }
       await _saveSession(peerDeviceId, state!);
       if (establishing && envelope['pkid'] is int) {
-        await _db
-            .into(_db.backupState)
-            .insertOnConflictUpdate(
-              BackupStateCompanion.insert(
-                key: 'consumed_prekey:${envelope['pkid']}',
-                value: peerDeviceId,
-              ),
-            );
+        await _store.markPreKeyConsumed(envelope['pkid'] as int, peerDeviceId);
       }
     });
     if (establishing && !deferPreKeyCleanup) await finalizePreKeyCleanup();
@@ -383,21 +384,17 @@ class SessionManager {
     Map<String, dynamic> bundle,
   ) async {
     await KeyManager.verifyIdentityBundle(bundle);
-    final known = await (_db.select(
-      _db.backupState,
-    )..where((r) => r.key.equals('peer_identity:$peer'))).getSingleOrNull();
+    final known = await _store.pinnedIdentity(peer);
     final fingerprint = '${bundle['identityKey']}|${bundle['signingKey']}';
-    if (known != null && known.value != fingerprint) {
+    if (known != null && known != fingerprint) {
       throw StateError(
         'Contact identity changed. Verify the contact before starting a new session.',
       );
     }
-    final contact = await (_db.select(
-      _db.contacts,
-    )..where((r) => r.deviceId.equals(peer))).getSingleOrNull();
-    if (contact != null &&
-        contact.identityKey.isNotEmpty &&
-        base64Encode(contact.identityKey) != bundle['identityKey']) {
+    final contactKey = await _store.contactIdentityKey(peer);
+    if (contactKey != null &&
+        contactKey.isNotEmpty &&
+        base64Encode(contactKey) != bundle['identityKey']) {
       throw StateError('Contact identity does not match the stored key.');
     }
   }
@@ -407,33 +404,21 @@ class SessionManager {
     Map<String, dynamic> bundle,
   ) async {
     await _verifyPeerIdentity(peer, bundle);
-    await (_db.update(
-      _db.contacts,
-    )..where((row) => row.deviceId.equals(peer))).write(
-      ContactsCompanion(
-        identityKey: Value(base64Decode(bundle['identityKey'] as String)),
-      ),
+    await _store.setContactIdentityKey(
+      peer,
+      base64Decode(bundle['identityKey'] as String),
     );
-    await _db
-        .into(_db.backupState)
-        .insertOnConflictUpdate(
-          BackupStateCompanion.insert(
-            key: 'peer_identity:$peer',
-            value: '${bundle['identityKey']}|${bundle['signingKey']}',
-          ),
-        );
+    await _store.pinIdentity(
+      peer,
+      '${bundle['identityKey']}|${bundle['signingKey']}',
+    );
   }
 
   /// Call after the inbox transaction commits. A crash leaves a durable
   /// consumption marker, so retry can finish erasing secure key material.
   Future<void> finalizePreKeyCleanup() async {
-    final rows = await (_db.select(
-      _db.backupState,
-    )..where((row) => row.key.like('consumed_prekey:%'))).get();
-    for (final row in rows) {
-      await _keyManager.consumeOneTimePreKey(
-        int.parse(row.key.split(':').last),
-      );
+    for (final id in await _store.consumedPreKeyIds()) {
+      await _keyManager.consumeOneTimePreKey(id);
     }
   }
 
@@ -473,13 +458,10 @@ class SessionManager {
 
     final preKeyId = envelope['pkid'] as int?;
     if (preKeyId != null) {
-      final consumed =
-          await (_db.select(_db.backupState)
-                ..where((row) => row.key.equals('consumed_prekey:$preKeyId')))
-              .getSingleOrNull();
-      final otkPriv = consumed == null
-          ? await _keyManager.peekOneTimePreKey(preKeyId)
-          : null;
+      final consumed = await _store.isPreKeyConsumed(preKeyId);
+      final otkPriv = consumed
+          ? null
+          : await _keyManager.peekOneTimePreKey(preKeyId);
       if (otkPriv == null) {
         // Already consumed (or never existed) — likely a replayed initial
         // message. Refusing to proceed is exactly the protection one-time
@@ -659,18 +641,13 @@ class SessionManager {
     return session != null;
   }
 
-  // Session state is stored in the SignalSessions table as a JSON blob in the
-  // sessionData column (typed as Uint8List/blob in Drift). The address column
-  // is the peer's device ID.
+  // Session state is stored as a UTF-8 JSON blob per address: the active
+  // session under the peer's device id, archives under `<peer>:<sid>`.
 
-  Future<Map<String, dynamic>?> _loadSession(String peerDeviceId) async {
-    final query = _db.select(_db.signalSessions)
-      ..where((s) => s.address.equals(peerDeviceId));
-    final result = await query.getSingleOrNull();
-    if (result == null) return null;
-
-    final jsonString = utf8.decode(result.sessionData);
-    return jsonDecode(jsonString) as Map<String, dynamic>;
+  Future<Map<String, dynamic>?> _loadSession(String address) async {
+    final data = await _store.loadSession(address);
+    if (data == null) return null;
+    return jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
   }
 
   Future<void> _saveSession(
@@ -684,33 +661,17 @@ class SessionManager {
     final jsonBytes = Uint8List.fromList(utf8.encode(jsonEncode(sessionState)));
 
     final sid = sessionState['sid'] as String;
-    await _db.transaction(() async {
-      await _db
-          .into(_db.signalSessions)
-          .insertOnConflictUpdate(
-            SignalSessionsCompanion.insert(
-              address: '$peerDeviceId:$sid',
-              sessionData: jsonBytes,
-            ),
-          );
+    await _store.transaction(() async {
+      await _store.saveSession('$peerDeviceId:$sid', jsonBytes);
       final active = await _loadSession(peerDeviceId);
       final activeId = active?['sid'] as String?;
       if (activeId == null || sid.compareTo(activeId) <= 0) {
-        await _db
-            .into(_db.signalSessions)
-            .insertOnConflictUpdate(
-              SignalSessionsCompanion.insert(
-                address: peerDeviceId,
-                sessionData: jsonBytes,
-              ),
-            );
+        await _store.saveSession(peerDeviceId, jsonBytes);
       }
       final chosenId = activeId == null || sid.compareTo(activeId) <= 0
           ? sid
           : activeId;
-      final archives = await (_db.select(
-        _db.signalSessions,
-      )..where((row) => row.address.like('$peerDeviceId:%'))).get();
+      final archives = await _store.listSessions('$peerDeviceId:');
       if (archives.length > 16) {
         final candidates = archives
             .where(
@@ -719,8 +680,8 @@ class SessionManager {
                   row.address != '$peerDeviceId:$sid',
             )
             .toList();
-        String established(SignalSession row) =>
-            (jsonDecode(utf8.decode(row.sessionData))
+        String established(({String address, Uint8List data}) row) =>
+            (jsonDecode(utf8.decode(row.data))
                     as Map<String, dynamic>)['establishedAt']
                 as String? ??
             '';
@@ -729,9 +690,7 @@ class SessionManager {
             .take(archives.length - 16)
             .map((row) => row.address)
             .toList();
-        await (_db.delete(
-          _db.signalSessions,
-        )..where((row) => row.address.isIn(expired))).go();
+        await _store.deleteSessions(expired);
       }
     });
   }

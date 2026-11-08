@@ -11,6 +11,7 @@ import 'package:calltype_core/auth/auth_service.dart';
 import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/network/api_client.dart';
+import 'package:calltype_core/storage/drift_protocol_store.dart';
 import 'core/network/signalr_client.dart';
 import 'core/network/webrtc_manager.dart';
 import 'core/storage/database.dart';
@@ -89,7 +90,10 @@ void main() async {
   // storage (identity + pre-keys), SessionManager owns Double Ratchet session
   // state in the local DB. Both are needed by every chat screen.
   final keyManager = KeyManager(secureStorage: secureStorage);
-  final sessionManager = SessionManager(database: db, keyManager: keyManager);
+  final sessionManager = SessionManager(
+    store: DriftProtocolStore(db),
+    keyManager: keyManager,
+  );
 
   // Multi-device: owns the verified device lists, the companion state and the
   // device's own list. Opened before the inbox can see a message: routing

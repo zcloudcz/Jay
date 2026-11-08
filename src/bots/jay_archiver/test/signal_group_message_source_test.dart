@@ -5,6 +5,7 @@ import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/network/signalr_client.dart';
 import 'package:calltype_core/storage/database.dart';
 import 'package:calltype_core/storage/secret_store.dart';
+import 'package:calltype_core/storage/drift_protocol_store.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:drift/native.dart';
 import 'package:jay_archiver/jay_archiver.dart';
@@ -35,7 +36,7 @@ void main() {
     hub = FakeHub();
     final db = AppDatabase(NativeDatabase.memory());
     archiverKeys = KeyManager(secureStorage: _MemoryStore());
-    archiverSessions = SessionManager(database: db, keyManager: archiverKeys);
+    archiverSessions = SessionManager(store: DriftProtocolStore(db), keyManager: archiverKeys);
     signalR = SignalRClient(
       baseUrl: 'http://unused',
       deviceId: 'archiver',

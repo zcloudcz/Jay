@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:calltype_bot/calltype_bot.dart';
 import 'package:calltype_core/crypto/device_list.dart';
 import 'package:calltype_core/crypto/key_manager.dart';
+import 'package:calltype_core/storage/database.dart';
+import 'package:drift/drift.dart' hide isNull, isNotNull;
+import 'package:drift/native.dart';
 import 'package:test/test.dart';
 
 import 'helpers.dart';
@@ -234,6 +238,49 @@ void main() {
     await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
 
     expect(hub.calls('AcknowledgeMessage').map((a) => a[1]), isNot(contains('garbage')));
+  });
+
+  test('crash between ratchet step and seen-row insert: no advance, no duplicate', () async {
+    // The bot wraps decryptMessage and its seen-row insert in ONE drift
+    // transaction, and SessionManager's own transaction (through
+    // DriftProtocolStore) joins it. A failing insert must therefore roll back
+    // the ratchet step too: the message stays unacked and is handled exactly
+    // once when it is delivered again.
+    driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
+    final bot = await startBot();
+    final handled = <String>[];
+    await bot.onMessage((msg) async => handled.add(msg.text));
+    hub.deliver(await alice.messageTo(bot.deviceId, api.botBundle, 'setup'));
+    await until(() => hub.calls('AcknowledgeMessage').length == 1);
+
+    // A second connection to the bot's database injects the crash.
+    final side = AppDatabase(NativeDatabase(File('${dir.path}/bot.store.sqlite')));
+    addTearDown(side.close);
+    Future<List<String>> sessions() async => [
+      for (final r in await (side.select(side.signalSessions)
+            ..orderBy([(s) => OrderingTerm.asc(s.address)]))
+          .get())
+        '${r.address}=${base64Encode(r.sessionData)}',
+    ];
+    final before = await sessions();
+    await side.customStatement(
+      "CREATE TRIGGER crash_seen BEFORE INSERT ON messages "
+      "BEGIN SELECT RAISE(ABORT, 'simulated crash'); END",
+    );
+
+    final delivery = await alice.messageTo(bot.deviceId, api.botBundle, 'crash');
+    hub.deliver(delivery);
+    await until(() => logs.any((l) => l.contains('simulated crash')));
+    expect(await sessions(), before, reason: 'the ratchet must not advance');
+    expect(hub.calls('AcknowledgeMessage'), hasLength(1));
+    expect(handled, ['setup']);
+
+    await side.customStatement('DROP TRIGGER crash_seen');
+    hub.deliver(delivery);
+    await until(() => hub.calls('AcknowledgeMessage').length == 2);
+    hub.deliver(delivery);
+    await until(() => hub.calls('AcknowledgeMessage').length == 3);
+    expect(handled, ['setup', 'crash']);
   });
 
   test('deviceIdForHandle resolves known handles, null otherwise', () async {

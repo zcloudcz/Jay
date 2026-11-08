@@ -13,6 +13,7 @@ import 'package:calltype/features/contacts/contacts_controller.dart';
 import 'package:calltype/features/contacts/contacts_screen.dart';
 import 'package:calltype/shared/widgets/bot_badge.dart';
 import 'package:calltype_core/devices/device_directory.dart';
+import 'package:calltype_core/storage/drift_protocol_store.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -111,7 +112,10 @@ void main() {
     final db = AppDatabase.forTesting(NativeDatabase.memory());
     final signal = SignalRClient(baseUrl: 'http://unused', deviceId: 'me');
     final keys = KeyManager(secureStorage: InMemorySecureStorage());
-    final sessions = SessionManager(database: db, keyManager: keys);
+    final sessions = SessionManager(
+      store: DriftProtocolStore(db),
+      keyManager: keys,
+    );
     final directory = DeviceDirectory(
       database: db,
       apiClient: NoDeviceListsApi(),

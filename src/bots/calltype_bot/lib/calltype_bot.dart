@@ -19,6 +19,7 @@ import 'package:calltype_core/network/channel_dtos.dart' show parseErrorCode;
 import 'package:calltype_core/network/hub_transport.dart';
 import 'package:calltype_core/network/signalr_client.dart';
 import 'package:calltype_core/storage/database.dart';
+import 'package:calltype_core/storage/drift_protocol_store.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
@@ -494,7 +495,7 @@ class CallTypeBot {
       log('Add it in Jay by handle, or paste this invite: ct://$deviceId/$handle');
     }
 
-    final sessions = SessionManager(database: db, keyManager: keys);
+    final sessions = SessionManager(store: DriftProtocolStore(db), keyManager: keys);
     final directory = DeviceDirectory(
       database: db,
       apiClient: api,

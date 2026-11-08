@@ -7,6 +7,7 @@ import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/network/hub_transport.dart';
 import 'package:calltype_core/storage/database.dart';
 import 'package:calltype_core/storage/secret_store.dart';
+import 'package:calltype_core/storage/drift_protocol_store.dart';
 import 'package:drift/native.dart';
 
 /// Polls until [condition] holds. A fixed sleep is a guess about how fast the
@@ -51,7 +52,7 @@ class FakeUser {
     return FakeUser._(
       id,
       keys,
-      SessionManager(database: db, keyManager: keys),
+      SessionManager(store: DriftProtocolStore(db), keyManager: keys),
       db,
     );
   }

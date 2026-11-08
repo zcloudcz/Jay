@@ -4,6 +4,7 @@ import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/storage/database.dart';
+import 'package:calltype_core/storage/drift_protocol_store.dart';
 import 'package:calltype/core/storage/secure_storage.dart';
 
 /// A complete simulated device for crypto/messaging tests: in-memory DB,
@@ -44,7 +45,10 @@ class TestDevice {
   ) async {
     final db = AppDatabase.forTesting(NativeDatabase.memory());
     final keys = KeyManager(secureStorage: secureStorage);
-    final sessions = SessionManager(database: db, keyManager: keys);
+    final sessions = SessionManager(
+      store: DriftProtocolStore(db),
+      keyManager: keys,
+    );
     final device = TestDevice._(id, db, secureStorage, keys, sessions);
     // Pre-generate all key material, as onboarding does on a real device.
     await keys.getOrCreateIdentityKeyPair();

@@ -13,10 +13,12 @@ part 'database.g.dart';
 /// SQLite is platform-specific. The Flutter app passes the drift_flutter
 /// executor (see `openAppDatabase` in the app's core/storage/database.dart),
 /// a headless bot passes `NativeDatabase(File(...))`, tests pass
-/// `NativeDatabase.memory()`. This was chosen over a separate SessionStore
-/// interface because SessionManager's queries stay untouched and the bot and
-/// the app share one schema and one migration path. SQLCipher encryption can
-/// be layered in the same way — the table definitions stay the same.
+/// `NativeDatabase.memory()`. The bot and the app share one schema and one
+/// migration path. SessionManager itself does not know this class: it works
+/// on a `ProtocolStore`, implemented over these tables by
+/// `DriftProtocolStore` (same rows and keys as before that split). SQLCipher
+/// encryption can be layered in the same way: the table definitions stay
+/// the same.
 @DriftDatabase(
   tables: [
     Contacts,

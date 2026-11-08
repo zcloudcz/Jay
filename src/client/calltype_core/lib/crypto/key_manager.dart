@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:cryptography/cryptography.dart';
 
-import '../storage/secret_store.dart';
+import 'secret_store.dart';
 import 'signal_protocol.dart';
 
 /// Manages the device's long-lived cryptographic key material:

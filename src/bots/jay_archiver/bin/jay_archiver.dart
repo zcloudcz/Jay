@@ -8,6 +8,7 @@ import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/network/signalr_client.dart';
 import 'package:calltype_core/storage/database.dart';
+import 'package:calltype_core/storage/drift_protocol_store.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:jay_archiver/jay_archiver.dart';
@@ -102,7 +103,7 @@ Future<void> _run(CliOptions opts) async {
   final keys = KeyManager(secureStorage: store);
   final auth = AuthService(secureStorage: store, baseUrl: opts.apiBaseUrl);
   final api = ApiClient(baseUrl: opts.apiBaseUrl, authService: auth);
-  final sessions = SessionManager(database: db, keyManager: keys);
+  final sessions = SessionManager(store: DriftProtocolStore(db), keyManager: keys);
   final signalR = SignalRClient(
     baseUrl: opts.apiBaseUrl,
     deviceId: deviceId,

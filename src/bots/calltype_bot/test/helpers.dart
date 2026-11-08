@@ -8,6 +8,7 @@ import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/network/hub_transport.dart';
 import 'package:calltype_core/storage/database.dart';
 import 'package:calltype_core/storage/secret_store.dart';
+import 'package:calltype_core/storage/drift_protocol_store.dart';
 import 'package:drift/native.dart';
 
 /// 32 zero bytes — a valid BOT_STORE_KEY for tests.
@@ -49,7 +50,7 @@ class FakeUser {
   static Future<FakeUser> create(String id) async {
     final db = AppDatabase(NativeDatabase.memory());
     final keys = KeyManager(secureStorage: _MemoryStore());
-    return FakeUser._(id, keys, SessionManager(database: db, keyManager: keys), db);
+    return FakeUser._(id, keys, SessionManager(store: DriftProtocolStore(db), keyManager: keys), db);
   }
 
   Future<Map<String, dynamic>> keyBundle() async => {

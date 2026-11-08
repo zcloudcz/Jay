@@ -16,6 +16,7 @@ import 'package:calltype_core/network/mfa_api.dart';
 import 'package:calltype_core/network/signalr_client.dart';
 import 'package:calltype_core/storage/database.dart';
 import 'package:calltype_core/storage/secret_store.dart';
+import 'package:calltype_core/storage/drift_protocol_store.dart';
 import 'package:drift/native.dart';
 
 import 'totp.dart';
@@ -91,7 +92,7 @@ class E2eDevice {
       id,
       api,
       keys,
-      SessionManager(database: db, keyManager: keys),
+      SessionManager(store: DriftProtocolStore(db), keyManager: keys),
       SignalRClient(
         baseUrl: baseUrl,
         deviceId: id,

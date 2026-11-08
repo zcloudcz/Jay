@@ -128,6 +128,72 @@ void main() {
       expect(sessionAfter.sessionData, sessionBefore.sessionData);
     },
   );
+  test(
+    'crash between ratchet step and message insert neither advances the '
+    'ratchet nor duplicates the message',
+    () async {
+      // decryptMessage runs inside the inbox's db.transaction and its own
+      // writes (through DriftProtocolStore) join it, so a failing insert
+      // rolls the ratchet step back with it.
+      Future<List<String>> sessions() async => [
+        for (final r
+            in await (bob.db.select(
+              bob.db.signalSessions,
+            )..orderBy([(s) => OrderingTerm.asc(s.address)])).get())
+          '${r.address}=${base64Encode(r.sessionData)}',
+      ];
+      Future<void> crashInserts() => bob.db.customStatement(
+        'CREATE TEMP TRIGGER crash_insert BEFORE INSERT ON messages '
+        "BEGIN SELECT RAISE(ABORT, 'simulated crash'); END",
+      );
+
+      // 1. The very first (pre-key) message: no session may survive the
+      //    crash, and the one-time pre-key is neither marked nor erased.
+      final first = await payload('first');
+      final pkid =
+          (jsonDecode(
+                    utf8.decode(base64Decode(first['encryptedBody'] as String)),
+                  )
+                  as Map<String, dynamic>)['pkid']
+              as int;
+      Future<List<String>> protocolMarkers() async => [
+        for (final r in await bob.db.select(bob.db.backupState).get())
+          if (r.key.startsWith('consumed_prekey:') ||
+              r.key.startsWith('peer_identity:'))
+            r.key,
+      ];
+      await crashInserts();
+      await add(first);
+      expect(await bob.db.select(bob.db.messages).get(), isEmpty);
+      expect(await sessions(), isEmpty);
+      expect(await protocolMarkers(), isEmpty);
+      expect(await bob.keys.peekOneTimePreKey(pkid), isA<String>());
+      expect(acknowledgements, isEmpty);
+      await bob.db.customStatement('DROP TRIGGER crash_insert');
+      await add(first);
+      expect(acknowledgements, [first['messageId']]);
+      expect(await bob.keys.peekOneTimePreKey(pkid), equals(null));
+      expect(await protocolMarkers(), hasLength(2));
+
+      // 2. A later message: the session bytes stay exactly as they were.
+      final second = await payload('second');
+      final before = await sessions();
+      await crashInserts();
+      await add(second);
+      expect(await sessions(), before);
+      expect(acknowledgements, [first['messageId']]);
+      await bob.db.customStatement('DROP TRIGGER crash_insert');
+      await add(second);
+      await add(second);
+      final rows = await bob.db.select(bob.db.messages).get();
+      expect(rows.map((m) => m.body), ['first', 'second']);
+      expect(acknowledgements, [
+        first['messageId'],
+        second['messageId'],
+        second['messageId'],
+      ]);
+    },
+  );
   test('concurrent deliveries serialize ratchet updates', () async {
     final data = await Future.wait([payload('one')]);
     final second = await payload('two');
