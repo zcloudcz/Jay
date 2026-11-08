@@ -90,8 +90,12 @@ public class ChannelPostCleanupServiceTests : IntegrationTestBase
         var container = Factory.Services.GetRequiredService<BlobServiceClient>()
             .GetBlobContainerClient(ChannelPostCleanupService.ContainerName);
         await container.CreateIfNotExistsAsync();
-        await container.UploadBlobAsync("old.jpg", BinaryData.FromBytes([0x01]));
-        await container.UploadBlobAsync("fresh.jpg", BinaryData.FromBytes([0x02]));
+        // Unique names: all tests share one Azurite, so fixed names would
+        // collide with (or be masked by) blobs of another test.
+        var oldName = $"{Guid.NewGuid():N}-old.jpg";
+        var freshName = $"{Guid.NewGuid():N}-fresh.jpg";
+        await container.UploadBlobAsync(oldName, BinaryData.FromBytes([0x01]));
+        await container.UploadBlobAsync(freshName, BinaryData.FromBytes([0x02]));
 
         using (var scope = Factory.Services.CreateScope())
         {
@@ -99,15 +103,15 @@ public class ChannelPostCleanupServiceTests : IntegrationTestBase
             var channelId = await CreateChannelAsync(db);
             db.ChannelPosts.AddRange(
                 // One path with and one without the container prefix — both forms are accepted.
-                Post(channelId, ageDays: 120, blobPath: "channel-media/old.jpg"),
-                Post(channelId, ageDays: 1, blobPath: "fresh.jpg"));
+                Post(channelId, ageDays: 120, blobPath: $"channel-media/{oldName}"),
+                Post(channelId, ageDays: 1, blobPath: freshName));
             await db.SaveChangesAsync();
         }
 
         await Service.RunOnceAsync(CancellationToken.None);
 
-        (await container.GetBlobClient("old.jpg").ExistsAsync()).Value.Should().BeFalse();
-        (await container.GetBlobClient("fresh.jpg").ExistsAsync()).Value.Should().BeTrue();
+        (await container.GetBlobClient(oldName).ExistsAsync()).Value.Should().BeFalse();
+        (await container.GetBlobClient(freshName).ExistsAsync()).Value.Should().BeTrue();
     }
 
     [Fact]
