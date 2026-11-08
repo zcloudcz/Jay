@@ -36,6 +36,14 @@ class SignalProtocol {
 
   static final _rng = Random.secure();
 
+  /// TEST-ONLY seam for deterministic test vectors: when set, every random
+  /// draw of this class (key-pair seeds and AES-GCM nonces) comes from this
+  /// function instead of the secure random source. It must return exactly
+  /// [length] bytes. Production code never sets it, so the default path
+  /// (the `cryptography` package's secure random) and the wire format stay
+  /// exactly as they are. Reset it to null in the test's tearDown.
+  static List<int> Function(int length)? testRandomBytes;
+
   /// Whether the crypto engine is ready. Always true because the `cryptography`
   /// package works without native setup — but kept for API compatibility with
   /// the original placeholder that checked for FFI library loading.
@@ -48,7 +56,10 @@ class SignalProtocol {
   /// The private key is the 32-byte seed; the public key is the 32-byte
   /// Curve25519 point derived from it.
   static Future<Map<String, String>> generateKeyPair() async {
-    final keyPair = await _x25519.newKeyPair();
+    final seeded = testRandomBytes;
+    final keyPair = seeded == null
+        ? await _x25519.newKeyPair()
+        : await _x25519.newKeyPairFromSeed(_draw(seeded, 32));
     final publicKey = await keyPair.extractPublicKey();
     final privateBytes = await keyPair.extractPrivateKeyBytes();
     return {
@@ -64,7 +75,10 @@ class SignalProtocol {
   /// because Curve25519 points don't natively support signing — the two
   /// curves are birationally equivalent but use different encodings.
   static Future<Map<String, String>> generateSigningKeyPair() async {
-    final keyPair = await _ed25519.newKeyPair();
+    final seeded = testRandomBytes;
+    final keyPair = seeded == null
+        ? await _ed25519.newKeyPair()
+        : await _ed25519.newKeyPairFromSeed(_draw(seeded, 32));
     final publicKey = await keyPair.extractPublicKey();
     final privateBytes = await keyPair.extractPrivateKeyBytes();
     return {
@@ -215,8 +229,14 @@ class SignalProtocol {
     List<int> aad = const [],
   }) async {
     final secretKey = SecretKey(key);
-    final secretBox =
-        await aesGcm.encrypt(plaintext, secretKey: secretKey, aad: aad);
+    final seeded = testRandomBytes;
+    final secretBox = await aesGcm.encrypt(
+      plaintext,
+      secretKey: secretKey,
+      aad: aad,
+      // null = the package's own secure random nonce (production).
+      nonce: seeded == null ? null : _draw(seeded, 12),
+    );
     return Uint8List.fromList([
       ...secretBox.nonce,
       ...secretBox.cipherText,
@@ -259,10 +279,21 @@ class SignalProtocol {
 
   /// Produces a cryptographically secure random byte sequence as base64.
   static String _randomBase64(int byteLength) {
+    final seeded = testRandomBytes;
+    if (seeded != null) return base64Encode(_draw(seeded, byteLength));
     final bytes = Uint8List(byteLength);
     for (var i = 0; i < byteLength; i++) {
       bytes[i] = _rng.nextInt(256);
     }
     return base64Encode(bytes);
+  }
+
+  static List<int> _draw(List<int> Function(int) source, int length) {
+    final bytes = source(length);
+    if (bytes.length != length) {
+      throw StateError('testRandomBytes returned ${bytes.length} bytes, '
+          'expected $length.');
+    }
+    return bytes;
   }
 }
