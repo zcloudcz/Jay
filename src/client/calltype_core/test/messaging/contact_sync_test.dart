@@ -155,7 +155,12 @@ void main() {
         for (var i = 0; i < 2100; i++)
           SyncedConversation(id: 'g$i', type: 'group'),
       ];
-      final parts = ContactSyncPayload.snapshots(contacts, conversations);
+      // Count limit only here; the size limit has its own test.
+      final parts = ContactSyncPayload.snapshots(
+        contacts,
+        conversations,
+        maxChars: 1 << 30,
+      );
       expect(parts.map((p) => p.contacts.length), [2000, 2000, 500]);
       expect(parts.map((p) => p.conversations.length), [2000, 100, 0]);
       final decoded = [
@@ -166,6 +171,26 @@ void main() {
         hasLength(4500),
       );
       expect(ContactSyncPayload.snapshots(const [], const []), hasLength(1));
+    });
+
+    test('a snapshot part also stays under the body size the hub takes', () {
+      final contacts = [
+        for (var i = 0; i < 2000; i++) _contact(_guid(i), name: 'N' * 100),
+      ];
+      final conversations = [
+        for (var i = 0; i < 2000; i++)
+          SyncedConversation(id: 'g$i', type: 'group', title: 'T' * 200),
+      ];
+      final parts = ContactSyncPayload.snapshots(contacts, conversations);
+      expect(parts.length, greaterThan(1));
+      for (final part in parts) {
+        expect(
+          part.encode().length,
+          lessThanOrEqualTo(maxContactSyncBodyChars),
+        );
+      }
+      expect(parts.expand((p) => p.contacts), hasLength(2000));
+      expect(parts.expand((p) => p.conversations), hasLength(2000));
     });
   });
 

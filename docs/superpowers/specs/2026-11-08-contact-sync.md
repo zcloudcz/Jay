@@ -63,7 +63,10 @@ null, to: <own identity id>, createdAt}`. `body` stays a STRING. Shared code:
 ```
 
 - At most 2000 contacts and 2000 conversations per message; a larger snapshot is split into
-  several `snapshot` messages (each applied on its own, order does not matter).
+  several `snapshot` messages (each applied on its own, order does not matter). Implementation
+  note: a part is also split until its body is at most 256 KiB, because the hub accepts at most
+  768 KiB of base64 per device envelope (about 1.8 times the body) and 2000 long entries would
+  not fit.
 - `displayName` null or 1-100 characters after trimming; `userHandle` matches `CT-XXXX-XXXX`;
   `deviceId` a GUID. An invalid entry is skipped, the rest applied.
 

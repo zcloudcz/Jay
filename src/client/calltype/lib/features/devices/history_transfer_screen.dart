@@ -192,10 +192,9 @@ class _HistorySendScreenState extends State<HistorySendScreen> {
   void initState() {
     super.initState();
     final service = context.read<HistoryTransferService>();
-    // A transfer that ended (or one of the other role) is not resumed here.
-    if (service.role != HistoryTransferRole.source || !service.busy) {
-      Future.microtask(service.cancel);
-    }
+    // A finished transfer is not shown again; a running one (either role)
+    // keeps going until the user starts a new one here.
+    if (!service.busy) Future.microtask(service.cancel);
   }
 
   @override

@@ -19,6 +19,12 @@ const contactSyncRequestType = 'contact-sync-request';
 /// larger snapshot is split ([ContactSyncPayload.snapshots]).
 const maxContactSyncEntries = 2000;
 
+/// Longest `body` of one snapshot part. WHY: the hub takes at most 768 KiB
+/// of base64 per device envelope, and the Signal envelope plus two base64
+/// layers make that about 1.8 times the body; 2000 long entries would not
+/// fit. A part above this is split further.
+const maxContactSyncBodyChars = 256 * 1024;
+
 /// Longest display name after trimming.
 const maxSyncedNameLength = 100;
 
@@ -197,28 +203,29 @@ class ContactSyncPayload {
   final int changedAt;
 
   /// A full snapshot as as many messages as the limits need (at least one,
-  /// so an empty device list still tells the receiver "nothing").
+  /// so an empty device list still tells the receiver "nothing"): at most
+  /// [maxContactSyncEntries] of each kind and [maxChars] of body per part.
   static List<ContactSyncPayload> snapshots(
     List<SyncedContact> contacts,
-    List<SyncedConversation> conversations,
-  ) {
-    final parts = <ContactSyncPayload>[];
-    for (
-      var i = 0;
-      i == 0 ||
-          i * maxContactSyncEntries < contacts.length ||
-          i * maxContactSyncEntries < conversations.length;
-      i++
-    ) {
-      List<T> slice<T>(List<T> all) => all
-          .skip(i * maxContactSyncEntries)
-          .take(maxContactSyncEntries)
-          .toList();
-      parts.add(
-        ContactSyncPayload.snapshot(slice(contacts), slice(conversations)),
-      );
+    List<SyncedConversation> conversations, {
+    int maxChars = maxContactSyncBodyChars,
+  }) {
+    for (var per = maxContactSyncEntries; ; per = (per + 1) ~/ 2) {
+      final parts = <ContactSyncPayload>[];
+      for (
+        var i = 0;
+        i == 0 || i * per < contacts.length || i * per < conversations.length;
+        i++
+      ) {
+        List<T> slice<T>(List<T> all) => all.skip(i * per).take(per).toList();
+        parts.add(
+          ContactSyncPayload.snapshot(slice(contacts), slice(conversations)),
+        );
+      }
+      if (per == 1 || parts.every((p) => p.encode().length <= maxChars)) {
+        return parts;
+      }
     }
-    return parts;
   }
 
   /// The `body` string. Throws [ArgumentError] for what a receiver would
