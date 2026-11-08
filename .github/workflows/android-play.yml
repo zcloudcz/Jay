@@ -1,0 +1,160 @@
+# ---------------------------------------------------------------------------
+# Android Google Play: manual, SHA-pinned signed AAB build + upload
+# ---------------------------------------------------------------------------
+# Same model as ios-testflight.yml: dispatched by the release script with a SHA
+# that already passed deploy.yml, so testers only get builds whose API is live.
+#
+# Signing: Play App Signing. Google holds the app signing key; this workflow
+# signs with the UPLOAD key (android/app/build.gradle.kts reads it from the
+# ANDROID_UPLOAD_* environment). A lost upload key can be reset in Play
+# Console > Test and release > App integrity.
+#
+# One-time setup (names only, never commit values):
+#   Play Console app "Jay Messenger" (cz.zcloud.jay) on the Zahy developer
+#     account; the first AAB (versionCode 1) was uploaded by hand.
+#   Service account jay-play-publisher@jay-30ce8.iam.gserviceaccount.com
+#     (GCP project jay-30ce8, Google Play Android Developer API enabled),
+#     invited in Play Console with release permissions for Jay only.
+#   Repository secrets:
+#     ANDROID_UPLOAD_KEYSTORE_BASE64   base64 of the PKCS12 upload keystore
+#     ANDROID_UPLOAD_KEYSTORE_PASSWORD store and key password
+#     ANDROID_UPLOAD_KEY_ALIAS         key alias
+#     PLAY_SERVICE_ACCOUNT_JSON        service account key (JSON)
+#     GOOGLE_SERVICES_JSON_BASE64      Firebase config (shared with deploy.yml)
+#   Repository variable CALLTYPE_API_BASE_URL is shared with deploy.yml.
+#   Copies of the keystore and the service account key are in the owner's
+#   Vaultwarden (collection ASISTENT).
+# ---------------------------------------------------------------------------
+
+name: Android Google Play
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Full commit SHA to build and upload (use one that already passed deploy.yml)'
+        required: true
+        type: string
+      track:
+        description: 'Play track'
+        required: true
+        default: internal
+        type: choice
+        options: [internal, alpha, beta, production]
+
+permissions:
+  contents: read
+
+# Two uploads racing for the same version code would make Play reject the
+# second one; serialize instead of cancelling a running upload.
+concurrency:
+  group: android-play
+  cancel-in-progress: false
+
+jobs:
+  play:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: src/client/calltype
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Refuse to build without signing inputs or with an unusable API URL
+        shell: bash
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          set -euo pipefail
+          # Fail before a 15 minute build that could not be uploaded. A Play
+          # build without FCM would silently ship without push, so Firebase
+          # is required here (it is optional only for the deploy.yml APK).
+          for v in ANDROID_UPLOAD_KEYSTORE_BASE64 ANDROID_UPLOAD_KEYSTORE_PASSWORD ANDROID_UPLOAD_KEY_ALIAS PLAY_SERVICE_ACCOUNT_JSON GOOGLE_SERVICES_JSON_BASE64; do
+            [ -n "${!v}" ] || { echo "::error::Secret $v is not set."; exit 1; }
+          done
+          URL="${{ vars.CALLTYPE_API_BASE_URL }}"
+          case "$URL" in
+            https://*) ;;
+            *) echo "::error::CALLTYPE_API_BASE_URL must be a public HTTPS URL, got: '$URL'"; exit 1 ;;
+          esac
+          case "$URL" in
+            *localhost*|*127.0.0.1*|*0.0.0.0*|*::1*) echo "::error::CALLTYPE_API_BASE_URL is a loopback address."; exit 1 ;;
+          esac
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.41.x'
+          cache: true
+      # The app's drift schema lives in the pure-Dart core package and its
+      # *.g.dart is not committed, so it must be generated before the build.
+      - name: calltype_core codegen
+        working-directory: src/client/calltype_core
+        run: |
+          dart pub get
+          dart run build_runner build --delete-conflicting-outputs
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Firebase config and upload keystore
+        shell: bash
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > android/app/google-services.json
+          python3 -c 'import json, sys; json.load(open(sys.argv[1]))' android/app/google-services.json \
+            || { echo "::error::GOOGLE_SERVICES_JSON_BASE64 is not the base64 of a JSON file."; exit 1; }
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+
+      # versionCode must strictly increase for every upload. 1 was the manual
+      # first upload, so CI starts at run_number + 1 (run 1 -> 2).
+      - name: Build signed app bundle
+        shell: bash
+        env:
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          export ANDROID_UPLOAD_KEYSTORE_FILE="$RUNNER_TEMP/upload.jks"
+          BUILD_NUMBER=$(( ${{ github.run_number }} + 1 ))
+          flutter build appbundle --release \
+            --build-number="$BUILD_NUMBER" \
+            --dart-define=API_BASE_URL=${{ vars.CALLTYPE_API_BASE_URL }}
+          # Refuse a debug-signed bundle: Play would reject it anyway, but
+          # this names the real cause (signing config not picked up).
+          keytool -printcert -jarfile build/app/outputs/bundle/release/app-release.aab | grep -q 'CN=Android Debug' \
+            && { echo "::error::Bundle is signed with the debug key."; exit 1; } || true
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+
+      - name: Upload to Google Play (${{ inputs.track }})
+        shell: bash
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -euo pipefail
+          # A venv: the runner's system Python refuses pip installs (PEP 668).
+          python3 -m venv "$RUNNER_TEMP/play-venv"
+          "$RUNNER_TEMP/play-venv/bin/pip" install --quiet 'cryptography>=42'
+          "$RUNNER_TEMP/play-venv/bin/python" "$GITHUB_WORKSPACE/infra/ci/play_upload.py" \
+            --package cz.zcloud.jay \
+            --aab build/app/outputs/bundle/release/app-release.aab \
+            --track "${{ inputs.track }}" \
+            --notes "Build $BUILD_NUMBER from commit ${{ inputs.commit_sha }}."
+          echo "Uploaded versionCode $BUILD_NUMBER of commit ${{ inputs.commit_sha }} to Play track ${{ inputs.track }}." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/upload.jks" android/app/google-services.json
