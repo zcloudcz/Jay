@@ -1,0 +1,154 @@
+# ---------------------------------------------------------------------------
+# Windows: manual, SHA-pinned portable build published as a GitHub Release
+# ---------------------------------------------------------------------------
+# Same model as ios-testflight.yml and android-play.yml: dispatched by the
+# release script with a SHA that already passed deploy.yml.
+#
+# Portable on purpose: no installer, no admin rights. The zip holds Jay.exe,
+# the Flutter engine, the app data folder and the Visual C++ runtime DLLs
+# (app-local deployment), so it runs on a clean Windows 10/11 x64 after
+# unzipping. User data still lives in the profile (%APPDATA%\zcloud.cz\Jay),
+# so a newer zip extracted elsewhere keeps the same account and chats.
+#
+# Not code-signed yet: Windows SmartScreen shows "Windows protected your PC"
+# on first start (More info > Run anyway) until the exe is signed.
+#
+# Stable download link (the newest release is always marked latest):
+#   https://github.com/zcloudcz/Jay/releases/latest/download/Jay-windows-x64.zip
+# ---------------------------------------------------------------------------
+
+name: Windows portable release
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Full commit SHA to build and publish (use one that already passed deploy.yml)'
+        required: true
+        type: string
+
+permissions:
+  contents: write # create the GitHub Release
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: src/client/calltype
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Refuse an unusable API URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="${{ vars.CALLTYPE_API_BASE_URL }}"
+          case "$URL" in
+            https://*) ;;
+            *) echo "::error::CALLTYPE_API_BASE_URL must be a public HTTPS URL, got: '$URL'"; exit 1 ;;
+          esac
+          case "$URL" in
+            *localhost*|*127.0.0.1*|*0.0.0.0*|*::1*) echo "::error::CALLTYPE_API_BASE_URL is a loopback address."; exit 1 ;;
+          esac
+
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.41.x'
+          cache: true
+      # The app's drift schema lives in the pure-Dart core package and its
+      # *.g.dart is not committed, so it must be generated before the build.
+      - name: calltype_core codegen
+        working-directory: src/client/calltype_core
+        run: |
+          dart pub get
+          dart run build_runner build --delete-conflicting-outputs
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -nE 's/^version: *([0-9.]+).*/\1/p' pubspec.yaml)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          flutter build windows --release \
+            --build-number=${{ github.run_number }} \
+            --dart-define=API_BASE_URL=${{ vars.CALLTYPE_API_BASE_URL }}
+
+      # App-local Visual C++ runtime: without it Jay.exe fails on a PC that
+      # never installed the VC++ Redistributable ("MSVCP140.dll was not found").
+      - name: Assemble portable folder
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = 'build/windows/x64/runner/Release'
+          $dst = "$env:RUNNER_TEMP/Jay"
+          New-Item -ItemType Directory -Force $dst | Out-Null
+          Copy-Item -Recurse "$src/*" $dst
+          Rename-Item "$dst/calltype.exe" 'Jay.exe'
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath
+          $crt = Get-ChildItem "$vs\VC\Redist\MSVC" -Directory |
+            Where-Object { $_.Name -match '^\d' } | Sort-Object { [version]$_.Name } -Descending |
+            ForEach-Object { Get-ChildItem "$($_.FullName)\x64" -Directory -Filter 'Microsoft.VC*.CRT' } |
+            Select-Object -First 1
+          if (-not $crt) { throw 'Visual C++ runtime redist folder not found' }
+          Write-Host "VC++ runtime from $($crt.FullName)"
+          Copy-Item "$($crt.FullName)\*.dll" $dst
+          foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+            if (-not (Test-Path "$dst/$dll")) { throw "missing $dll" }
+          }
+          @"
+          Jay $env:VERSION (build ${{ github.run_number }}, commit ${{ inputs.commit_sha }})
+
+          No installation needed: unzip anywhere and start Jay.exe.
+          Your account and chats are stored in %APPDATA%\zcloud.cz\Jay,
+          so a newer version unzipped elsewhere continues where you left off.
+
+          The app is not code-signed yet. On first start Windows may show
+          "Windows protected your PC": click "More info", then "Run anyway".
+          "@ | Set-Content -Encoding utf8 "$dst/README.txt"
+
+      # Start the packaged exe the way a user would and make sure it stays up:
+      # catches a missing DLL or a crash on startup before anyone downloads it.
+      - name: Smoke test (start Jay.exe for 20 s)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $p = Start-Process -FilePath "$env:RUNNER_TEMP/Jay/Jay.exe" -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) { throw "Jay.exe exited during startup with code $($p.ExitCode)" }
+          Write-Host "Jay.exe running after 20 s (pid $($p.Id)), working set $([int]($p.WorkingSet64/1MB)) MB"
+          Stop-Process -Id $p.Id -Force
+
+      - name: Zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Compress-Archive -Path "$env:RUNNER_TEMP/Jay" -DestinationPath "$env:RUNNER_TEMP/Jay-windows-x64.zip"
+          $h = (Get-FileHash "$env:RUNNER_TEMP/Jay-windows-x64.zip" -Algorithm SHA256).Hash.ToLower()
+          "$h  Jay-windows-x64.zip" | Set-Content -Encoding ascii "$env:RUNNER_TEMP/Jay-windows-x64.zip.sha256"
+          Write-Host "sha256 $h"
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="windows-v${VERSION}-${{ github.run_number }}"
+          gh release create "$TAG" \
+            "$RUNNER_TEMP/Jay-windows-x64.zip" "$RUNNER_TEMP/Jay-windows-x64.zip.sha256" \
+            --repo "${{ github.repository }}" \
+            --target "${{ inputs.commit_sha }}" \
+            --title "Jay ${VERSION} for Windows (build ${{ github.run_number }})" \
+            --latest \
+            --notes "Portable Windows x64 build of commit ${{ inputs.commit_sha }}. No installation: unzip and start Jay.exe. Not code-signed yet, so SmartScreen may ask once (More info > Run anyway). Direct link to the newest build: https://github.com/${{ github.repository }}/releases/latest/download/Jay-windows-x64.zip"
+          echo "Published $TAG: https://github.com/${{ github.repository }}/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
