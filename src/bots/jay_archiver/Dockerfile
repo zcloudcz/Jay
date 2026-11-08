@@ -12,6 +12,10 @@ COPY client/calltype_protocol client/calltype_protocol
 COPY client/calltype_core client/calltype_core
 COPY bots/calltype_bot bots/calltype_bot
 COPY bots/jay_archiver bots/jay_archiver
+# Build stage only: `dart pub get` also resolves dev_dependencies, and the
+# live E2E tests depend on hermes_bridge by path (nothing of it is compiled
+# into the archiver binary).
+COPY bots/hermes_bridge bots/hermes_bridge
 
 # The drift schema's *.g.dart is not committed — generate it first.
 RUN cd client/calltype_core \
