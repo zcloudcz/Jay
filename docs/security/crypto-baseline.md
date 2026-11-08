@@ -1,7 +1,7 @@
 # Kryptografická základní linie (crypto baseline) — Jay / CallType
 
 > **Údržba:** tento dokument se reviduje při každé změně pod
-> `src/client/calltype_core/lib/crypto/` (a při změně souvisejících míst na
+> `src/client/calltype_protocol/lib/crypto/` (a při změně souvisejících míst na
 > serveru uvedených níže). Revizor ověří, že tabulky odpovídají aktuálnímu
 > kódu, a upraví je při rozporu.
 >
@@ -12,7 +12,7 @@
 Jay používá **vlastní implementaci** Signal-like protokolu v čistém Dartu
 (balíček [`cryptography`](https://pub.dev/packages/cryptography), který
 deleguje na platformní primitiva tam, kde je `cryptography_flutter`
-k dispozici — `src/client/calltype_core/lib/crypto/signal_protocol.dart:13-15`).
+k dispozici, viz `src/client/calltype_protocol/lib/crypto/signal_protocol.dart:13-15`).
 
 **Tato implementace NEBYLA nezávisle auditována.** Produkt to komunikuje
 uživatelům jako "bez nezávislého auditu" a toto rozhodnutí platí i po tomto
@@ -93,7 +93,7 @@ JSON obálka (viz `session_manager.dart:43-51,233-246`):
 
 Důvěra v další zařízení identity stojí na seznamu podepsaném primárním
 zařízením; server seznam jen ukládá a podle něj směruje, podpisy neověřuje.
-Kód: `src/client/calltype_core/lib/crypto/device_list.dart`,
+Kód: `src/client/calltype_protocol/lib/crypto/device_list.dart`,
 `src/client/calltype_core/lib/devices/device_directory.dart`. Návrh:
 `docs/superpowers/specs/2026-10-13-multi-device-sync-design.md`.
 
@@ -196,7 +196,7 @@ mainstream), ne z konkrétního znění NÚKIB dokumentu.
 
 Nálezy jsou zaznamenány pro info, NEOPRAVENY (mimo rozsah tohoto úkolu).
 
-- `src/client/calltype_core/lib/crypto/signal_protocol.dart:104-149` —
+- `src/client/calltype_protocol/lib/crypto/signal_protocol.dart:104-149`:
   `generateIdentityKeyPair`, `generatePreKeys` a `generateSignedPreKey`
   jsou synchronní "COMPATIBILITY" metody, které generují náhodný veřejný
   klíč jako nezávislé náhodné bajty, NE jako skutečnou X25519 derivaci ze
@@ -208,7 +208,7 @@ Nálezy jsou zaznamenány pro info, NEOPRAVENY (mimo rozsah tohoto úkolu).
   `key_manager.dart:113-130`) skutečně jediné volané místo — ta již
   správně používá `SignalProtocol.generateKeyPair()` (async, opravdové
   X25519).
-- `src/client/calltype_core/lib/crypto/key_manager.dart:170-172` — signed
+- `src/client/calltype_protocol/lib/crypto/key_manager.dart:170-172`: signed
   pre-key nemá rotaci; dlouhodobá platnost jednoho keyId=1 zvyšuje dopad
   kompromitace soukromého klíče.
 - `src/server/CallType.Api/Endpoints/AuthEndpoints.cs:73-76` — device

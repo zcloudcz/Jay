@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:test/test.dart';
-import 'package:calltype_core/crypto/signal_protocol.dart';
+import 'package:calltype_protocol/crypto/signal_protocol.dart';
 
 /// Tests for cryptographic key generation and key agreement.
 ///

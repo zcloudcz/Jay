@@ -1,7 +1,7 @@
 import 'dart:convert';
 
-import 'package:calltype_core/messaging/pin.dart';
-import 'package:calltype_core/messaging/poll.dart';
+import 'package:calltype_protocol/messaging/pin.dart';
+import 'package:calltype_protocol/messaging/poll.dart';
 import 'package:test/test.dart';
 
 void main() {

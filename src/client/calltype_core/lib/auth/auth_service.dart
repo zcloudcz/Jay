@@ -1,6 +1,6 @@
 import 'package:dio/dio.dart';
 
-import '../storage/secret_store.dart';
+import 'package:calltype_protocol/store/secret_store.dart';
 
 /// Obtains and caches the JWT the device uses for every API call and the
 /// SignalR connection.

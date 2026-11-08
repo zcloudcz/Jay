@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:calltype_core/messaging/reaction.dart';
+import 'package:calltype_protocol/messaging/reaction.dart';
 import 'package:test/test.dart';
 
 void main() {

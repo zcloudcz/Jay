@@ -65,12 +65,12 @@ CallType/
 │   │   ├── calltype_bot/                       # Headless E2E device runtime
 │   │   ├── hermes_bridge/                      # First bot: bridge to Hermes Agent
 │   │   └── jay_archiver/                       # The auditor device: archives business groups (+ live E2E tests in test/e2e)
-│   ├── client/calltype_core/                   # Pure Dart protocol core shared by app and bots: crypto, API client, SignalR, drift schema
+│   ├── client/calltype_protocol/               # Pure Dart protocol: X3DH + Double Ratchet, identities, device lists, payload codecs, store interfaces (deps: crypto, cryptography only)
+│   ├── client/calltype_core/                   # Pure Dart client core shared by app and bots: API client, SignalR, auth, devices, drift schema + DriftProtocolStore (re-exports calltype_protocol under crypto/ and messaging/)
 │   └── client/calltype/                        # Flutter app
 │       └── lib/
-│           ├── core/crypto/                    # E2EE (pure Dart, `cryptography` pkg)
-│           ├── core/network/                   # API client, SignalR, WebRTC
-│           ├── core/storage/                   # drift SQLite DB, secure storage
+│           ├── core/network/                   # push, SignalR glue, WebRTC (crypto and API client come from calltype_core)
+│           ├── core/storage/                   # openAppDatabase (drift_flutter), secure storage
 │           ├── features/                       # Feature-first UI modules
 │           └── shared/                         # Reusable widgets, models
 └── CallType.sln
@@ -86,6 +86,10 @@ dotnet test src/server/CallType.Api.Tests    # requires Docker (Testcontainers)
 
 ### Client
 ```bash
+# Protocol package: no codegen, runs standalone (also checks its own
+# dependency rule: no dio/drift/signalr/flutter/calltype_core).
+(cd src/client/calltype_protocol && dart pub get && dart analyze && dart test)
+
 # The drift schema lives in calltype_core and its database.g.dart is
 # git-ignored — generate it there FIRST or the app does not compile.
 cd src/client/calltype_core
@@ -329,7 +333,7 @@ check every precondition BEFORE the first write, nothing can be cleaned up later
    device list signed by the primary device (spec:
    `docs/superpowers/specs/2026-10-13-multi-device-sync-design.md`). Exact primitives and
    parameters, verified against code: `docs/security/crypto-baseline.md` —
-   revise it with every change under `calltype_core/lib/crypto`. Document
+   revise it with every change under `calltype_protocol/lib/crypto`. Document
    limits honestly anywhere user-facing.
 3. **Anonymous identity** — device generates UUID + key pair. User Handle
    (`CT-XXXX-XXXX`) for human-readable discovery. QR code for contact exchange.

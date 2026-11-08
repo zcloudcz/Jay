@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:calltype_core/crypto/device_list.dart';
+import 'package:calltype_protocol/crypto/device_list.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:test/test.dart';
 

@@ -176,6 +176,13 @@ packages:
       relative: true
     source: path
     version: "1.0.0"
+  calltype_protocol:
+    dependency: transitive
+    description:
+      path: "../calltype_protocol"
+      relative: true
+    source: path
+    version: "1.0.0"
   characters:
     dependency: transitive
     description:

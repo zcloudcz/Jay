@@ -1,4 +1,4 @@
-import 'package:calltype_core/messaging/agent_payload.dart';
+import 'package:calltype_protocol/messaging/agent_payload.dart';
 import 'package:test/test.dart';
 
 void main() {

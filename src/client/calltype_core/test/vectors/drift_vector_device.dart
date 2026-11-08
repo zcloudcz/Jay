@@ -4,9 +4,9 @@ import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/storage/database.dart';
 import 'package:calltype_core/storage/drift_protocol_store.dart';
+import 'package:calltype_protocol/testing/session_vector_scenario.dart'
+    show StateReader;
 import 'package:drift/native.dart';
-
-import 'vector_scenario.dart' show StateReader;
 
 /// Vector device over the app's real drift schema (in-memory SQLite).
 Future<({SessionManager sessions, StateReader readState})> driftVectorDevice(

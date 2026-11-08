@@ -112,6 +112,9 @@ jobs:
       - name: Flutter analyze + test
         working-directory: src/client/calltype
         run: |
+          # Protocol package standalone: its dependency rule test fails on any
+          # dio/drift/signalr/flutter/calltype_core dependency or import.
+          (cd ../calltype_protocol && dart pub get && dart analyze && dart test)
           # Pure-Dart core first: the app needs its generated drift code.
           (cd ../calltype_core && dart pub get && dart run build_runner build --delete-conflicting-outputs && dart analyze && dart test)
           flutter pub get

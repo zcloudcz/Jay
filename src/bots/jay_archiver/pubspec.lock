@@ -55,6 +55,13 @@ packages:
       relative: true
     source: path
     version: "1.0.0"
+  calltype_protocol:
+    dependency: transitive
+    description:
+      path: "../../client/calltype_protocol"
+      relative: true
+    source: path
+    version: "1.0.0"
   cli_config:
     dependency: transitive
     description:

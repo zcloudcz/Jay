@@ -1,6 +1,6 @@
 import 'package:drift/drift.dart';
 
-import '../crypto/protocol_store.dart';
+import 'package:calltype_protocol/store/protocol_store.dart';
 import 'database.dart';
 
 /// [ProtocolStore] over the client's drift schema. Same tables, same keys

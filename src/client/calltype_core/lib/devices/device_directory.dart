@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../crypto/device_list.dart';
+import 'package:calltype_protocol/crypto/device_list.dart';
 import '../network/api_client.dart';
 import '../storage/database.dart';
 

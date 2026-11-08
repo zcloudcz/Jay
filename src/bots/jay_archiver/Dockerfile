@@ -7,6 +7,8 @@
 # server, dedicated cloud container, customer-hosted) — only config differs.
 FROM dart:stable AS build
 WORKDIR /src
+# calltype_core depends on calltype_protocol (crypto + wire format) by path.
+COPY client/calltype_protocol client/calltype_protocol
 COPY client/calltype_core client/calltype_core
 COPY bots/calltype_bot bots/calltype_bot
 COPY bots/jay_archiver bots/jay_archiver

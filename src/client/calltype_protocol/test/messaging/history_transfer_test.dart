@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:calltype_core/messaging/history_transfer.dart';
+import 'package:calltype_protocol/messaging/history_transfer.dart';
 import 'package:test/test.dart';
 
 const _target = 'a0000000-0000-4000-8000-000000000002';

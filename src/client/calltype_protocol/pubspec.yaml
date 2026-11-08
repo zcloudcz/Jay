@@ -1,0 +1,18 @@
+name: calltype_protocol
+description: "CallType (Jay) protocol: X3DH + Double Ratchet sessions, signed identities and device lists, message payload codecs. Pure Dart; no network, no database, no Flutter."
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: ^3.11.0
+
+# The protocol is the audit boundary: crypto primitives only. Anything that
+# talks to a network, a database or Flutter belongs in calltype_core.
+# test/dependency_rule_test.dart enforces this list.
+dependencies:
+  crypto: ^3.0.7
+  cryptography: ^2.9.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^6.0.0

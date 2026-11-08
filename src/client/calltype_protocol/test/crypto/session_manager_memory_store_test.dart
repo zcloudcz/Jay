@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:calltype_core/crypto/key_manager.dart';
-import 'package:calltype_core/crypto/memory_protocol_store.dart';
-import 'package:calltype_core/crypto/session_manager.dart';
+import 'package:calltype_protocol/crypto/key_manager.dart';
+import 'package:calltype_protocol/store/memory_protocol_store.dart';
+import 'package:calltype_protocol/crypto/session_manager.dart';
 import 'package:test/test.dart';
 
 import '../helpers/test_device.dart' show InMemorySecureStorage;

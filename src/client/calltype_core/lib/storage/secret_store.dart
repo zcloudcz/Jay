@@ -1,3 +1,2 @@
-// Moved to crypto/ (the protocol side, no storage engine). Kept as a
-// re-export so existing imports keep working.
-export '../crypto/secret_store.dart';
+// Moved to calltype_protocol. Re-exported so existing imports keep working.
+export 'package:calltype_protocol/store/secret_store.dart';

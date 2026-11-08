@@ -50,11 +50,12 @@ CallType/
 │   │   │   ├── Services/                       # Business logic services
 │   │   │   └── Migrations/                     # EF Core migrations
 │   │   └── CallType.Api.Tests/                 # Integration tests (Testcontainers)
+│   ├── client/calltype_protocol/               # Pure Dart protocol: crypto + wire format, no network/DB/Flutter (docs/protocol/)
+│   ├── client/calltype_core/                   # Pure Dart client core: API client, SignalR, auth, devices, drift schema
 │   └── client/calltype/                        # Flutter app
 │       └── lib/
-│           ├── core/crypto/                    # E2EE (pure Dart, `cryptography` pkg)
-│           ├── core/network/                   # API client, SignalR, WebRTC
-│           ├── core/storage/                   # SQLCipher DB, secure storage
+│           ├── core/network/                   # push, SignalR glue, WebRTC
+│           ├── core/storage/                   # drift opener, secure storage
 │           ├── features/                       # Feature-first UI modules
 │           └── shared/                         # Reusable widgets, models
 └── CallType.sln

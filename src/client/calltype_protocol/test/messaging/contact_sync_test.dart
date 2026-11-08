@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:calltype_core/messaging/contact_sync.dart';
+import 'package:calltype_protocol/messaging/contact_sync.dart';
 import 'package:test/test.dart';
 
 const _bob = 'b0000000-0000-4000-8000-000000000001';

@@ -2,8 +2,8 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart' show DioException;
 
-import '../crypto/device_list.dart';
-import '../crypto/session_manager.dart';
+import 'package:calltype_protocol/crypto/device_list.dart';
+import 'package:calltype_protocol/crypto/session_manager.dart';
 import '../network/api_client.dart';
 import '../network/signalr_client.dart' show SignalRClient;
 import 'device_directory.dart';
