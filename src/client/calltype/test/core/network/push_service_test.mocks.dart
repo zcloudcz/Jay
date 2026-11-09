@@ -126,6 +126,15 @@ class MockApiClient extends _i1.Mock implements _i5.ApiClient {
           as _i6.Future<List<_i5.GroupMemberInfo>>);
 
   @override
+  _i6.Future<void> removeGroupMember(String? groupId, String? deviceId) =>
+      (super.noSuchMethod(
+            Invocation.method(#removeGroupMember, [groupId, deviceId]),
+            returnValue: _i6.Future<void>.value(),
+            returnValueForMissingStub: _i6.Future<void>.value(),
+          )
+          as _i6.Future<void>);
+
+  @override
   _i6.Future<_i3.GroupDetails> getGroup(String? groupId) =>
       (super.noSuchMethod(
             Invocation.method(#getGroup, [groupId]),
@@ -204,6 +213,44 @@ class MockApiClient extends _i1.Mock implements _i5.ApiClient {
             ),
           )
           as _i6.Future<List<_i7.BotCommand>>);
+
+  @override
+  _i6.Future<List<String>> setBotPolicy(
+    String? deviceId, {
+    required String? mode,
+    List<String>? owners = const [],
+  }) =>
+      (super.noSuchMethod(
+            Invocation.method(
+              #setBotPolicy,
+              [deviceId],
+              {#mode: mode, #owners: owners},
+            ),
+            returnValue: _i6.Future<List<String>>.value(<String>[]),
+          )
+          as _i6.Future<List<String>>);
+
+  @override
+  _i6.Future<int> getOneTimePreKeyCount(String? deviceId) =>
+      (super.noSuchMethod(
+            Invocation.method(#getOneTimePreKeyCount, [deviceId]),
+            returnValue: _i6.Future<int>.value(0),
+          )
+          as _i6.Future<int>);
+
+  @override
+  _i6.Future<int> uploadOneTimePreKeys(
+    String? deviceId,
+    List<Map<String, dynamic>>? oneTimePreKeys,
+  ) =>
+      (super.noSuchMethod(
+            Invocation.method(#uploadOneTimePreKeys, [
+              deviceId,
+              oneTimePreKeys,
+            ]),
+            returnValue: _i6.Future<int>.value(0),
+          )
+          as _i6.Future<int>);
 
   @override
   _i6.Future<Map<String, dynamic>> registerDevice({
