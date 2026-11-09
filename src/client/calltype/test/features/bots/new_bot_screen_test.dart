@@ -257,6 +257,8 @@ void main() {
       expect(find.text(l10nEn.newBotStepKey), findsOneWidget);
       expect(find.text(l10nEn.newBotStepWait), findsOneWidget);
       expect(find.byKey(const ValueKey('new-bot-note')), findsNothing);
+      // Who can reach it, and that members' questions cost the owner's key.
+      expect(find.text(l10nEn.newBotAccessApi), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('new-bot-copy')));
       await tester.pumpAndSettle();
@@ -284,6 +286,12 @@ void main() {
       expect(find.text(l10nEn.newBotNoteClaudeCli), findsOneWidget);
       expect(find.text(l10nEn.newBotStepKey), findsNothing);
       expect(find.text(l10nEn.newBotUpdateHintWindows), findsOneWidget);
+      // Subscription bots answer only the owner unless opted in, with the
+      // PowerShell spelling of the option.
+      expect(
+        find.text(l10nEn.newBotAccessCli('-GroupReplies members')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Docker disables the subscription providers', (tester) async {

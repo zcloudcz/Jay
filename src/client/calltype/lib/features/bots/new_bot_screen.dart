@@ -204,6 +204,17 @@ class _NewBotScreenState extends State<NewBotScreen> {
       if (_provider.asksForKey) l10n.newBotStepKey,
       l10n.newBotStepWait,
     ];
+    // Who can reach the bot and who pays (spec 2026-11-09-bot-access A8).
+    // Subscription bots answer only the owner unless the command opts in.
+    final access = switch (_provider) {
+      BotProvider.claudeCli || BotProvider.codexCli => l10n.newBotAccessCli(
+        _target == BotTarget.windows
+            ? '-GroupReplies members'
+            : '--group-replies members',
+      ),
+      BotProvider.hermes => l10n.newBotAccessHermes,
+      _ => l10n.newBotAccessApi,
+    };
     final note = switch (_provider) {
       BotProvider.claudeCli => l10n.newBotNoteClaudeCli,
       BotProvider.codexCli => l10n.newBotNoteCodexCli,
@@ -263,6 +274,12 @@ class _NewBotScreenState extends State<NewBotScreen> {
             leading: CircleAvatar(radius: 14, child: Text('${i + 1}')),
             title: Text(step),
           ),
+        const SizedBox(height: 8),
+        Text(
+          access,
+          key: const ValueKey('new-bot-access'),
+          style: theme.textTheme.bodyMedium,
+        ),
         const SizedBox(height: 8),
         Text(
           _target == BotTarget.windows

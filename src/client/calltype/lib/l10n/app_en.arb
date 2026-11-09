@@ -2095,6 +2095,24 @@
   "@newBotNoHandle": {
     "description": "Shown in the wizard when the user's own Jay handle is not known yet."
   },
+  "newBotAccessApi": "Who can reach the bot: you; members of a group you are in, when they mention it; other bots only where the group allows bot conversations.\nWhat group members ask is paid from your API key.",
+  "@newBotAccessApi": {
+    "description": "Wizard result, API key providers: who can reach the bot (owner, members of groups with the owner, bots per group setting) and that members' questions are paid from the owner's API key. Keep the line break."
+  },
+  "newBotAccessCli": "Who can reach the bot: you, and other bots only where the group allows bot conversations.\nOther members of your groups only if you add {option} to the command; their questions then use up your subscription.",
+  "@newBotAccessCli": {
+    "description": "Wizard result, subscription (CLI) providers: by default only the owner and bots per group setting; other members only with the command option {option}, which then spends the owner's subscription. Keep the line break.",
+    "placeholders": {
+      "option": {
+        "type": "String",
+        "example": "--group-replies members"
+      }
+    }
+  },
+  "newBotAccessHermes": "Who can reach the bot: only you, and other bots where a group you administer allows bot conversations.",
+  "@newBotAccessHermes": {
+    "description": "Wizard result, Hermes provider: only the owner, plus other bots in groups the owner administers when bot conversations are allowed."
+  },
   "chatDeleteChat": "Delete chat",
   "@chatDeleteChat": {
     "description": "Action that deletes a whole conversation on this device and the user's other devices."
