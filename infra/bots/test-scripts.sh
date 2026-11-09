@@ -2,7 +2,10 @@
 # Checks the bot setup scripts without installing anything (spec B6 tests):
 #   1. shellcheck jay-new-bot.sh
 #   2. --dry-run for every provider x {linux, macos, docker}: exit codes,
-#      the planned actions, and that no secret is ever printed
+#      the planned actions, and that no secret is ever printed; a fake
+#      npm-style CLI (#!/usr/bin/env node, node in a non-standard dir) puts
+#      the node dir on the service PATH, and a missing or unstartable
+#      interpreter stops the install with a clear message
 #   3. PowerShell: parse jay-new-bot.ps1 (PSScriptAnalyzer when installed)
 #      and the same dry-run matrix through -DryRun
 # Needs bash, shellcheck and (for 3) pwsh; set SKIP_PWSH=1 to skip 3.
@@ -115,6 +118,68 @@ out=$(bash "$sh_script" --dry-run --name keep --owner CT-AAAA-0001 --os Linux --
 expect_in "rerun" "$out" "keeps the existing BOT_STORE_KEY"
 expect_not "rerun" "$out" "would generate BOT_STORE_KEY"
 
+echo "== bash CLI interpreter on the service PATH (npm-style script CLI)"
+# An npm CLI is `#!/usr/bin/env node`; node lives in a non-standard dir
+# (nvm, a tarball). The service PATH must include that dir, or the bot
+# fails with exit 127 on every message.
+fk="$work/fake-cli"
+mkdir -p "$fk/node-v99/bin" "$fk/npm/bin" "$fk/npm/lib/codex/bin" "$fk/asdf/bin" "$fk/shim/bin"
+printf '#!/bin/sh\necho v99.0.0-fake\n' > "$fk/node-v99/bin/node"
+printf '#!/usr/bin/env node\nconsole.log("codex-cli 0.0.0-fake")\n' > "$fk/npm/lib/codex/bin/codex.js"
+ln -s ../lib/codex/bin/codex.js "$fk/npm/bin/codex"
+# A CLI whose interpreter exists nowhere.
+printf '#!/usr/bin/env -S jay-test-missing-node --no-warnings\n' > "$fk/npm/bin/codex-missing"
+# An asdf-style node shim: found on the user's PATH, but it needs a helper
+# that the service PATH does not have, so only the start check catches it.
+printf '#!/usr/bin/env jay-test-asdf\n' > "$fk/shim/bin/node"
+printf '#!/bin/sh\necho asdf\n' > "$fk/asdf/bin/jay-test-asdf"
+chmod +x "$fk/node-v99/bin/node" "$fk/npm/lib/codex/bin/codex.js" "$fk/npm/bin/codex-missing" "$fk/shim/bin/node" "$fk/asdf/bin/jay-test-asdf"
+svc="PATH=$fk/node-v99/bin:$fk/npm/bin:/usr/local/bin:/usr/bin:/bin"
+for target in linux macos; do
+  label="sh $target codex-cli npm"
+  case "$target" in linux) plat=(--os Linux --arch x64) ;; macos) plat=(--os Darwin --arch arm64) ;; esac
+  set +e
+  out=$(PATH="$fk/node-v99/bin:$PATH" CODEX_BIN="$fk/npm/bin/codex" bash "$sh_script" --dry-run --name npm --owner CT-AAAA-0001 --provider codex-cli "${plat[@]}" 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" = 0 ]; then ok; else bad "$label: exit $rc"; printf '%s\n' "$out" | sed 's/^/    /' >&2; continue; fi
+  expect_in "$label" "$out" "service $svc (includes the dir of node"
+  expect_in "$label" "$out" "would check that codex starts the way the service starts it: env -i"
+  case "$target" in
+    linux) expect_in "$label" "$out" "run.sh (loads the settings, starts app/bin/llm_bridge, logs to $JAY_BOTS_DIR/npm/bot.log, $svc)" ;;
+    macos) expect_in "$label" "$out" "cz.zcloud.jay-bot-npm.plist (RunAtLoad, KeepAlive on failure, $svc)" ;;
+  esac
+done
+# The real start check (--check-only changes nothing) with that PATH.
+set +e
+out=$(env -i HOME="$work" PATH="$fk/node-v99/bin:/usr/bin:/bin" CODEX_BIN="$fk/npm/bin/codex" JAY_BOTS_DIR="$JAY_BOTS_DIR" \
+  bash "$sh_script" --check-only --name npm --owner CT-AAAA-0001 --provider codex-cli --os Linux --arch x64 2>&1)
+rc=$?
+set -e
+if [ "$rc" = 0 ]; then ok; else bad "check-only npm: exit $rc"; printf '%s\n' "$out" | sed 's/^/    /' >&2; fi
+expect_in "check-only npm" "$out" "Checked: codex starts with the bot service PATH ($fk/node-v99/bin:$fk/npm/bin:"
+expect_not "check-only npm" "$out" "would download"
+# Interpreter missing on the installing user's PATH: die before anything.
+set +e
+out=$(CODEX_BIN="$fk/npm/bin/codex-missing" bash "$sh_script" --dry-run --name npm --owner CT-AAAA-0001 --provider codex-cli --os Linux --arch x64 2>&1)
+rc=$?
+set -e
+if [ "$rc" != 0 ]; then ok; else bad "missing interpreter: must fail"; fi
+expect_in "missing interpreter" "$out" "is a script that runs 'jay-test-missing-node'"
+expect_in "missing interpreter" "$out" "is not on your PATH"
+expect_not "missing interpreter" "$out" "would download"
+# Interpreter found, but it cannot start with the service PATH.
+set +e
+out=$(env -i HOME="$work" PATH="$fk/shim/bin:$fk/asdf/bin:/usr/bin:/bin" CODEX_BIN="$fk/npm/bin/codex" JAY_BOTS_DIR="$JAY_BOTS_DIR" \
+  bash "$sh_script" --name npm --owner CT-AAAA-0001 --provider codex-cli --os Linux --arch x64 2>&1)
+rc=$?
+set -e
+if [ "$rc" != 0 ]; then ok; else bad "start check: must fail"; fi
+expect_in "start check" "$out" "node (or something it needs) is not found in the bot service PATH ($fk/shim/bin:$fk/npm/bin:/usr/local/bin:/usr/bin:/bin)"
+expect_in "start check" "$out" "exit 127"
+expect_not "start check" "$out" "Downloading"
+if [ -e "$JAY_BOTS_DIR/npm" ]; then bad "start check: wrote $JAY_BOTS_DIR/npm"; else ok; fi
+
 if [ "${SKIP_PWSH:-0}" = 1 ]; then
   echo "== PowerShell skipped (SKIP_PWSH=1)"
 else
@@ -153,6 +218,26 @@ else
   expect_in "ps1 bad owner" "$out" "is not a Jay handle"
   out=$(USERPROFILE="$work/profile" pwsh -NoProfile -Command "& '$ps_script' -DryRun -Remove -Name x -Arch AMD64" 2>&1)
   expect_in "ps1 remove" "$out" "would unregister the Scheduled Task 'Jay bot x'"
+
+  echo "== PowerShell CLI interpreter (npm .cmd shim needs node)"
+  mkdir -p "$fk/win-npm" "$fk/win-node"
+  printf '@ECHO off\r\nSET "_prog=node"\r\n"%%_prog%%" "%%dp0%%\\node_modules\\@openai\\codex\\bin\\codex.js" %%*\r\n' > "$fk/win-npm/codex.cmd"
+  printf '#!/bin/sh\necho v99.0.0-fake\n' > "$fk/win-node/node"
+  chmod +x "$fk/win-node/node"
+  set +e
+  out=$(CODEX_BIN="$fk/win-npm/codex.cmd" USERPROFILE="$work/profile" pwsh -NoProfile -Command "\$env:PATH = '$fk/win-node' + [IO.Path]::PathSeparator + \$env:PATH; & '$ps_script' -DryRun -Name npm -Owner CT-AAAA-0001 -Provider codex-cli -Arch AMD64" 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" = 0 ]; then ok; else bad "ps1 npm shim: exit $rc"; printf '%s\n' "$out" | sed 's/^/    /' >&2; fi
+  expect_in "ps1 npm shim" "$out" "service PATH=$fk/win-node:$fk/win-npm:"
+  expect_in "ps1 npm shim" "$out" "includes the folder of node"
+  expect_in "ps1 npm shim" "$out" "PATH starts with $fk/win-node:$fk/win-npm"
+  set +e
+  out=$(CODEX_BIN="$fk/win-npm/codex.cmd" USERPROFILE="$work/profile" pwsh -NoProfile -Command "& '$ps_script' -DryRun -Name npm -Owner CT-AAAA-0001 -Provider codex-cli -Arch AMD64" 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" != 0 ]; then ok; else bad "ps1 missing node: must fail"; fi
+  expect_in "ps1 missing node" "$out" "runs 'node', but 'node' is not on your PATH"
 fi
 
 printf '== %d checks, %d failed\n' "$checks" "$fails"
