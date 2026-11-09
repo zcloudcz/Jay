@@ -90,6 +90,13 @@ jobs:
           dart analyze
           dart test
           dart build cli -o build/out
+      - name: llm_bridge analyze + tests + headless build
+        working-directory: src/bots/llm_bridge
+        run: |
+          dart pub get
+          dart analyze
+          dart test
+          dart build cli -o build/out
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
       - run: flutter analyze
@@ -118,7 +125,19 @@ jobs:
             --lockfile=./src/bots/calltype_bot/pubspec.lock
             --lockfile=./src/bots/hermes_bridge/pubspec.lock
             --lockfile=./src/bots/jay_archiver/pubspec.lock
+            --lockfile=./src/bots/llm_bridge/pubspec.lock
             --config=./osv-scanner.toml
+
+  # Bot setup one-liners (spec 2026-11-09-bot-factory, B6): shellcheck, the
+  # --dry-run matrix (every provider x Linux/macOS/Docker, no secret in the
+  # output) and the PowerShell parse + -DryRun matrix. The hosted Ubuntu
+  # runner ships shellcheck and pwsh; nothing is installed or started.
+  bot-scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: infra/bots/test-scripts.sh
 
   # Bicep lint gate: any change under infra/ must at least compile. This does
   # NOT run `az deployment ... what-if` or touch Azure — that stays a manual,

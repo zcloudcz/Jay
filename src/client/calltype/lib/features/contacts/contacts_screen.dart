@@ -81,6 +81,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
             tooltip: l10n.contactsAddByHandle,
             onPressed: () => _showAddDialog(context, controller),
           ),
+          // Spec 2026-11-09-bot-factory (B7): "New bot" also where a new
+          // chat starts, not only in Settings.
+          IconButton(
+            key: const ValueKey('contacts-new-bot'),
+            icon: const Icon(Icons.smart_toy_outlined),
+            tooltip: l10n.botsNewBot,
+            onPressed: () => context.push('/settings/bots/new'),
+          ),
         ],
       ),
       body: controller.contacts.isEmpty

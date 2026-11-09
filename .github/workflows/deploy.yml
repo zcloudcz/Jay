@@ -339,6 +339,12 @@ jobs:
           grep -q '"/admin/\*"' build/web/staticwebapp.config.json
           test -f build/web/legal/channels-cs.html
           test -f build/web/legal/channels-en.html
+          # "New bot" one-liners (spec 2026-11-09-bot-factory): web/bots/
+          # links to infra/bots/; the build must hold the real scripts, not
+          # a dangling link, and they must stay out of the SPA fallback.
+          head -c 2 build/web/bots/new-bot.sh | grep -q '#!'
+          grep -q 'jay-new-bot' build/web/bots/new-bot.ps1
+          grep -q '"/bots/\*"' build/web/staticwebapp.config.json
       - name: Archive macOS bundle preserving executable permissions
         if: matrix.platform == 'macos'
         run: tar -czf build/calltype-macos.tar.gz -C build/macos/Build/Products/Release .

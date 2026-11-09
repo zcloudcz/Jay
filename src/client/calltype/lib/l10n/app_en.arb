@@ -91,7 +91,7 @@
       }
     }
   },
-  "callEventLine": "{media} \u00b7 {duration} \u00b7 {outcome}",
+  "callEventLine": "{media} · {duration} · {outcome}",
   "callOutcomeCompleted": "completed",
   "callOutcomeMissed": "missed",
   "callOutcomeRejected": "declined",
@@ -1950,5 +1950,149 @@
   "notificationsFullScreenSubtitle": "Not allowed: while Jay is closed, calls ring only as a notification. Tap to allow.",
   "@notificationsFullScreenSubtitle": {
     "description": "Shown when the full-screen permission is missing; tapping opens the system setting."
+  },
+  "botsTitle": "Bots",
+  "@botsTitle": {
+    "description": "Settings row and screen title: the user's bots (spec 2026-11-09-bot-factory)."
+  },
+  "botsSubtitle": "Create your own AI bot",
+  "@botsSubtitle": {
+    "description": "Subtitle of the Bots row in Settings."
+  },
+  "botsIntro": "A bot is a Jay contact answered by a program on your computer, for example Claude or ChatGPT. Its encryption keys are created on that computer and never leave it; Jay only prepares the setup command.",
+  "@botsIntro": {
+    "description": "Intro on the Bots screen: what a Jay bot is and that its keys stay on the user's computer."
+  },
+  "botsNewBot": "New bot",
+  "@botsNewBot": {
+    "description": "Button/tooltip that opens the New bot wizard (Bots screen and the contacts screen)."
+  },
+  "botsNewBotSubtitle": "One command for your computer",
+  "@botsNewBotSubtitle": {
+    "description": "Subtitle of the New bot entry on the Bots screen."
+  },
+  "newBotTitle": "New bot",
+  "@newBotTitle": {
+    "description": "Title of the New bot wizard."
+  },
+  "newBotNameLabel": "Bot name",
+  "@newBotNameLabel": {
+    "description": "Label of the bot name field in the New bot wizard."
+  },
+  "newBotNameHint": "Shown in Jay; in groups people @mention the bot by it",
+  "@newBotNameHint": {
+    "description": "Helper text under the bot name field."
+  },
+  "newBotNameInvalid": "Use up to 40 characters, including at least one letter A-Z or a digit.",
+  "@newBotNameInvalid": {
+    "description": "Error under the bot name field when the name is empty, too long or has no Latin letter or digit (needed for the folder name)."
+  },
+  "newBotProviderTitle": "What answers",
+  "@newBotProviderTitle": {
+    "description": "Section title in the wizard: which AI answers the bot's messages."
+  },
+  "newBotProviderAnthropic": "Claude (Anthropic API key)",
+  "@newBotProviderAnthropic": {
+    "description": "Choice: the bot uses the Anthropic API with the user's own API key. Keep the product names."
+  },
+  "newBotProviderOpenai": "ChatGPT or compatible (OpenAI API key)",
+  "@newBotProviderOpenai": {
+    "description": "Choice: the bot uses the OpenAI API or a compatible server with an API key. Keep the product names."
+  },
+  "newBotProviderClaudeCli": "My Claude subscription (Claude Code)",
+  "@newBotProviderClaudeCli": {
+    "description": "Choice: the bot uses the user's own Claude subscription through the Claude Code program. Keep the product names."
+  },
+  "newBotProviderCodexCli": "My ChatGPT subscription (Codex)",
+  "@newBotProviderCodexCli": {
+    "description": "Choice: the bot uses the user's own ChatGPT subscription through the Codex program. Keep the product names."
+  },
+  "newBotProviderHermes": "Hermes agent",
+  "@newBotProviderHermes": {
+    "description": "Choice: the bot is backed by a Hermes AI agent. Keep the product name."
+  },
+  "newBotTargetTitle": "Where it runs",
+  "@newBotTargetTitle": {
+    "description": "Section title in the wizard: the operating system of the computer that will run the bot."
+  },
+  "newBotTargetLinux": "Linux",
+  "@newBotTargetLinux": {
+    "description": "Operating system choice (product name)."
+  },
+  "newBotTargetMacos": "macOS",
+  "@newBotTargetMacos": {
+    "description": "Operating system choice (product name)."
+  },
+  "newBotTargetWindows": "Windows",
+  "@newBotTargetWindows": {
+    "description": "Operating system choice (product name)."
+  },
+  "newBotTargetDocker": "Docker",
+  "@newBotTargetDocker": {
+    "description": "Choice: run the bot as a Docker container (product name)."
+  },
+  "newBotNoteDockerCli": "Subscriptions need the program signed in on the computer itself, so Docker offers API keys and Hermes only.",
+  "@newBotNoteDockerCli": {
+    "description": "Note shown when Docker is selected: subscription choices are disabled."
+  },
+  "newBotShowCommand": "Show command",
+  "@newBotShowCommand": {
+    "description": "Button that shows the setup command."
+  },
+  "newBotCommandTitle": "Run this on the computer for the bot",
+  "@newBotCommandTitle": {
+    "description": "Title above the setup command the user copies to the bot's computer."
+  },
+  "newBotCopy": "Copy command",
+  "@newBotCopy": {
+    "description": "Button that copies the setup command."
+  },
+  "newBotCopied": "Command copied",
+  "@newBotCopied": {
+    "description": "Snackbar after copying the setup command."
+  },
+  "newBotStepTerminal": "Open a terminal on a computer that stays on, paste the command and press Enter.",
+  "@newBotStepTerminal": {
+    "description": "Step 1 for Linux, macOS and Docker."
+  },
+  "newBotStepPowerShell": "Open PowerShell on a computer that stays on, paste the command and press Enter.",
+  "@newBotStepPowerShell": {
+    "description": "Step 1 for Windows. Keep \"PowerShell\"."
+  },
+  "newBotStepKey": "When asked, paste your API key there. It is typed only on that computer, never in Jay.",
+  "@newBotStepKey": {
+    "description": "Step for API key providers: the setup script asks for the key on that computer."
+  },
+  "newBotStepWait": "Within a minute the bot writes to you here in Jay. Reply to start chatting.",
+  "@newBotStepWait": {
+    "description": "Last step: the bot sends the user a first message in Jay."
+  },
+  "newBotNoteClaudeCli": "First install Claude Code on that computer and sign in with your Claude account. The bot uses your subscription for your own messages only (personal use).",
+  "@newBotNoteClaudeCli": {
+    "description": "Note for the Claude subscription choice. Keep \"Claude Code\" and \"Claude\"."
+  },
+  "newBotNoteCodexCli": "First install the Codex CLI on that computer and sign in with your ChatGPT account (codex login). The bot uses your subscription for your own messages only (personal use).",
+  "@newBotNoteCodexCli": {
+    "description": "Note for the ChatGPT subscription choice. Keep \"Codex CLI\", \"ChatGPT\" and the command \"codex login\"."
+  },
+  "newBotNoteHermes": "Needs Hermes running on that computer; the command asks for its API key.",
+  "@newBotNoteHermes": {
+    "description": "Note for the Hermes choice. Keep \"Hermes\"."
+  },
+  "newBotUpdateHint": "To update the bot, run the same command again. To delete it, add --remove.",
+  "@newBotUpdateHint": {
+    "description": "Hint under the command (Linux, macOS, Docker). Keep \"--remove\" exactly."
+  },
+  "newBotUpdateHintWindows": "To update the bot, run the same command again. To delete it, add -Remove.",
+  "@newBotUpdateHintWindows": {
+    "description": "Hint under the command (Windows). Keep \"-Remove\" exactly."
+  },
+  "newBotBack": "Back",
+  "@newBotBack": {
+    "description": "Button that returns from the command to the wizard form."
+  },
+  "newBotNoHandle": "Your Jay handle is not known yet. Finish setting up Jay first.",
+  "@newBotNoHandle": {
+    "description": "Shown in the wizard when the user's own Jay handle is not known yet."
   }
 }
