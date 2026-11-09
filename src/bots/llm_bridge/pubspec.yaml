@@ -1,0 +1,18 @@
+name: llm_bridge
+description: "A Jay (CallType) bot contact answered by an LLM: Anthropic or OpenAI-compatible API, or the owner's own Claude Code / Codex CLI."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  calltype_bot:
+    path: ../calltype_bot
+  # Direct dependency: the glue builds calltype_core BotCommand values (re-exported by calltype_bot).
+  calltype_core:
+    path: ../../client/calltype_core
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^6.0.0
