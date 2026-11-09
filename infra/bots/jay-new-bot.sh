@@ -39,6 +39,9 @@ Usage: new-bot.sh --name NAME --owner CT-XXXX-XXXX[,CT-...] [options]
   --prompt TEXT        system prompt (default: friendly assistant)
   --base-url URL       openai: any OpenAI-compatible endpoint (Ollama, OpenRouter, Azure)
   --hermes-url URL     hermes: Hermes API server (default http://127.0.0.1:8642)
+  --group-replies M    members | owners: who besides you the bot answers in a
+                       group that you are in (default: members for API keys,
+                       owners for claude-cli/codex-cli)
   --docker             run as a Docker container instead of a native service
   --remove             stop and remove the bot (asks before deleting its identity)
   --yes                with --remove: also delete the identity without asking
@@ -48,6 +51,11 @@ Usage: new-bot.sh --name NAME --owner CT-XXXX-XXXX[,CT-...] [options]
 API keys are read from ANTHROPIC_API_KEY / OPENAI_API_KEY / HERMES_API_KEY if
 set, otherwise asked for with a hidden prompt. claude-cli and codex-cli use your
 own signed-in Claude Code / Codex CLI (personal use, see the vendors' terms).
+
+Who can reach the bot: you (the owners); members of a group you are in when
+they mention the bot (their questions cost YOUR key or plan); other bots only
+in groups whose bot conversation setting allows it. On Linux the bot runs in
+a bubblewrap sandbox that sees only its own folder and the CLI it needs.
 EOF
 }
 
@@ -55,8 +63,8 @@ die() { printf 'jay-new-bot: %s\n' "$*" >&2; exit 1; }
 say() { printf '%s\n' "$*"; }
 
 name='' owner='' provider=anthropic api=$DEFAULT_API model='' prompt=''
-base_url='' hermes_url='' remove=0 dry=0 docker=0 yes=0
-model_set=0 prompt_set=0 base_url_set=0 hermes_url_set=0
+base_url='' hermes_url='' remove=0 dry=0 docker=0 yes=0 group_replies=''
+model_set=0 prompt_set=0 base_url_set=0 hermes_url_set=0 group_replies_set=0
 os_override='' arch_override=''
 
 need_value() { if [ $# -lt 2 ] || [ -z "$2" ]; then die "$1 needs a value (see --help)"; fi; }
@@ -70,6 +78,7 @@ while [ $# -gt 0 ]; do
     --prompt) need_value "$@"; prompt=$2; prompt_set=1; shift 2 ;;
     --base-url) need_value "$@"; base_url=$2; base_url_set=1; shift 2 ;;
     --hermes-url) need_value "$@"; hermes_url=$2; hermes_url_set=1; shift 2 ;;
+    --group-replies) need_value "$@"; group_replies=$2; group_replies_set=1; shift 2 ;;
     --docker) docker=1; shift ;;
     --remove) remove=1; shift ;;
     --yes) yes=1; shift ;;
@@ -136,6 +145,10 @@ if [ "$remove" = 0 ]; then
   fi
   if [ "$hermes_url_set" = 1 ]; then
     [ "$provider" = hermes ] || die "--hermes-url is only for --provider hermes"
+  fi
+  if [ "$group_replies_set" = 1 ]; then
+    [ "$provider" != hermes ] || die "--group-replies is not for --provider hermes (Hermes answers owners only)"
+    case "$group_replies" in members|owners) ;; *) die "--group-replies must be members or owners" ;; esac
   fi
 fi
 
@@ -299,6 +312,7 @@ fi
 [ "$model_set" = 1 ] || model=$(old_value LLM_MODEL)
 [ "$prompt_set" = 1 ] || prompt=$(old_value LLM_SYSTEM_PROMPT)
 [ "$base_url_set" = 1 ] || base_url=$(old_value OPENAI_BASE_URL)
+[ "$group_replies_set" = 1 ] || group_replies=$(old_value GROUP_REPLIES)
 if [ "$provider" = hermes ]; then
   [ "$hermes_url_set" = 1 ] || hermes_url=$(old_value HERMES_URL)
   [ -n "$hermes_url" ] || hermes_url=http://127.0.0.1:8642
@@ -338,6 +352,55 @@ if [ -n "$cli_var" ]; then
   say "Using your own $cli at $cli_path (personal use only; Jay never sees your login)."
 fi
 
+# --- isolation (spec 2026-11-09-bot-access A7) ----------------------------------------
+# On Linux the native bot runs under bubblewrap: the whole home folder is
+# replaced by an empty one, only the bot folder (read-write), the CLI and
+# its login (claude: ~/.claude + ~/.claude.json, codex: ~/.codex) are
+# visible. WHY bubblewrap and not systemd's TemporaryFileSystem=/BindPaths=:
+# Ubuntu's default AppArmor rule against unprivileged user namespaces stops
+# a user unit from setting up mounts (226/NAMESPACE, or the setting is
+# silently ignored), while Ubuntu ships an AppArmor profile that lets bwrap
+# do exactly this. Needed because group members, not only the owner, can
+# make the bot run the CLI, and codex's read-only sandbox may still READ
+# every file of this user.
+sandbox=0
+if [ "$os" = linux ] && [ "$docker" = 0 ]; then
+  if [ -n "$os_override" ]; then
+    sandbox=1 # dry-run matrix: assume bubblewrap is installed
+  elif command -v bwrap > /dev/null 2>&1 \
+    && bwrap --ro-bind / / --unshare-user --die-with-parent true > /dev/null 2>&1; then
+    sandbox=1
+  fi
+fi
+node_bin=''
+if [ "$sandbox" = 1 ] && [ -n "$cli_path" ] && [ -z "$os_override" ]; then
+  # A node script (codex from npm) needs its interpreter inside the sandbox.
+  if head -n 1 "$(readlink -f "$cli_path")" 2> /dev/null | grep -q node; then
+    node_bin=$(command -v node || true)
+    [ -n "$node_bin" ] || die "$cli needs node, which is not on PATH"
+  fi
+fi
+effective_replies=$group_replies
+if [ -z "$effective_replies" ] && [ "$provider" != hermes ]; then
+  effective_replies=members
+  [ -n "$cli_var" ] && effective_replies=owners
+fi
+if [ "$sandbox" = 1 ]; then
+  say "Isolation: the bot runs in a bubblewrap sandbox (sees only $bot_dir and what its provider needs)."
+elif [ "$docker" = 0 ]; then
+  if [ -n "$cli_var" ] && [ "$effective_replies" = members ]; then
+    say "WARNING: group members can make this bot run your $cli, and there is no sandbox here."
+    if [ "$os" = linux ]; then
+      say "  Install bubblewrap (e.g. 'sudo apt install bubblewrap') and run this command again,"
+    else
+      say "  macOS has no sandbox for it in this setup. Run the bot under a separate macOS user,"
+    fi
+    say "  or use --group-replies owners. See infra/bots/README.md."
+  elif [ "$os" = linux ]; then
+    say "Note: bubblewrap (bwrap) is not available, so the bot runs without a sandbox."
+  fi
+fi
+
 # --- settings file ------------------------------------------------------------------
 write_settings() {
   local tmp="$env_file.tmp" store_path=$1 quote=$2
@@ -361,6 +424,7 @@ write_settings() {
       emit LLM_SYSTEM_PROMPT "$prompt"
       [ -n "$key_var" ] && emit "$key_var" "$api_key"
       emit OPENAI_BASE_URL "$base_url"
+      emit GROUP_REPLIES "$group_replies"
       [ -n "$cli_var" ] && emit "$cli_var" "$cli_path"
     fi
   } > "$tmp"
@@ -436,6 +500,58 @@ if [ "$mode" = docker ]; then
   exit 0
 fi
 
+# Writes $bot_dir/sandbox.sh: runs "$@" under bubblewrap (see "isolation").
+# The CLI's real location is resolved at EVERY start, so a CLI update that
+# moves its files keeps working after a restart.
+write_sandbox() {
+  local login=''
+  # shellcheck disable=SC2016 # expanded later, by sandbox.sh
+  case "$provider" in
+    claude-cli) login='rw "$HOME/.claude"; rw "$HOME/.claude.json"' ;;
+    codex-cli) login='rw "${CODEX_HOME:-$HOME/.codex}"' ;;
+  esac
+  cat > "$bot_dir/sandbox.sh" <<EOF
+#!/usr/bin/env bash
+# Generated by jay-new-bot.sh (spec 2026-11-09-bot-access A7): runs the bot
+# in a bubblewrap sandbox. Its home folder is empty; visible are only the bot
+# folder (read-write), the system (read-only) and the provider CLI with its
+# login. Try it: sandbox.sh /bin/sh -c 'ls -a ~'
+set -eu
+DIR=$(shq "$bot_dir")
+CLI=$(shq "$cli_path")
+NODE=$(shq "$node_bin")
+a=(--ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --tmpfs "\$HOME")
+# The session bus, keyring and agent sockets of the user live here.
+if [ -d "/run/user/\$(id -u)" ]; then a+=(--tmpfs "/run/user/\$(id -u)"); fi
+a+=(--bind "\$DIR" "\$DIR")
+# Never re-expose the whole home folder (or more) by accident.
+ok() { case "\$1" in "\$HOME"|"\$HOME/"|/|"") return 1 ;; esac; case "\$HOME/" in "\$1"/*) return 1 ;; esac; }
+ro() { if [ -e "\$1" ] && ok "\$1"; then a+=(--ro-bind "\$1" "\$1"); fi; }
+rw() { if [ -e "\$1" ] && ok "\$1"; then a+=(--bind "\$1" "\$1"); fi; }
+# An executable and the folder it really lives in (npm: the node_modules
+# tree, Claude Code: its versions folder); a symlink is recreated as such.
+exe() {
+  local real
+  real=\$(readlink -f "\$1")
+  case "\$real" in
+    */node_modules/*) ro "\${real%%/node_modules/*}/node_modules" ;;
+    *) ro "\$(dirname "\$real")" ;;
+  esac
+  if [ -L "\$1" ]; then a+=(--symlink "\$(readlink "\$1")" "\$1"); fi
+}
+if [ -n "\$CLI" ]; then exe "\$CLI"; fi
+if [ -n "\$NODE" ]; then
+  exe "\$NODE"
+  # node's own lib folder next to bin/ (prefix/bin/node, prefix/lib).
+  ro "\$(dirname "\$(dirname "\$(readlink -f "\$NODE")")")"
+  a+=(--setenv PATH "\$(dirname "\$NODE"):\$PATH")
+fi
+$login
+exec bwrap "\${a[@]}" --unshare-user --unshare-pid --unshare-ipc --die-with-parent --new-session -- "\$@"
+EOF
+  chmod 700 "$bot_dir/sandbox.sh"
+}
+
 # --- native bundle -------------------------------------------------------------------
 asset="jay-${bridge//_/-}-$os-$arch.zip"
 url="$BUNDLE_BASE/$asset"
@@ -486,9 +602,15 @@ fi
 if [ "$dry" = 1 ]; then
   note "would write $env_file (600): settings and secrets, values hidden"
   note "would write $bot_dir/run.sh (loads the settings, starts app/bin/$bridge, logs to $log_file)"
+  if [ "$sandbox" = 1 ]; then
+    note "would write $bot_dir/sandbox.sh (bubblewrap: empty home, only $bot_dir read-write$([ -n "$cli_var" ] && printf ', %s read-only and its login' "$cli"))"
+  fi
 else
   mkdir -p "$bot_dir/data"
   write_settings "$bot_dir/data/bot.store" 1
+  launcher=''
+  # shellcheck disable=SC2016 # $DIR is run.sh's own variable
+  [ "$sandbox" = 1 ] && launcher='"$DIR/sandbox.sh" '
   cat > "$bot_dir/run.sh" <<EOF
 #!/bin/sh
 # Generated by jay-new-bot.sh: starts the bot '$slug' with its settings.
@@ -500,9 +622,14 @@ set +a
 if [ -f "\$DIR/bot.log" ] && [ "\$(wc -c < "\$DIR/bot.log")" -gt 5000000 ]; then
   mv -f "\$DIR/bot.log" "\$DIR/bot.log.1"
 fi
-exec "\$DIR/app/bin/$bridge" >> "\$DIR/bot.log" 2>&1
+exec ${launcher}"\$DIR/app/bin/$bridge" >> "\$DIR/bot.log" 2>&1
 EOF
   chmod 700 "$bot_dir/run.sh"
+  if [ "$sandbox" = 1 ]; then
+    write_sandbox
+  else
+    rm -f "$bot_dir/sandbox.sh"
+  fi
 fi
 
 start_offset=0
@@ -511,7 +638,7 @@ start_offset=0
 case "$mode" in
   systemd)
     if [ "$dry" = 1 ]; then
-      note "would write $unit (Restart=on-failure, no restart on exit 78 = config error)"
+      note "would write $unit (Restart=on-failure, no restart on exit 78 = config error, NoNewPrivileges=yes)"
     else
       mkdir -p "$(dirname "$unit")"
       cat > "$unit" <<EOF
@@ -526,6 +653,10 @@ Restart=on-failure
 RestartSec=10
 # 78 = configuration error: restarting cannot fix it.
 RestartPreventExitStatus=78
+# Hardening that works in a user unit everywhere. File isolation is done by
+# sandbox.sh (bubblewrap): mount options here (TemporaryFileSystem=,
+# BindPaths=) fail or are ignored under Ubuntu's AppArmor userns rule.
+NoNewPrivileges=yes
 
 [Install]
 WantedBy=default.target

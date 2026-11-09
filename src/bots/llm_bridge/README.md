@@ -50,6 +50,11 @@ Contract: `docs/superpowers/specs/2026-11-09-bot-factory.md`.
   exec --sandbox read-only`; Codex can still read files the user can read),
   in an empty working directory, without saving sessions. The prompt goes
   through stdin, never argv (argv is visible to other users in `ps`).
+  Installed by `infra/bots/jay-new-bot.sh` on Linux, the whole bot runs in a
+  bubblewrap sandbox: an empty home folder with only the bot folder, the CLI
+  and its login visible (spec `2026-11-09-bot-access` A7). On macOS and
+  Windows there is no such sandbox; run a CLI bot that answers group members
+  under a separate OS user.
 - The bot's SQLite session DB is plaintext on disk (see
   `../calltype_bot/README.md`), so the host must be trusted.
 

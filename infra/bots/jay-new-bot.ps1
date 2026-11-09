@@ -28,6 +28,10 @@ param(
   [string]$Prompt,
   [string]$BaseUrl,
   [string]$HermesUrl,
+  # members | owners: who besides you the bot answers in a group you are in
+  # (default: members for API keys, owners for claude-cli/codex-cli).
+  [ValidateSet('', 'members', 'owners')]
+  [string]$GroupReplies = '',
   [switch]$Remove,
   [switch]$Yes,
   [switch]$DryRun,
@@ -81,6 +85,7 @@ if (-not $Remove) {
     $BaseUrl = $BaseUrl.TrimEnd('/')
   }
   if ($HermesUrl -and $Provider -ne 'hermes') { Fail '-HermesUrl is only for -Provider hermes' }
+  if ($GroupReplies -and $Provider -eq 'hermes') { Fail '-GroupReplies is not for -Provider hermes (Hermes answers owners only)' }
 }
 
 $cpu = if ($Arch) { $Arch } else { $env:PROCESSOR_ARCHITECTURE }
@@ -193,6 +198,7 @@ if ($keyVar) {
 if (-not $PSBoundParameters.ContainsKey('Model')) { $Model = Get-Old $old 'LLM_MODEL' }
 if (-not $PSBoundParameters.ContainsKey('Prompt')) { $Prompt = Get-Old $old 'LLM_SYSTEM_PROMPT' }
 if (-not $PSBoundParameters.ContainsKey('BaseUrl')) { $BaseUrl = Get-Old $old 'OPENAI_BASE_URL' }
+if (-not $PSBoundParameters.ContainsKey('GroupReplies')) { $GroupReplies = Get-Old $old 'GROUP_REPLIES' }
 if ($Provider -eq 'hermes') {
   if (-not $HermesUrl) { $HermesUrl = Get-Old $old 'HERMES_URL' }
   if (-not $HermesUrl) { $HermesUrl = 'http://127.0.0.1:8642' }
@@ -226,6 +232,12 @@ if ($Provider -eq 'claude-cli' -or $Provider -eq 'codex-cli') {
     }
   }
   Write-Host "Using your own $cli at $cliPath (personal use only; Jay never sees your login)."
+  # Spec 2026-11-09-bot-access A7: Windows has no sandbox for the CLI in
+  # this setup, and group members could make the bot run it.
+  if ($GroupReplies -eq 'members') {
+    Write-Host "WARNING: group members can make this bot run your $cli, and there is no sandbox on Windows." -ForegroundColor Yellow
+    Write-Host '  Run the bot under a separate Windows user, or use -GroupReplies owners. See infra/bots/README.md.' -ForegroundColor Yellow
+  }
 }
 
 Write-Host "Setting up bot '$Name' for $($owners -join ',') ($Provider, Scheduled Task) in $botDir"
@@ -285,6 +297,7 @@ if ($Provider -eq 'hermes') {
   if ($Prompt) { $settings.LLM_SYSTEM_PROMPT = $Prompt }
   if ($keyVar -and $apiKey) { $settings[$keyVar] = $apiKey }
   if ($BaseUrl) { $settings.OPENAI_BASE_URL = $BaseUrl }
+  if ($GroupReplies) { $settings.GROUP_REPLIES = $GroupReplies }
   if ($cliVar) { $settings[$cliVar] = $cliPath }
 }
 

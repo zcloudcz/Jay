@@ -66,8 +66,13 @@ for target in linux macos docker; do
       linux)
         expect_in "$label" "$out" "jay-$bridge-linux-x64.zip"
         expect_in "$label" "$out" "systemd/user/jay-bot-pepa-s-test-bot.service"
-        expect_in "$label" "$out" "systemctl --user restart jay-bot-pepa-s-test-bot.service" ;;
+        expect_in "$label" "$out" "systemctl --user restart jay-bot-pepa-s-test-bot.service"
+        # bot-access A7: bubblewrap sandbox + NoNewPrivileges on Linux.
+        expect_in "$label" "$out" "sandbox.sh (bubblewrap: empty home"
+        expect_in "$label" "$out" "NoNewPrivileges=yes" ;;
       macos)
+        expect_not "$label" "$out" "sandbox.sh"
+        expect_not "$label" "$out" "WARNING"
         expect_in "$label" "$out" "jay-$bridge-macos-arm64.zip"
         expect_in "$label" "$out" "LaunchAgents/cz.zcloud.jay-bot-pepa-s-test-bot.plist"
         expect_in "$label" "$out" "launchctl bootstrap" ;;
@@ -82,6 +87,18 @@ for target in linux macos docker; do
     esac
   done
 done
+
+echo "== bash isolation warnings (bot-access A7)"
+for provider in claude-cli codex-cli; do
+  out=$(bash "$sh_script" --dry-run --name x --owner CT-AAAA-0001 --provider "$provider" --group-replies members --os Darwin --arch arm64 2>&1)
+  expect_in "macos $provider members" "$out" "WARNING: group members can make this bot run your"
+  expect_in "macos $provider members" "$out" "separate macOS user"
+  out=$(bash "$sh_script" --dry-run --name x --owner CT-AAAA-0001 --provider "$provider" --group-replies members --os Linux --arch x64 2>&1)
+  expect_not "linux $provider members" "$out" "WARNING"
+  expect_in "linux $provider members" "$out" "Isolation: the bot runs in a bubblewrap sandbox"
+done
+out=$(bash "$sh_script" --dry-run --name x --owner CT-AAAA-0001 --provider anthropic --group-replies members --os Darwin --arch arm64 2>&1)
+expect_not "macos anthropic members" "$out" "WARNING"
 
 echo "== bash argument errors"
 check_error() { # label needle args...
@@ -99,6 +116,8 @@ check_error "symbol name" "at least one letter" --name '!!!' --owner CT-AAAA-000
 check_error "intel mac" "Intel Macs" --name x --owner CT-AAAA-0001 --os Darwin --arch x86_64
 check_error "base url w/o model" "--model is required" --name x --owner CT-AAAA-0001 --provider openai --base-url http://localhost:11434/v1 --os Linux --arch x64
 check_error "key as argument" "unknown argument" --name x --owner CT-AAAA-0001 --api-key sk-x
+check_error "bad group replies" "--group-replies must be" --name x --owner CT-AAAA-0001 --group-replies all
+check_error "group replies hermes" "not for --provider hermes" --name x --owner CT-AAAA-0001 --provider hermes --group-replies members
 
 echo "== bash --remove dry-run"
 out=$(bash "$sh_script" --dry-run --remove --name "$name" --os Linux --arch x64 2>&1)
@@ -151,6 +170,8 @@ else
   set -e
   if [ "$rc" != 0 ]; then ok; else bad "ps1 bad owner must fail"; fi
   expect_in "ps1 bad owner" "$out" "is not a Jay handle"
+  out=$(USERPROFILE="$work/profile" pwsh -NoProfile -Command "& '$ps_script' -DryRun -Name x -Owner CT-AAAA-0001 -Provider codex-cli -GroupReplies members -Arch AMD64" 2>&1)
+  expect_in "ps1 codex members" "$out" "no sandbox on Windows"
   out=$(USERPROFILE="$work/profile" pwsh -NoProfile -Command "& '$ps_script' -DryRun -Remove -Name x -Arch AMD64" 2>&1)
   expect_in "ps1 remove" "$out" "would unregister the Scheduled Task 'Jay bot x'"
 fi
