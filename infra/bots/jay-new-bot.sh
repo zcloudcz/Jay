@@ -59,7 +59,7 @@ base_url='' hermes_url='' remove=0 dry=0 docker=0 yes=0
 model_set=0 prompt_set=0 base_url_set=0 hermes_url_set=0
 os_override='' arch_override=''
 
-need_value() { [ $# -ge 2 ] && [ -n "$2" ] || die "$1 needs a value (see --help)"; }
+need_value() { if [ $# -lt 2 ] || [ -z "$2" ]; then die "$1 needs a value (see --help)"; fi; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) need_value "$@"; name=$2; shift 2 ;;
@@ -429,7 +429,7 @@ if [ "$mode" = docker ]; then
     note "would wait for 'Connected.' in docker logs $service and print the handle"
     exit 0
   fi
-  # shellcheck disable=SC2329 # called through wait_ready
+  # shellcheck disable=SC2317,SC2329 # called through wait_ready
   docker_log() { docker logs --since "$since" "$service" 2>&1; }
   out=$(wait_ready docker_log) || die "the bot did not start; see 'docker logs $service'"
   report "$out"
@@ -480,7 +480,7 @@ else
   mv "$tmp/app" "$bot_dir/app"
   rm -rf "$bot_dir/app.old"
   # curl sets no quarantine flag, but a copied folder might carry one.
-  [ "$os" = macos ] && xattr -dr com.apple.quarantine "$bot_dir/app" 2> /dev/null || true
+  if [ "$os" = macos ]; then xattr -dr com.apple.quarantine "$bot_dir/app" 2> /dev/null || true; fi
 fi
 
 if [ "$dry" = 1 ]; then
@@ -581,7 +581,7 @@ say "Starting ..."
 native_log() { tail -c "+$((start_offset + 1))" "$log_file" 2> /dev/null; }
 if ! out=$(wait_ready native_log); then
   # A config error would only loop under launchd; stop it there.
-  [ "$mode" = launchd ] && launchctl bootout "gui/$(id -u)" "$plist" 2> /dev/null || true
+  if [ "$mode" = launchd ]; then launchctl bootout "gui/$(id -u)" "$plist" 2> /dev/null || true; fi
   die "the bot did not start (log: $log_file)"
 fi
 report "$out"

@@ -58,7 +58,6 @@ $ascii = ($Name.Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}', ''
 $slug = ($ascii.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')
 if ($slug.Length -gt 32) { $slug = $slug.Substring(0, 32).TrimEnd('-') }
 if (-not $slug) { Fail '-Name must contain at least one letter or digit (a-z, 0-9)' }
-$service = "jay-bot-$slug"
 $taskName = "Jay bot $slug"
 $botDir = Join-Path $botsDir $slug
 $settingsFile = Join-Path $botDir 'bot.env.json'
@@ -89,7 +88,7 @@ $cpu = if ($Arch) { $Arch } else { $env:PROCESSOR_ARCHITECTURE }
 if ($cpu -notin @('AMD64', 'x64', 'ARM64', 'arm64')) { Fail "unsupported CPU '$cpu': use Docker or a 64-bit Windows" }
 
 # --- helpers -------------------------------------------------------------------
-function Get-OldSettings {
+function Get-OldSetting {
   if (Test-Path -LiteralPath $settingsFile) {
     return Get-Content -Raw -LiteralPath $settingsFile | ConvertFrom-Json
   }
@@ -146,7 +145,7 @@ if ($Remove) {
 }
 
 # --- secrets ---------------------------------------------------------------------
-$old = Get-OldSettings
+$old = Get-OldSetting
 $storeKey = Get-Old $old 'BOT_STORE_KEY'
 if ($storeKey) {
   Note 'keeps the existing BOT_STORE_KEY (same identity)'
