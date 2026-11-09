@@ -102,4 +102,51 @@ void main() {
     expect(BotCommand(command: 'h', description: 'd' * 101).isValid, isFalse);
     expect(BotCommand(command: 'c' * 33, description: 'd').isValid, isFalse);
   });
+
+  test(
+    'setBotPolicy puts mode + owners and returns the stored handles',
+    () async {
+      final (api, adapter) = _client({
+        'mode': 'owners',
+        'owners': ['CT-AAAA-0001'],
+      });
+      expect(
+        await api.setBotPolicy(
+          'bot-1',
+          mode: 'owners',
+          owners: ['CT-AAAA-0001'],
+        ),
+        ['CT-AAAA-0001'],
+      );
+      final r = adapter.requests.single;
+      expect((r.method, r.path), ('PUT', '/devices/bot-1/bot-policy'));
+      expect(r.data, {
+        'mode': 'owners',
+        'owners': ['CT-AAAA-0001'],
+      });
+    },
+  );
+
+  test('one-time pre-key count and upload (bot-access A6)', () async {
+    final (api, adapter) = _client({'count': 42});
+    expect(await api.getOneTimePreKeyCount('bot-1'), 42);
+    expect(
+      await api.uploadOneTimePreKeys('bot-1', [
+        {'keyId': 101, 'publicKey': 'AA=='},
+      ]),
+      42,
+    );
+    expect(
+      [for (final r in adapter.requests) '${r.method} ${r.path}'],
+      [
+        'GET /devices/bot-1/one-time-prekeys/count',
+        'POST /devices/bot-1/one-time-prekeys',
+      ],
+    );
+    expect(adapter.requests.last.data, {
+      'oneTimePreKeys': [
+        {'keyId': 101, 'publicKey': 'AA=='},
+      ],
+    });
+  });
 }

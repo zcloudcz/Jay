@@ -194,6 +194,16 @@ class FakeApi {
   /// PUT /devices/{id}/bot-commands bodies, served back by GET.
   final botCommands = <String, Object?>{};
 
+  /// PUT /devices/{id}/bot-policy bodies (bot-access A1). Null in
+  /// [policySupported] = the endpoint answers 404 like an old server.
+  final botPolicies = <String, Map<String, dynamic>>{};
+  bool policySupported = true;
+
+  /// One-time pre-keys the server holds for the bot (bot-access A6); null =
+  /// an old server without the endpoints (404).
+  int? preKeyCount;
+  final uploadedPreKeys = <Map<String, dynamic>>[];
+
   /// GET /channels/{idOrHandle} bodies, keyed by id AND handle (upper-case
   /// handle; the lookup upper-cases like the server's case-insensitive one).
   final channels = <String, Map<String, dynamic>>{};
@@ -259,6 +269,24 @@ class FakeApi {
         for (final id in groups[segments[1]] ?? <String>[])
           {'deviceId': id, 'role': 'member', ...?memberFields[id]},
       ];
+    } else if (segments.length == 3 && segments[2] == 'bot-policy') {
+      if (policySupported) {
+        final sent =
+            jsonDecode(await utf8.decodeStream(request)) as Map<String, dynamic>;
+        botPolicies[segments[1]] = sent;
+        body = sent;
+      }
+    } else if (segments.length == 4 && segments[2] == 'one-time-prekeys') {
+      body = preKeyCount == null ? null : {'count': preKeyCount};
+    } else if (segments.length == 3 &&
+        segments[2] == 'one-time-prekeys' &&
+        preKeyCount != null) {
+      final sent =
+          jsonDecode(await utf8.decodeStream(request)) as Map<String, dynamic>;
+      final keys = (sent['oneTimePreKeys'] as List).cast<Map<String, dynamic>>();
+      uploadedPreKeys.addAll(keys);
+      preKeyCount = preKeyCount! + keys.length;
+      body = {'count': preKeyCount};
     } else if (segments.length == 3 && segments[2] == 'bot-commands') {
       if (request.method == 'PUT') {
         botCommands[segments[1]] = jsonDecode(

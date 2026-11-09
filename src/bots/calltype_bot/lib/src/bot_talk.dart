@@ -1,6 +1,8 @@
 import 'dart:math';
 
-import 'package:calltype_bot/calltype_bot.dart';
+import 'package:calltype_core/network/group_dtos.dart';
+
+import 'group_info.dart';
 
 /// What to do with a bot turn, see [BotTalkPolicy].
 enum PeerVerdict {
@@ -26,6 +28,10 @@ enum BotTalkRefusal {
   /// None of this bot's owners is an admin of the group (D5).
   ownerNotAdmin,
 
+  /// None of this bot's owners is in the group at all (owner rule
+  /// [OwnerRule.member], bot-access A5).
+  noOwner,
+
   /// The operator's PEER_BOT_HANDLES is set and does not name the sender.
   notPeer,
 
@@ -33,7 +39,21 @@ enum BotTalkRefusal {
   notBotMember,
 }
 
+/// Which presence of an owner in the group lets other bots talk to this one.
+enum OwnerRule {
+  /// An owner must be a group ADMIN (hermes_bridge, design doc D5: Hermes
+  /// has tools, so only a group the owner runs may steer it).
+  admin,
+
+  /// An owner must be a MEMBER (llm_bridge, bot-access A5: consistent with
+  /// A4, where any member of a group with an owner may address the bot).
+  member,
+}
+
 /// Group-setting based rules for bot-to-bot talk (design doc "Enforcement").
+///
+/// Shared by hermes_bridge and llm_bridge (moved here from hermes_bridge,
+/// bot-access A5) so both bots follow one implementation.
 ///
 /// WHY every bot enforces this itself: the server cannot read messages, so
 /// it cannot count turns. A misbehaving bot is still contained because the
@@ -54,6 +74,7 @@ class BotTalkPolicy {
     required Set<String> ownerIds,
     Set<String>? peerFilter,
     this.turnsCap = 50,
+    this.ownerRule = OwnerRule.admin,
     DateTime Function()? now,
   }) : _self = selfDeviceId.toLowerCase(),
        _owners = {for (final id in ownerIds) id.toLowerCase()},
@@ -71,6 +92,9 @@ class BotTalkPolicy {
   /// The operator's hard cap (env PEER_MAX_TURNS_CAP): a group can lower the
   /// limit but never raise a bot above it.
   final int turnsCap;
+
+  /// How present an owner must be in the group, see [OwnerRule].
+  final OwnerRule ownerRule;
   final DateTime Function() _now;
   final _exchanges = <String, _Exchange>{};
 
@@ -92,7 +116,12 @@ class BotTalkPolicy {
         !(talk.allows(sender) && talk.allows(_self))) {
       return BotTalkRefusal.notSelected;
     }
-    if (!_ownerIsAdmin(group)) return BotTalkRefusal.ownerNotAdmin;
+    if (ownerRule == OwnerRule.admin && !_ownerIsAdmin(group)) {
+      return BotTalkRefusal.ownerNotAdmin;
+    }
+    if (ownerRule == OwnerRule.member && !hasOwner(group)) {
+      return BotTalkRefusal.noOwner;
+    }
     return null;
   }
 
@@ -108,6 +137,9 @@ class BotTalkPolicy {
 
   /// An allowed human mentioned the bot in [groupId]: counter and pause reset.
   void humanSpoke(String groupId) => _exchanges.remove(groupId.toLowerCase());
+
+  /// At least one owner of this bot is a member of [group].
+  bool hasOwner(GroupInfo group) => _owners.any(group.isMember);
 
   bool _ownerIsAdmin(GroupInfo group) =>
       _owners.any((id) => group.member(id)?.isAdmin ?? false);

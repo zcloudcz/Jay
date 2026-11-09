@@ -43,7 +43,9 @@ export 'package:calltype_core/messaging/poll.dart'
 export 'package:calltype_core/network/bot_dtos.dart' show BotCommand;
 export 'package:calltype_core/network/group_dtos.dart'
     show BotTalkMode, BotTalkSettings, MuteMode, MuteSetting;
+export 'src/bot_talk.dart';
 export 'src/encrypted_file_store.dart';
+export 'src/inbound_policy.dart';
 export 'src/group_info.dart';
 export 'src/ws_hub_transport.dart';
 
@@ -356,6 +358,8 @@ class CallTypeBot {
     this._log,
     this._sendRetryDelay,
     this._groupCacheTtl,
+    this._keys,
+    this._preKeyCheckInterval,
   );
 
   final AppDatabase _db;
@@ -370,6 +374,11 @@ class CallTypeBot {
   final void Function(String) _log;
   final Duration _sendRetryDelay;
   final Duration _groupCacheTtl;
+  final KeyManager _keys;
+
+  /// How often [replenishPreKeys] runs after [onMessage]; zero = never.
+  final Duration _preKeyCheckInterval;
+  Timer? _preKeyTimer;
 
   final String deviceId;
 
@@ -440,6 +449,7 @@ class CallTypeBot {
     Duration sendRetryDelay = const Duration(seconds: 5),
     Duration groupCacheTtl = const Duration(minutes: 5),
     Duration hubServerTimeout = const Duration(seconds: 60),
+    Duration preKeyCheckInterval = const Duration(minutes: 30),
   }) async {
     log ??= (line) => stdout.writeln(line);
     final key = EncryptedFileStore.parseKey(
@@ -537,6 +547,8 @@ class CallTypeBot {
       log,
       sendRetryDelay,
       groupCacheTtl,
+      keys,
+      preKeyCheckInterval,
     );
   }
 
@@ -586,6 +598,74 @@ class CallTypeBot {
       ]);
     }
     await _signalR.connect();
+    if (_preKeyCheckInterval > Duration.zero && _preKeyTimer == null) {
+      unawaited(replenishPreKeys());
+      _preKeyTimer = Timer.periodic(
+        _preKeyCheckInterval,
+        (_) => unawaited(replenishPreKeys()),
+      );
+    }
+  }
+
+  /// Publishes who may message this bot through the server (spec
+  /// 2026-11-09-bot-access A1/A3): [owners] (handles) only, or everybody
+  /// when [ownersOnly] is false. Throws on a server error; an old server
+  /// without the endpoint answers 404 (see [isNotFound]).
+  Future<List<String>> setInboundPolicy({
+    required bool ownersOnly,
+    Iterable<String> owners = const [],
+  }) => _api.setBotPolicy(
+    deviceId,
+    mode: ownersOnly ? 'owners' : 'open',
+    owners: ownersOnly ? owners.toList() : const [],
+  );
+
+  /// True when [error] is an HTTP 404 (an endpoint an old server lacks).
+  static bool isNotFound(Object error) =>
+      error is DioException && error.response?.statusCode == 404;
+
+  /// Below this many one-time pre-keys on the server, [replenishPreKeys]
+  /// tops the pool up to [preKeyTarget].
+  static const preKeyThreshold = 20;
+  static const preKeyTarget = 100;
+  var _preKeysUnsupported = false;
+
+  /// Tops up this bot's one-time pre-keys on the server (spec
+  /// 2026-11-09-bot-access A6). Returns how many were uploaded (0 = pool
+  /// still full enough), or null when the check failed (logged).
+  ///
+  /// WHY a bot needs this: every new peer device consumes one key, and the
+  /// registration batch of 100 is never refilled otherwise. Without keys
+  /// sessions still work (signed pre-key only) but lose the extra forward
+  /// secrecy of the first message.
+  Future<int?> replenishPreKeys() async {
+    if (_preKeysUnsupported) return null;
+    try {
+      final count = await _api.getOneTimePreKeyCount(deviceId);
+      if (count >= preKeyThreshold) return 0;
+      // In the crypto queue: the pre-key list is read-modify-write in the
+      // store, and a decrypt consuming a key at the same time would lose
+      // one of the two writes.
+      final created = await _inCrypto(
+        () => _keys.createOneTimePreKeys(preKeyTarget - count),
+      );
+      await _api.uploadOneTimePreKeys(deviceId, [
+        for (final k in created)
+          {'keyId': k['keyId'], 'publicKey': k['publicKey']},
+      ]);
+      _log('Uploaded ${created.length} one-time pre-keys (server had $count).');
+      return created.length;
+    } catch (e) {
+      if (isNotFound(e)) {
+        // Old server: nothing to replenish into; stop asking.
+        _preKeysUnsupported = true;
+        _preKeyTimer?.cancel();
+        _log('Server has no one-time pre-key endpoint; not replenishing.');
+      } else {
+        _log('One-time pre-key check failed: $e');
+      }
+      return null;
+    }
   }
 
   /// Handles button presses on this bot's own messages (see [BotMessage.action]).
@@ -855,6 +935,7 @@ class CallTypeBot {
   }
 
   Future<void> close() async {
+    _preKeyTimer?.cancel();
     await _subscription?.cancel();
     for (final s in _hintSubscriptions) {
       await s.cancel();

@@ -209,6 +209,47 @@ class ApiClient {
     return BotCommand.listFromJson(response.data);
   }
 
+  /// PUT /devices/{id}/bot-policy (bot only, self only): who may message
+  /// this bot through the server (spec 2026-11-09-bot-access A1). [mode] is
+  /// `open` or `owners`; [owners] are handles (max 10). Returns the stored
+  /// owner handles.
+  Future<List<String>> setBotPolicy(
+    String deviceId, {
+    required String mode,
+    List<String> owners = const [],
+  }) async {
+    final response = await _dio.put<Map<String, dynamic>>(
+      '/devices/$deviceId/bot-policy',
+      data: {'mode': mode, 'owners': owners},
+    );
+    return [
+      for (final h in (response.data?['owners'] as List? ?? const []))
+        h as String,
+    ];
+  }
+
+  /// GET /devices/{id}/one-time-prekeys/count (self only): how many of this
+  /// device's one-time pre-keys the server still holds.
+  Future<int> getOneTimePreKeyCount(String deviceId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/devices/$deviceId/one-time-prekeys/count',
+    );
+    return response.data?['count'] as int? ?? 0;
+  }
+
+  /// POST /devices/{id}/one-time-prekeys (self only): adds pre-keys, items
+  /// `{keyId, publicKey}` (max 100 per call). Returns the new stored count.
+  Future<int> uploadOneTimePreKeys(
+    String deviceId,
+    List<Map<String, dynamic>> oneTimePreKeys,
+  ) async {
+    final response = await _dio.post<Map<String, dynamic>>(
+      '/devices/$deviceId/one-time-prekeys',
+      data: {'oneTimePreKeys': oneTimePreKeys},
+    );
+    return response.data?['count'] as int? ?? 0;
+  }
+
   // -- Device registration ---------------------------------------------------
 
   /// Registers a new anonymous device with the server.

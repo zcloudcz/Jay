@@ -214,6 +214,51 @@ class KeyManager {
     return preKeys;
   }
 
+  /// Most one-time pre-keys kept locally. Keys a peer fetched but never
+  /// used stay here forever otherwise (the server forgets them, we cannot
+  /// tell which ones); beyond the cap the OLDEST are dropped, as they are
+  /// the least likely to still arrive in a first message.
+  static const maxStoredOneTimePreKeys = 1000;
+
+  static const _nextOneTimePreKeyIdKey = 'ct_one_time_prekeys_next_id';
+
+  /// Generates [count] NEW one-time pre-keys for a replenishing upload
+  /// (bot-access A6) and persists them with the existing ones. Returns only
+  /// the new ones (caller uploads keyId + publicKey).
+  ///
+  /// WHY a persisted id counter instead of max(existing) + 1: a key the
+  /// server handed out and that was later used is deleted here, so the
+  /// highest remaining id can be lower than one already issued, and a reused
+  /// id would make a pending first message pick the wrong private key.
+  Future<List<Map<String, dynamic>>> createOneTimePreKeys(int count) async {
+    final existing = await getOrCreateOneTimePreKeys();
+    final stored = await _secureStorage.read(_nextOneTimePreKeyIdKey);
+    var next =
+        int.tryParse(stored ?? '') ??
+        existing.fold<int>(
+              initialOneTimePreKeyCount,
+              (m, k) => (k['keyId'] as int) > m ? k['keyId'] as int : m,
+            ) +
+            1;
+    final created = <Map<String, dynamic>>[];
+    for (var i = 0; i < count; i++) {
+      final keyPair = await SignalProtocol.generateKeyPair();
+      created.add({
+        'keyId': next++,
+        'publicKey': keyPair['publicKey']!,
+        'privateKey': keyPair['privateKey']!,
+      });
+    }
+    var all = [...existing, ...created];
+    if (all.length > maxStoredOneTimePreKeys) {
+      all = all.sublist(all.length - maxStoredOneTimePreKeys);
+    }
+    // Counter first: a crash between the writes then skips ids, never reuses.
+    await _secureStorage.write(_nextOneTimePreKeyIdKey, '$next');
+    await _secureStorage.write(_oneTimePreKeysKey, jsonEncode(all));
+    return created;
+  }
+
   /// Consumes the one-time pre-key with the given id: returns its private
   /// key (base64) and DELETES it from storage, or returns null if unknown.
   ///

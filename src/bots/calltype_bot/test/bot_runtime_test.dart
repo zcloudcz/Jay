@@ -483,4 +483,72 @@ void main() {
       expect(hub.calls('SendReliableDirectFanout'), isEmpty);
     });
   });
+
+  group('bot access (spec 2026-11-09-bot-access)', () {
+    test('setInboundPolicy publishes owners, or open without owners', () async {
+      final bot = await startBot();
+      await bot.setInboundPolicy(ownersOnly: true, owners: {'CT-AAAA-0001'});
+      expect(api.botPolicies[FakeApi.botId], {
+        'mode': 'owners',
+        'owners': ['CT-AAAA-0001'],
+      });
+      await bot.setInboundPolicy(ownersOnly: false, owners: {'CT-AAAA-0001'});
+      expect(api.botPolicies[FakeApi.botId], {'mode': 'open', 'owners': []});
+      api.policySupported = false;
+      await expectLater(
+        bot.setInboundPolicy(ownersOnly: true),
+        throwsA(predicate(CallTypeBot.isNotFound)),
+      );
+    });
+
+    test('publishInboundPolicy: owners by default, open on request, an old '
+        'server or a bad value never stops the bot', () async {
+      final bot = await startBot();
+      await publishInboundPolicy(bot, owners: ['CT-AAAA-0001'], log: logs.add);
+      expect(api.botPolicies[FakeApi.botId]?['mode'], 'owners');
+      await publishInboundPolicy(bot,
+          owners: ['CT-AAAA-0001'], inbound: 'OPEN', log: logs.add);
+      expect(api.botPolicies[FakeApi.botId]?['mode'], 'open');
+      await publishInboundPolicy(bot,
+          owners: ['CT-AAAA-0001'], inbound: 'everyone', log: logs.add);
+      expect(api.botPolicies[FakeApi.botId]?['mode'], 'owners');
+      expect(logs.join('\n'), contains('is unknown'));
+      api.policySupported = false;
+      await publishInboundPolicy(bot, owners: ['CT-AAAA-0001'], log: logs.add);
+      expect(logs.last, contains('no bot inbound policy yet'));
+    });
+
+    test('replenishPreKeys tops a low pool up to the target with fresh key ids, '
+        'and the new keys open sessions', () async {
+      final bot = await startBot();
+      api.preKeyCount = 5;
+      expect(await bot.replenishPreKeys(), CallTypeBot.preKeyTarget - 5);
+      expect(api.uploadedPreKeys, hasLength(CallTypeBot.preKeyTarget - 5));
+      expect(api.uploadedPreKeys.first['keyId'], 101);
+      expect(api.uploadedPreKeys.first.keys, unorderedEquals(['keyId', 'publicKey']));
+      // Full enough now: nothing more.
+      expect(await bot.replenishPreKeys(), 0);
+
+      // A peer that got one of the NEW keys can open a session.
+      final bundle = Map<String, dynamic>.of(api.botBundle)
+        ..['oneTimePreKey'] = api.uploadedPreKeys.last;
+      String? got;
+      await bot.onMessage((m) async => got = m.text);
+      hub.deliver(await alice.messageTo(bot.deviceId, bundle, 'with a new key'));
+      await until(() => got != null);
+      expect(got, 'with a new key');
+    });
+
+    test('an old server without the endpoints is asked once, then never', () async {
+      final bot = await startBot();
+      expect(await bot.replenishPreKeys(), isNull);
+      expect(await bot.replenishPreKeys(), isNull);
+      expect(
+        api.requests.where((r) => r.contains('one-time-prekeys')),
+        hasLength(1),
+      );
+      expect(logs.join('\n'), contains('not replenishing'));
+    });
+  });
 }
+

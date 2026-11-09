@@ -5,13 +5,15 @@ import 'dart:math';
 
 import 'package:calltype_bot/calltype_bot.dart';
 
-import 'src/bot_talk.dart';
 import 'src/hermes_events.dart';
 import 'src/progress.dart';
 import 'src/reply_directive.dart';
 import 'src/send_endpoint.dart';
 
-export 'src/bot_talk.dart';
+// Moved to calltype_bot (bot-access A5) so llm_bridge applies the same
+// rules; re-exported so existing imports keep working.
+export 'package:calltype_bot/calltype_bot.dart'
+    show BotTalkPolicy, BotTalkRefusal, PeerVerdict;
 export 'src/hermes_events.dart';
 export 'src/progress.dart';
 export 'src/reply_directive.dart';

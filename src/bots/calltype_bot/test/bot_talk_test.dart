@@ -1,5 +1,4 @@
 import 'package:calltype_bot/calltype_bot.dart';
-import 'package:hermes_bridge/hermes_bridge.dart';
 import 'package:test/test.dart';
 
 /// The bot-to-bot rules (design doc "Enforcement", rules 1-4 = a-d) without
@@ -250,6 +249,48 @@ void main() {
     test('limitFor = min(group max, cap)', () {
       expect(policy(cap: 50).limitFor(makeGroup(maxTurns: 7)), 7);
       expect(policy(cap: 3).limitFor(makeGroup(maxTurns: 7)), 3);
+    });
+  });
+
+  group('owner rule member (llm_bridge, bot-access A5)', () {
+    BotTalkPolicy memberRule() => BotTalkPolicy(
+      selfDeviceId: self,
+      ownerIds: {owner},
+      ownerRule: OwnerRule.member,
+      now: () => t,
+    );
+
+    test('an owner that is only a member is enough', () {
+      final g = makeGroup(ownerRole: 'member');
+      expect(memberRule().eligible(g, peer), isNull);
+      expect(memberRule().hasOwner(g), isTrue);
+      // The default rule (hermes_bridge) still wants an admin.
+      expect(policy().eligible(g, peer), BotTalkRefusal.ownerNotAdmin);
+    });
+
+    test('no owner in the group: refused', () {
+      final g = GroupInfo(
+        groupId: 'g1',
+        botTalk: makeGroup().botTalk,
+        members: [
+          for (final m in makeGroup().members)
+            if (m.deviceId != owner) m,
+        ],
+      );
+      expect(memberRule().eligible(g, peer), BotTalkRefusal.noOwner);
+      expect(memberRule().hasOwner(g), isFalse);
+      expect(memberRule().checkIncoming(g, peer), PeerVerdict.drop);
+    });
+
+    test('group settings and limits apply unchanged', () {
+      final g = makeGroup(ownerRole: 'member', maxTurns: 1);
+      final p = memberRule();
+      expect(
+        p.eligible(makeGroup(mode: BotTalkMode.off), peer),
+        BotTalkRefusal.off,
+      );
+      expect(p.checkIncoming(g, peer), PeerVerdict.allow);
+      expect(p.checkIncoming(g, peer), PeerVerdict.notify);
     });
   });
 }
