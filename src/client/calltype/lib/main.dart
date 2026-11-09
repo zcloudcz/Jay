@@ -19,6 +19,8 @@ import 'core/storage/secure_storage.dart';
 import 'features/calls/call_event_sender.dart';
 import 'features/channels/channels_controller.dart';
 import 'features/chat/message_inbox_service.dart';
+import 'features/chat/message_sender.dart';
+import 'features/chat/resend_service.dart';
 import 'features/chat/participant_colors.dart';
 import 'features/chat_list/chat_list_controller.dart';
 import 'features/contacts/contact_sync.dart';
@@ -155,6 +157,29 @@ void main() async {
     controls: inbox.ownControls,
   )..start();
 
+  // Automatic resend of failed own messages (spec
+  // 2026-11-09-auto-resend-read-sync, part 1): app-wide, so a message that
+  // failed in a chat the user left is retried too. Same send path as the
+  // chat screen (MessageSender), built per attempt because a fresh install
+  // gets its directory only after onboarding.
+  final resend = ResendService(
+    database: db,
+    sender: () => MessageSender(
+      database: db,
+      signalRClient: signalRClient,
+      sessionManager: sessionManager,
+      apiClient: apiClient,
+      directory: devices.directory,
+      onStale: devices.reportStaleFanout,
+      onMissingOwnDevice: (d) =>
+          unawaited(devices.reportVanishedCompanions([d])),
+    ),
+    selfIdentityId: () =>
+        devices.isOpen ? devices.directory.selfIdentityId : null,
+    connected: () => signalRClient.connected,
+    strings: () => lookupAppLocalizations(_appLocale()),
+  );
+
   // H2: archives every business call as a `call-event` group message as
   // soon as it ends, whether or not that conversation's chat screen is open
   // — same "app-wide, starts before connect" reasoning as the inbox above.
@@ -247,7 +272,11 @@ void main() async {
   // Back from the system settings (or another app): the permission may have
   // changed there.
   AppLifecycleListener(
-    onResume: () => unawaited(notifications.refreshPermission()),
+    onResume: () {
+      unawaited(notifications.refreshPermission());
+      // Back in the foreground: failed messages get a try now (R2).
+      unawaited(resend.trigger());
+    },
   );
   // The server keeps no offline queue for channels, so every transition to
   // "connected" (app start, reconnect, first connect after onboarding) pulls
@@ -265,6 +294,9 @@ void main() async {
       if (devices.isOpen) {
         unawaited(ownDevices.resendPending().catchError((Object _) {}));
       }
+      // Failed chat messages, also those of chats that are not open, and
+      // leftovers of a killed app (spec auto-resend R1/R2).
+      unawaited(resend.trigger());
       // A connect is the first moment the device is surely registered (also
       // right after onboarding), and after an outage the chat list may have
       // loaded while GET /mutes failed; one cheap re-read per transition.
@@ -296,6 +328,7 @@ void main() async {
         Provider.value(value: sessionManager),
         Provider.value(value: inbox),
         Provider.value(value: contactSync),
+        Provider.value(value: resend),
         ChangeNotifierProvider.value(value: historyTransfer),
 
         // -- Network providers (ChangeNotifier-based) -----------------------

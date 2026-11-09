@@ -1082,8 +1082,11 @@ class ChatScreen extends StatelessWidget {
                 ? TextButton(
                     onPressed: () =>
                         controller.retryMessage(message.id),
+                    // A failed message that is still resent automatically
+                    // shows as sending (spec auto-resend R8).
                     child: Text(
-                      message.status == 'failed'
+                      message.status == 'failed' &&
+                              !controller.retryPending(message)
                           ? l10n.chatStatusFailedRetry
                           : l10n.chatStatusSendingRetry,
                     ),

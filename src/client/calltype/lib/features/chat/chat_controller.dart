@@ -1,5 +1,4 @@
 import 'package:calltype_core/devices/device_directory.dart';
-import 'package:calltype_core/devices/fanout_sender.dart';
 import 'package:calltype_core/messaging/agent_payload.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -17,12 +16,13 @@ import '../media/media_store.dart' show MediaNotAllowed;
 import 'attachment_media.dart';
 import 'package:calltype_core/network/organization_api.dart';
 import 'package:calltype_core/network/organization_dtos.dart';
-import 'package:calltype_core/crypto/group_cipher.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/network/api_client.dart';
 import '../../core/network/signalr_client.dart';
 import 'package:calltype_core/storage/database.dart';
 import 'message_inbox_service.dart';
+import 'message_sender.dart';
+import 'resend_service.dart';
 import 'attachment.dart';
 import 'bot_commands.dart';
 import 'chat_message_list.dart' show JumpRequest;
@@ -69,32 +69,26 @@ class ChatController extends ChangeNotifier {
     void Function(String deviceId)? onMissingOwnDevice,
     BotCommandsCache? commandsCache,
     MediaService? media,
+    ResendService? resend,
   }) : _db = database,
        media = media ?? MediaService.instance,
        _commandsCache = commandsCache ?? BotCommandsCache.shared,
-       _signalR = signalRClient,
-       _sessions = sessionManager,
        _api = apiClient,
        _directory = directory,
+       _resend = resend,
        // Stateless apart from these references, so each chat builds its own
-       // instead of sharing one through the provider tree.
-       _fanout = FanoutSender(
-         directory: directory,
-         sessions: sessionManager,
+       // instead of sharing one through the provider tree. The same send
+       // path the app-wide ResendService uses (spec R9).
+       _sender = MessageSender(
+         database: database,
+         signalRClient: signalRClient,
+         sessionManager: sessionManager,
          apiClient: apiClient,
-         // Only OUR OWN listed companion that vanished is the user's business
-         // (it may have deleted itself); a contact's missing device is just
-         // skipped. Fire-and-forget: this runs inside the processing queue.
-         // Zone.root: the call happens inside the send's db.transaction, and
-         // drift binds database work to the transaction of the current zone,
-         // which is closed by the time this unawaited write would run.
-         onMissingDevice: (deviceId) => Zone.root.run(
-           () => unawaited(
-             _reportIfOwn(deviceId, directory, onMissingOwnDevice),
-           ),
-         ),
-       ),
-       _onStale = onStale {
+         directory: directory,
+         onStale: onStale,
+         onMissingOwnDevice: onMissingOwnDevice,
+         media: media ?? MediaService.instance,
+       ) {
     _subscription =
         (_db.select(_db.messages)
               ..where((m) => m.conversationId.equals(conversationId))
@@ -156,6 +150,21 @@ class ChatController extends ChangeNotifier {
             if (!_disposed) notifyListeners();
           },
         );
+    // Which failed messages wait for the manual button only (R8): the
+    // others are still retried automatically and show as sending.
+    if (resend != null) {
+      _sendFailSubscription =
+          (_db.select(
+            _db.backupState,
+          )..where((s) => s.key.like('$sendFailPrefix%'))).watch().listen((
+            rows,
+          ) {
+            _manualOnly = {
+              for (final row in rows) row.key.substring(sendFailPrefix.length),
+            };
+            if (!_disposed) notifyListeners();
+          });
+    }
     _incoming = inbox.persistedMessages.listen((message) {
       if (message.conversationId == conversationId) _markRead();
     });
@@ -168,30 +177,7 @@ class ChatController extends ChangeNotifier {
   /// conversation from the server, once. This is what lets the chat list
   /// badge and this screen's banner appear WITHOUT a network call on every
   /// render — see `Conversations` table doc in `calltype_core` (E05).
-  Future<void> _syncBusinessInfo() async {
-    final conversation = await (_db.select(
-      _db.conversations,
-    )..where((c) => c.id.equals(conversationId))).getSingleOrNull();
-    if (conversation == null ||
-        conversation.type != 'group' ||
-        conversation.organizationId != null) {
-      return;
-    }
-    try {
-      final info = await _api.getGroupBusinessInfo(conversationId);
-      if (!info.isBusiness || _disposed) return;
-      await (_db.update(_db.conversations)
-            ..where((c) => c.id.equals(conversationId)))
-          .write(
-            ConversationsCompanion(
-              organizationId: Value(info.organizationId),
-              organizationName: Value(info.organizationName),
-            ),
-          );
-    } catch (_) {
-      // Best-effort cache warm-up; the banner simply won't show yet.
-    }
-  }
+  Future<void> _syncBusinessInfo() => _sender.syncBusinessInfo(conversationId);
 
   List<GroupMemberInfo> _groupMembers = [];
 
@@ -230,8 +216,6 @@ class ChatController extends ChangeNotifier {
   }
 
   final AppDatabase _db;
-  final SignalRClient _signalR;
-  final SessionManager _sessions;
   final ApiClient _api;
   final String conversationId;
   final DeviceDirectory _directory;
@@ -265,27 +249,25 @@ class ChatController extends ChangeNotifier {
   /// v1: a companion has no calls and no business conversations.
   bool get isCompanion => _directory.isCompanion;
 
-  final FanoutSender _fanout;
+  final MessageSender _sender;
 
-  /// Told about every `device_list_stale` answer (the primary reports a
-  /// companion the server no longer knows, constraint 5). Must not await
-  /// anything that runs in MessageProcessingQueue: it is called from inside it.
-  final void Function(Set<String> required)? _onStale;
+  /// The app-wide automatic resend (null in tests that do not need it):
+  /// told about every manual attempt, which resets its backoff (R3).
+  final ResendService? _resend;
+  StreamSubscription<List<BackupStateData>>? _sendFailSubscription;
+  Set<String> _manualOnly = const {};
 
-  static Future<void> _reportIfOwn(
-    String deviceId,
-    DeviceDirectory directory,
-    void Function(String deviceId)? report,
-  ) async {
-    if (await directory.identityOf(deviceId) == directory.selfIdentityId) {
-      report?.call(deviceId);
-    }
+  /// Whether the failed own [message] is still retried automatically: the
+  /// chat then shows it as sending, not failed (R8). False after a
+  /// permanent failure or the 24 h window (the manual button is left).
+  bool retryPending(Message message) {
+    final resend = _resend;
+    return resend != null &&
+        message.status == 'failed' &&
+        !_manualOnly.contains(message.id) &&
+        resend.withinWindow(message.createdAt);
   }
 
-  /// Rounds of "send; on device_list_stale repair the envelopes and resend".
-  /// Bounded: a server that keeps answering stale produces a visible failure,
-  /// not a loop.
-  static const _maxFanoutRounds = 3;
   late StreamSubscription<List<Message>> _subscription;
   late StreamSubscription<List<MessageReaction>> _reactionSubscription;
   Map<String, List<ReactionSummary>> _reactions = const {};
@@ -560,56 +542,51 @@ class ChatController extends ChangeNotifier {
     // `edit` (it would stay queued for it until the TTL).
     if (!await _outsideBusiness()) return false;
     final controlId = _uuid.v4();
-    final now = DateTime.now();
-    await _db.transaction(() async {
-      await _db
-          .into(_db.messages)
-          .insert(
-            MessagesCompanion.insert(
-              id: controlId,
-              conversationId: conversationId,
-              senderId: myIdentityId,
+    return _holding(controlId, () async {
+      final now = DateTime.now();
+      await _db.transaction(() async {
+        await _db
+            .into(_db.messages)
+            .insert(
+              MessagesCompanion.insert(
+                id: controlId,
+                conversationId: conversationId,
+                senderId: myIdentityId,
+                body: Value(text),
+                type: const Value('edit'),
+                status: const Value('sending'),
+                createdAt: now,
+              ),
+            );
+        await _storeExtra(controlId, {'editOf': messageId});
+      });
+      await retryMessage(controlId);
+      final control = await (_db.select(
+        _db.messages,
+      )..where((m) => m.id.equals(controlId))).getSingleOrNull();
+      final sent = control?.status == 'sent';
+      await _db.transaction(() async {
+        if (sent) {
+          await (_db.update(
+            _db.messages,
+          )..where((m) => m.id.equals(messageId))).write(
+            MessagesCompanion(
               body: Value(text),
-              type: const Value('edit'),
-              status: const Value('sending'),
-              createdAt: now,
+              // The same instant the payload carried as createdAt, so this
+              // device orders a later copy of its own edit like everybody else.
+              editedAt: Value(control!.createdAt),
             ),
           );
-      await _storeExtra(controlId, {'editOf': messageId});
+        }
+        await _dropControl(controlId);
+      });
+      return sent;
     });
-    await retryMessage(controlId);
-    final control = await (_db.select(
-      _db.messages,
-    )..where((m) => m.id.equals(controlId))).getSingleOrNull();
-    final sent = control?.status == 'sent';
-    await _db.transaction(() async {
-      if (sent) {
-        await (_db.update(
-          _db.messages,
-        )..where((m) => m.id.equals(messageId))).write(
-          MessagesCompanion(
-            body: Value(text),
-            // The same instant the payload carried as createdAt, so this
-            // device orders a later copy of its own edit like everybody else.
-            editedAt: Value(control!.createdAt),
-          ),
-        );
-      }
-      await _dropControl(controlId);
-    });
-    return sent;
   }
 
   /// Removes a transient control row with everything that belongs to it.
-  Future<void> _dropControl(String controlId) async {
-    await (_db.delete(
-      _db.messages,
-    )..where((m) => m.id.equals(controlId))).go();
-    await (_db.delete(_db.backupState)..where(
-          (s) => s.key.isIn(['outbox:$controlId', 'extra:$controlId']),
-        ))
-        .go();
-  }
+  Future<void> _dropControl(String controlId) =>
+      dropControlRow(_db, controlId);
 
   /// Whether this conversation is known NOT to be a business one: the local
   /// row says so and, for a group, the server confirms it. Fails CLOSED
@@ -657,18 +634,6 @@ class ChatController extends ChangeNotifier {
             value: jsonEncode(extra),
           ),
         );
-  }
-
-  Future<Map<String, dynamic>> _loadExtra(String messageId) async {
-    final row = await (_db.select(
-      _db.backupState,
-    )..where((s) => s.key.equals('extra:$messageId'))).getSingleOrNull();
-    if (row == null) return const {};
-    try {
-      return jsonDecode(row.value) as Map<String, dynamic>;
-    } catch (_) {
-      return const {};
-    }
   }
 
   /// [caption] travels inside the attachment body (see [Attachment]).
@@ -789,85 +754,12 @@ class ChatController extends ChangeNotifier {
   /// is and whether it finished (contract 4.1). The id, key and nonce live
   /// in the row body (a draft `media` object) and are updated as the
   /// upload proceeds, so a restart resumes through `GET /media/{id}/upload`.
-  Future<void> _storeUploadState(
-    String messageId, {
-    required String folder,
-    bool uploaded = false,
-  }) => _db
-      .into(_db.backupState)
-      .insertOnConflictUpdate(
-        BackupStateCompanion.insert(
-          key: 'mediaup:$messageId',
-          value: jsonEncode({'folder': folder, 'uploaded': uploaded}),
-        ),
-      );
-
-  Future<Map<String, dynamic>?> _loadUploadState(String messageId) async {
-    final row = await (_db.select(
-      _db.backupState,
-    )..where((s) => s.key.equals('mediaup:$messageId'))).getSingleOrNull();
-    if (row == null) return null;
-    try {
-      return jsonDecode(row.value) as Map<String, dynamic>;
-    } catch (_) {
-      return null;
-    }
-  }
+  Future<void> _storeUploadState(String messageId, {required String folder}) =>
+      storeUploadState(_db, messageId, folder: folder);
 
   /// Cancel on the bubble: stops the upload, withdraws the blob; the row
   /// becomes `failed` (retry starts a new upload, delete removes it).
   void cancelMediaUpload(String messageId) => media.cancelUpload(messageId);
-
-  /// Runs (or resumes) the upload of an own media row before it can be
-  /// sent. Deliberately OUTSIDE MessageProcessingQueue: an upload takes
-  /// minutes and must not block decrypting incoming messages. Returns false
-  /// when the message must not be sent now.
-  Future<bool> _prepareMedia(String messageId) async {
-    final message = await (_db.select(
-      _db.messages,
-    )..where((m) => m.id.equals(messageId))).getSingleOrNull();
-    if (message == null || message.type != 'media') return true;
-    final state = await _loadUploadState(messageId);
-    if (state == null || state['uploaded'] == true) return true;
-    if (message.senderId != myIdentityId ||
-        message.conversationId != conversationId ||
-        (message.status != 'failed' && message.status != 'sending')) {
-      return false;
-    }
-    if (media.isUploading(messageId)) return false;
-    final draft = MediaInfo.tryDecode(message.body);
-    final folder = state['folder'];
-    if (draft == null || folder is! String) {
-      await _status(messageId, 'failed');
-      return false;
-    }
-    await _status(messageId, 'sending');
-    try {
-      final done = await media.upload(
-        messageId,
-        draft,
-        folder: folder,
-        persist: (info, folder) => _db.transaction(() async {
-          await (_db.update(_db.messages)
-                ..where((m) => m.id.equals(messageId)))
-              .write(MessagesCompanion(body: Value(info.encode())));
-          await _storeUploadState(messageId, folder: folder);
-        }),
-      );
-      await _db.transaction(() async {
-        await (_db.update(_db.messages)..where((m) => m.id.equals(messageId)))
-            .write(MessagesCompanion(body: Value(done.encode())));
-        await _storeUploadState(messageId, folder: done.id, uploaded: true);
-      });
-      return true;
-    } on MediaCancelled {
-      await _status(messageId, 'failed');
-      return false;
-    } catch (_) {
-      await _status(messageId, 'failed');
-      return false;
-    }
-  }
 
   /// Sends [body] into THIS conversation marked as forwarded. The forward UI
   /// navigates to the target chat first and calls this on that chat's own
@@ -907,69 +799,71 @@ class ChatController extends ChangeNotifier {
     final previous = await reactionOf(_db, messageId, myIdentityId);
     final next = previous?.emoji == emoji ? '' : emoji;
     final controlId = _uuid.v4();
-    final now = DateTime.now();
-    final reactedAt = now.millisecondsSinceEpoch;
-    await _db.transaction(() async {
-      await applyReaction(
-        _db,
-        messageId: messageId,
-        reactorId: myIdentityId,
-        conversationId: conversationId,
-        emoji: next,
-        reactedAt: reactedAt,
-      );
-      await _db
-          .into(_db.messages)
-          .insert(
-            MessagesCompanion.insert(
-              id: controlId,
-              conversationId: conversationId,
-              senderId: myIdentityId,
-              body: Value(
-                ReactionPayload(targetId: messageId, emoji: next).encode(),
+    return _holding(controlId, () async {
+      final now = DateTime.now();
+      final reactedAt = now.millisecondsSinceEpoch;
+      await _db.transaction(() async {
+        await applyReaction(
+          _db,
+          messageId: messageId,
+          reactorId: myIdentityId,
+          conversationId: conversationId,
+          emoji: next,
+          reactedAt: reactedAt,
+        );
+        await _db
+            .into(_db.messages)
+            .insert(
+              MessagesCompanion.insert(
+                id: controlId,
+                conversationId: conversationId,
+                senderId: myIdentityId,
+                body: Value(
+                  ReactionPayload(targetId: messageId, emoji: next).encode(),
+                ),
+                type: const Value(reactionType),
+                status: const Value('sending'),
+                createdAt: now,
               ),
-              type: const Value(reactionType),
-              status: const Value('sending'),
-              createdAt: now,
-            ),
-          );
-      // WHY createdAt as an extra key: the messages column keeps whole
-      // seconds only, and receivers order a person's reactions by it (last
-      // writer wins). Extra keys are spread after the defaults, so this
-      // millisecond value is what goes on the wire.
-      await _storeExtra(controlId, {
-        'createdAt': DateTime.fromMillisecondsSinceEpoch(
-          reactedAt,
-        ).toUtc().toIso8601String(),
+            );
+        // WHY createdAt as an extra key: the messages column keeps whole
+        // seconds only, and receivers order a person's reactions by it (last
+        // writer wins). Extra keys are spread after the defaults, so this
+        // millisecond value is what goes on the wire.
+        await _storeExtra(controlId, {
+          'createdAt': DateTime.fromMillisecondsSinceEpoch(
+            reactedAt,
+          ).toUtc().toIso8601String(),
+        });
       });
-    });
-    await retryMessage(controlId);
-    final control = await (_db.select(
-      _db.messages,
-    )..where((m) => m.id.equals(controlId))).getSingleOrNull();
-    final sent = control?.status == 'sent';
-    await _db.transaction(() async {
-      if (!sent) {
-        // Restore what was there, unless the user reacted again meanwhile.
-        final current = await reactionOf(_db, messageId, myIdentityId);
-        if (current != null && current.reactedAt == reactedAt) {
-          if (previous == null) {
-            await (_db.delete(_db.messageReactions)..where(
-                  (r) =>
-                      r.messageId.equals(messageId) &
-                      r.reactorId.equals(myIdentityId),
-                ))
-                .go();
-          } else {
-            await _db
-                .into(_db.messageReactions)
-                .insertOnConflictUpdate(previous);
+      await retryMessage(controlId);
+      final control = await (_db.select(
+        _db.messages,
+      )..where((m) => m.id.equals(controlId))).getSingleOrNull();
+      final sent = control?.status == 'sent';
+      await _db.transaction(() async {
+        if (!sent) {
+          // Restore what was there, unless the user reacted again meanwhile.
+          final current = await reactionOf(_db, messageId, myIdentityId);
+          if (current != null && current.reactedAt == reactedAt) {
+            if (previous == null) {
+              await (_db.delete(_db.messageReactions)..where(
+                    (r) =>
+                        r.messageId.equals(messageId) &
+                        r.reactorId.equals(myIdentityId),
+                  ))
+                  .go();
+            } else {
+              await _db
+                  .into(_db.messageReactions)
+                  .insertOnConflictUpdate(previous);
+            }
           }
         }
-      }
-      await _dropControl(controlId);
+        await _dropControl(controlId);
+      });
+      return sent;
     });
-    return sent;
   }
 
   /// Whether the local user may pin or unpin [message] here: any member
@@ -1148,35 +1042,37 @@ class ChatController extends ChangeNotifier {
     required Future<void> Function() restore,
   }) async {
     final controlId = _uuid.v4();
-    await _db.transaction(() async {
-      await applyLocally();
-      await _db
-          .into(_db.messages)
-          .insert(
-            MessagesCompanion.insert(
-              id: controlId,
-              conversationId: conversationId,
-              senderId: myIdentityId,
-              body: Value(body),
-              type: Value(type),
-              status: const Value('sending'),
-              createdAt: at,
-            ),
-          );
-      await _storeExtra(controlId, {
-        'createdAt': at.toUtc().toIso8601String(),
+    return _holding(controlId, () async {
+      await _db.transaction(() async {
+        await applyLocally();
+        await _db
+            .into(_db.messages)
+            .insert(
+              MessagesCompanion.insert(
+                id: controlId,
+                conversationId: conversationId,
+                senderId: myIdentityId,
+                body: Value(body),
+                type: Value(type),
+                status: const Value('sending'),
+                createdAt: at,
+              ),
+            );
+        await _storeExtra(controlId, {
+          'createdAt': at.toUtc().toIso8601String(),
+        });
       });
+      await retryMessage(controlId);
+      final control = await (_db.select(
+        _db.messages,
+      )..where((m) => m.id.equals(controlId))).getSingleOrNull();
+      final sent = control?.status == 'sent';
+      await _db.transaction(() async {
+        if (!sent) await restore();
+        await _dropControl(controlId);
+      });
+      return sent;
     });
-    await retryMessage(controlId);
-    final control = await (_db.select(
-      _db.messages,
-    )..where((m) => m.id.equals(controlId))).getSingleOrNull();
-    final sent = control?.status == 'sent';
-    await _db.transaction(() async {
-      if (!sent) await restore();
-      await _dropControl(controlId);
-    });
-    return sent;
   }
 
   /// Removes the message from this device only. Works for any message,
@@ -1197,6 +1093,7 @@ class ChatController extends ChangeNotifier {
               'outbox:$messageId',
               'extra:$messageId',
               'mediaup:$messageId',
+              '$sendFailPrefix$messageId',
             ]),
           ))
           .go();
@@ -1232,39 +1129,36 @@ class ChatController extends ChangeNotifier {
     // SAME ciphertext and the receiver's redelivery marker keeps it idempotent.
     // It deliberately does not touch lastMessageAt.
     final controlId = _uuid.v4();
-    await _db
-        .into(_db.messages)
-        .insert(
-          MessagesCompanion.insert(
-            id: controlId,
-            conversationId: conversationId,
-            senderId: myIdentityId,
-            body: Value(messageId),
-            type: const Value('delete'),
-            status: const Value('sending'),
-            createdAt: DateTime.now(),
-          ),
-        );
-    await retryMessage(controlId);
-    final control = await (_db.select(
-      _db.messages,
-    )..where((m) => m.id.equals(controlId))).getSingleOrNull();
-    final sent = control?.status == 'sent';
-    await _db.transaction(() async {
-      // Only after a successful send does the original change, exactly like
-      // on the receiving side.
-      if (sent) await tombstoneMessage(_db, messageId);
-      await (_db.delete(
+    return _holding(controlId, () async {
+      await _db
+          .into(_db.messages)
+          .insert(
+            MessagesCompanion.insert(
+              id: controlId,
+              conversationId: conversationId,
+              senderId: myIdentityId,
+              body: Value(messageId),
+              type: const Value('delete'),
+              status: const Value('sending'),
+              createdAt: DateTime.now(),
+            ),
+          );
+      await retryMessage(controlId);
+      final control = await (_db.select(
         _db.messages,
-      )..where((m) => m.id.equals(controlId))).go();
-      await (_db.delete(
-        _db.backupState,
-      )..where((s) => s.key.equals('outbox:$controlId'))).go();
+      )..where((m) => m.id.equals(controlId))).getSingleOrNull();
+      final sent = control?.status == 'sent';
+      await _db.transaction(() async {
+        // Only after a successful send does the original change, exactly like
+        // on the receiving side.
+        if (sent) await tombstoneMessage(_db, messageId);
+        await _dropControl(controlId);
+      });
+      if (sent && target.type == 'media') {
+        await deleteUnreferencedMedia(_db, media, target.body, messageId);
+      }
+      return sent;
     });
-    if (sent && target.type == 'media') {
-      await deleteUnreferencedMedia(_db, media, target.body, messageId);
-    }
-    return sent;
   }
 
   Future<void> _send(
@@ -1309,309 +1203,47 @@ class ChatController extends ChangeNotifier {
     await retryMessage(id);
   }
 
-  /// Sends (again) an own message. A media row first finishes its upload,
-  /// outside the processing queue (see [_prepareMedia]).
+  /// Sends (again) an own message of THIS conversation through the shared
+  /// [MessageSender] (a media row first finishes its upload). A tap on the
+  /// bubble is a manual attempt: it always runs and resets the automatic
+  /// backoff (R3).
   Future<void> retryMessage(String messageId) async {
-    if (!await _prepareMedia(messageId)) return;
-    await _sendQueued(messageId);
-  }
-
-  Future<void> _sendQueued(
-    String messageId,
-  ) => MessageProcessingQueue.forDatabase(_db).run(() async {
     final message = await (_db.select(
       _db.messages,
-    )..where((m) => m.id.equals(messageId))).getSingle();
-    if (message.senderId != myIdentityId ||
-        message.conversationId != conversationId ||
-        (message.status != 'failed' && message.status != 'sending')) {
-      return;
-    }
-    await _status(messageId, 'sending');
+    )..where((m) => m.id.equals(messageId))).getSingleOrNull();
+    if (message == null || message.conversationId != conversationId) return;
     _auditRecipientMissing = false;
     _auditorUnavailable = false;
     _businessConversationRequired = false;
-    try {
-      var stored = await (_db.select(
-        _db.backupState,
-      )..where((s) => s.key.equals('outbox:$messageId'))).getSingleOrNull();
-      if (stored == null) {
-        final conversation = await (_db.select(
-          _db.conversations,
-        )..where((c) => c.id.equals(conversationId))).getSingle();
-        final groupId = conversation.type == 'group' ? conversationId : null;
-        // Business conversations stay on the per-member group call from the
-        // primary: KB2 auditor rules are defined over member devices and the
-        // hub refuses fan-out there. v1 keeps companions out of them.
-        final business = conversation.organizationId != null;
-        if (business && isCompanion) {
-          throw StateError('Business conversations are primary-only in v1.');
-        }
-        final recipients = groupId == null
-            ? [conversationId]
-            : (await _api.getGroupMembers(
-                groupId,
-              )).where((id) => id != myIdentityId).toList();
-        if (recipients.isEmpty) {
-          throw StateError('No recipients in this conversation');
-        }
-        // Contract M7: media goes out as `text` with a fallback body for old
-        // clients plus the `media` object new clients read.
-        final mediaInfo = message.type == 'media'
-            ? MediaInfo.tryDecode(message.body)
-            : null;
-        if (message.type == 'media' &&
-            (mediaInfo == null || mediaInfo.isDraft)) {
-          throw StateError('Media message is not uploaded');
-        }
-        // Spec 2026-11-08-chat-extras: a poll goes out the same way, as
-        // `text` with a fallback body plus the `poll` object.
-        final poll = message.type == pollMessageType
-            ? PollPayload.tryDecode(message.body)
-            : null;
-        if (message.type == pollMessageType && poll == null) {
-          throw StateError('Invalid poll');
-        }
-        final l10n = localizations ?? _english;
-        final payload = jsonEncode({
-          'v': 1,
-          'id': messageId,
-          'body': mediaInfo != null
-              ? mediaFallbackBody(l10n, mediaInfo)
-              : poll != null
-              ? poll.fallbackText(l10n.pollFallbackUpdate)
-              : message.body,
-          'type': mediaInfo == null && poll == null ? message.type : 'text',
-          if (mediaInfo != null) 'media': mediaInfo.toJson(),
-          if (poll != null) pollKey: poll.toJson(),
-          'groupId': groupId,
-          'groupName': groupId == null ? null : conversation.title,
-          'createdAt': message.createdAt.toUtc().toIso8601String(),
-          // Multi-device: our OTHER devices get a copy too, and only this
-          // says which direct conversation it belongs to (constraint 4).
-          if (groupId == null) 'to': conversationId,
-          // Additive keys: old clients ignore them and show a normal message.
-          if (message.replyToId != null)
-            'replyTo': {
-              'id': message.replyToId,
-              'senderId': message.replySenderId,
-              'preview': message.replyPreview ?? '',
-            },
-          if (message.forwarded) 'forwarded': true,
-          // mentions / action / editOf (agent messaging contract section 1).
-          ...await _loadExtra(messageId),
-        });
-        await _db.transaction(() async {
-          final Map<String, String> envelopes;
-          if (business) {
-            final encrypted = await GroupCipher(
-              sessionManager: _sessions,
-              ensureSession: _ensureSession,
-            ).encryptForGroup(groupId!, recipients, payload);
-            envelopes = encrypted.map(
-              (id, bytes) => MapEntry(id, base64Encode(bytes)),
-            );
-          } else {
-            // One envelope per VERIFIED device of the recipients and of our
-            // own identity, from stored lists only (no fetch per message).
-            envelopes = await _fanout.encrypt(recipients, payload);
-          }
-          await _db
-              .into(_db.backupState)
-              .insert(
-                BackupStateCompanion.insert(
-                  key: 'outbox:$messageId',
-                  // Recipients and the exact payload are kept for a stale
-                  // answer: a missing device gets a new envelope while every
-                  // existing one is resent byte for byte.
-                  value: jsonEncode({
-                    'groupId': groupId,
-                    'envelopes': envelopes,
-                    if (!business)
-                      'fanout': {'identityIds': recipients, 'payload': payload},
-                  }),
-                ),
-              );
-          // The payload above now carries the extra keys for every retry.
-          await (_db.delete(
-            _db.backupState,
-          )..where((s) => s.key.equals('extra:$messageId'))).go();
-        });
-        stored = await (_db.select(
-          _db.backupState,
-        )..where((s) => s.key.equals('outbox:$messageId'))).getSingle();
-      }
-      final outbox = jsonDecode(stored.value) as Map<String, dynamic>;
-      final envelopes = (outbox['envelopes'] as Map<String, dynamic>)
-          .cast<String, String>();
-      final groupId = outbox['groupId'] as String?;
-      if (outbox['fanout'] != null) {
-        await _sendFanout(messageId, outbox, envelopes);
-      } else if (groupId != null) {
-        // The whole fan-out in one call (see sendGroupMessage): a business
-        // group rejects any call without the auditor's envelope (KB2).
-        await _signalR.sendGroupMessage(
-          groupId,
-          envelopes,
-          messageId: messageId,
-        );
-      } else {
-        // An outbox written before multi-device (one envelope for the peer):
-        // finish it the old way rather than encrypting again.
-        await _signalR.sendMessage(
-          envelopes.keys.single,
-          envelopes.values.single,
-          messageId: messageId,
-        );
-      }
-      await _db.transaction(() async {
-        await _status(messageId, 'sent');
-        await (_db.delete(_db.backupState)..where(
-              (s) => s.key.isIn(['outbox:$messageId', 'mediaup:$messageId']),
-            ))
-            .go();
-      });
-    } catch (e) {
-      // The hub reports the audit failure as a plain-text HubException
-      // message; surfacing it distinctly (rather than a generic "failed")
-      // is required by KB1 — this must never look like an ordinary
-      // delivery hiccup the user can ignore.
-      if (e.toString().contains('audit_recipient_missing')) {
-        _auditRecipientMissing = true;
-        notifyListeners();
-      } else if (e.toString().contains('auditor_unavailable')) {
-        _auditorUnavailable = true;
-        notifyListeners();
-      } else if (e.toString().contains('business_conversation_required')) {
-        _businessConversationRequired = true;
-        notifyListeners();
-      }
-      await _status(messageId, 'failed');
+    final outcome = await _sender.send(
+      messageId,
+      localizations: localizations,
+    );
+    // The hub reports these as a plain-text HubException message; surfacing
+    // them distinctly (rather than a generic "failed") is required by KB1:
+    // this must never look like an ordinary delivery hiccup.
+    final error = outcome.error?.toString() ?? '';
+    if (error.contains('audit_recipient_missing')) {
+      _auditRecipientMissing = true;
+    } else if (error.contains('auditor_unavailable')) {
+      _auditorUnavailable = true;
+    } else if (error.contains('business_conversation_required')) {
+      _businessConversationRequired = true;
     }
-  });
-
-  /// Sends a fan-out outbox; on `device_list_stale` lets FanoutSender repair
-  /// the envelopes (new devices get one, removed devices lose theirs, the
-  /// rest stays byte for byte) and persists them before the next round.
-  Future<void> _sendFanout(
-    String messageId,
-    Map<String, dynamic> outbox,
-    Map<String, String> envelopes,
-  ) async {
-    final groupId = outbox['groupId'] as String?;
-    final fanout = outbox['fanout'] as Map<String, dynamic>;
-    final payload = fanout['payload'] as String;
-    try {
-      await _fanout.deliver(
-        envelopes: envelopes,
-        identityIds: (fanout['identityIds'] as List).cast<String>(),
-        payload: payload,
-        maxRounds: _maxFanoutRounds,
-        onStale: _onStale,
-        send: (current) => groupId == null
-            ? _signalR.sendDirectFanout(
-                (fanout['identityIds'] as List).single as String,
-                current,
-                messageId: messageId,
-              )
-            : _signalR.sendGroupFanout(groupId, current, messageId: messageId),
-        // The hub computes `required` from the CURRENT membership, but the
-        // stored identityIds are from the first attempt. Without this a
-        // member added before a retry stays "unverified" for good and every
-        // retry fails. The union keeps removed members out of nothing:
-        // reconcile already trims envelopes the hub no longer wants. Same
-        // trust as the first send (the member list comes from the server).
-        identityIdsFor: groupId == null
-            ? null
-            : (ids) async => {
-                ...ids,
-                ...(await _api.getGroupMembers(
-                  groupId,
-                )).where((id) => id != myIdentityId),
-              }.toList(),
-        // A crash in between only loses envelopes nobody has received;
-        // encrypting those again is harmless.
-        persist: (current, ids) =>
-            (_db.update(
-              _db.backupState,
-            )..where((s) => s.key.equals('outbox:$messageId'))).write(
-              BackupStateCompanion(
-                value: Value(
-                  jsonEncode({
-                    ...outbox,
-                    'envelopes': current,
-                    'fanout': {...fanout, 'identityIds': ids},
-                  }),
-                ),
-              ),
-            ),
-      );
-    } catch (e) {
-      if (groupId != null &&
-          e.toString().contains('fanout_unsupported_in_business_group')) {
-        await _sendBusinessFallback(messageId, groupId, payload);
-        return;
-      }
-      rethrow;
-    }
+    if (outcome.error != null && !_disposed) notifyListeners();
+    _resend?.attempted(messageId, outcome);
   }
 
-  /// The hub says this group is a business group, but the local cache did
-  /// not know yet (it is filled asynchronously when the chat opens). Finish
-  /// the SAME send attempt on the business path instead of failing: same
-  /// messageId, one envelope per member from the server's member list (the
-  /// auditor included, KB2), one sendGroupMessage call. The refused fan-out
-  /// call queued nothing, so encrypting again only skips a ratchet step.
-  Future<void> _sendBusinessFallback(
-    String messageId,
-    String groupId,
-    String payload,
-  ) async {
-    // v1: business conversations are primary-only (decision 2).
-    if (isCompanion) {
-      throw StateError('Business conversations are primary-only in v1.');
-    }
-    // Fills the cached organizationId, so the next send goes straight to the
-    // business path (and the banner appears).
-    await _syncBusinessInfo();
-    final recipients = (await _api.getGroupMembers(
-      groupId,
-    )).where((id) => id != myIdentityId).toList();
-    final envelopes = <String, String>{};
-    await _db.transaction(() async {
-      final encrypted = await GroupCipher(
-        sessionManager: _sessions,
-        ensureSession: _ensureSession,
-      ).encryptForGroup(groupId, recipients, payload);
-      envelopes.addAll(
-        encrypted.map((id, bytes) => MapEntry(id, base64Encode(bytes))),
-      );
-      // The outbox becomes a business outbox: a retry after a failed call
-      // below resends these exact envelopes through the business branch.
-      await (_db.update(_db.backupState)
-            ..where((s) => s.key.equals('outbox:$messageId')))
-          .write(
-            BackupStateCompanion(
-              value: Value(
-                jsonEncode({'groupId': groupId, 'envelopes': envelopes}),
-              ),
-            ),
-          );
-    });
-    await _signalR.sendGroupMessage(groupId, envelopes, messageId: messageId);
-  }
-
-  Future<void> _status(String id, String status) =>
-      (_db.update(_db.messages)..where((m) => m.id.equals(id)))
-          .write(MessagesCompanion(status: Value(status)))
-          .then((_) {});
-
-  Future<void> _ensureSession(String recipient) async {
-    if (!await _sessions.hasSession(recipient)) {
-      await _sessions.initiateSession(
-        recipient,
-        await _api.getKeyBundle(recipient),
-      );
+  /// Runs [flow] on the transient control row [controlId] while holding it,
+  /// so the automatic resend never touches a row whose flow still restores
+  /// or finishes the local state (R7).
+  Future<T> _holding<T>(String controlId, Future<T> Function() flow) async {
+    final registry = OutboxRegistry.forDatabase(_db);
+    registry.hold(controlId);
+    try {
+      return await flow();
+    } finally {
+      registry.release(controlId);
     }
   }
 
@@ -1623,6 +1255,7 @@ class ChatController extends ChangeNotifier {
     _pinSubscription.cancel();
     _voteSubscription.cancel();
     _incoming.cancel();
+    _sendFailSubscription?.cancel();
     super.dispose();
   }
 }

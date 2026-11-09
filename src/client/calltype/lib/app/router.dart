@@ -27,6 +27,7 @@ import '../features/channels/updates_screen.dart';
 import '../features/chat/chat_controller.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/chat/message_inbox_service.dart';
+import '../features/chat/resend_service.dart';
 import '../features/chat/mentions.dart' show senderLabel;
 import '../features/chat_list/chat_list_controller.dart';
 import '../features/chat_list/chat_list_screen.dart';
@@ -181,21 +182,9 @@ final router = GoRouter(
                   // safe from inside a send.
                   onMissingOwnDevice: (d) =>
                       unawaited(devices.reportVanishedCompanions([d])),
-                  // Fire-and-forget: this runs inside the processing queue and
-                  // must never wait for a queue job. The server's stale answer
-                  // is only a hint; reportVanishedCompanions records it and
-                  // the user decides (it never re-signs on its own).
-                  onStale: (required) => unawaited(() async {
-                    final wanted = {for (final d in required) d.toLowerCase()};
-                    // devicesOf lists the primary first; only its companions
-                    // can have vanished.
-                    final own = await devices.directory.devicesOf(
-                      devices.directory.selfDeviceId,
-                    );
-                    await devices.reportVanishedCompanions(
-                      own.skip(1).where((d) => !wanted.contains(d)),
-                    );
-                  }()),
+                  onStale: devices.reportStaleFanout,
+                  // Absent in widget tests that build the router alone.
+                  resend: ctx.read<ResendService?>(),
                 );
                 // Forward: the message to forward arrives as route `extra`.
                 // `create` runs once per route, so it is sent exactly once,

@@ -320,6 +320,7 @@ class DeviceService extends ChangeNotifier {
                 s.key.like('outbox:%') |
                 s.key.like('ownsync:%') |
                 s.key.like('control:%') |
+                s.key.like('sendfail:%') |
                 s.key.equals(companionOfKey) |
                 s.key.equals(linkedPrimaryHandleKey),
           ))
@@ -359,6 +360,7 @@ class DeviceService extends ChangeNotifier {
                   s.key.like('outbox:%') |
                   s.key.like('ownsync:%') |
                   s.key.like('control:%') |
+                  s.key.like('sendfail:%') |
                   s.key.equals(companionOfKey) |
                   s.key.equals(linkedPrimaryHandleKey) |
                   s.key.equals(vanishedCompanionsKey),
@@ -435,6 +437,22 @@ class DeviceService extends ChangeNotifier {
     if (next.length == _vanished.length) return;
     await _storeVanished(next);
   }
+
+  /// A send was answered `device_list_stale` with [required] devices: an
+  /// own companion missing from it may have vanished. Only a hint, recorded
+  /// for the user to decide ([reportVanishedCompanions], it never re-signs
+  /// on its own). Fire-and-forget: the sender calls it from inside the
+  /// processing queue and must never wait for a queue job.
+  void reportStaleFanout(Set<String> required) => unawaited(() async {
+    if (!isOpen) return;
+    final wanted = {for (final d in required) d.toLowerCase()};
+    // devicesOf lists the primary first; only its companions can have
+    // vanished.
+    final own = await directory.devicesOf(directory.selfDeviceId);
+    await reportVanishedCompanions(
+      own.skip(1).where((d) => !wanted.contains(d)),
+    );
+  }());
 
   /// The user agreed: re-sign the list without the vanished devices.
   ///
