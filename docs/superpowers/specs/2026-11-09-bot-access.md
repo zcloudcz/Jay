@@ -1,0 +1,28 @@
+# Bot access: server-side sender filter, groups with the owner, bot talk in llm_bridge, isolation
+
+Status: approved (owner 2026-11-09, Discord): "Souhlasím s návrhem Spam, aby to nezahlcovalo server. Ale pokud je Bot ve skupině i s jinými lidmi, měl by na ně reagovat, pokud je v té skupině owner." and "Bot přece může odpovídat Botovi ve skupině" (true for hermes_bridge via the group's Bot conversation setting; llm_bridge ignores bots today, which is inconsistent).
+
+## Today (origin/master aa4332b)
+- Anyone who knows a bot's handle can send to it; the server stores and delivers, the bot drops non-owners before decryption (`allowSender`, identity-based).
+- llm_bridge: only owners, in 1:1 and groups (owner must @mention); other bots never.
+- hermes_bridge: owners only for humans; other bots in groups per the group's bot-talk setting when an owner is a group admin.
+- Codex provider runs `codex exec --sandbox read-only`: it cannot write, but it can READ every file the bot's OS user can read. Claude provider runs with `--tools ""` (no file access).
+
+## Decisions
+
+| # | Decision |
+|---|---|
+| A1 | Server: a bot device can publish an **inbound policy**: `PUT /devices/{id}/bot-policy` (self only, bot devices only, 403 otherwise; rate limit `api`) body `{"mode":"open"\|"owners","owners":["CT-XXXX-XXXX",..]}` (max 10 handles, resolved to identities server-side; unknown handles -> 400 `unknown_owner`). `GET` returns it. Stored on the bot's Device row (additive migration, nullable JSON/columns). Default for bots without a policy: `open` (old bots keep working). |
+| A2 | Enforcement in the hub send paths (`SendReliableMessage`, `SendReliableDirectFanout`, and group fan-out to a bot member) when the recipient is a bot with mode `owners`: a 1:1 message is accepted only if the sender's identity is an owner; a group message is delivered to the bot only if at least one owner identity is a member of that group. Otherwise the server does NOT store or deliver it to the bot. To the sender it looks like a normal accepted send (no oracle whether the bot exists or who owns it): same ack as success. Group membership changes are honoured at send time. Call signals and key-bundle fetches are out of scope of A2 except A6. Tests: integration tests in the existing hub/device test classes (owner 1:1 delivered, stranger 1:1 dropped and not stored, group with owner delivered, group without owner dropped, mode open unchanged, companion of an owner counts as owner, non-bot cannot set a policy). AGENTS.md endpoint table + this spec. |
+| A3 | llm_bridge and hermes_bridge publish the A1 policy at start (`owners` = ALLOWED_HANDLES) unless `BOT_INBOUND=open`; a 404 from an old server is logged and ignored. |
+| A4 | llm_bridge group behaviour: in a group where at least one owner is a member, the bot answers ANY human member who addresses it (@mention or reply to the bot). In groups without an owner it stays silent (and A2 means it does not even receive them). Env `GROUP_REPLIES=members` (default) or `owners` (old behaviour). The group answer quotes the asker like today; history is per group conversation, each turn labelled with the speaker's handle or name so the model knows who speaks. |
+| A5 | llm_bridge bot talk: in groups, other bots are answered under exactly the rules hermes_bridge uses (group bot-talk setting `all`/`selected`, an owner in the group (member is enough, not admin, consistent with A4), max turns and pause from the group, `PEER_MAX_TURNS_CAP`). Reuse the shared logic from `calltype_bot` or `hermes_bridge` instead of a third copy (extract into `calltype_bot` if needed, with tests). Bot-to-bot 1:1 stays ignored. |
+| A6 | One-time pre-keys: verify (code + test) whether `GET /devices/{id}/key-bundle` is rate limited per caller and whether bots replenish one-time pre-keys (calltype_bot). If either is missing, fix it minimally (rate limit per caller identity on the key-bundle endpoint; bot replenish below a threshold like the app) with tests. Report what was found. |
+| A7 | Isolation of CLI providers, required now because non-owners can trigger the bot (A4): on Linux (systemd user unit written by jay-new-bot.sh) the unit gets `PrivateUsers=yes`, `ProtectSystem=strict`, `TemporaryFileSystem=%h:ro` (hide the whole home) with `BindPaths=` only for the bot dir and `BindReadOnlyPaths=`/`BindPaths=` only for what the provider needs (`~/.codex` for codex-cli auth incl. token refresh, `~/.claude`+`~/.claude.json` for claude-cli, the CLI binary dirs), `NoNewPrivileges=yes`, `PrivateTmp=yes`. Verify on this machine that the bot still answers and that the CLI cannot read e.g. `~/.hermes` (test with a dry probe, never print secrets). macOS/Windows: no equivalent in this step; the script prints a clear warning for CLI providers with `GROUP_REPLIES=members` there and the README says to run it under a separate OS user. Docker mode is already isolated. |
+| A8 | The "New bot" wizard and README explain in 3 lines who can reach a bot (owners, members of groups with an owner, bots per group setting) and the subscription cost implication (group members spend the owner's subscription/API). |
+
+## Rollout
+Server first (A1/A2, additive, default open). Bots and script after. Existing HackerBot on this machine: rerun its setup command after the release to get A3/A7 (identity kept).
+
+## Tests
+Server integration tests (A2, A6). llm_bridge unit tests for A4/A5 (member in owner group answered, member in group without owner ignored, bot talk rules, GROUP_REPLIES=owners). Script dry-run matrix shows the hardening lines; a real run on this machine (A7 verification).
