@@ -5,6 +5,7 @@ import 'package:calltype_core/messaging/contact_sync.dart';
 import 'package:drift/drift.dart';
 
 import 'package:calltype_core/storage/database.dart';
+import '../chat/chat_deletion.dart' show wasChatDeleted;
 import '../devices/device_service.dart' show OwnLinkEvent;
 import '../devices/own_device_sender.dart';
 
@@ -120,8 +121,10 @@ Future<bool> applySyncedContacts(
 }
 
 /// Conversation headers of a snapshot: an unknown one is inserted (without
-/// messages, unread 0); a known one only gains what it lacks (a title, the
-/// organization), so a snapshot never overwrites local state.
+/// messages, unread 0) unless it was deleted here (a header has no time, so
+/// an older snapshot must not bring a deleted chat back, spec
+/// 2026-11-09-delete-chats-contacts); a known one only gains what it lacks
+/// (a title, the organization), so a snapshot never overwrites local state.
 Future<bool> applySyncedConversations(
   AppDatabase db,
   List<SyncedConversation> conversations,
@@ -132,6 +135,7 @@ Future<bool> applySyncedConversations(
       db.conversations,
     )..where((c) => c.id.equals(entry.id))).getSingleOrNull();
     if (local == null) {
+      if (await wasChatDeleted(db, entry.id)) continue;
       await db
           .into(db.conversations)
           .insert(
@@ -307,6 +311,17 @@ class ContactSyncService {
     return _sender.send(
       contactSyncType,
       ContactSyncPayload.upsert([syncedContactOf(contact)]).encode(),
+    );
+  }
+
+  /// After a local removal of [deviceId] at [removedAt] (ms, spec
+  /// 2026-11-09-delete-chats-contacts D4). False when there is no other own
+  /// device or the send is still queued.
+  Future<bool> contactRemoved(String deviceId, int removedAt) async {
+    if ((await _sender.otherDevices()).isEmpty) return false;
+    return _sender.send(
+      contactSyncType,
+      ContactSyncPayload.remove([deviceId], removedAt).encode(),
     );
   }
 

@@ -10,11 +10,13 @@ import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
 import '../../shared/widgets/main_navigation_bar.dart';
+import '../chat/chat_delete_dialogs.dart';
+import '../chat/chat_deletion.dart';
 import '../contacts/contacts_controller.dart';
 import '../devices/device_service.dart';
 import '../devices/devices_screen.dart' show LinkWebButton;
 import '../mute/mute_controller.dart';
-import '../mute/mute_dialog.dart';
+import '../mute/mute_dialog.dart' show muteIcon;
 import '../notifications/notifications_screen.dart';
 import '../organization/business_banner.dart';
 import 'chat_list_controller.dart';
@@ -83,6 +85,10 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final rows = controller.conversations;
     // Optional so screens pumped without it (older tests) still build.
     final mutes = context.watch<MuteController?>();
+    final canDelete = context.watch<ChatDeletionService?>() != null;
+    // Web/desktop width: a visible overflow button next to each row (right
+    // click works too); phones use long press and swipe (spec D1).
+    final wide = MediaQuery.sizeOf(context).width >= 600;
     final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(
@@ -201,7 +207,17 @@ class _ChatListScreenState extends State<ChatListScreen> {
                           contact?.userHandle ??
                           peer?.label ??
                           row.id;
-                      return ListTile(
+                      final business = row.organizationId != null;
+                      void actions() => showChatActions(
+                        context,
+                        conversationId: row.id,
+                        title: title,
+                        group: row.type == 'group',
+                        business: business,
+                        hasContact: contact != null,
+                      );
+                      final hasActions = mutes != null || canDelete;
+                      final tile = ListTile(
                         leading: LetterAvatar(name: title),
                         title: NameWithBotBadge(
                           name: title,
@@ -225,44 +241,84 @@ class _ChatListScreenState extends State<ChatListScreen> {
                             ),
                           ],
                         ),
-                        trailing: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (row.lastMessageAt != null)
-                              Text(
-                                DateFormat.Hm(l10n.localeName).format(
-                                  row.lastMessageAt!.toLocal(),
-                                ),
-                              ),
-                            if (muteMode != MuteMode.off)
-                              Icon(
-                                muteIcon(muteMode),
-                                size: 16,
-                                semanticLabel: muteMode == MuteMode.bots
-                                    ? l10n.muteStateBots
-                                    : l10n.muteStateAll,
-                              ),
-                            if (row.unreadCount > 0)
-                              Badge(
-                                label: Text('${row.unreadCount}'),
-                                // A muted chat keeps its count (the user
-                                // may still want to know) but greyed out,
-                                // like the app badge that ignores it.
-                                backgroundColor: muteMode == MuteMode.off
-                                    ? null
-                                    : Theme.of(context).disabledColor,
+                            Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (row.lastMessageAt != null)
+                                  Text(
+                                    DateFormat.Hm(l10n.localeName).format(
+                                      row.lastMessageAt!.toLocal(),
+                                    ),
+                                  ),
+                                if (muteMode != MuteMode.off)
+                                  Icon(
+                                    muteIcon(muteMode),
+                                    size: 16,
+                                    semanticLabel: muteMode == MuteMode.bots
+                                        ? l10n.muteStateBots
+                                        : l10n.muteStateAll,
+                                  ),
+                                if (row.unreadCount > 0)
+                                  Badge(
+                                    label: Text('${row.unreadCount}'),
+                                    // A muted chat keeps its count (the user
+                                    // may still want to know) but greyed out,
+                                    // like the app badge that ignores it.
+                                    backgroundColor: muteMode == MuteMode.off
+                                        ? null
+                                        : Theme.of(context).disabledColor,
+                                  ),
+                              ],
+                            ),
+                            if (wide && hasActions)
+                              IconButton(
+                                key: ValueKey('chat-row-menu-${row.id}'),
+                                icon: const Icon(Icons.more_vert_rounded),
+                                tooltip: l10n.chatListRowActions,
+                                onPressed: actions,
                               ),
                           ],
                         ),
                         onTap: () => context.push('/chats/${row.id}'),
-                        // Same dialog as the bell in the chat header.
-                        onLongPress: mutes == null
-                            ? null
-                            : () => editMute(
-                                context,
-                                conversationId: row.id,
-                                group: row.type == 'group',
-                              ),
+                        // Mute, delete, leave, delete contact (spec
+                        // 2026-11-09-delete-chats-contacts D1).
+                        onLongPress: hasActions ? actions : null,
+                      );
+                      final withRightClick = GestureDetector(
+                        onSecondaryTap: hasActions ? actions : null,
+                        child: tile,
+                      );
+                      if (wide || !canDelete) return withRightClick;
+                      // Phones: swipe left asks to delete; the row goes when
+                      // the database stream drops it, never by the swipe.
+                      return Dismissible(
+                        key: ValueKey('chat-swipe-${row.id}'),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          color: Theme.of(context).colorScheme.errorContainer,
+                          alignment: AlignmentDirectional.centerEnd,
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Icon(
+                            Icons.delete_outline_rounded,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onErrorContainer,
+                            semanticLabel: l10n.chatDeleteChat,
+                          ),
+                        ),
+                        confirmDismiss: (_) async {
+                          await confirmDeleteChat(
+                            context,
+                            conversationId: row.id,
+                            group: row.type == 'group',
+                            business: business,
+                          );
+                          return false;
+                        },
+                        child: withRightClick,
                       );
                     },
                   ),

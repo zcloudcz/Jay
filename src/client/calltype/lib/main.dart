@@ -21,6 +21,7 @@ import 'features/calls/call_ring.dart';
 import 'features/calls/call_ring_coordinator.dart';
 import 'features/calls/callkit_ring_platform.dart';
 import 'features/channels/channels_controller.dart';
+import 'features/chat/chat_deletion.dart';
 import 'features/chat/message_inbox_service.dart';
 import 'features/chat/message_sender.dart';
 import 'features/chat/resend_service.dart';
@@ -299,6 +300,15 @@ void main() async {
     // `cancelled` tombstones right on connect.
     unawaited(ringCoordinator.start());
   }
+  // Delete chats (spec 2026-11-09-delete-chats-contacts): here, then on the
+  // other own devices; a deleted chat's notifications go like after a read.
+  final chatDeletion = ChatDeletionService(
+    database: db,
+    sender: ownDevices,
+    directory: () => devices.isOpen ? devices.directory : null,
+    apiClient: apiClient,
+    onDeleted: (id) => unawaited(notifications.onConversationRead(id)),
+  );
   inbox.persistedMessages.listen((m) => unawaited(notifications.onMessage(m)));
   inbox.appliedReactions.listen((r) => unawaited(notifications.onReaction(r)));
   inbox.readElsewhere.listen(
@@ -388,6 +398,7 @@ void main() async {
         Provider.value(value: contactSync),
         Provider.value(value: resend),
         Provider.value(value: readSync),
+        Provider.value(value: chatDeletion),
         ChangeNotifierProvider.value(value: historyTransfer),
 
         // -- Network providers (ChangeNotifier-based) -----------------------
@@ -408,6 +419,11 @@ void main() async {
             apiClient: apiClient,
             onLocalChange: (deviceId) async {
               if (devices.isOpen) await contactSync.contactChanged(deviceId);
+            },
+            onLocalRemove: (deviceId, removedAt) async {
+              if (devices.isOpen) {
+                await contactSync.contactRemoved(deviceId, removedAt);
+              }
             },
             remoteChanges: inbox.contactsChanged,
           ),

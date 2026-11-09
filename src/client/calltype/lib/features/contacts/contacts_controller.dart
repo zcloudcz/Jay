@@ -8,6 +8,7 @@ import 'package:calltype_core/storage/database.dart';
 import 'package:calltype_core/network/api_client.dart';
 
 import '../chat/chat_controller.dart' show controlTypes;
+import 'contact_sync.dart' show contactRemovedPrefix;
 
 /// Manages the local contact list — devices we have exchanged identity
 /// keys with or intend to communicate with.
@@ -31,10 +32,12 @@ class ContactsController extends ChangeNotifier {
     required AppDatabase database,
     ApiClient? apiClient,
     Future<void> Function(String deviceId)? onLocalChange,
+    Future<void> Function(String deviceId, int removedAt)? onLocalRemove,
     Stream<void>? remoteChanges,
   }) : _db = database,
        _api = apiClient,
-       _onLocalChange = onLocalChange {
+       _onLocalChange = onLocalChange,
+       _onLocalRemove = onLocalRemove {
     _remote = remoteChanges?.listen((_) => unawaited(loadContacts()));
   }
   final ApiClient? _api;
@@ -42,6 +45,11 @@ class ContactsController extends ChangeNotifier {
   /// Contact sync (spec 2026-11-08-contact-sync): told the device id of
   /// every local add or rename, so our other devices get it.
   final Future<void> Function(String deviceId)? _onLocalChange;
+
+  /// Contact sync of a local removal (spec 2026-11-09-delete-chats-contacts
+  /// D4): told the device id and the removal time, so our other devices
+  /// remove the contact too.
+  final Future<void> Function(String deviceId, int removedAt)? _onLocalRemove;
 
   /// Contacts changed by another own device: reload.
   StreamSubscription<void>? _remote;
@@ -87,6 +95,34 @@ class ContactsController extends ChangeNotifier {
         );
     await loadContacts();
     _changed(deviceId);
+  }
+
+  /// Removes the contact [deviceId] on this identity (spec D4). Writes the
+  /// same `contact-removed:` tombstone a synced removal writes, so a late,
+  /// older upsert cannot bring it back, and tells our other devices. The
+  /// person is not blocked: a new message from them still arrives (and a
+  /// reply makes them a contact again, spec contacts-from-replies).
+  Future<void> deleteContact(String deviceId) async {
+    final removedAt = DateTime.now().millisecondsSinceEpoch;
+    await _db.transaction(() async {
+      await (_db.delete(
+        _db.contacts,
+      )..where((c) => c.deviceId.equals(deviceId))).go();
+      await _db
+          .into(_db.backupState)
+          .insertOnConflictUpdate(
+            BackupStateCompanion.insert(
+              key: '$contactRemovedPrefix$deviceId',
+              value: '$removedAt',
+            ),
+          );
+    });
+    await loadContacts();
+    final notify = _onLocalRemove;
+    if (notify != null) {
+      // Best effort, like [_changed]: a failed sync stays queued.
+      unawaited(notify(deviceId, removedAt).catchError((Object _) {}));
+    }
   }
 
   void _changed(String deviceId) {

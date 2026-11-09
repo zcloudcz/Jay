@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:calltype_core/crypto/device_list.dart' show DeviceListException;
 import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/messaging/agent_payload.dart';
+import 'package:calltype_core/messaging/chat_deleted.dart';
 import 'package:calltype_core/messaging/contact_sync.dart';
 import 'package:calltype_core/messaging/history_transfer.dart';
 import 'package:calltype_core/messaging/read_state.dart';
@@ -17,6 +18,7 @@ import '../media/media_cleanup.dart';
 import '../media/media_message.dart';
 import '../media/media_service.dart';
 import 'attachment.dart';
+import 'chat_deletion.dart';
 import 'pins.dart';
 import 'polls.dart';
 import 'read_sync.dart';
@@ -44,6 +46,7 @@ const ownSyncTypes = {
   historyTransferType,
   historyTransferDoneType,
   readStateType,
+  chatDeletedType,
 };
 
 /// Longest quote kept in a `replyTo` preview.
@@ -234,6 +237,7 @@ class MessageInboxService {
       AppliedReaction? reacted;
       OwnControlMessage? ownControl;
       String? readConversation;
+      ChatDeletion? chatDeletion;
       var contactsChanged = false;
       await _db.transaction(() async {
         final envelope = utf8.decode(
@@ -352,6 +356,21 @@ class MessageInboxService {
                     selfIdentityId: directory.selfIdentityId,
                   )) {
                 readConversation = read.conversationId;
+              }
+            } else if (type == chatDeletedType) {
+              // Spec 2026-11-09-delete-chats-contacts D2: only messages up
+              // to `deletedAt` go; an unknown conversation is ignored.
+              final deleted = ChatDeletedPayload.decode(body);
+              if (deleted != null) {
+                chatDeletion = await applyChatDeleted(
+                  _db,
+                  deleted,
+                  selfIdentityId: directory.selfIdentityId,
+                );
+                // Its notifications can go, like after a read elsewhere.
+                if (chatDeletion!.changed) {
+                  readConversation = deleted.conversationId;
+                }
               }
             } else {
               ownControl = OwnControlMessage(
@@ -524,6 +543,15 @@ class MessageInboxService {
       if (contactsChanged) _contactsChanged.add(null);
       if (ownControl != null) _ownControls.add(ownControl!);
       if (readConversation != null) _readElsewhere.add(readConversation!);
+      final removedMedia = chatDeletion?.removedMedia ?? const [];
+      if (removedMedia.isNotEmpty) {
+        // After the commit: files are not database state (best effort).
+        await deleteRemovedMedia(
+          _db,
+          _media ?? MediaService.instance,
+          removedMedia,
+        );
+      }
       await _acknowledge?.call(senderId, messageId);
     } catch (error) {
       // Leave failures queued on the server; never report corrupt ciphertext as delivered.

@@ -138,6 +138,13 @@ class ApiClient {
 
   // -- Bot conversations + mutes (2026-11-05 contract) ------------------------
 
+  /// DELETE /groups/{id}/members/{deviceId}. An admin removes anybody; any
+  /// device of an identity may remove that identity's own member device
+  /// (leaving, spec 2026-11-09-delete-chats-contacts D5). The last admin
+  /// gets 409 with `code: last_admin`.
+  Future<void> removeGroupMember(String groupId, String deviceId) =>
+      _dio.delete<void>('/groups/$groupId/members/$deviceId');
+
   /// GET /groups/{id}: the bot-talk setting and the caller's mute of the
   /// group. An old server omits both fields; they then read as "off".
   Future<GroupDetails> getGroup(String groupId) async {

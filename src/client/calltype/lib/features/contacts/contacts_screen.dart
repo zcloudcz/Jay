@@ -9,6 +9,7 @@ import 'package:calltype_core/storage/database.dart' show Contact;
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
+import '../chat/chat_delete_dialogs.dart' show confirmDeleteContact;
 import '../chat/participant_colors.dart';
 import '../chat_list/chat_list_controller.dart';
 import 'bot_link.dart';
@@ -354,6 +355,16 @@ class _ContactTile extends StatelessWidget {
                   ),
                   child: Text(context.l10n.participantColorContactAction),
                 ),
+              // Spec 2026-11-09-delete-chats-contacts D4.
+              PopupMenuItem(
+                key: ValueKey('contact-delete-${contact.deviceId}'),
+                onTap: () => confirmDeleteContact(
+                  context,
+                  deviceId: contact.deviceId as String,
+                  name: name as String,
+                ),
+                child: Text(context.l10n.contactDelete),
+              ),
             ],
           ),
         ],

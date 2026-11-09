@@ -2094,5 +2094,83 @@
   "newBotNoHandle": "Your Jay handle is not known yet. Finish setting up Jay first.",
   "@newBotNoHandle": {
     "description": "Shown in the wizard when the user's own Jay handle is not known yet."
+  },
+  "chatDeleteChat": "Delete chat",
+  "@chatDeleteChat": {
+    "description": "Action that deletes a whole conversation on this device and the user's other devices."
+  },
+  "chatLeaveGroup": "Leave group",
+  "@chatLeaveGroup": {
+    "description": "Action and button that removes the user from a group chat."
+  },
+  "contactDelete": "Delete contact",
+  "@contactDelete": {
+    "description": "Action and button that removes a contact."
+  },
+  "chatDeleteChatTitle": "Delete chat?",
+  "@chatDeleteChatTitle": {
+    "description": "Title of the dialog confirming that a whole chat is deleted."
+  },
+  "chatDeleteChatBody": "The messages of this chat are deleted from this device and your other devices. The other person keeps their copy. A new message brings the chat back.",
+  "@chatDeleteChatBody": {
+    "description": "Body of the delete-chat dialog for a 1:1 chat."
+  },
+  "chatDeleteGroupChatBody": "The messages of this group are deleted from this device and your other devices. You stay in the group, so new messages bring the chat back. The other members keep their copy.",
+  "@chatDeleteGroupChatBody": {
+    "description": "Body of the delete-chat dialog for a group chat (deleting does not leave the group)."
+  },
+  "chatDeleteBusinessNote": "The organization's archive is not affected.",
+  "@chatDeleteBusinessNote": {
+    "description": "Extra line in the delete/leave dialogs of a business conversation: the server-side audit archive stays."
+  },
+  "chatLeaveAndDelete": "Leave group and delete",
+  "@chatLeaveAndDelete": {
+    "description": "Button in the delete-chat dialog of a group: leave the group, then delete the chat."
+  },
+  "chatLeaveGroupTitle": "Leave group?",
+  "@chatLeaveGroupTitle": {
+    "description": "Title of the dialog confirming leaving a group."
+  },
+  "chatLeaveGroupBody": "You will no longer receive messages from this group, and the chat is deleted from this device and your other devices. The other members keep their copy.",
+  "@chatLeaveGroupBody": {
+    "description": "Body of the leave-group dialog."
+  },
+  "chatLeaveGroupLastAdmin": "You are the only admin of this group, so you cannot leave it. You can still delete the chat.",
+  "@chatLeaveGroupLastAdmin": {
+    "description": "Shown when the server refuses to let the last admin leave a group."
+  },
+  "chatLeaveGroupFailed": "Could not leave the group. Check your connection and try again.",
+  "@chatLeaveGroupFailed": {
+    "description": "Shown when leaving a group failed (network or server error)."
+  },
+  "chatDeleted": "Chat deleted",
+  "@chatDeleted": {
+    "description": "Snackbar after a chat was deleted."
+  },
+  "contactDeleteTitle": "Delete contact?",
+  "@contactDeleteTitle": {
+    "description": "Title of the dialog confirming a contact removal."
+  },
+  "contactDeleteBody": "{name} is removed from your contacts on this device and your other devices. They are not blocked and can still write to you.",
+  "@contactDeleteBody": {
+    "description": "Body of the delete-contact dialog.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Alice"
+      }
+    }
+  },
+  "contactDeleteAlsoChat": "Also delete the chat",
+  "@contactDeleteAlsoChat": {
+    "description": "Checkbox in the delete-contact dialog, ticked by default."
+  },
+  "contactDeleted": "Contact deleted",
+  "@contactDeleted": {
+    "description": "Snackbar after a contact was deleted."
+  },
+  "chatListRowActions": "Chat actions",
+  "@chatListRowActions": {
+    "description": "Tooltip of the per-row overflow button in the chat list on wide screens (mute, delete, leave, delete contact)."
   }
 }

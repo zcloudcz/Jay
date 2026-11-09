@@ -10,6 +10,8 @@ import '../../core/network/signalr_client.dart';
 import '../contacts/contacts_controller.dart';
 import '../chat_list/chat_list_controller.dart';
 import 'chat_controller.dart';
+import 'chat_delete_dialogs.dart';
+import 'chat_deletion.dart';
 import 'chat_message_list.dart';
 import 'message_bubble.dart';
 import 'pin_widgets.dart';
@@ -170,6 +172,48 @@ class _DeviceChangeLine extends StatelessWidget {
 class ChatScreen extends StatelessWidget {
   const ChatScreen({super.key, required this.contactId});
   final String contactId;
+
+  bool _business(BuildContext context) => context
+      .read<ChatListController>()
+      .conversations
+      .any((c) => c.id == contactId && c.organizationId != null);
+
+  /// App bar menu "Delete chat" (spec 2026-11-09-delete-chats-contacts D1):
+  /// after the deletion this chat is gone, so go back to the list.
+  Future<void> _deleteChat(BuildContext context, {required bool group}) async {
+    final deleted = await confirmDeleteChat(
+      context,
+      conversationId: contactId,
+      group: group,
+      business: _business(context),
+    );
+    if (deleted && context.mounted) context.go('/chats');
+  }
+
+  Future<void> _leaveGroup(BuildContext context) async {
+    final left = await confirmLeaveGroup(
+      context,
+      groupId: contactId,
+      business: _business(context),
+    );
+    if (left && context.mounted) context.go('/chats');
+  }
+
+  /// "Delete contact" (D4); with "Also delete the chat" this chat is gone.
+  Future<void> _deleteContact(
+    BuildContext context,
+    Contact contact,
+    String name,
+  ) async {
+    final result = await confirmDeleteContact(
+      context,
+      deviceId: contact.deviceId,
+      name: name,
+    );
+    if (result == ContactDeletion.withChat && context.mounted) {
+      context.go('/chats');
+    }
+  }
   Future<void> _call(
     BuildContext context,
     bool video, {
@@ -1169,6 +1213,7 @@ class ChatScreen extends StatelessWidget {
             ),
     ];
     final organizationName = conversation?.organizationName;
+    final canDelete = context.watch<ChatDeletionService?>() != null;
     final l10n = context.l10n;
     // The sender's language for media fallback texts and quotes.
     controller.localizations = l10n;
@@ -1279,11 +1324,26 @@ class ChatScreen extends StatelessWidget {
           MuteButton(conversationId: contactId, group: group),
           if (group)
             PopupMenuButton<void>(
+              key: const ValueKey('chat-group-menu'),
               itemBuilder: (_) => [
                 PopupMenuItem(
                   onTap: () => context.push('/chats/$contactId/bot-talk'),
                   child: Text(l10n.botTalkTitle),
                 ),
+                // Spec 2026-11-09-delete-chats-contacts D1/D5 (there is no
+                // separate group detail screen, so they live here).
+                if (canDelete) ...[
+                  PopupMenuItem(
+                    key: const ValueKey('chat-delete'),
+                    onTap: () => _deleteChat(context, group: true),
+                    child: Text(l10n.chatDeleteChat),
+                  ),
+                  PopupMenuItem(
+                    key: const ValueKey('chat-leave-group'),
+                    onTap: () => _leaveGroup(context),
+                    child: Text(l10n.chatLeaveGroup),
+                  ),
+                ],
               ],
             ),
           // Every direct chat can be renamed (C3); for a peer that is not a
@@ -1305,6 +1365,19 @@ class ChatScreen extends StatelessWidget {
                     key: const ValueKey('chat-add-contact'),
                     onTap: () => addPeerToContacts(context, contactId),
                     child: Text(l10n.contactsAddContact),
+                  ),
+                // Spec 2026-11-09-delete-chats-contacts D1/D4/D7.
+                if (canDelete)
+                  PopupMenuItem(
+                    key: const ValueKey('chat-delete'),
+                    onTap: () => _deleteChat(context, group: false),
+                    child: Text(l10n.chatDeleteChat),
+                  ),
+                if (contact != null)
+                  PopupMenuItem(
+                    key: const ValueKey('chat-delete-contact'),
+                    onTap: () => _deleteContact(context, contact, name),
+                    child: Text(l10n.contactDelete),
                   ),
               ],
             ),
