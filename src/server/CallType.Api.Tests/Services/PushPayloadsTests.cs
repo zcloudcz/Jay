@@ -60,6 +60,44 @@ public class PushPayloadsTests
             "\"conversationId\":\"" + Conv + "\",\"v\":\"1\",\"tag\":\"" + Conv + "\"}");
     }
 
+    private const string CallId = "8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f";
+
+    [Fact]
+    public void Fcm_ring_is_data_only_high_priority_with_45s_ttl()
+    {
+        var json = PushPayloads.Serialize(PushPayloads.FcmRing("tok",
+            PushNotification.ForRing(Guid.Parse(Conv), CallId)));
+
+        json.Should().Be(
+            "{\"message\":{\"token\":\"tok\"," +
+            "\"android\":{\"priority\":\"high\",\"ttl\":\"45s\"}," +
+            "\"data\":{\"type\":\"incoming_call\",\"callId\":\"" + CallId + "\"," +
+            "\"conversationId\":\"" + Conv + "\",\"v\":\"1\"}}}");
+    }
+
+    [Fact]
+    public void Fcm_call_cancelled_has_the_ring_shape()
+    {
+        var json = PushPayloads.Serialize(PushPayloads.FcmRing("tok",
+            PushNotification.ForCallCancelled(Guid.Parse(Conv), CallId)));
+
+        json.Should().Be(
+            "{\"message\":{\"token\":\"tok\"," +
+            "\"android\":{\"priority\":\"high\",\"ttl\":\"45s\"}," +
+            "\"data\":{\"type\":\"call_cancelled\",\"callId\":\"" + CallId + "\"," +
+            "\"conversationId\":\"" + Conv + "\",\"v\":\"1\"}}}");
+    }
+
+    [Fact]
+    public void Apns_voip_body_has_empty_aps_and_the_call_route()
+    {
+        var json = PushPayloads.Serialize(PushPayloads.ApnsVoip(PushNotification.ForRing(Guid.Parse(Conv), CallId)));
+
+        json.Should().Be(
+            "{\"aps\":{},\"type\":\"incoming_call\",\"callId\":\"" + CallId + "\"," +
+            "\"conversationId\":\"" + Conv + "\",\"v\":\"1\"}");
+    }
+
     [Theory]
     [InlineData(PushTypes.Message, "cs", "Nová zpráva")]
     [InlineData(PushTypes.Message, "en", "New message")]

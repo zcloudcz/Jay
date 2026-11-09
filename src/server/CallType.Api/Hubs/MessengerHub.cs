@@ -38,7 +38,7 @@ namespace CallType.Api.Hubs;
 [Authorize]
 public class MessengerHub(MessageQueueService queueService, PushNotificationService pushService, AppDbContext db,
     AuditorLivenessService auditorLiveness, OrgCommunicationPolicy communicationPolicy, IMemoryCache cache,
-    DeviceListService deviceLists, ConversationMuteService mutes) : Hub
+    DeviceListService deviceLists, ConversationMuteService mutes, PendingCallStore pendingCalls) : Hub
 {
     // Maps DeviceId -> ConnectionId for all currently connected devices.
     // Static because SignalR creates a new Hub instance per invocation,
@@ -61,6 +61,9 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         {
             OnlineDevices[deviceId] = Context.ConnectionId;
             await SendPendingAsync(deviceId);
+            // After the messages: a woken app first catches up on chats, and
+            // the call signals then arrive last, nearest to the user's tap.
+            await SendPendingCallsAsync(deviceId);
         }
     }
 
@@ -399,8 +402,10 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
     /// <summary>
     /// Relays WebRTC signaling messages (offer, answer, ICE candidates, hangup)
     /// between two devices for voice/video calls. These must be delivered in
-    /// real-time — there is no offline queueing for call signals because a
-    /// call to an offline device is meaningless.
+    /// real-time and are never stored in the message queue. The one exception
+    /// is a callee whose phone can ring while the app is closed: its offer and
+    /// ICE wait in memory for at most 45 s (PendingCallStore, spec
+    /// 2026-11-06-call-ringing).
     /// </summary>
     public Task CallSignal(Guid targetDeviceId, string signalType, string payload) =>
         RelayCallSignalAsync(targetDeviceId, signalType, payload, businessGroupId: null);
@@ -446,9 +451,19 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
             && !await communicationPolicy.IsAllowedAsync(senderDeviceId.Value, targetDeviceId, Context.ConnectionAborted))
             throw new HubException("business_conversation_required");
 
-        if (OnlineDevices.TryGetValue(targetDeviceId, out var connectionId))
+        var online = OnlineDevices.TryGetValue(targetDeviceId, out var connectionId);
+
+        // A follow-up of a call that is still waiting for the callee goes to
+        // the pending call, even when the callee has JUST connected: until
+        // its connect has taken the pending call, relaying directly could
+        // deliver an ICE candidate before the offer it belongs to.
+        if (signalType != "offer" && ParseCallId(payload) is { } callId
+            && await HandlePendingFollowUpAsync(targetDeviceId, senderDeviceId.Value, signalType, payload, callId, online))
+            return;
+
+        if (online)
         {
-            await Clients.Client(connectionId).SendAsync("CallSignal", new
+            await Clients.Client(connectionId!).SendAsync("CallSignal", new
             {
                 senderId = senderDeviceId.Value,
                 signalType,
@@ -458,50 +473,206 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         }
         else if (signalType == "offer")
         {
-            // Target has no live connection. Tell the caller right away instead
-            // of letting their UI ring into the void for the full 45 s timeout
-            // (beta feedback). Only the initial offer is answered this way:
-            // later signals of an established call are still dropped silently.
-            // The original envelope is echoed back so the client can match the
-            // reply to its callId and ignore it for any other call.
-            // Privacy note: this reveals "not connected right now" to an
-            // authenticated caller who already knows the device id — the same
-            // fact the timeout would reveal, just sooner.
-            await Clients.Caller.SendAsync("CallSignal", new
-            {
-                senderId = targetDeviceId,
-                signalType = "unavailable",
-                payload,
-                businessGroupId
-            });
-            await PushIncomingCallAsync(targetDeviceId, senderDeviceId.Value, businessGroupId);
+            await OfferToOfflineAsync(targetDeviceId, senderDeviceId.Value, payload, businessGroupId);
         }
     }
 
     /// <summary>
-    /// N5: an offer that finds the callee offline still shows "Incoming call"
-    /// on the callee's lock screen, so they learn about it and can call back.
-    /// Sent AFTER the "unavailable" reply so the caller's UI is never delayed
-    /// by a provider round trip. Not throttled; muted only by a 1:1 mute in
-    /// mode "all" (a "bots" mute is about bot chatter, not people calling).
+    /// An offer whose callee has no live connection. If the callee can RING
+    /// (call-ringing spec R2) the offer is kept as a pending call, the caller
+    /// hears "ringing" and the callee's phone gets a VoIP / data-only ring
+    /// push. Otherwise the legacy path: "unavailable" right away plus the
+    /// visible "Incoming call" push (N5), so they can call back.
+    /// Mutes (R8): a 1:1 mute in mode "all" means no push and no pending
+    /// call; a "bots" mute is about bot chatter, not people calling.
     /// </summary>
-    private async Task PushIncomingCallAsync(Guid targetDeviceId, Guid senderDeviceId, Guid? businessGroupId)
+    private async Task OfferToOfflineAsync(Guid targetDeviceId, Guid senderDeviceId, string payload,
+        Guid? businessGroupId)
     {
+        var callId = ParseCallId(payload);
+        Guid? conversation = null;
+        var muted = false;
+        var canRing = false;
         try
         {
             var senderPrimary = await deviceLists.PrimaryOfAsync(senderDeviceId, Context.ConnectionAborted);
-            if (await mutes.IsDirectMutedAllAsync(targetDeviceId, senderPrimary, Context.ConnectionAborted))
-                return;
             // A business call belongs to its business conversation; an
             // anonymous call to the 1:1 chat with the caller's identity.
-            await pushService.SendPushAsync(targetDeviceId,
-                PushNotification.ForCall(businessGroupId ?? senderPrimary));
+            conversation = businessGroupId ?? senderPrimary;
+            muted = await mutes.IsDirectMutedAllAsync(targetDeviceId, senderPrimary, Context.ConnectionAborted);
+            canRing = callId is not null && !muted && await pushService.CanRingAsync(targetDeviceId);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Best-effort like every push: the "unavailable" reply already went out.
+            // Lookups failed: fall back to the plain "unavailable" reply below,
+            // the caller must hear something either way.
+        }
+
+        if (canRing && pendingCalls.TryAdd(new PendingCall
+            {
+                CallId = callId!,
+                CallerDeviceId = senderDeviceId,
+                TargetDeviceId = targetDeviceId,
+                BusinessGroupId = businessGroupId,
+                ConversationId = conversation!.Value,
+                Signals = { new PendingCallSignal("offer", payload) },
+            }))
+        {
+            // R5: keep ringing. The envelope is echoed so the caller matches
+            // it to its callId, same as "unavailable". An old caller app
+            // ignores the unknown type and rings to its own timeout.
+            await Clients.Caller.SendAsync("CallSignal", new
+            {
+                senderId = targetDeviceId,
+                signalType = "ringing",
+                payload,
+                businessGroupId
+            });
+            // Replaces the alert incoming_call push for this device, never both.
+            await pushService.SendRingPushAsync(targetDeviceId,
+                PushNotification.ForRing(conversation.Value, callId!));
+            return;
+        }
+
+        // Tell the caller right away instead of letting their UI ring into
+        // the void for the full 45 s timeout (beta feedback). Only the
+        // initial offer is answered this way: later signals of a call that
+        // is not pending are still dropped silently. The original envelope
+        // is echoed back so the client can match the reply to its callId.
+        // Privacy note: this reveals "not connected right now" to an
+        // authenticated caller who already knows the device id, the same
+        // fact the timeout would reveal, just sooner.
+        await Clients.Caller.SendAsync("CallSignal", new
+        {
+            senderId = targetDeviceId,
+            signalType = "unavailable",
+            payload,
+            businessGroupId
+        });
+        // N5: sent AFTER the reply so the caller's UI is never delayed by a
+        // provider round trip. Best-effort like every push.
+        if (!muted && conversation is { } route)
+            await pushService.SendPushAsync(targetDeviceId, PushNotification.ForCall(route));
+    }
+
+    /// <summary>
+    /// ICE and hangup of the caller for a call that is pending at the callee.
+    /// True = handled here. ICE is buffered (in order, capped); hangup cancels
+    /// the ring (tombstone, R6) and, for an offline Android callee, sends the
+    /// call_cancelled push that dismisses the full-screen notification.
+    /// </summary>
+    private async Task<bool> HandlePendingFollowUpAsync(Guid targetDeviceId, Guid senderDeviceId, string signalType,
+        string payload, string callId, bool online)
+    {
+        switch (signalType)
+        {
+            case "ice-candidate":
+                return pendingCalls.TryAppend(targetDeviceId, callId, senderDeviceId,
+                    new PendingCallSignal(signalType, payload));
+            case "hangup":
+                // A hangup also reaches a call whose ring already timed out
+                // (the caller app hangs up at its own 45 s timeout), so the
+                // Android notification is dismissed then as well.
+                if (online && !pendingCalls.HasPending(targetDeviceId, callId, senderDeviceId)) return false;
+                var tombstone = pendingCalls.Cancel(targetDeviceId, callId, senderDeviceId);
+                if (tombstone is null) return false;
+                if (!online)
+                    await pushService.SendCallCancelledPushAsync(targetDeviceId,
+                        PushNotification.ForCallCancelled(tombstone.ConversationId, callId));
+                return true;
+            default:
+                return false;
         }
     }
+
+    /// <summary>
+    /// Call ringing (spec 1.2): lets an app that registered its SignalR
+    /// listeners only after connecting (woken by a ring push) fetch the
+    /// pending calls again. Idempotent: what was delivered is gone.
+    /// </summary>
+    public Task RequestPendingCalls()
+        => SendPendingCallsAsync(GetCallerDeviceId() ?? throw new HubException("Invalid device identity"));
+
+    /// <summary>
+    /// Delivers every pending call addressed to this device as the ordinary
+    /// CallSignals the caller sent (offer first, then ICE, in order), and
+    /// every tombstone as a "cancelled" signal. Each exactly once.
+    /// </summary>
+    private async Task SendPendingCallsAsync(Guid deviceId)
+    {
+        var delivery = pendingCalls.TakeAll(deviceId);
+        foreach (var call in delivery.Calls)
+            foreach (var signal in call.Signals)
+                await Clients.Caller.SendAsync("CallSignal", new
+                {
+                    senderId = call.CallerDeviceId,
+                    signalType = signal.SignalType,
+                    payload = signal.Payload,
+                    businessGroupId = call.BusinessGroupId
+                }, Context.ConnectionAborted);
+        foreach (var tombstone in delivery.Tombstones)
+            await Clients.Caller.SendAsync("CallSignal", new
+            {
+                senderId = tombstone.CallerDeviceId,
+                signalType = "cancelled",
+                payload = CallEnvelope(tombstone.CallId, ""),
+                businessGroupId = tombstone.BusinessGroupId
+            }, Context.ConnectionAborted);
+    }
+
+    /// <summary>
+    /// R7: the callee declined from the lock screen before the offer reached
+    /// the app. Removes the pending call (no-op if none, so a retry is safe)
+    /// and tells an online caller at once with a hangup "declined", the same
+    /// signal an in-app decline produces.
+    /// </summary>
+    public async Task DeclinePendingCall(string callId)
+    {
+        var callee = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
+        if (string.IsNullOrEmpty(callId) || callId.Length > MaxCallIdLength) return;
+        var call = pendingCalls.Decline(callee, callId);
+        if (call is null) return;
+        if (OnlineDevices.TryGetValue(call.CallerDeviceId, out var connectionId))
+            await Clients.Client(connectionId).SendAsync("CallSignal", new
+            {
+                senderId = callee,
+                signalType = "hangup",
+                payload = CallEnvelope(callId, "declined"),
+                businessGroupId = call.BusinessGroupId
+            }, Context.ConnectionAborted);
+    }
+
+    /// <summary>Longest callId accepted from a client envelope (spec 1.2).</summary>
+    private const int MaxCallIdLength = 64;
+
+    /// <summary>
+    /// The callId of a client call envelope {"v":1,"callId":"...","payload":"..."},
+    /// or null when the payload is not one. The server reads only this id;
+    /// SDP and ICE stay opaque.
+    /// </summary>
+    internal static string? ParseCallId(string? payload)
+    {
+        if (string.IsNullOrEmpty(payload) || payload[0] != '{') return null;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(payload);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("callId", out var id)
+                || id.ValueKind != System.Text.Json.JsonValueKind.String)
+                return null;
+            var callId = id.GetString();
+            return string.IsNullOrEmpty(callId) || callId.Length > MaxCallIdLength ? null : callId;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>A server-made envelope in the client's format (escaping done by the serializer).</summary>
+    private static string CallEnvelope(string callId, string payload) =>
+        new System.Text.Json.Nodes.JsonObject { ["v"] = 1, ["callId"] = callId, ["payload"] = payload }
+            .ToJsonString();
 
     private record GroupMemberInfo(Guid DeviceId, string Role);
 

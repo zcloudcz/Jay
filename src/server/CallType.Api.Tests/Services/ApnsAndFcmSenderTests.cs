@@ -63,6 +63,43 @@ public class ApnsAndFcmSenderTests
     }
 
     [Fact]
+    public async Task Apns_voip_push_uses_the_voip_topic_and_expires_immediately()
+    {
+        var (sender, service, key, _) = NewApns();
+        using var _k = key;
+        var voipToken = new string('f', 64);
+
+        var result = await sender.SendRingAsync(voipToken,
+            PushNotification.ForRing(Guid.Parse(Conv), "call-1"), CancellationToken.None);
+
+        result.Should().Be(PushSendResult.Sent);
+        var r = service.Requests.Single();
+        r.Request.RequestUri.Should().Be(new Uri($"https://api.push.apple.com/3/device/{voipToken}"));
+        r.Request.Version.Should().Be(HttpVersion.Version20);
+        r.Header("apns-push-type").Should().Be("voip");
+        r.Header("apns-topic").Should().Be("cz.zcloud.jay.voip");
+        r.Header("apns-priority").Should().Be("10");
+        r.Header("apns-expiration").Should().Be("0");
+        r.Header("apns-collapse-id").Should().BeNull("every call rings on its own");
+        r.Header("authorization").Should().StartWith("bearer ");
+        r.BodyText.Should().Be(
+            "{\"aps\":{},\"type\":\"incoming_call\",\"callId\":\"call-1\"," +
+            "\"conversationId\":\"" + Conv + "\",\"v\":\"1\"}");
+    }
+
+    [Fact]
+    public async Task Apns_voip_bad_token_is_reported_as_invalid()
+    {
+        var (sender, service, key, _) = NewApns();
+        using var _k = key;
+        service.Respond = _ => new HttpResponseMessage(HttpStatusCode.BadRequest)
+            { Content = new StringContent("{\"reason\":\"BadDeviceToken\"}") };
+
+        (await sender.SendRingAsync(DeviceToken, PushNotification.ForRing(Guid.Parse(Conv), "c"),
+            CancellationToken.None)).Should().Be(PushSendResult.TokenInvalid);
+    }
+
+    [Fact]
     public async Task Apns_sandbox_switches_the_host()
     {
         var (sender, service, key, _) = NewApns(sandbox: true);
@@ -170,6 +207,22 @@ public class ApnsAndFcmSenderTests
         r.BodyText.Should().Be(PushPayloads.Serialize(
             PushPayloads.Fcm("fcm-token", new PushNotification(PushTypes.IncomingCall, Conv), "en")));
         r.BodyText.Should().Contain("\"channel_id\":\"calls\"").And.Contain("\"body\":\"Incoming call\"");
+    }
+
+    [Fact]
+    public async Task Fcm_ring_is_data_only()
+    {
+        var service = new FakePushService();
+        var sender = new FcmSender(new FakeHttpClientFactory(service), new FakeFcmTokens(),
+            NullLogger<FcmSender>.Instance);
+        var ring = PushNotification.ForRing(Guid.Parse(Conv), "call-1");
+
+        (await sender.SendRingAsync("fcm-token", ring, CancellationToken.None)).Should().Be(PushSendResult.Sent);
+
+        var r = service.Requests.Single();
+        r.Header("Authorization").Should().Be("Bearer test-access-token");
+        r.BodyText.Should().Be(PushPayloads.Serialize(PushPayloads.FcmRing("fcm-token", ring)));
+        r.BodyText.Should().NotContain("\"notification\"");
     }
 
     [Theory]

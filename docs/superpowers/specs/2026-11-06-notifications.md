@@ -19,7 +19,7 @@ messenger without notifications is not usable as a daily messenger.
 | N4 | Collapse per conversation (FCM `android.notification.tag` + `collapse_key`, APNs `apns-collapse-id` + `thread-id`, Web Push `Topic`), so 20 messages = one notification per chat. | Lock-screen spam |
 | N5 | Push only to offline devices (unchanged), respecting conversation mutes (unchanged) and channel post throttle (unchanged). Calls: an `offer` call signal to an offline device triggers an `incoming_call` push (high priority). | |
 | N6 | Notification tap opens the conversation (`conversationId` in the push data = group id, or the sender's primary device id for 1:1; channel id for channel posts). The server already has this metadata. | |
-| N7 | Out of scope: decrypting in the background for rich offline previews (Android isolate / iOS Notification Service Extension), CallKit/VoIP push and full-screen ringing, desktop push when the app is closed (no OS push channel without a store app), FCM topics for big channels. | Size; later |
+| N7 | Out of scope: decrypting in the background for rich offline previews (Android isolate / iOS Notification Service Extension), desktop push when the app is closed (no OS push channel without a store app), FCM topics for big channels. CallKit/VoIP push and full-screen ringing moved to `2026-11-06-call-ringing.md` (a ring-capable device gets a ring push INSTEAD of the `incoming_call` alert push of N5). | Size; later |
 
 ## 1. Server contract
 

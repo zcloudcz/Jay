@@ -13,21 +13,31 @@ using System.Text;
 
 namespace CallType.Api.Services;
 
-/// <summary>The four push types of the contract (data key "type").</summary>
+/// <summary>The push types of the contract (data key "type").</summary>
 public static class PushTypes
 {
     public const string Message = "message";
     public const string GroupMessage = "group_message";
     public const string IncomingCall = "incoming_call";
     public const string ChannelPost = "channel_post";
+
+    /// <summary>
+    /// Android only (data-only FCM): the caller hung up while the callee's
+    /// phone was ringing, dismiss the full-screen call. Spec
+    /// 2026-11-06-call-ringing R6.
+    /// </summary>
+    public const string CallCancelled = "call_cancelled";
 }
 
 /// <summary>
 /// One push to one device. <paramref name="ConversationId"/> = group id for
 /// group messages, the sender's PRIMARY device id for 1:1 (conversations are
 /// keyed by identity on the client), channel id for channel posts.
+/// <paramref name="CallId"/> is set only on ring pushes (VoIP / data-only
+/// FCM): the random call id the caller generated, so CallKit and the Android
+/// call notification can be matched to the offer that arrives over SignalR.
 /// </summary>
-public sealed record PushNotification(string Type, string ConversationId)
+public sealed record PushNotification(string Type, string ConversationId, string? CallId = null)
 {
     /// <summary>Wire version of the data payload, lets the app evolve the format.</summary>
     public const string Version = "1";
@@ -37,6 +47,14 @@ public sealed record PushNotification(string Type, string ConversationId)
         : new(PushTypes.Message, senderPrimary.ToString());
 
     public static PushNotification ForCall(Guid conversationId) => new(PushTypes.IncomingCall, conversationId.ToString());
+
+    /// <summary>Ring push (call-ringing spec 1.3): same route as <see cref="ForCall"/> plus the call id.</summary>
+    public static PushNotification ForRing(Guid conversationId, string callId) =>
+        new(PushTypes.IncomingCall, conversationId.ToString(), callId);
+
+    /// <summary>Android dismissal of a ringing call (R6).</summary>
+    public static PushNotification ForCallCancelled(Guid conversationId, string callId) =>
+        new(PushTypes.CallCancelled, conversationId.ToString(), callId);
 
     public static PushNotification ForChannelPost(Guid channelId) => new(PushTypes.ChannelPost, channelId.ToString());
 }
@@ -70,6 +88,23 @@ public interface IPushSender
     bool IsConfigured { get; }
 
     Task<PushSendResult> SendAsync(string token, PushNotification notification, string? locale, CancellationToken ct);
+}
+
+/// <summary>
+/// A provider that can wake the app to RING (call-ringing spec 1.3): APNs
+/// sends a PushKit VoIP push to the device's VoIP token, FCM a data-only
+/// high-priority message. No text at all: the app shows the system call UI
+/// (CallKit / full-screen notification) with its own localized strings.
+/// Same never-throw rule as <see cref="IPushSender"/>.
+/// </summary>
+public interface IRingPushSender
+{
+    /// <summary>"apns" (token = Device.VoipPushToken) or "fcm" (token = Device.PushToken).</summary>
+    string Platform { get; }
+
+    bool IsConfigured { get; }
+
+    Task<PushSendResult> SendRingAsync(string token, PushNotification notification, CancellationToken ct);
 }
 
 /// <summary>Generic texts, chosen by the device's registered locale.</summary>

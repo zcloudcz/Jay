@@ -37,7 +37,7 @@ internal static class Es256Jwt
     }
 }
 
-public sealed partial class ApnsSender : IPushSender, IDisposable
+public sealed partial class ApnsSender : IPushSender, IRingPushSender, IDisposable
 {
     public const string HttpClientName = "apns";
 
@@ -104,8 +104,24 @@ public sealed partial class ApnsSender : IPushSender, IDisposable
         lock (_tokenLock) _cachedToken = null;
     }
 
-    public async Task<PushSendResult> SendAsync(string token, PushNotification notification, string? locale,
-        CancellationToken ct)
+    public Task<PushSendResult> SendAsync(string token, PushNotification notification, string? locale,
+        CancellationToken ct) =>
+        SendCoreAsync(token, PushPayloads.Apns(notification, locale), pushType: "alert", topic: _options.BundleId,
+            collapseId: PushCollapse.ApnsCollapseId(notification.ConversationId), expirationZero: false, ct);
+
+    /// <summary>
+    /// PushKit VoIP push to Device.VoipPushToken (call-ringing spec 1.3). The
+    /// topic is the bundle id + ".voip" and the same .p8 token auth covers it,
+    /// so no extra Apple certificate is needed. Expiration 0 = deliver now or
+    /// never: a ring that arrives after the caller gave up would show CallKit
+    /// for a dead call. No collapse id, every call is its own ring.
+    /// </summary>
+    public Task<PushSendResult> SendRingAsync(string token, PushNotification notification, CancellationToken ct) =>
+        SendCoreAsync(token, PushPayloads.ApnsVoip(notification), pushType: "voip", topic: _options.BundleId + ".voip",
+            collapseId: null, expirationZero: true, ct);
+
+    private async Task<PushSendResult> SendCoreAsync(string token, JsonObject payload, string pushType, string topic,
+        string? collapseId, bool expirationZero, CancellationToken ct)
     {
         if (_key is null) return PushSendResult.Disabled;
         // Registration already validates the hex form; this guards the URL
@@ -120,15 +136,16 @@ public sealed partial class ApnsSender : IPushSender, IDisposable
                 // the message's own version.
                 Version = HttpVersion.Version20,
                 VersionPolicy = HttpVersionPolicy.RequestVersionExact,
-                Content = new StringContent(PushPayloads.Serialize(PushPayloads.Apns(notification, locale)),
-                    Encoding.UTF8, "application/json"),
+                Content = new StringContent(PushPayloads.Serialize(payload), Encoding.UTF8, "application/json"),
             };
             request.Headers.TryAddWithoutValidation("authorization", "bearer " + GetProviderToken());
-            request.Headers.TryAddWithoutValidation("apns-push-type", "alert");
-            request.Headers.TryAddWithoutValidation("apns-topic", _options.BundleId);
+            request.Headers.TryAddWithoutValidation("apns-push-type", pushType);
+            request.Headers.TryAddWithoutValidation("apns-topic", topic);
             request.Headers.TryAddWithoutValidation("apns-priority", "10");
-            request.Headers.TryAddWithoutValidation("apns-collapse-id",
-                PushCollapse.ApnsCollapseId(notification.ConversationId));
+            if (expirationZero)
+                request.Headers.TryAddWithoutValidation("apns-expiration", "0");
+            if (collapseId is not null)
+                request.Headers.TryAddWithoutValidation("apns-collapse-id", collapseId);
 
             using var response = await _httpFactory.CreateClient(HttpClientName).SendAsync(request, ct);
             if (response.IsSuccessStatusCode) return PushSendResult.Sent;
@@ -141,8 +158,8 @@ public sealed partial class ApnsSender : IPushSender, IDisposable
             if (reason is "ExpiredProviderToken" or "InvalidProviderToken")
                 DropProviderToken();
             // Apple's reason is a fixed enum string, safe to log (no token, no payload).
-            _logger.LogWarning("APNs push failed with status {StatusCode} ({Reason})",
-                (int)response.StatusCode, reason);
+            _logger.LogWarning("APNs {PushType} push failed with status {StatusCode} ({Reason})",
+                pushType, (int)response.StatusCode, reason);
             return PushSendResult.Failed;
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)

@@ -14,6 +14,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace CallType.Api.Services;
 
@@ -84,7 +85,7 @@ internal static class FcmResponseEvaluator
     }
 }
 
-public sealed class FcmSender : IPushSender
+public sealed class FcmSender : IPushSender, IRingPushSender
 {
     public const string HttpClientName = "fcm";
 
@@ -107,8 +108,18 @@ public sealed class FcmSender : IPushSender
 
     public bool IsConfigured => _tokens.IsConfigured;
 
-    public async Task<PushSendResult> SendAsync(string token, PushNotification notification, string? locale,
-        CancellationToken ct)
+    public Task<PushSendResult> SendAsync(string token, PushNotification notification, string? locale,
+        CancellationToken ct) =>
+        SendCoreAsync(PushPayloads.Fcm(token, notification, locale), ct);
+
+    /// <summary>
+    /// Data-only ring message (incoming_call / call_cancelled, call-ringing
+    /// spec 1.3). Only for devices that registered with ringCalls: true.
+    /// </summary>
+    public Task<PushSendResult> SendRingAsync(string token, PushNotification notification, CancellationToken ct) =>
+        SendCoreAsync(PushPayloads.FcmRing(token, notification), ct);
+
+    private async Task<PushSendResult> SendCoreAsync(JsonObject payload, CancellationToken ct)
     {
         if (!_tokens.IsConfigured) return PushSendResult.Disabled;
         try
@@ -118,8 +129,7 @@ public sealed class FcmSender : IPushSender
             using var request = new HttpRequestMessage(HttpMethod.Post,
                 $"https://fcm.googleapis.com/v1/projects/{_tokens.ProjectId}/messages:send");
             request.Headers.Authorization = new("Bearer", accessToken);
-            request.Content = new StringContent(PushPayloads.Serialize(PushPayloads.Fcm(token, notification, locale)),
-                Encoding.UTF8, "application/json");
+            request.Content = new StringContent(PushPayloads.Serialize(payload), Encoding.UTF8, "application/json");
 
             using var response = await client.SendAsync(request, ct);
             if (response.IsSuccessStatusCode) return PushSendResult.Sent;

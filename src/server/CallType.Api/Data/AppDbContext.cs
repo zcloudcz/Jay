@@ -64,6 +64,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
             entity.Property(d => d.PushPlatform).HasMaxLength(10);
             entity.Property(d => d.PushLocale).HasMaxLength(16);
+            entity.Property(d => d.VoipPushToken).HasMaxLength(200);
             entity.Property(d => d.DisplayName).HasMaxLength(60);
         });
 

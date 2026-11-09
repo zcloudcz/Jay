@@ -63,6 +63,7 @@ public class PushNotificationService
     private readonly ChannelPushThrottle _channelThrottle = new();
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly Dictionary<string, IPushSender> _senders;
+    private readonly Dictionary<string, IRingPushSender> _ringSenders;
     private readonly ILogger<PushNotificationService> _logger;
 
     public PushNotificationService(
@@ -72,6 +73,10 @@ public class PushNotificationService
     {
         _scopeFactory = scopeFactory;
         _senders = senders.ToDictionary(s => s.Platform, StringComparer.Ordinal);
+        // Ring capability is a second interface on the same singletons
+        // (APNs VoIP, FCM data-only), so no extra DI registration is needed.
+        _ringSenders = _senders.Values.OfType<IRingPushSender>()
+            .ToDictionary(s => s.Platform, StringComparer.Ordinal);
         _logger = logger;
     }
 
@@ -151,6 +156,102 @@ public class PushNotificationService
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Ringing (spec 2026-11-06-call-ringing, R2/R3/R6)
+    // -----------------------------------------------------------------------
+
+    /// <summary>What a device registered for ringing: the VoIP token, or the FCM token with ringCalls.</summary>
+    private sealed record RingRegistration(string? VoipPushToken, string? PushToken, string? PushPlatform,
+        bool PushRingCalls);
+
+    /// <summary>
+    /// Which provider and token would ring this device, or null. A VoIP token
+    /// wins (iOS), else an FCM registration with ringCalls. The provider must
+    /// be configured on this server: a ring that cannot be sent must not tell
+    /// the caller "ringing" and leave them waiting 45 s for nothing.
+    /// </summary>
+    private (IRingPushSender Sender, string Token)? RingRoute(RingRegistration? r, bool voipAllowed)
+    {
+        if (r is null) return null;
+        if (voipAllowed && r.VoipPushToken is not null
+            && _ringSenders.TryGetValue("apns", out var apns) && apns.IsConfigured)
+            return (apns, r.VoipPushToken);
+        if (r.PushPlatform == "fcm" && r.PushRingCalls && r.PushToken is not null
+            && _ringSenders.TryGetValue("fcm", out var fcm) && fcm.IsConfigured)
+            return (fcm, r.PushToken);
+        return null;
+    }
+
+    private static Task<RingRegistration?> RingRegistrationAsync(AppDbContext db, Guid deviceId) =>
+        db.Devices.AsNoTracking().Where(d => d.DeviceId == deviceId)
+            .Select(d => new RingRegistration(d.VoipPushToken, d.PushToken, d.PushPlatform, d.PushRingCalls))
+            .FirstOrDefaultAsync();
+
+    /// <summary>
+    /// R2: true when an offer to this offline device can RING it (iOS VoIP
+    /// token, or Android registered with ringCalls). Everything else keeps
+    /// the legacy "unavailable" + alert push path. False on any error, which
+    /// is the old, safe behaviour.
+    /// </summary>
+    public virtual async Task<bool> CanRingAsync(Guid deviceId)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            return RingRoute(await RingRegistrationAsync(db, deviceId), voipAllowed: true) is not null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Ring capability lookup for device {DeviceId} failed", deviceId);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The ring push for a pending call: VoIP on iOS, data-only FCM on
+    /// Android. Replaces the alert incoming_call push for this device (never
+    /// both). Never throws.
+    /// </summary>
+    public virtual Task SendRingPushAsync(Guid deviceId, PushNotification notification) =>
+        SendRingCoreAsync(deviceId, notification, voipAllowed: true);
+
+    /// <summary>
+    /// R6: Android only. iOS gets nothing, because every VoIP push must be
+    /// reported to CallKit as a NEW call; the app learns about the
+    /// cancellation from the "cancelled" signal on its next connect.
+    /// </summary>
+    public virtual Task SendCallCancelledPushAsync(Guid deviceId, PushNotification notification) =>
+        SendRingCoreAsync(deviceId, notification, voipAllowed: false);
+
+    private async Task SendRingCoreAsync(Guid deviceId, PushNotification notification, bool voipAllowed)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            if (RingRoute(await RingRegistrationAsync(db, deviceId), voipAllowed) is not { } route) return;
+
+            var result = await route.Sender.SendRingAsync(route.Token, notification, CancellationToken.None);
+            if (result != PushSendResult.TokenInvalid) return;
+
+            _logger.LogInformation("{Platform} ring token for device {DeviceId} is no longer valid, clearing it",
+                route.Sender.Platform, deviceId);
+            var token = route.Token;
+            if (route.Sender.Platform == "apns")
+                // Only the VoIP token: the alert token is a different token
+                // and may still be perfectly valid for messages.
+                await db.Devices.Where(d => d.DeviceId == deviceId && d.VoipPushToken == token)
+                    .ExecuteUpdateAsync(s => s.SetProperty(d => d.VoipPushToken, (string?)null));
+            else
+                await ClearPushTokenAsync(db, deviceId, token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Ring push to device {DeviceId} failed", deviceId);
+        }
+    }
+
     private async Task DispatchAsync(AppDbContext db, Guid deviceId, string token, string? platform, string? locale,
         PushNotification notification)
     {
@@ -170,11 +271,17 @@ public class PushNotificationService
         // saved by the client's re-registration) must survive this update.
         _logger.LogInformation("{Platform} token for device {DeviceId} is no longer valid, clearing it",
             platform, deviceId);
-        await db.Devices
+        await ClearPushTokenAsync(db, deviceId, token);
+    }
+
+    private static Task ClearPushTokenAsync(AppDbContext db, Guid deviceId, string token) =>
+        db.Devices
             .Where(d => d.DeviceId == deviceId && d.PushToken == token)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(d => d.PushToken, (string?)null)
                 .SetProperty(d => d.PushPlatform, (string?)null)
-                .SetProperty(d => d.PushLocale, (string?)null));
-    }
+                .SetProperty(d => d.PushLocale, (string?)null)
+                // ringCalls describes the app behind THIS token; a new token
+                // registers it again.
+                .SetProperty(d => d.PushRingCalls, false));
 }

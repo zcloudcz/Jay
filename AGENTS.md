@@ -90,7 +90,13 @@ leaves the server (E2E; names would be metadata for Apple/Google). Data keys:
 `v=1`. Collapse per conversation: FCM `tag`/`collapse_key`, APNs
 `apns-collapse-id`/`thread-id`, Web Push `Topic` (SHA-256 of the id, 32 chars).
 An `offer` call signal to an offline device sends `incoming_call` (muted only by
-a 1:1 mute in mode `all`). Dead tokens are cleared: FCM 404 `UNREGISTERED`,
+a 1:1 mute in mode `all`), unless the device can RING (iOS VoIP token, or
+Android registered with `ringCalls`): then the hub keeps a pending call (offer +
+ICE, 45 s, in memory, `PendingCallStore`), answers the caller `ringing` and
+sends a VoIP push (`apns-push-type: voip`, topic `<BundleId>.voip`) or a
+data-only FCM ring instead; hub `RequestPendingCalls` / `DeclinePendingCall`,
+signals `ringing` / `cancelled`, Android `call_cancelled` push. Contract:
+`docs/superpowers/specs/2026-11-06-call-ringing.md`. Dead tokens are cleared: FCM 404 `UNREGISTERED`,
 APNs 410 or 400 `BadDeviceToken`/`Unregistered`, Web Push 404/410.
 
 Code: `Services/Push/` (`IPushSender` per provider: `FcmSender`, `ApnsSender`,
@@ -172,7 +178,7 @@ All byte limits are encrypted bytes.
 ### EF Core migrations
 ```bash
 # Add migration
-dotnet ef migrations add MigrationName --project src/server/CallType.Api
+dotnet ef migrations add MigrationName --project src/server/CallType.Api --context AppDbContext
 # Apply to DB
 dotnet ef database update --project src/server/CallType.Api
 ```
@@ -181,7 +187,7 @@ dotnet ef database update --project src/server/CallType.Api
 
 | Entity | Purpose | Key |
 |--------|---------|-----|
-| `Device` | Anonymous device identity + public keys; push registration (`PushToken`, `PushPlatform`, `PushLocale`); bots may publish a command menu (`BotCommandsJson`, public plaintext metadata like `DisplayName`) | `DeviceId` (Guid) |
+| `Device` | Anonymous device identity + public keys; push registration (`PushToken`, `PushPlatform`, `PushLocale`, `PushRingCalls`, iOS `VoipPushToken`); bots may publish a command menu (`BotCommandsJson`, public plaintext metadata like `DisplayName`) | `DeviceId` (Guid) |
 | `OneTimePreKey` | Single-use X3DH pre-keys | `Id` (auto), unique(DeviceId, KeyId) |
 | `Account` | Optional registered account | `AccountId` (Guid), unique Email |
 | `AccountDevice` | Links accounts to devices (multi-device) | Composite(AccountId, DeviceId) |
@@ -215,8 +221,9 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `PUT /groups/{id}/members` | Add member | ✅ Done |
 | `DELETE /groups/{id}/members/{id}` | Remove member | ✅ Done |
 | `PUT` / `GET /devices/{id}/bot-commands` | Bot command menu `{"commands":[{"command","description"}]}`: PUT only by the bot itself (403, 403 `not_a_bot`, 400 `invalid_bot_commands`; empty list clears), GET by any device (empty for a non-bot, 404 unknown) | ✅ Done |
-| `PUT /devices/{id}/push-token` | Register push (self only, else 403): `{"platform":"fcm"\|"apns"\|"webpush","token","locale"?}`; APNs = 64..200 hex, Web Push = `PushSubscription.toJSON()` as a JSON string (https endpoint, keys), max 2048; 400 `invalid_platform` / `invalid_token` / `invalid_locale`; 204 | ✅ Done |
-| `DELETE /devices/{id}/push-token` | Clear token, platform and locale (self only, idempotent), 204 | ✅ Done |
+| `PUT /devices/{id}/push-token` | Register push (self only, else 403): `{"platform":"fcm"\|"apns"\|"webpush","token","locale"?,"ringCalls"?}`; APNs = 64..200 hex, Web Push = `PushSubscription.toJSON()` as a JSON string (https endpoint, keys), max 2048; `ringCalls: true` (FCM only, else stored false) = the Android app rings on data-only call pushes; 400 `invalid_platform` / `invalid_token` / `invalid_locale`; 204 | ✅ Done |
+| `DELETE /devices/{id}/push-token` | Clear token, platform, locale, `ringCalls` AND the VoIP token (self only, idempotent), 204 | ✅ Done |
+| `PUT` / `DELETE /devices/{id}/voip-token` | iOS PushKit token for call ringing (self only, else 403): `{"token"}` 64..200 hex, stored lowercase; 400 `invalid_token`; 204. DELETE is idempotent | ✅ Done |
 | `GET /push/webpush-key` | Anonymous, `{"publicKey"}` VAPID key (base64url) for `PushManager.subscribe`; 404 when Web Push is not configured | ✅ Done |
 | `PUT /groups/{id}/bot-talk` | Bot conversation setting (admin) | ✅ Done |
 | `PUT /groups/{id}/mute`, `PUT /mutes/direct/{id}`, `GET /mutes` | Per-device mute (push skip) | ✅ Done |
@@ -233,7 +240,7 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `GET /channels/reports/mine`, `GET /channels/{id}/moderation` | Reporter outcome / statements of reasons for owner, admin, publisher | ✅ Done |
 | `PUT /channels/{id}/admins/{deviceId}` | Owner appoints `admin` or `publisher` (body `{"role"}` optional); bot posts labelled `byBot`, limited by `Channels:MaxBotPostsPerDay` (429 `bot_post_limit`); suspended channel -> 403 `channel_suspended` | ✅ Done |
 | `POST /admin/session`, `/admin/*` | Operator moderation API (allowlist `Moderation:OperatorAccountIds` or `Moderation:OperatorHandles` + TOTP, token `scope=moderation` valid only on `/admin/*`): summary, report queue, case detail, decisions (+ CSV log), channel search, attachments | ✅ Done |
-| `SignalR /hub` | Message relay, typing, call signaling | ✅ Done |
+| `SignalR /hub` | Message relay, typing, call signaling; call ringing for offline callees (`RequestPendingCalls`, `DeclinePendingCall(callId)`, signals `ringing` / `cancelled`) | ✅ Done |
 
 ## Conventions
 

@@ -94,6 +94,10 @@ builder.Services.AddSingleton<IPushSender>(sp => sp.GetRequiredService<FcmSender
 builder.Services.AddSingleton<IPushSender>(sp => sp.GetRequiredService<ApnsSender>());
 builder.Services.AddSingleton<IPushSender>(sp => sp.GetRequiredService<WebPushSender>());
 builder.Services.AddSingleton<PushNotificationService>();
+// Call ringing (spec 2026-11-06-call-ringing): offers waiting for an offline
+// callee whose phone is being rung. Singleton in-memory state, see the file
+// header for why that is fine on one instance.
+builder.Services.AddSingleton<PendingCallStore>();
 
 // TURN credential provider — chosen by Turn:Provider:
 //   "shared-secret" (default): HMAC credentials for self-hosted coturn/DeskShare.Turn
