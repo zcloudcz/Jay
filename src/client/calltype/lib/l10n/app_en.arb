@@ -1861,5 +1861,66 @@
   "historyErrorNetwork": "The transfer failed. Check your connection and try again.",
   "@historyErrorNetwork": {
     "description": "Error: upload, download or key delivery failed."
+  },
+  "participantColorTitle": "Color for {name}",
+  "@participantColorTitle": {
+    "description": "Title of the bottom sheet where the user picks a color for a group chat participant; {name} is that person's name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "participantColorAction": "Participant color",
+  "@participantColorAction": {
+    "description": "Message menu item (another member's message in a group) that opens the participant color picker."
+  },
+  "participantColorContactAction": "Color",
+  "@participantColorContactAction": {
+    "description": "Contacts screen menu item (next to Rename) that opens the color picker for this contact."
+  },
+  "participantColorAutomatic": "Automatic",
+  "@participantColorAutomatic": {
+    "description": "Option in the color picker that removes the manual choice and uses the automatic color again."
+  },
+  "participantColorRed": "Red",
+  "@participantColorRed": {
+    "description": "Name of the color \"Red\" in the participant color picker (tooltip and screen reader label of the swatch)."
+  },
+  "participantColorOrange": "Orange",
+  "@participantColorOrange": {
+    "description": "Name of the color \"Orange\" in the participant color picker (tooltip and screen reader label of the swatch)."
+  },
+  "participantColorAmber": "Amber",
+  "@participantColorAmber": {
+    "description": "Name of the color \"Amber\" in the participant color picker (tooltip and screen reader label of the swatch)."
+  },
+  "participantColorGreen": "Green",
+  "@participantColorGreen": {
+    "description": "Name of the color \"Green\" in the participant color picker (tooltip and screen reader label of the swatch)."
+  },
+  "participantColorTeal": "Teal",
+  "@participantColorTeal": {
+    "description": "Name of the color \"Teal\" in the participant color picker (tooltip and screen reader label of the swatch)."
+  },
+  "participantColorCyan": "Cyan",
+  "@participantColorCyan": {
+    "description": "Name of the color \"Cyan\" in the participant color picker (tooltip and screen reader label of the swatch)."
+  },
+  "participantColorBlue": "Blue",
+  "@participantColorBlue": {
+    "description": "Name of the color \"Blue\" in the participant color picker (tooltip and screen reader label of the swatch)."
+  },
+  "participantColorIndigo": "Indigo",
+  "@participantColorIndigo": {
+    "description": "Name of the color \"Indigo\" in the participant color picker (tooltip and screen reader label of the swatch)."
+  },
+  "participantColorPurple": "Purple",
+  "@participantColorPurple": {
+    "description": "Name of the color \"Purple\" in the participant color picker (tooltip and screen reader label of the swatch)."
+  },
+  "participantColorPink": "Pink",
+  "@participantColorPink": {
+    "description": "Name of the color \"Pink\" in the participant color picker (tooltip and screen reader label of the swatch)."
   }
 }

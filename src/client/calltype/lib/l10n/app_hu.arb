@@ -765,5 +765,19 @@
   "historyErrorExpired": "Az átvitt adatok már nem érhetők el. Próbáld újra.",
   "historyErrorImportFailed": "Nem sikerült importálni az üzeneteket.",
   "historyErrorTimeout": "A kód lejárt. Jeleníts meg egy újat.",
-  "historyErrorNetwork": "Az átvitel nem sikerült. Ellenőrizd a kapcsolatot, és próbáld újra."
+  "historyErrorNetwork": "Az átvitel nem sikerült. Ellenőrizd a kapcsolatot, és próbáld újra.",
+  "participantColorTitle": "{name} színe",
+  "participantColorAction": "Résztvevő színe",
+  "participantColorContactAction": "Szín",
+  "participantColorAutomatic": "Automatikus",
+  "participantColorRed": "Piros",
+  "participantColorOrange": "Narancs",
+  "participantColorAmber": "Borostyán",
+  "participantColorGreen": "Zöld",
+  "participantColorTeal": "Kékeszöld",
+  "participantColorCyan": "Ciánkék",
+  "participantColorBlue": "Kék",
+  "participantColorIndigo": "Indigó",
+  "participantColorPurple": "Lila",
+  "participantColorPink": "Rózsaszín"
 }

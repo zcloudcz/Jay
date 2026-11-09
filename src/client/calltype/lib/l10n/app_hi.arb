@@ -765,5 +765,19 @@
   "historyErrorExpired": "ट्रांसफ़र किया गया डेटा अब उपलब्ध नहीं है। फिर कोशिश करें।",
   "historyErrorImportFailed": "संदेश इम्पोर्ट नहीं हो सके।",
   "historyErrorTimeout": "कोड की समय-सीमा खत्म हो गई। नया कोड दिखाएँ।",
-  "historyErrorNetwork": "ट्रांसफ़र विफल रहा। अपना कनेक्शन जाँचें और फिर कोशिश करें।"
+  "historyErrorNetwork": "ट्रांसफ़र विफल रहा। अपना कनेक्शन जाँचें और फिर कोशिश करें।",
+  "participantColorTitle": "{name} के लिए रंग",
+  "participantColorAction": "प्रतिभागी का रंग",
+  "participantColorContactAction": "रंग",
+  "participantColorAutomatic": "स्वचालित",
+  "participantColorRed": "लाल",
+  "participantColorOrange": "नारंगी",
+  "participantColorAmber": "कहरुवा",
+  "participantColorGreen": "हरा",
+  "participantColorTeal": "हरित-नील",
+  "participantColorCyan": "सियान",
+  "participantColorBlue": "नीला",
+  "participantColorIndigo": "जामुनी",
+  "participantColorPurple": "बैंगनी",
+  "participantColorPink": "गुलाबी"
 }

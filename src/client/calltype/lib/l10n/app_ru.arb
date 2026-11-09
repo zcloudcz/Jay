@@ -765,5 +765,19 @@
   "historyErrorExpired": "Перенесённые данные больше недоступны. Повторите.",
   "historyErrorImportFailed": "Не удалось импортировать сообщения.",
   "historyErrorTimeout": "Срок действия кода истёк. Покажите новый.",
-  "historyErrorNetwork": "Перенос не удался. Проверьте подключение и повторите."
+  "historyErrorNetwork": "Перенос не удался. Проверьте подключение и повторите.",
+  "participantColorTitle": "Цвет для {name}",
+  "participantColorAction": "Цвет участника",
+  "participantColorContactAction": "Цвет",
+  "participantColorAutomatic": "Автоматически",
+  "participantColorRed": "Красный",
+  "participantColorOrange": "Оранжевый",
+  "participantColorAmber": "Янтарный",
+  "participantColorGreen": "Зелёный",
+  "participantColorTeal": "Бирюзовый",
+  "participantColorCyan": "Голубой",
+  "participantColorBlue": "Синий",
+  "participantColorIndigo": "Индиго",
+  "participantColorPurple": "Фиолетовый",
+  "participantColorPink": "Розовый"
 }

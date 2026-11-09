@@ -765,5 +765,19 @@
   "historyErrorExpired": "移行したデータはもう利用できません。再試行してください。",
   "historyErrorImportFailed": "メッセージをインポートできませんでした。",
   "historyErrorTimeout": "コードの有効期限が切れました。新しいコードを表示してください。",
-  "historyErrorNetwork": "移行に失敗しました。接続を確認して再試行してください。"
+  "historyErrorNetwork": "移行に失敗しました。接続を確認して再試行してください。",
+  "participantColorTitle": "{name} の色",
+  "participantColorAction": "参加者の色",
+  "participantColorContactAction": "色",
+  "participantColorAutomatic": "自動",
+  "participantColorRed": "赤",
+  "participantColorOrange": "オレンジ",
+  "participantColorAmber": "アンバー",
+  "participantColorGreen": "緑",
+  "participantColorTeal": "ティール",
+  "participantColorCyan": "シアン",
+  "participantColorBlue": "青",
+  "participantColorIndigo": "インディゴ",
+  "participantColorPurple": "紫",
+  "participantColorPink": "ピンク"
 }

@@ -5,6 +5,7 @@ import 'package:calltype_core/messaging/contact_sync.dart';
 
 import 'package:calltype_core/storage/database.dart';
 import '../contacts/contact_sync.dart';
+import '../chat/participant_colors.dart';
 import '../chat/polls.dart';
 import '../chat/reactions.dart';
 
@@ -222,6 +223,25 @@ Future<void> importBackup(
             votedAt: v['votedAt'] as int,
           ),
   ];
+  // Participant colors (spec 2026-11-09-participant-colors D10): a missing
+  // key, an empty person key or an unknown palette index is skipped.
+  final rawColors = input['participantColors'];
+  final colors = <BackupStateCompanion>[
+    if (rawColors is List)
+      for (final c in rawColors)
+        if (c is Map &&
+            c['key'] is String &&
+            normalizeParticipantKey(c['key'] as String) != null &&
+            c['color'] is int &&
+            (c['color'] as int) >= 0 &&
+            (c['color'] as int) < participantPalette.length)
+          BackupStateCompanion.insert(
+            key:
+                '$participantColorKeyPrefix'
+                '${normalizeParticipantKey(c['key'] as String)}',
+            value: '${c['color']}',
+          ),
+  ];
   await db.transaction(() async {
     if (mergeContacts) {
       // New contacts are inserted below like in a restore; only names of
@@ -243,6 +263,9 @@ Future<void> importBackup(
       ]);
     }
     await db.batch((batch) {
+      // insertOrIgnore like every other row: a choice made on this device
+      // already is newer than the archive's.
+      batch.insertAll(db.backupState, colors, mode: InsertMode.insertOrIgnore);
       batch.insertAll(db.messagePins, pins, mode: InsertMode.insertOrIgnore);
       batch.insertAll(db.pollVotes, votes, mode: InsertMode.insertOrIgnore);
       batch.insertAll(

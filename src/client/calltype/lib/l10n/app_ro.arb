@@ -765,5 +765,19 @@
   "historyErrorExpired": "Datele transferate nu mai sunt disponibile. Încearcă din nou.",
   "historyErrorImportFailed": "Mesajele nu au putut fi importate.",
   "historyErrorTimeout": "Codul a expirat. Afișează unul nou.",
-  "historyErrorNetwork": "Transferul a eșuat. Verifică conexiunea și încearcă din nou."
+  "historyErrorNetwork": "Transferul a eșuat. Verifică conexiunea și încearcă din nou.",
+  "participantColorTitle": "Culoare pentru {name}",
+  "participantColorAction": "Culoarea participantului",
+  "participantColorContactAction": "Culoare",
+  "participantColorAutomatic": "Automat",
+  "participantColorRed": "Roșu",
+  "participantColorOrange": "Portocaliu",
+  "participantColorAmber": "Chihlimbar",
+  "participantColorGreen": "Verde",
+  "participantColorTeal": "Verde-albăstrui",
+  "participantColorCyan": "Cyan",
+  "participantColorBlue": "Albastru",
+  "participantColorIndigo": "Indigo",
+  "participantColorPurple": "Mov",
+  "participantColorPink": "Roz"
 }

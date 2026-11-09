@@ -765,5 +765,19 @@
   "historyErrorExpired": "Prenesené dáta už nie sú k dispozícii. Skúste to znova.",
   "historyErrorImportFailed": "Správy sa nepodarilo naimportovať.",
   "historyErrorTimeout": "Platnosť kódu vypršala. Zobrazte nový.",
-  "historyErrorNetwork": "Prenos zlyhal. Skontrolujte pripojenie a skúste to znova."
+  "historyErrorNetwork": "Prenos zlyhal. Skontrolujte pripojenie a skúste to znova.",
+  "participantColorTitle": "Farba pre {name}",
+  "participantColorAction": "Farba účastníka",
+  "participantColorContactAction": "Farba",
+  "participantColorAutomatic": "Automaticky",
+  "participantColorRed": "Červená",
+  "participantColorOrange": "Oranžová",
+  "participantColorAmber": "Jantárová",
+  "participantColorGreen": "Zelená",
+  "participantColorTeal": "Modrozelená",
+  "participantColorCyan": "Azúrová",
+  "participantColorBlue": "Modrá",
+  "participantColorIndigo": "Indigová",
+  "participantColorPurple": "Fialová",
+  "participantColorPink": "Ružová"
 }

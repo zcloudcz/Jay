@@ -4,10 +4,12 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import 'package:calltype_core/network/channel_dtos.dart' show parseChannelLink;
+import 'package:calltype_core/storage/database.dart' show Contact;
 
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
+import '../chat/participant_colors.dart';
 import '../chat_list/chat_list_controller.dart';
 import 'bot_link.dart';
 import 'contacts_controller.dart';
@@ -301,6 +303,7 @@ class _ContactTile extends StatelessWidget {
   Widget build(BuildContext context) {
     // Use displayName if set, otherwise fall back to handle.
     final name = (contact.displayName as String?) ?? contact.userHandle;
+    final colors = maybeParticipantColors(context, listen: false);
 
     return ListTile(
       leading: LetterAvatar(name: name),
@@ -328,6 +331,21 @@ class _ContactTile extends StatelessWidget {
                 onTap: () => showRenameContactDialog(context, contact),
                 child: Text(context.l10n.contactRename),
               ),
+              // Spec 2026-11-09-participant-colors D7 c: the same color as
+              // in every group chat, keyed by the handle (D3).
+              if (colors != null)
+                PopupMenuItem(
+                  onTap: () => showParticipantColorSheet(
+                    context,
+                    store: colors,
+                    personKey: participantKey(
+                      contact.deviceId as String,
+                      contacts: [if (contact is Contact) contact],
+                    ),
+                    name: name as String,
+                  ),
+                  child: Text(context.l10n.participantColorContactAction),
+                ),
             ],
           ),
         ],

@@ -53,7 +53,17 @@ class MessageBubble extends StatelessWidget {
     this.onReactionTap,
     this.onReactionLongPress,
     this.pickEmoji = showReactionEmojiPicker,
+    this.outlineColor,
+    this.quoteAccent,
   });
+
+  /// A 1.5 px outline in this color (a group member's color, spec
+  /// 2026-11-09-participant-colors D1). Null = no outline, as before.
+  final Color? outlineColor;
+
+  /// Accent bar and author color of the quote block (D8). Null = the theme's
+  /// primary color, as before.
+  final Color? quoteAccent;
 
   /// Reaction chips drawn under the bubble.
   final List<ReactionSummary> reactions;
@@ -284,6 +294,9 @@ class MessageBubble extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: backgroundColor,
+                        border: outlineColor == null
+                            ? null
+                            : Border.all(color: outlineColor!, width: 1.5),
                         // Asymmetric border radius: the corner on the sender's side is
                         // sharper to create a visual "tail" effect pointing toward the
                         // message author. Directional so the tail follows the bubble
@@ -325,7 +338,7 @@ class MessageBubble extends StatelessWidget {
                               author: quoteAuthor,
                               text: quoteText!,
                               textColor: textColor,
-                              accent: colorScheme.primary,
+                              accent: quoteAccent ?? colorScheme.primary,
                             ),
                           if (deleted)
                             Text(

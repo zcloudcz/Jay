@@ -765,5 +765,19 @@
   "historyErrorExpired": "Los datos transferidos ya no están disponibles. Inténtalo de nuevo.",
   "historyErrorImportFailed": "No se pudieron importar los mensajes.",
   "historyErrorTimeout": "El código caducó. Muestra uno nuevo.",
-  "historyErrorNetwork": "La transferencia falló. Comprueba tu conexión e inténtalo de nuevo."
+  "historyErrorNetwork": "La transferencia falló. Comprueba tu conexión e inténtalo de nuevo.",
+  "participantColorTitle": "Color para {name}",
+  "participantColorAction": "Color del participante",
+  "participantColorContactAction": "Color",
+  "participantColorAutomatic": "Automático",
+  "participantColorRed": "Rojo",
+  "participantColorOrange": "Naranja",
+  "participantColorAmber": "Ámbar",
+  "participantColorGreen": "Verde",
+  "participantColorTeal": "Verde azulado",
+  "participantColorCyan": "Cian",
+  "participantColorBlue": "Azul",
+  "participantColorIndigo": "Índigo",
+  "participantColorPurple": "Morado",
+  "participantColorPink": "Rosa"
 }

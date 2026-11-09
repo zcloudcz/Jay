@@ -19,6 +19,7 @@ import 'polls.dart';
 import 'reaction_widgets.dart';
 import 'message_input.dart';
 import 'mentions.dart';
+import 'participant_colors.dart';
 import '../contacts/rename_contact_dialog.dart';
 import 'package:flutter/services.dart';
 import 'attachment.dart';
@@ -438,6 +439,36 @@ class ChatScreen extends StatelessWidget {
           contacts: contacts,
         );
 
+  /// The person key of [senderId] in this chat (spec
+  /// 2026-11-09-participant-colors D3).
+  String _personKey(
+    ChatController controller,
+    String senderId,
+    List<Contact> contacts,
+  ) => participantKey(
+    senderId,
+    members: controller.groupMembers,
+    contacts: contacts,
+  );
+
+  /// The color picker for the sender of a group message (D7 a and b).
+  void _pickParticipantColor(
+    BuildContext context,
+    ParticipantColors store,
+    ChatController controller,
+    String senderId,
+    List<Contact> contacts,
+  ) => showParticipantColorSheet(
+    context,
+    store: store,
+    personKey: _personKey(controller, senderId, contacts),
+    name: senderLabel(
+      senderId,
+      members: controller.groupMembers,
+      contacts: contacts,
+    ),
+  );
+
   /// Copies a message and confirms it; the menu itself lives in
   /// [MessageBubble].
   Future<void> _copy(BuildContext context, String body) async {
@@ -722,6 +753,8 @@ class ChatScreen extends StatelessWidget {
     required bool mine,
     required bool business,
     required List<Contact> contacts,
+    bool group = false,
+    ParticipantColors? colors,
   }) {
     final l10n = context.l10n;
     final isMedia = message.type == 'media';
@@ -804,6 +837,19 @@ class ChatScreen extends StatelessWidget {
             contacts: contacts,
           ),
         ),
+      // Spec 2026-11-09-participant-colors D7 b: another member's color.
+      if (group && !mine && colors != null)
+        MessageAction(
+          icon: Icons.palette_outlined,
+          label: l10n.participantColorAction,
+          onSelected: () => _pickParticipantColor(
+            context,
+            colors,
+            controller,
+            message.senderId,
+            contacts,
+          ),
+        ),
       delete,
     ];
   }
@@ -860,6 +906,39 @@ class ChatScreen extends StatelessWidget {
         : null;
     final pollResults = controller.pollResultsOf(message);
     final colors = Theme.of(context).colorScheme;
+    // Spec 2026-11-09-participant-colors: other members of a group get
+    // their color on the label, the outline and in quotes; 1:1 chats and my
+    // own bubbles stay as they were (D1, D2, D8).
+    final participantColors = group
+        ? maybeParticipantColors(context)
+        : null;
+    final senderColor = group && !mine
+        ? participantColorOf(
+            context,
+            _personKey(controller, message.senderId, allContacts),
+            participantColors,
+          )
+        : null;
+    final replySenderId = message.replySenderId;
+    final quoteAccent =
+        group &&
+            replySenderId != null &&
+            replySenderId != controller.myIdentityId
+        ? participantColorOf(
+            context,
+            _personKey(controller, replySenderId, allContacts),
+            participantColors,
+          )
+        : null;
+    final senderName = senderLabel(
+      message.senderId,
+      members: controller.groupMembers,
+      contacts: allContacts,
+    );
+    final labelStyle = Theme.of(context).textTheme.labelSmall?.copyWith(
+      color: senderColor,
+      fontWeight: FontWeight.w600,
+    );
     return Column(
       crossAxisAlignment: mine
           ? CrossAxisAlignment.end
@@ -870,16 +949,26 @@ class ChatScreen extends StatelessWidget {
             padding: const EdgeInsets.symmetric(
               horizontal: 16,
             ),
-            child: Text(
-              senderLabel(
-                message.senderId,
-                members: controller.groupMembers,
-                contacts: allContacts,
-              ),
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
+            // D7 a: a tap on the name opens the color picker. The name
+            // stays as text, so color is never the only cue (D12).
+            child: participantColors == null
+                ? Text(senderName, style: labelStyle)
+                : InkWell(
+                    key: ValueKey('participant-label:${message.id}'),
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: () => _pickParticipantColor(
+                      context,
+                      participantColors,
+                      controller,
+                      message.senderId,
+                      allContacts,
+                    ),
+                    child: Text(senderName, style: labelStyle),
+                  ),
           ),
         MessageBubble(
+          outlineColor: senderColor,
+          quoteAccent: quoteAccent,
           text: message.body ?? '',
           time: DateFormat.Hm(l10n.localeName).format(
             message.createdAt.toLocal(),
@@ -978,6 +1067,8 @@ class ChatScreen extends StatelessWidget {
             mine: mine,
             business: business,
             contacts: allContacts,
+            group: group,
+            colors: participantColors,
           ),
         ),
         if (mine)

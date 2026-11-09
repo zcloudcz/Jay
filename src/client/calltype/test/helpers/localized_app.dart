@@ -16,16 +16,19 @@ Widget localizedApp({
   Widget? home,
   RouterConfig<Object>? router,
   Locale locale = const Locale('en'),
+  ThemeData? theme,
 }) {
   assert((home == null) != (router == null), 'pass either home or router');
   return router != null
       ? MaterialApp.router(
+          theme: theme,
           locale: locale,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           routerConfig: router,
         )
       : MaterialApp(
+          theme: theme,
           locale: locale,
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,

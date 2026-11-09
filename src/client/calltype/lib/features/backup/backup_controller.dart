@@ -5,12 +5,14 @@ import 'package:calltype_core/messaging/pin.dart' show pinType;
 import 'package:calltype_core/messaging/poll.dart';
 import 'package:calltype_core/messaging/reaction.dart' show reactionType;
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show StringExpressionOperators;
 import 'package:flutter/foundation.dart';
 
 import 'package:calltype_core/crypto/backup_crypto.dart';
 import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/network/backup_api.dart';
 import 'backup_import.dart';
+import '../chat/participant_colors.dart' show participantColorKeyPrefix;
 import 'package:calltype_core/storage/database.dart';
 import '../../l10n/l10n.dart';
 
@@ -354,7 +356,7 @@ class BackupController extends ChangeNotifier {
 }
 
 /// The backup JSON (`version: 1`) of [db]: contacts, conversations,
-/// messages, reactions, pins and poll votes. Shared by the cloud backup and
+/// messages, reactions, pins, poll votes and participant colors. Shared by the cloud backup and
 /// the history transfer between own devices (spec 2026-11-08-contact-sync),
 /// which leaves out the messages of conversations [withMessages] rejects
 /// (business ones for a companion).
@@ -379,6 +381,9 @@ Future<Map<String, Object?>> buildBackupData(
       await db.select(db.messageReactions).get(),
       await db.select(db.messagePins).get(),
       await db.select(db.pollVotes).get(),
+      await (db.select(
+        db.backupState,
+      )..where((s) => s.key.like('$participantColorKeyPrefix%'))).get(),
     ),
   );
   final contacts = snapshot.$1;
@@ -470,6 +475,16 @@ Future<Map<String, Object?>> buildBackupData(
             'conversationId': v.conversationId,
             'options': decodeVoteOptions(v.options),
             'votedAt': v.votedAt,
+          },
+    ],
+    // Additive (spec 2026-11-09-participant-colors D10): the colors picked
+    // for group members, by person key; older backups have no such key.
+    'participantColors': [
+      for (final row in snapshot.$7)
+        if (int.tryParse(row.value) case final color?)
+          {
+            'key': row.key.substring(participantColorKeyPrefix.length),
+            'color': color,
           },
     ],
   };

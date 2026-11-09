@@ -765,5 +765,19 @@
   "historyErrorExpired": "迁移的数据已不可用。请重试。",
   "historyErrorImportFailed": "无法导入消息。",
   "historyErrorTimeout": "代码已过期。请显示新代码。",
-  "historyErrorNetwork": "迁移失败。请检查网络连接后重试。"
+  "historyErrorNetwork": "迁移失败。请检查网络连接后重试。",
+  "participantColorTitle": "{name} 的颜色",
+  "participantColorAction": "参与者颜色",
+  "participantColorContactAction": "颜色",
+  "participantColorAutomatic": "自动",
+  "participantColorRed": "红色",
+  "participantColorOrange": "橙色",
+  "participantColorAmber": "琥珀色",
+  "participantColorGreen": "绿色",
+  "participantColorTeal": "青绿色",
+  "participantColorCyan": "青色",
+  "participantColorBlue": "蓝色",
+  "participantColorIndigo": "靛蓝色",
+  "participantColorPurple": "紫色",
+  "participantColorPink": "粉色"
 }

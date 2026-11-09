@@ -765,5 +765,19 @@
   "historyErrorExpired": "Aktarılan veriler artık mevcut değil. Tekrar dene.",
   "historyErrorImportFailed": "Mesajlar içe aktarılamadı.",
   "historyErrorTimeout": "Kodun süresi doldu. Yeni bir kod göster.",
-  "historyErrorNetwork": "Aktarım başarısız oldu. Bağlantını kontrol et ve tekrar dene."
+  "historyErrorNetwork": "Aktarım başarısız oldu. Bağlantını kontrol et ve tekrar dene.",
+  "participantColorTitle": "{name} için renk",
+  "participantColorAction": "Katılımcı rengi",
+  "participantColorContactAction": "Renk",
+  "participantColorAutomatic": "Otomatik",
+  "participantColorRed": "Kırmızı",
+  "participantColorOrange": "Turuncu",
+  "participantColorAmber": "Kehribar",
+  "participantColorGreen": "Yeşil",
+  "participantColorTeal": "Deniz mavisi",
+  "participantColorCyan": "Camgöbeği",
+  "participantColorBlue": "Mavi",
+  "participantColorIndigo": "Çivit",
+  "participantColorPurple": "Mor",
+  "participantColorPink": "Pembe"
 }

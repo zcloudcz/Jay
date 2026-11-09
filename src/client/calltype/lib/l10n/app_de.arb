@@ -765,5 +765,19 @@
   "historyErrorExpired": "Die übertragenen Daten sind nicht mehr verfügbar. Versuche es erneut.",
   "historyErrorImportFailed": "Die Nachrichten konnten nicht importiert werden.",
   "historyErrorTimeout": "Der Code ist abgelaufen. Zeige einen neuen an.",
-  "historyErrorNetwork": "Die Übertragung ist fehlgeschlagen. Prüfe deine Verbindung und versuche es erneut."
+  "historyErrorNetwork": "Die Übertragung ist fehlgeschlagen. Prüfe deine Verbindung und versuche es erneut.",
+  "participantColorTitle": "Farbe für {name}",
+  "participantColorAction": "Farbe des Teilnehmers",
+  "participantColorContactAction": "Farbe",
+  "participantColorAutomatic": "Automatisch",
+  "participantColorRed": "Rot",
+  "participantColorOrange": "Orange",
+  "participantColorAmber": "Bernstein",
+  "participantColorGreen": "Grün",
+  "participantColorTeal": "Blaugrün",
+  "participantColorCyan": "Cyan",
+  "participantColorBlue": "Blau",
+  "participantColorIndigo": "Indigo",
+  "participantColorPurple": "Lila",
+  "participantColorPink": "Rosa"
 }

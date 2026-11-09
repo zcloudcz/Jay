@@ -765,5 +765,19 @@
   "historyErrorExpired": "De overgezette gegevens zijn niet meer beschikbaar. Probeer het opnieuw.",
   "historyErrorImportFailed": "De berichten konden niet worden geïmporteerd.",
   "historyErrorTimeout": "De code is verlopen. Toon een nieuwe.",
-  "historyErrorNetwork": "Overzetten mislukt. Controleer je verbinding en probeer het opnieuw."
+  "historyErrorNetwork": "Overzetten mislukt. Controleer je verbinding en probeer het opnieuw.",
+  "participantColorTitle": "Kleur voor {name}",
+  "participantColorAction": "Kleur van deelnemer",
+  "participantColorContactAction": "Kleur",
+  "participantColorAutomatic": "Automatisch",
+  "participantColorRed": "Rood",
+  "participantColorOrange": "Oranje",
+  "participantColorAmber": "Amber",
+  "participantColorGreen": "Groen",
+  "participantColorTeal": "Blauwgroen",
+  "participantColorCyan": "Cyaan",
+  "participantColorBlue": "Blauw",
+  "participantColorIndigo": "Indigo",
+  "participantColorPurple": "Paars",
+  "participantColorPink": "Roze"
 }

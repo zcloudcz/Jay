@@ -19,6 +19,7 @@ import 'core/storage/secure_storage.dart';
 import 'features/calls/call_event_sender.dart';
 import 'features/channels/channels_controller.dart';
 import 'features/chat/message_inbox_service.dart';
+import 'features/chat/participant_colors.dart';
 import 'features/chat_list/chat_list_controller.dart';
 import 'features/contacts/contact_sync.dart';
 import 'features/contacts/contacts_controller.dart';
@@ -322,6 +323,11 @@ void main() async {
         ChangeNotifierProvider.value(value: channels),
         ChangeNotifierProvider.value(value: mutes),
         ChangeNotifierProvider.value(value: notifications),
+        // Group participant colors (spec 2026-11-09-participant-colors):
+        // app-wide so every open chat repaints when a choice changes.
+        ChangeNotifierProvider(
+          create: (_) => ParticipantColors(database: db)..start(),
+        ),
 
         // -- Auth / security ------------------------------------------------
         Provider(create: (_) => AppLock(secureStorage: secureStorage)),

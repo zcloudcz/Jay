@@ -765,5 +765,19 @@
   "historyErrorExpired": "I dati trasferiti non sono più disponibili. Riprova.",
   "historyErrorImportFailed": "Impossibile importare i messaggi.",
   "historyErrorTimeout": "Il codice è scaduto. Mostrane uno nuovo.",
-  "historyErrorNetwork": "Trasferimento non riuscito. Controlla la connessione e riprova."
+  "historyErrorNetwork": "Trasferimento non riuscito. Controlla la connessione e riprova.",
+  "participantColorTitle": "Colore per {name}",
+  "participantColorAction": "Colore del partecipante",
+  "participantColorContactAction": "Colore",
+  "participantColorAutomatic": "Automatico",
+  "participantColorRed": "Rosso",
+  "participantColorOrange": "Arancione",
+  "participantColorAmber": "Ambra",
+  "participantColorGreen": "Verde",
+  "participantColorTeal": "Verde acqua",
+  "participantColorCyan": "Ciano",
+  "participantColorBlue": "Blu",
+  "participantColorIndigo": "Indaco",
+  "participantColorPurple": "Viola",
+  "participantColorPink": "Rosa"
 }

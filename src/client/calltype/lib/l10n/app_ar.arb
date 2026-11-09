@@ -765,5 +765,19 @@
   "historyErrorExpired": "البيانات المنقولة لم تعد متاحة. حاول مرة أخرى.",
   "historyErrorImportFailed": "تعذر استيراد الرسائل.",
   "historyErrorTimeout": "انتهت صلاحية الرمز. اعرض رمزًا جديدًا.",
-  "historyErrorNetwork": "فشل النقل. تحقق من اتصالك وحاول مرة أخرى."
+  "historyErrorNetwork": "فشل النقل. تحقق من اتصالك وحاول مرة أخرى.",
+  "participantColorTitle": "لون {name}",
+  "participantColorAction": "لون المشارك",
+  "participantColorContactAction": "اللون",
+  "participantColorAutomatic": "تلقائي",
+  "participantColorRed": "أحمر",
+  "participantColorOrange": "برتقالي",
+  "participantColorAmber": "كهرماني",
+  "participantColorGreen": "أخضر",
+  "participantColorTeal": "أخضر مزرق",
+  "participantColorCyan": "سماوي",
+  "participantColorBlue": "أزرق",
+  "participantColorIndigo": "نيلي",
+  "participantColorPurple": "بنفسجي",
+  "participantColorPink": "وردي"
 }

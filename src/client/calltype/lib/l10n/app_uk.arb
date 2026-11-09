@@ -765,5 +765,19 @@
   "historyErrorExpired": "Перенесені дані більше недоступні. Спробуйте ще раз.",
   "historyErrorImportFailed": "Не вдалося імпортувати повідомлення.",
   "historyErrorTimeout": "Термін дії коду минув. Покажіть новий.",
-  "historyErrorNetwork": "Перенесення не вдалося. Перевірте з'єднання і спробуйте ще раз."
+  "historyErrorNetwork": "Перенесення не вдалося. Перевірте з'єднання і спробуйте ще раз.",
+  "participantColorTitle": "Колір для {name}",
+  "participantColorAction": "Колір учасника",
+  "participantColorContactAction": "Колір",
+  "participantColorAutomatic": "Автоматично",
+  "participantColorRed": "Червоний",
+  "participantColorOrange": "Помаранчевий",
+  "participantColorAmber": "Бурштиновий",
+  "participantColorGreen": "Зелений",
+  "participantColorTeal": "Бірюзовий",
+  "participantColorCyan": "Блакитний",
+  "participantColorBlue": "Синій",
+  "participantColorIndigo": "Індиго",
+  "participantColorPurple": "Фіолетовий",
+  "participantColorPink": "Рожевий"
 }

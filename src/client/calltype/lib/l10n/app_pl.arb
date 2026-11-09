@@ -765,5 +765,19 @@
   "historyErrorExpired": "Przeniesione dane nie są już dostępne. Spróbuj ponownie.",
   "historyErrorImportFailed": "Nie udało się zaimportować wiadomości.",
   "historyErrorTimeout": "Kod wygasł. Pokaż nowy.",
-  "historyErrorNetwork": "Przeniesienie nie powiodło się. Sprawdź połączenie i spróbuj ponownie."
+  "historyErrorNetwork": "Przeniesienie nie powiodło się. Sprawdź połączenie i spróbuj ponownie.",
+  "participantColorTitle": "Kolor dla {name}",
+  "participantColorAction": "Kolor uczestnika",
+  "participantColorContactAction": "Kolor",
+  "participantColorAutomatic": "Automatyczny",
+  "participantColorRed": "Czerwony",
+  "participantColorOrange": "Pomarańczowy",
+  "participantColorAmber": "Bursztynowy",
+  "participantColorGreen": "Zielony",
+  "participantColorTeal": "Morski",
+  "participantColorCyan": "Cyjan",
+  "participantColorBlue": "Niebieski",
+  "participantColorIndigo": "Indygo",
+  "participantColorPurple": "Fioletowy",
+  "participantColorPink": "Różowy"
 }
