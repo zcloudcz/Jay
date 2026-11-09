@@ -217,7 +217,11 @@ void main() {
     );
 
     test('non-zero exit is an LlmException with a login hint', () async {
-      final exe = await fake('codex', 'echo "not authenticated" >&2; exit 1');
+      // Real Codex 0.167 output without a login.
+      final exe = await fake(
+        'codex',
+        'echo \'ERROR: unexpected status 401 Unauthorized: Missing bearer or basic authentication in header\' >&2; exit 1',
+      );
       final p = CodexCliProvider(executable: exe, workDir: work);
       await expectLater(
         p.reply(conversation, system: 's').join(),
@@ -225,7 +229,143 @@ void main() {
           isA<LlmException>().having(
             (e) => e.message,
             'm',
-            allOf(contains('not authenticated'), contains('codex login')),
+            allOf(
+              contains('401 Unauthorized'),
+              contains('is it signed in?'),
+              contains('codex login'),
+            ),
+          ),
+        ),
+      );
+    });
+
+    test('missing interpreter (env: node, exit 127): launch error, no login '
+        'hint', () async {
+      // An npm CLI is `#!/usr/bin/env <interpreter>`; this interpreter
+      // exists nowhere, like node outside the service PATH.
+      final f = File('${dir.path}/codex');
+      await f.writeAsString('#!/usr/bin/env jay-test-no-such-node\n');
+      await Process.run('chmod', ['+x', f.path]);
+      final p = CodexCliProvider(executable: f.path, workDir: work);
+      await expectLater(
+        p.reply(conversation, system: 's').join(),
+        throwsA(
+          isA<LlmException>().having(
+            (e) => e.message,
+            'm',
+            allOf(
+              startsWith(
+                'The Codex CLI (codex) or its interpreter (node) cannot be '
+                'started; check the bot service PATH (rerun the setup '
+                'command).',
+              ),
+              contains('code 127'),
+              isNot(contains('signed in')),
+            ),
+          ),
+        ),
+      );
+    });
+  });
+
+  group('failure mapping', () {
+    final codex = CodexCliProvider(workDir: '/nonexistent');
+    final claude = ClaudeCliProvider(workDir: '/nonexistent');
+    String msg(CliProvider p, int code, String stderr, [String stdout = '']) =>
+        p.failure(code, stdout, stderr).message;
+
+    test('exit 127 is a launch error for both CLIs', () {
+      for (final p in [codex, claude]) {
+        final m = msg(
+          p,
+          127,
+          "env: 'node': No such file or directory\n"
+          'env: use -[v]S to pass options in shebang lines',
+        );
+        expect(m, contains('or its interpreter (node) cannot be started'));
+        expect(m, contains('check the bot service PATH'));
+        expect(m, contains("env: 'node'"));
+        expect(m, isNot(contains('signed in')));
+      }
+    });
+
+    test('launch texts count even with another exit code', () {
+      expect(CliProvider.isLaunchFailure(1, 'sh: 1: node: not found'), isTrue);
+      expect(
+        CliProvider.isLaunchFailure(
+          1,
+          '/usr/bin/env: \u2018node\u2019: No such file or directory',
+        ),
+        isTrue,
+      );
+      expect(
+        CliProvider.isLaunchFailure(
+          1,
+          "'node' is not recognized as an internal or external command,",
+        ),
+        isTrue,
+      );
+      expect(CliProvider.isLaunchFailure(126, 'Permission denied'), isTrue);
+      // A model or file the CLI itself did not find is no launch problem.
+      expect(CliProvider.isLaunchFailure(1, 'model gpt-x not found'), isFalse);
+    });
+
+    test('auth errors keep the login hint', () {
+      expect(
+        msg(
+          codex,
+          1,
+          'ERROR: unexpected status 401 Unauthorized: Missing '
+          'bearer or basic authentication in header',
+        ),
+        allOf(contains('is it signed in?'), contains('`codex login`')),
+      );
+      expect(
+        msg(claude, 1, 'Invalid API key \u00b7 Please run /login'),
+        allOf(contains('is it signed in?'), contains('`claude`')),
+      );
+    });
+
+    test('anything else is neutral', () {
+      for (final p in [codex, claude]) {
+        final m = msg(p, 2, 'stream disconnected: rate limit reached');
+        expect(m, contains('failed with exit code 2'));
+        expect(m, contains('rate limit reached'));
+        expect(m, isNot(contains('signed in')));
+        expect(m, isNot(contains('interpreter')));
+      }
+    });
+
+    test('stdout is used when stderr is empty', () {
+      expect(msg(codex, 5, '', 'only on stdout'), contains('only on stdout'));
+    });
+
+    test('claude JSON error: login hint only for a login problem', () {
+      expect(
+        () => claude.parseOutput(
+          '{"is_error":true,"result":"Not logged in \u00b7 Please run /login"}',
+          '',
+          1,
+        ),
+        throwsA(
+          isA<LlmException>().having(
+            (e) => e.message,
+            'm',
+            allOf(contains('Not logged in'), contains('is it signed in?')),
+          ),
+        ),
+      );
+      expect(
+        () => claude.parseOutput(
+          '{"is_error":true,"result":"Prompt is too long"}',
+          '',
+          1,
+        ),
+        throwsA(
+          isA<LlmException>().having(
+            (e) => e.message,
+            'm',
+            allOf(contains('Prompt is too long'), isNot(contains('signed in'))),
           ),
         ),
       );

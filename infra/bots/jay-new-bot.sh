@@ -46,11 +46,14 @@ Usage: new-bot.sh --name NAME --owner CT-XXXX-XXXX[,CT-...] [options]
   --remove             stop and remove the bot (asks before deleting its identity)
   --yes                with --remove: also delete the identity without asking
   --dry-run            print what would be done, change nothing
+  --check-only         claude-cli/codex-cli: only check that the CLI starts the
+                       way the bot service starts it, change nothing
   -h, --help           this help
 
 API keys are read from ANTHROPIC_API_KEY / OPENAI_API_KEY / HERMES_API_KEY if
 set, otherwise asked for with a hidden prompt. claude-cli and codex-cli use your
-own signed-in Claude Code / Codex CLI (personal use, see the vendors' terms).
+own signed-in Claude Code / Codex CLI (personal use, see the vendors' terms);
+CLAUDE_BIN / CODEX_BIN pick a CLI other than the one on your PATH.
 
 Who can reach the bot: you (the owners); members of a group you are in when
 they mention the bot (their questions cost YOUR key or plan); other bots only
@@ -63,7 +66,7 @@ die() { printf 'jay-new-bot: %s\n' "$*" >&2; exit 1; }
 say() { printf '%s\n' "$*"; }
 
 name='' owner='' provider=anthropic api=$DEFAULT_API model='' prompt=''
-base_url='' hermes_url='' remove=0 dry=0 docker=0 yes=0 group_replies=''
+base_url='' hermes_url='' remove=0 dry=0 docker=0 yes=0 group_replies='' check_only=0
 model_set=0 prompt_set=0 base_url_set=0 hermes_url_set=0 group_replies_set=0
 os_override='' arch_override=''
 
@@ -83,6 +86,7 @@ while [ $# -gt 0 ]; do
     --remove) remove=1; shift ;;
     --yes) yes=1; shift ;;
     --dry-run) dry=1; shift ;;
+    --check-only) check_only=1; shift ;;
     # Test hooks for the dry-run matrix (infra/bots/test-scripts.sh).
     --os) need_value "$@"; os_override=$2; shift 2 ;;
     --arch) need_value "$@"; arch_override=$2; shift 2 ;;
@@ -150,6 +154,12 @@ if [ "$remove" = 0 ]; then
     [ "$provider" != hermes ] || die "--group-replies is not for --provider hermes (Hermes answers owners only)"
     case "$group_replies" in members|owners) ;; *) die "--group-replies must be members or owners" ;; esac
   fi
+  if [ "$check_only" = 1 ]; then
+    case "$provider" in
+      claude-cli|codex-cli) ;;
+      *) die "--check-only is for --provider claude-cli or codex-cli" ;;
+    esac
+  fi
 fi
 
 # --- platform -----------------------------------------------------------------
@@ -202,6 +212,70 @@ tty_ok() { [ -r /dev/tty ] && [ -w /dev/tty ] && { : < /dev/tty; } 2> /dev/null;
 
 # Single-quotes $1 for a POSIX sh file: ' -> '\''
 shq() { local v=${1//\'/\'\\\'\'}; printf "'%s'" "$v"; }
+
+# Joins dirs into a PATH value, skipping empty and repeated ones.
+path_join() {
+  local out='' d
+  for d in "$@"; do
+    [ -n "$d" ] || continue
+    case ":$out:" in *":$d:"*) ;; *) out=${out:+$out:}$d ;; esac
+  done
+  printf '%s' "$out"
+}
+
+# Follows symlinks to the real file (portable: no `readlink -f` on older macOS).
+resolve_path() {
+  local p=$1 link n=0
+  while [ -L "$p" ] && [ "$n" -lt 40 ]; do
+    link=$(readlink "$p")
+    case "$link" in /*) p=$link ;; *) p="$(dirname "$p")/$link" ;; esac
+    n=$((n + 1))
+  done
+  printf '%s/%s' "$(cd "$(dirname "$p")" && pwd -P)" "$(basename "$p")"
+}
+
+# Sets interp (the interpreter a script CLI names in its shebang, empty for
+# a native binary), interp_bin (its path), interp_env (1 = found via PATH,
+# `#!/usr/bin/env`; 0 = an absolute #! path) and interp_dirs (its dir as found on this user's PATH,
+# then its real dir if that differs: the first survives a version upgrade,
+# the second a removed symlink). Dies when the interpreter is missing.
+find_interpreter() { # cli_path
+  interp='' interp_dirs=() interp_bin='' interp_env=0
+  local line found w
+  local -a words
+  [ -f "$1" ] && [ -r "$1" ] || return 0 # dry-run matrix: no such file
+  [ "$(head -c 2 "$1" 2> /dev/null || true)" = '#!' ] || return 0
+  line=$(head -n 1 "$1" | tr -d '\r') # head follows the symlink
+  read -r -a words <<<"${line#\#!}"
+  [ "${#words[@]}" -gt 0 ] || return 0
+  if [ "$(basename "${words[0]}")" = env ]; then
+    # `#!/usr/bin/env node`, `#!/usr/bin/env -S node --flag`
+    for w in "${words[@]:1}"; do
+      case "$w" in
+        -S*) w=${w#-S}; [ -n "$w" ] || continue ;;
+        -*|*=*) continue ;;
+      esac
+      interp=$w
+      break
+    done
+    [ -n "$interp" ] || return 0
+    found=$(type -P "$interp" || true)
+    [ -n "$found" ] || die "$cli at $1 is a script that runs '$interp' (#!${line#\#!}), but '$interp' is not on your PATH. Install it (node: https://nodejs.org) so that '$interp' works in this terminal, then run this command again."
+    case "$found" in /*) ;; *) found="$(cd "$(dirname "$found")" && pwd)/$(basename "$found")" ;; esac
+    interp_env=1
+  else
+    found=${words[0]}
+    interp=$(basename "$found")
+    [ -x "$found" ] || die "$cli at $1 needs the interpreter $found, which does not exist. Reinstall $cli, then run this command again."
+  fi
+  interp_bin=$found
+  interp_dirs=("$(dirname "$found")")
+  w=$(dirname "$(resolve_path "$found")")
+  [ "$w" = "${interp_dirs[0]}" ] || interp_dirs+=("$w")
+}
+
+# Escapes text for an XML element (launchd plist).
+xml_escape() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
 
 # Reads KEY from the existing settings file (rerun = update). The file is
 # ours, 600, and written with shq(), so sourcing it in a subshell is safe.
@@ -321,14 +395,110 @@ if [ "$provider" = openai ] && [ -n "$base_url" ] && [ -z "$model" ]; then
   die "--model is required with --base-url (the endpoint decides which models exist)"
 fi
 
+# --- isolation (spec 2026-11-09-bot-access A7) ----------------------------------------
+# On Linux the native bot runs under bubblewrap: the whole home folder is
+# replaced by an empty one, only the bot folder (read-write), the CLI and
+# its login (claude: ~/.claude + ~/.claude.json, codex: ~/.codex) are
+# visible. WHY bubblewrap and not systemd's TemporaryFileSystem=/BindPaths=:
+# Ubuntu's default AppArmor rule against unprivileged user namespaces stops
+# a user unit from setting up mounts (226/NAMESPACE, or the setting is
+# silently ignored), while Ubuntu ships an AppArmor profile that lets bwrap
+# do exactly this. Needed because group members, not only the owner, can
+# make the bot run the CLI, and codex's read-only sandbox may still READ
+# every file of this user. Decided here, before the CLI check, because that
+# check starts the CLI the way the service will: inside the sandbox.
+sandbox=0
+if [ "$os" = linux ] && [ "$docker" = 0 ]; then
+  if [ -n "$os_override" ] && [ "$dry" = 1 ] && [ "$check_only" = 0 ]; then
+    sandbox=1 # dry-run matrix: assume bubblewrap is installed
+  elif command -v bwrap > /dev/null 2>&1 \
+    && bwrap --ro-bind / / --unshare-user --die-with-parent true > /dev/null 2>&1; then
+    sandbox=1
+  fi
+fi
+
+# Writes $1 (the bot's sandbox.sh): runs "$@" under bubblewrap (see
+# "isolation"). The CLI's and its interpreter's real locations are resolved
+# at EVERY start, so a CLI update that moves its files keeps working after a
+# restart. Uses cli_path and the interpreter found by find_interpreter.
+write_sandbox() {
+  local login='' interp_real=''
+  # shellcheck disable=SC2016 # expanded later, by sandbox.sh
+  case "$provider" in
+    claude-cli) login='rw "$HOME/.claude"; rw "$HOME/.claude.json"' ;;
+    codex-cli) login='rw "${CODEX_HOME:-$HOME/.codex}"' ;;
+  esac
+  [ -n "$interp_bin" ] && interp_real=$(resolve_path "$interp_bin")
+  cat > "$1" <<EOF
+#!/usr/bin/env bash
+# Generated by jay-new-bot.sh (spec 2026-11-09-bot-access A7): runs the bot
+# in a bubblewrap sandbox. Its home folder is empty; visible are only the bot
+# folder (read-write), the system (read-only) and the provider CLI with its
+# interpreter and login. Try it: sandbox.sh /bin/sh -c 'ls -a ~'
+set -eu
+DIR=$(shq "$bot_dir")
+CLI=$(shq "$cli_path")
+# The interpreter of a script CLI (npm: node), as found on the PATH and its
+# real file at install time; INTERP_ENV=1: the CLI finds it via PATH.
+INTERP=$(shq "$interp_bin")
+INTERP_REAL=$(shq "$interp_real")
+INTERP_ENV=$interp_env
+a=(--ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --tmpfs "\$HOME")
+# The session bus, keyring and agent sockets of the user live here.
+if [ -d "/run/user/\$(id -u)" ]; then a+=(--tmpfs "/run/user/\$(id -u)"); fi
+# (Missing only during the install-time check of a new bot.)
+if [ -d "\$DIR" ]; then a+=(--bind "\$DIR" "\$DIR"); fi
+# Never re-expose the whole home folder (or more) by accident.
+ok() { case "\$1" in "\$HOME"|"\$HOME/"|/|"") return 1 ;; esac; case "\$HOME/" in "\$1"/*) return 1 ;; esac; }
+ro() { if [ -e "\$1" ] && ok "\$1"; then a+=(--ro-bind "\$1" "\$1"); fi; }
+rw() { if [ -e "\$1" ] && ok "\$1"; then a+=(--bind "\$1" "\$1"); fi; }
+# An executable and the folder it really lives in (npm: the node_modules
+# tree, Claude Code: its versions folder); a symlink is recreated as such.
+exe() {
+  local real
+  real=\$(readlink -f "\$1")
+  case "\$real" in
+    */node_modules/*) ro "\${real%%/node_modules/*}/node_modules" ;;
+    *) ro "\$(dirname "\$real")" ;;
+  esac
+  if [ -L "\$1" ]; then a+=(--symlink "\$(readlink "\$1")" "\$1"); fi
+}
+if [ -n "\$CLI" ]; then exe "\$CLI"; fi
+if [ -n "\$INTERP" ]; then
+  # The path found on the PATH survives an upgrade, the real one a removed
+  # symlink.
+  if [ -e "\$INTERP" ]; then real=\$(readlink -f "\$INTERP"); else real=\$INTERP_REAL; fi
+  case "\$real" in
+    "\$HOME"/*)
+      if [ "\$INTERP_ENV" = 1 ]; then
+        # In the home folder (nvm, a tarball under ~/.hermes): bind only its
+        # folder, at a neutral path first on PATH, so the folders around it
+        # (and their names) stay hidden.
+        a+=(--ro-bind "\$(dirname "\$real")" "\$HOME/.jay-interp/bin")
+        a+=(--setenv PATH "\$HOME/.jay-interp/bin:\$PATH")
+      else
+        exe "\$INTERP" # an absolute #! path must stay where it is
+      fi ;;
+    *) ;; # system folders are visible read-only anyway
+  esac
+fi
+$login
+exec bwrap "\${a[@]}" --unshare-user --unshare-pid --unshare-ipc --die-with-parent --new-session -- "\$@"
+EOF
+  chmod 700 "$1"
+}
+
 # --- CLI providers: the owner's own, signed-in CLI ----------------------------------
-cli_var='' cli_path=''
+cli_var='' cli_path='' service_path='' interp='' interp_bin='' interp_env=0
 case "$provider" in
   claude-cli) cli_var=CLAUDE_BIN; cli=claude ;;
   codex-cli) cli_var=CODEX_BIN; cli=codex ;;
 esac
 if [ -n "$cli_var" ]; then
-  if [ -n "$os_override" ]; then
+  if [ -n "${!cli_var:-}" ]; then
+    cli_path=${!cli_var} # an explicit choice, e.g. a second install
+    [ -f "$cli_path" ] && [ -x "$cli_path" ] || die "$cli_var=$cli_path is not an executable file"
+  elif [ -n "$os_override" ]; then
     cli_path="/usr/local/bin/$cli" # dry-run matrix on a machine without it
   else
     cli_path=$(command -v "$cli" || true)
@@ -342,7 +512,45 @@ if [ -n "$cli_var" ]; then
   fi
   # A service has a minimal PATH, so the bot gets the absolute path.
   case "$cli_path" in /*) ;; *) cli_path="$(cd "$(dirname "$cli_path")" && pwd)/$(basename "$cli_path")" ;; esac
-  if [ "$dry" = 0 ]; then
+  # ...and the interpreter of a script CLI: npm installs claude/codex as
+  # `#!/usr/bin/env node` scripts, and node often lives in a non-standard
+  # dir (nvm, a tarball), so the service would fail with exit 127.
+  find_interpreter "$cli_path"
+  service_path=$(path_join "${interp_dirs[@]+"${interp_dirs[@]}"}" "$(dirname "$cli_path")" /usr/local/bin /usr/bin /bin)
+  # The check runs the CLI the way the service will: with the service PATH,
+  # an empty environment and, on Linux, inside the same bubblewrap sandbox
+  # (a CLI or interpreter the sandbox does not bind fails here, not later).
+  check_cmd=(env -i "HOME=$HOME" "PATH=$service_path")
+  where=''
+  [ "$sandbox" = 1 ] && where=' in the bubblewrap sandbox'
+  if [ "$dry" = 1 ] && [ "$check_only" = 0 ]; then
+    [ "$sandbox" = 1 ] && check_cmd+=("$bot_dir/sandbox.sh")
+    check_cmd+=("$cli_path" --version)
+    note "service PATH=$service_path${interp:+ (includes the dir of $interp, which $cli needs)}"
+    note "would check that $cli starts the way the service starts it$where:$(printf ' %q' "${check_cmd[@]}")"
+  else
+    # Before anything is written or started: a bot that cannot start its
+    # CLI would only answer every message with an error.
+    check_dir=''
+    if [ "$sandbox" = 1 ]; then
+      check_dir=$(mktemp -d "${TMPDIR:-/tmp}/jay-bot-check.XXXXXX")
+      write_sandbox "$check_dir/sandbox.sh"
+      check_cmd+=("$check_dir/sandbox.sh")
+    fi
+    check_cmd+=("$cli_path" --version)
+    check_rc=0
+    check_out=$("${check_cmd[@]}" 2>&1) || check_rc=$?
+    [ -z "$check_dir" ] || rm -rf "$check_dir"
+    if [ "$check_rc" != 0 ]; then
+      check_out=$(printf '%s\n' "$check_out" | head -n 3 | tr '\n' ' ')
+      if [ -n "$interp" ] && { [ "$check_rc" = 127 ] || [ "$check_rc" = 126 ] || grep -qiE 'no such file|not found' <<<"$check_out"; }; then
+        die "$interp (or something it needs) is not found in the bot service PATH ($service_path): '$cli --version' failed with exit $check_rc: $check_out. Install $interp in a standard place (/usr/local/bin or /usr/bin), or make sure '$interp' and what it needs work from that PATH, then run this command again."
+      fi
+      die "$cli at $cli_path does not start with the bot service PATH ($service_path)$where: '$cli --version' failed with exit $check_rc: $check_out"
+    fi
+    say "Checked: $cli starts with the bot service PATH ($service_path)$where."
+  fi
+  if [ "$dry" = 0 ] || [ "$check_only" = 1 ]; then
     if [ "$cli" = claude ]; then
       "$cli_path" auth status > /dev/null 2>&1 || say "Warning: 'claude auth status' says you are not signed in. Run 'claude' and sign in, or the bot will answer with an error."
     else
@@ -350,36 +558,9 @@ if [ -n "$cli_var" ]; then
     fi
   fi
   say "Using your own $cli at $cli_path (personal use only; Jay never sees your login)."
+  if [ "$check_only" = 1 ]; then exit 0; fi
 fi
 
-# --- isolation (spec 2026-11-09-bot-access A7) ----------------------------------------
-# On Linux the native bot runs under bubblewrap: the whole home folder is
-# replaced by an empty one, only the bot folder (read-write), the CLI and
-# its login (claude: ~/.claude + ~/.claude.json, codex: ~/.codex) are
-# visible. WHY bubblewrap and not systemd's TemporaryFileSystem=/BindPaths=:
-# Ubuntu's default AppArmor rule against unprivileged user namespaces stops
-# a user unit from setting up mounts (226/NAMESPACE, or the setting is
-# silently ignored), while Ubuntu ships an AppArmor profile that lets bwrap
-# do exactly this. Needed because group members, not only the owner, can
-# make the bot run the CLI, and codex's read-only sandbox may still READ
-# every file of this user.
-sandbox=0
-if [ "$os" = linux ] && [ "$docker" = 0 ]; then
-  if [ -n "$os_override" ]; then
-    sandbox=1 # dry-run matrix: assume bubblewrap is installed
-  elif command -v bwrap > /dev/null 2>&1 \
-    && bwrap --ro-bind / / --unshare-user --die-with-parent true > /dev/null 2>&1; then
-    sandbox=1
-  fi
-fi
-node_bin=''
-if [ "$sandbox" = 1 ] && [ -n "$cli_path" ] && [ -z "$os_override" ]; then
-  # A node script (codex from npm) needs its interpreter inside the sandbox.
-  if head -n 1 "$(readlink -f "$cli_path")" 2> /dev/null | grep -q node; then
-    node_bin=$(command -v node || true)
-    [ -n "$node_bin" ] || die "$cli needs node, which is not on PATH"
-  fi
-fi
 effective_replies=$group_replies
 if [ -z "$effective_replies" ] && [ "$provider" != hermes ]; then
   effective_replies=members
@@ -500,58 +681,6 @@ if [ "$mode" = docker ]; then
   exit 0
 fi
 
-# Writes $bot_dir/sandbox.sh: runs "$@" under bubblewrap (see "isolation").
-# The CLI's real location is resolved at EVERY start, so a CLI update that
-# moves its files keeps working after a restart.
-write_sandbox() {
-  local login=''
-  # shellcheck disable=SC2016 # expanded later, by sandbox.sh
-  case "$provider" in
-    claude-cli) login='rw "$HOME/.claude"; rw "$HOME/.claude.json"' ;;
-    codex-cli) login='rw "${CODEX_HOME:-$HOME/.codex}"' ;;
-  esac
-  cat > "$bot_dir/sandbox.sh" <<EOF
-#!/usr/bin/env bash
-# Generated by jay-new-bot.sh (spec 2026-11-09-bot-access A7): runs the bot
-# in a bubblewrap sandbox. Its home folder is empty; visible are only the bot
-# folder (read-write), the system (read-only) and the provider CLI with its
-# login. Try it: sandbox.sh /bin/sh -c 'ls -a ~'
-set -eu
-DIR=$(shq "$bot_dir")
-CLI=$(shq "$cli_path")
-NODE=$(shq "$node_bin")
-a=(--ro-bind / / --dev /dev --proc /proc --tmpfs /tmp --tmpfs "\$HOME")
-# The session bus, keyring and agent sockets of the user live here.
-if [ -d "/run/user/\$(id -u)" ]; then a+=(--tmpfs "/run/user/\$(id -u)"); fi
-a+=(--bind "\$DIR" "\$DIR")
-# Never re-expose the whole home folder (or more) by accident.
-ok() { case "\$1" in "\$HOME"|"\$HOME/"|/|"") return 1 ;; esac; case "\$HOME/" in "\$1"/*) return 1 ;; esac; }
-ro() { if [ -e "\$1" ] && ok "\$1"; then a+=(--ro-bind "\$1" "\$1"); fi; }
-rw() { if [ -e "\$1" ] && ok "\$1"; then a+=(--bind "\$1" "\$1"); fi; }
-# An executable and the folder it really lives in (npm: the node_modules
-# tree, Claude Code: its versions folder); a symlink is recreated as such.
-exe() {
-  local real
-  real=\$(readlink -f "\$1")
-  case "\$real" in
-    */node_modules/*) ro "\${real%%/node_modules/*}/node_modules" ;;
-    *) ro "\$(dirname "\$real")" ;;
-  esac
-  if [ -L "\$1" ]; then a+=(--symlink "\$(readlink "\$1")" "\$1"); fi
-}
-if [ -n "\$CLI" ]; then exe "\$CLI"; fi
-if [ -n "\$NODE" ]; then
-  exe "\$NODE"
-  # node's own lib folder next to bin/ (prefix/bin/node, prefix/lib).
-  ro "\$(dirname "\$(dirname "\$(readlink -f "\$NODE")")")"
-  a+=(--setenv PATH "\$(dirname "\$NODE"):\$PATH")
-fi
-$login
-exec bwrap "\${a[@]}" --unshare-user --unshare-pid --unshare-ipc --die-with-parent --new-session -- "\$@"
-EOF
-  chmod 700 "$bot_dir/sandbox.sh"
-}
-
 # --- native bundle -------------------------------------------------------------------
 asset="jay-${bridge//_/-}-$os-$arch.zip"
 url="$BUNDLE_BASE/$asset"
@@ -601,13 +730,17 @@ fi
 
 if [ "$dry" = 1 ]; then
   note "would write $env_file (600): settings and secrets, values hidden"
-  note "would write $bot_dir/run.sh (loads the settings, starts app/bin/$bridge, logs to $log_file)"
+  note "would write $bot_dir/run.sh (loads the settings, starts app/bin/$bridge, logs to $log_file${service_path:+, PATH=$service_path})"
   if [ "$sandbox" = 1 ]; then
-    note "would write $bot_dir/sandbox.sh (bubblewrap: empty home, only $bot_dir read-write$([ -n "$cli_var" ] && printf ', %s read-only and its login' "$cli"))"
+    note "would write $bot_dir/sandbox.sh (bubblewrap: empty home, only $bot_dir read-write$([ -n "$cli_var" ] && printf ', %s read-only and its login' "$cli")${interp:+, $interp read-only})"
   fi
 else
   mkdir -p "$bot_dir/data"
   write_settings "$bot_dir/data/bot.store" 1
+  path_line=''
+  # The CLI providers start a CLI (and its interpreter): give them the
+  # PATH checked above instead of the service manager's minimal one.
+  [ -n "$service_path" ] && path_line="PATH=$(shq "$service_path"); export PATH"
   launcher=''
   # shellcheck disable=SC2016 # $DIR is run.sh's own variable
   [ "$sandbox" = 1 ] && launcher='"$DIR/sandbox.sh" '
@@ -615,6 +748,7 @@ else
 #!/bin/sh
 # Generated by jay-new-bot.sh: starts the bot '$slug' with its settings.
 DIR=$(shq "$bot_dir")
+$path_line
 set -a
 . "\$DIR/bot.env"
 set +a
@@ -626,7 +760,7 @@ exec ${launcher}"\$DIR/app/bin/$bridge" >> "\$DIR/bot.log" 2>&1
 EOF
   chmod 700 "$bot_dir/run.sh"
   if [ "$sandbox" = 1 ]; then
-    write_sandbox
+    write_sandbox "$bot_dir/sandbox.sh"
   else
     rm -f "$bot_dir/sandbox.sh"
   fi
@@ -673,9 +807,12 @@ EOF
     ;;
   launchd)
     if [ "$dry" = 1 ]; then
-      note "would write $plist (RunAtLoad, KeepAlive on failure)"
+      note "would write $plist (RunAtLoad, KeepAlive on failure${service_path:+, PATH=$service_path})"
     else
       mkdir -p "$(dirname "$plist")"
+      env_xml=''
+      [ -n "$service_path" ] && env_xml="  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>$(xml_escape "$service_path")</string></dict>"
       cat > "$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -684,6 +821,7 @@ EOF
   <key>Label</key><string>cz.zcloud.$service</string>
   <key>ProgramArguments</key>
   <array><string>/bin/sh</string><string>$bot_dir/run.sh</string></array>
+$env_xml
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ThrottleInterval</key><integer>10</integer>

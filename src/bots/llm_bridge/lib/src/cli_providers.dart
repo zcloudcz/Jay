@@ -96,8 +96,9 @@ abstract class CliProvider implements LlmProvider {
           );
         } on ProcessException catch (e) {
           throw LlmException(
-            '$cliName was not found or cannot start ($executable: ${e.message}). '
-            'Install it and sign in on this computer, then restart the bot.',
+            '$cliName or its interpreter cannot be started ($executable: '
+            '${e.message}). Install it and sign in on this computer, or '
+            'check the bot service PATH (rerun the setup command).',
           );
         }
         final p = process!;
@@ -143,6 +144,51 @@ abstract class CliProvider implements LlmProvider {
     return t.length <= max ? t : '...${t.substring(t.length - max)}';
   }
 
+  /// Short CLI name for error messages ("Codex").
+  String get shortName;
+
+  /// What the owner runs to sign in again.
+  String get loginHint;
+
+  /// Output of this CLI that means "not signed in / login expired".
+  RegExp get authError;
+
+  /// The shell, `env` or Windows' cmd could not find the CLI or the
+  /// interpreter in its shebang (`#!/usr/bin/env node` without node on the
+  /// service PATH): exit 127 (126: found but not executable) or their
+  /// "not found" texts. Never a login problem.
+  static final _launchError = RegExp(
+    r'(^|\n)\s*(\S*/)?env: [^\n]*(No such file or directory|not found)'
+    r'|bad interpreter'
+    r'|(^|\n)\S*sh: [^\n]*not found'
+    r'|is not recognized as an internal or external command',
+    caseSensitive: false,
+  );
+
+  static bool isLaunchFailure(int exitCode, String output) =>
+      exitCode == 127 || exitCode == 126 || _launchError.hasMatch(output);
+
+  /// The error for a run that exited with [exitCode]: launch problem,
+  /// login problem, or a neutral failure with an excerpt of the output.
+  LlmException failure(int exitCode, String stdout, String stderr) {
+    final output = stderr.trim().isEmpty ? stdout : stderr;
+    final detail = excerpt(output);
+    if (isLaunchFailure(exitCode, output)) {
+      return LlmException(
+        'The $cliName or its interpreter (node) cannot be started; check '
+        'the bot service PATH (rerun the setup command). '
+        'Exit code $exitCode: $detail',
+      );
+    }
+    if (authError.hasMatch(output)) {
+      return LlmException(
+        '$shortName exited with code $exitCode: $detail '
+        '(is it signed in? $loginHint)',
+      );
+    }
+    return LlmException('$shortName failed with exit code $exitCode: $detail');
+  }
+
   @override
   Future<void> close() async {}
 }
@@ -167,6 +213,21 @@ class ClaudeCliProvider extends CliProvider {
 
   @override
   String get cliName => 'Claude Code (claude)';
+
+  @override
+  String get shortName => 'Claude Code';
+
+  @override
+  String get loginHint => 'Run `claude` once on this computer.';
+
+  // Claude Code 2.x: "Not logged in · Please run /login", "Invalid API
+  // key", "OAuth token has expired", API 401 authentication_error.
+  @override
+  RegExp get authError => RegExp(
+    r'Not logged in|Please run /login|Invalid API key|authentication_error'
+    r'|OAuth token (has )?expired|\b401\b',
+    caseSensitive: false,
+  );
 
   @override
   String get label => 'Claude Code CLI${model == null ? '' : ' $model'}';
@@ -208,19 +269,17 @@ class ClaudeCliProvider extends CliProvider {
     if (json != null) {
       final result = json['result'];
       if (json['is_error'] == true || exitCode != 0) {
+        final text = result is String && result.isNotEmpty
+            ? excerptOf(result)
+            : '${json['subtype'] ?? 'exit code $exitCode'}';
         throw LlmException(
-          'Claude Code failed: ${result is String && result.isNotEmpty ? excerptOf(result) : json['subtype'] ?? 'exit code $exitCode'}',
+          'Claude Code failed: $text'
+          '${authError.hasMatch(text) ? ' (is it signed in? $loginHint)' : ''}',
         );
       }
       if (result is String) return result;
     }
-    if (exitCode != 0) {
-      throw LlmException(
-        'Claude Code exited with code $exitCode: '
-        '${CliProvider.excerpt(stderr.isEmpty ? stdout : stderr)}'
-        ' (is it signed in? Run `claude` once on this computer.)',
-      );
-    }
+    if (exitCode != 0) throw failure(exitCode, stdout, stderr);
     throw LlmException(
       'Claude Code returned no JSON result: ${CliProvider.excerpt(stdout)}',
     );
@@ -251,6 +310,22 @@ class CodexCliProvider extends CliProvider {
   String get cliName => 'Codex CLI (codex)';
 
   @override
+  String get shortName => 'Codex';
+
+  @override
+  String get loginHint => 'Run `codex login` on this computer.';
+
+  // Codex 0.16x without a login: "unexpected status 401 Unauthorized:
+  // Missing bearer or basic authentication"; an expired ChatGPT login
+  // asks to sign in again / refresh the token.
+  @override
+  RegExp get authError => RegExp(
+    r'\b401 Unauthorized\b|Missing bearer|Not logged in|codex login'
+    r'|refresh token|token (has )?expired|sign in again',
+    caseSensitive: false,
+  );
+
+  @override
   String get label => 'Codex CLI${model == null ? '' : ' $model'}';
 
   @override
@@ -272,13 +347,7 @@ class CodexCliProvider extends CliProvider {
 
   @override
   String parseOutput(String stdout, String stderr, int exitCode) {
-    if (exitCode != 0) {
-      throw LlmException(
-        'Codex exited with code $exitCode: '
-        '${CliProvider.excerpt(stderr.isEmpty ? stdout : stderr)}'
-        ' (is it signed in? Run `codex login` on this computer.)',
-      );
-    }
+    if (exitCode != 0) throw failure(exitCode, stdout, stderr);
     return stdout.trim();
   }
 }

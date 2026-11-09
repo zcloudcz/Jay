@@ -210,19 +210,89 @@ if ($Provider -eq 'openai' -and $BaseUrl -and -not $Model) {
 # --- CLI providers: the owner's own, signed-in CLI ----------------------------------
 $cliVar = ''
 $cliPath = ''
+$servicePrefix = ''
 if ($Provider -eq 'claude-cli' -or $Provider -eq 'codex-cli') {
   $cli = if ($Provider -eq 'claude-cli') { 'claude' } else { 'codex' }
   $cliVar = if ($cli -eq 'claude') { 'CLAUDE_BIN' } else { 'CODEX_BIN' }
   # -CommandType Application: the .exe or .cmd, not a .ps1 shim the bot
   # could not start.
   $cmd = Get-Command $cli -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($cmd) { $cliPath = $cmd.Source }
+  $override = [Environment]::GetEnvironmentVariable($cliVar)
+  if ($override) {
+    # An explicit choice, e.g. a second install.
+    if (-not (Test-Path -LiteralPath $override -PathType Leaf)) { Fail "$cliVar=$override is not a file" }
+    $cliPath = $override
+  }
+  elseif ($cmd) { $cliPath = $cmd.Source }
   elseif ($DryRun) { $cliPath = "C:\Program Files\$cli\$cli.exe" }
   else {
     if ($cli -eq 'claude') {
       Fail "Claude Code (claude) is not installed. Install it (https://code.claude.com/docs/en/setup), run 'claude' once and sign in with your Claude account, then run this command again."
     }
     Fail "Codex CLI (codex) is not installed. Install it (https://developers.openai.com/codex/cli), run 'codex login', then run this command again."
+  }
+  # npm installs claude/codex as a .cmd shim that runs node.exe from PATH
+  # (a native installer ships an .exe). Find that interpreter now, put its
+  # folder first on the bot's PATH in run.ps1, and start the CLI once with
+  # that PATH before anything is installed: a bot that cannot start its CLI
+  # only answers every message with an error.
+  $sep = [IO.Path]::PathSeparator
+  $interp = ''
+  $prefixDirs = @()
+  if (Test-Path -LiteralPath $cliPath -PathType Leaf) {
+    $isScript = $cliPath -match '\.(cmd|bat|ps1)$'
+    if (-not $isScript) {
+      $fs = [IO.File]::OpenRead($cliPath)
+      try { $isScript = ($fs.ReadByte() -eq 35) -and ($fs.ReadByte() -eq 33) } finally { $fs.Dispose() } # '#!'
+    }
+    if ($isScript) {
+      $head = (Get-Content -LiteralPath $cliPath -TotalCount 40) -join "`n"
+      if ($head -match '^#!\S*env\s+(?:-S\s*)?([^\s-]\S*)') { $interp = $Matches[1] }
+      elseif ($head -match '(?i)\bnode(\.exe)?\b') { $interp = 'node' }
+    }
+  }
+  $cliDir = Split-Path -Parent $cliPath
+  if ($interp) {
+    $found = Get-Command $interp -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) { $prefixDirs += Split-Path -Parent $found.Source }
+    elseif (-not (Test-Path -LiteralPath (Join-Path $cliDir "$interp.exe"))) {
+      Fail "$cli at $cliPath runs '$interp', but '$interp' is not on your PATH. Install it (node: https://nodejs.org) so that '$interp' works in this terminal, then run this command again."
+    }
+  }
+  $prefixDirs += $cliDir
+  $servicePrefix = ($prefixDirs | Select-Object -Unique) -join $sep
+  # The task inherits the user's PATH (machine + user); run.ps1 puts the
+  # folders above in front of it.
+  $basePath = @([Environment]::GetEnvironmentVariable('Path', 'Machine'), [Environment]::GetEnvironmentVariable('Path', 'User')) | Where-Object { $_ }
+  if (-not $basePath) { $basePath = @('/usr/local/bin', '/usr/bin', '/bin') } # pwsh on Linux (tests)
+  $servicePath = (@($servicePrefix) + $basePath) -join $sep
+  if ($DryRun) {
+    $interpNote = if ($interp) { " (includes the folder of $interp, which $cli needs)" } else { '' }
+    Note "service PATH=$servicePath$interpNote"
+    Note "would check that $cli starts the way the bot starts it: $cliPath --version with that PATH"
+  } else {
+    $oldPath = $env:PATH
+    $checkCode = 0
+    $checkOut = ''
+    try {
+      $ErrorActionPreference = 'Continue' # a CLI may write to stderr and still succeed
+      $env:PATH = $servicePath
+      $checkOut = (& $cliPath --version 2>&1 | Out-String).Trim()
+      $checkCode = $LASTEXITCODE
+    } catch {
+      $checkOut = $_.Exception.Message
+      $checkCode = -1
+    } finally {
+      $env:PATH = $oldPath
+      $ErrorActionPreference = 'Stop'
+    }
+    if ($checkCode -ne 0) {
+      if ($interp) {
+        Fail "$interp (or something it needs) is not found in the bot's PATH ($servicePath): '$cli --version' failed with exit $($checkCode): $checkOut. Install $interp in a standard place, or make sure '$interp' works from that PATH, then run this command again."
+      }
+      Fail "$cli at $cliPath does not start with the bot's PATH ($servicePath): '$cli --version' failed with exit $($checkCode): $checkOut"
+    }
+    Write-Host "Checked: $cli starts with the bot's PATH."
   }
   if (-not $DryRun) {
     $statusArgs = if ($cli -eq 'claude') { @('auth', 'status') } else { @('login', 'status') }
@@ -305,16 +375,20 @@ $runFile = Join-Path $botDir 'run.ps1'
 $exeName = "$bridge.exe"
 if ($DryRun) {
   Note "would write $settingsFile (readable only by you): settings and secrets, values hidden"
-  Note "would write $runFile (loads the settings, starts app\bin\$exeName, restarts it unless the settings are wrong)"
+  Note "would write $runFile (loads the settings, starts app\bin\$exeName, restarts it unless the settings are wrong$(if ($servicePrefix) { ", PATH starts with $servicePrefix" }))"
 } else {
   New-Item -ItemType Directory -Force -Path (Join-Path $botDir 'data') | Out-Null
   $settings | ConvertTo-Json | Set-Content -LiteralPath $settingsFile -Encoding UTF8
   # Only the current user may read the secrets (no inherited access).
   & icacls.exe $settingsFile /inheritance:r /grant:r "$($env:USERNAME):(F)" | Out-Null
   $quotedDir = $botDir -replace "'", "''"
+  # The CLI providers start a CLI (and node for an npm .cmd shim): put the
+  # folders checked above in front of the task's PATH.
+  $pathLine = if ($servicePrefix) { "`$env:PATH = '$($servicePrefix -replace "'", "''")' + [IO.Path]::PathSeparator + `$env:PATH" } else { '' }
   @"
 # Generated by jay-new-bot.ps1: starts the bot '$slug' with its settings.
 `$dir = '$quotedDir'
+$pathLine
 `$settings = Get-Content -Raw -LiteralPath (Join-Path `$dir 'bot.env.json') | ConvertFrom-Json
 foreach (`$p in `$settings.PSObject.Properties) { [Environment]::SetEnvironmentVariable(`$p.Name, [string]`$p.Value, 'Process') }
 `$exe = Join-Path `$dir 'app\bin\$exeName'

@@ -21,6 +21,11 @@ Zařízení: P = telefon majitele (primární), W = web propojený s P, L = poč
 | `flutter build web`: `build/web/bots/new-bot.sh` a `.ps1` jsou skutečné soubory shodné s `infra/bots/` | PASS |
 | `actionlint` nad `llm-bridge-release.yml`, `llm-bridge-image.yml`, `ci.yml` | PASS |
 | `calltype_bot`, `hermes_bridge`, `a2a_bridge`, `jay_archiver` | nezměněny, nespouštěno |
+| Oprava `fix/bot-cli-path` (spec B6b): `llm_bridge` `dart analyze` + `dart test` (mapování chyb CLI: 127 a "env: 'node': No such file" = chyba spuštění s radou na PATH služby, bez "signed in"; 401/"Not logged in" = rada přihlásit se; jinak neutrální "failed with exit code N") | PASS, 65 testů |
+| Oprava `fix/bot-cli-path`: `infra/bots/test-scripts.sh` vč. falešného npm CLI (`#!/usr/bin/env node`, node v nestandardní složce): PATH služby v `run.sh`, plistu i `run.ps1` obsahuje složku node; chybějící interpret a neprojitá kontrola spuštění ukončí instalaci jasnou hláškou dřív, než se cokoli zapíše; shellcheck; pwsh z Docker image; PSScriptAnalyzer 1.22 bez nálezů | PASS, 225 kontrol |
+| Oprava na tomto stroji (a): skutečný `~/.local/bin/codex` (npm, `#!/usr/bin/env node`), skript spuštěný přes `env -i` s PATH bez `~/.local/bin`: `--check-only` sestaví PATH služby se složkou `~/.hermes/tools/node-26.7.0-linux-x64/bin` a `env -i ... codex --version` projde | PASS |
+| Oprava (b): totéž s PATH, kde node chybí: instalace skončí hláškou "is a script that runs 'node' ..., but 'node' is not on your PATH"; ruční `env -i PATH=<PATH služby bez složky node> codex --version` = exit 127 | PASS |
+| Oprava (c): `--dry-run --provider codex-cli` vypíše `service PATH=` se složkou node a příkaz kontroly | PASS |
 
 ## Ruční scénáře
 
@@ -49,6 +54,8 @@ Zařízení: P = telefon majitele (primární), W = web propojený s P, L = poč
 | P7 | `codex-cli`: Codex přihlášený přes ChatGPT | Odpověď přijde | NOT_RUN |
 | P8 | `hermes` proti běžícímu Hermes API | Bot (hermes_bridge) odpovídá; skript radí přidat bota podle handle (pozdrav jen u llm_bridge) | NOT_RUN |
 | P9 | Windows + `claude-cli` (claude.exe i npm `claude.cmd`) | Odpověď přijde (prázdný argument `--tools ""` přes cmd) | NOT_RUN |
+| P10 | L: `codex-cli` z npm, node jen v nestandardní složce (nvm, `~/.hermes/tools/node-*`), bot založený skriptem z opravy B6b (stávající bot: znovu spustit jeho instalační příkaz) | Skript ohlásí "Checked: codex starts with the bot service PATH", `run.sh` obsahuje `PATH=` se složkou node, bot odpovídá; bez node skript skončí jasnou hláškou a nic nenainstaluje | NOT_RUN |
+| P11 | Win: `codex-cli` přes npm `codex.cmd`, node z instalátoru nebo nvm-windows | `run.ps1` dává složku `node.exe` na začátek PATH, bot odpovídá | NOT_RUN |
 
 ### Chování bota
 
