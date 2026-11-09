@@ -163,6 +163,14 @@ Spec: `docs/superpowers/specs/2026-11-08-contact-sync.md`.
   reaches 0. Never raises an unread count. Spec:
   `docs/superpowers/specs/2026-11-09-auto-resend-read-sync.md`, code
   `lib/messaging/read_state.dart`.
+- `chat-deleted`: `body` = JSON string `{"v": 1, "conversationId": "...",
+  "deletedAt": <ms>}`: this identity deleted the conversation (on this side
+  only, not for the other participants) at that moment. Receivers delete the
+  messages of that conversation with `createdAt <= deletedAt` together with
+  their reactions, pins and votes, and drop the conversation row when nothing
+  is left; a later message survives. An unknown conversation is ignored. Spec:
+  `docs/superpowers/specs/2026-11-09-delete-chats-contacts.md`, code
+  `lib/messaging/chat_deleted.dart`.
 
 ## Idempotence
 
