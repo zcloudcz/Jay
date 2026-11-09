@@ -90,6 +90,13 @@ jobs:
           dart analyze
           dart test
           dart build cli -o build/out
+      - name: llm_bridge analyze + tests + headless build
+        working-directory: src/bots/llm_bridge
+        run: |
+          dart pub get
+          dart analyze
+          dart test
+          dart build cli -o build/out
       - run: flutter pub get
       - run: dart run build_runner build --delete-conflicting-outputs
       - run: flutter analyze
@@ -118,6 +125,7 @@ jobs:
             --lockfile=./src/bots/calltype_bot/pubspec.lock
             --lockfile=./src/bots/hermes_bridge/pubspec.lock
             --lockfile=./src/bots/jay_archiver/pubspec.lock
+            --lockfile=./src/bots/llm_bridge/pubspec.lock
             --config=./osv-scanner.toml
 
   # Bicep lint gate: any change under infra/ must at least compile. This does

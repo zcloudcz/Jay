@@ -1,0 +1,170 @@
+# ---------------------------------------------------------------------------
+# Bot bundles: native llm_bridge + hermes_bridge builds as a rolling release
+# ---------------------------------------------------------------------------
+# Why (spec 2026-11-09-bot-factory, B5): the one-command setup scripts
+# (infra/bots/jay-new-bot.sh / .ps1, served at https://jay.zcloud.cz/bots/)
+# download a ready binary, so a bot owner needs neither Dart nor Docker.
+#
+# Stable URLs (the scripts use them):
+#   https://github.com/zcloudcz/Jay/releases/download/llm-bridge-latest/jay-<bridge>-<os>-<arch>.zip
+#   <bridge> = llm-bridge | hermes-bridge (--provider hermes)
+#   <os>-<arch> = linux-x64 | linux-arm64 | macos-arm64 | windows-x64
+#   plus SHA256SUMS (the scripts check the zip against it).
+# Each zip is a `dart build cli` bundle: bin/<exe> + lib/<sqlite>.
+#
+# The release is a PRERELEASE and never "latest": the Windows app's stable
+# link /releases/latest/download/Jay-windows-x64.zip must keep pointing at
+# the app release (windows-release.yml).
+#
+# The repo is public, so the assets are public. Run it manually
+# (workflow_dispatch) with a commit SHA; rerunning moves the tag and
+# replaces the assets (setup scripts rerun = update, identity kept).
+# ---------------------------------------------------------------------------
+
+name: Bot bundles release
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Full commit SHA to build and publish'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: llm-bridge-release
+  cancel-in-progress: false
+
+env:
+  TAG: llm-bridge-latest
+
+jobs:
+  # The scripts are what users run; refuse to publish bundles for a commit
+  # whose scripts do not even lint or dry-run.
+  scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - name: shellcheck + dry-run matrix + PowerShell parse
+        shell: bash
+        run: infra/bots/test-scripts.sh
+
+  build:
+    needs: scripts
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-latest
+          # GitHub's arm64 Linux runners are free for public repositories.
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+          - target: macos-arm64
+            runner: macos-latest
+          - target: windows-x64
+            runner: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      # Plain Dart, not the Flutter action: the bridges are Flutter-free and
+      # the Flutter SDK has no arm64 Linux host build to download.
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: calltype_core codegen
+        shell: bash
+        working-directory: src/client/calltype_core
+        run: |
+          dart pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      # `dart build cli` (not `dart compile exe`): package:sqlite3 ships its
+      # native library through a build hook, which only `dart build` runs.
+      - name: Build and zip both bridges
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for bridge in llm_bridge hermes_bridge; do
+            (cd "src/bots/$bridge" && dart pub get && dart build cli -o build/out)
+            name="jay-${bridge//_/-}-${{ matrix.target }}.zip"
+            # zip on Linux/macOS (keeps the executable bit), 7z on Windows
+            # (Git Bash there has no zip).
+            if command -v zip > /dev/null; then
+              (cd "src/bots/$bridge/build/out/bundle" && zip -qr "$GITHUB_WORKSPACE/dist/$name" bin lib)
+            else
+              (cd "src/bots/$bridge/build/out/bundle" && 7z a -tzip "$GITHUB_WORKSPACE/dist/$name" bin lib > /dev/null)
+            fi
+            echo "built $name"
+          done
+          ls -l dist
+
+      # A bundle that cannot even start is worse than none: run the binary
+      # without any bot configuration (the runner sets none); it must exit
+      # 78 with a config message, which proves it loads on this OS.
+      - name: Smoke test (config error, exit 78)
+        shell: bash
+        run: |
+          set +e
+          exe=src/bots/llm_bridge/build/out/bundle/bin/llm_bridge
+          [ -f "$exe.exe" ] && exe="$exe.exe"
+          out=$("$exe" 2>&1)
+          rc=$?
+          echo "$out"
+          [ "$rc" = 78 ] && grep -q 'LLM_PROVIDER' <<<"$out"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.target }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # move the tag, create/update the release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bundles-*
+          merge-multiple: true
+          path: dist
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum -- *.zip | tee SHA256SUMS
+
+      - name: Move the rolling tag and replace the assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          # Tag first, so the release (and its "source code" archives) name
+          # the commit the bundles were built from.
+          gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$SHA" -F force=true \
+            || gh api -X POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA"
+          notes="Native Jay bot bundles built from $SHA. Set up a bot with the command from Jay: Settings > Bots > New bot."
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --prerelease --latest=false --notes "$notes"
+          else
+            gh release create "$TAG" --prerelease --latest=false \
+              --title "Jay bot bundles (rolling)" --notes "$notes" --verify-tag
+          fi
+          gh release upload "$TAG" dist/*.zip dist/SHA256SUMS --clobber
+          gh release view "$TAG" --json assets --jq '.assets[].name'
