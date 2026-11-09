@@ -155,6 +155,14 @@ Spec: `docs/superpowers/specs/2026-11-08-contact-sync.md`.
 (`k` = base64url without padding).
   Code: `lib/messaging/history_transfer.dart`.
 - `history-transfer-done`: `body` = JSON string `{"transferId": "..."}`.
+- `read-state`: `body` = JSON string `{"v": 1, "conversationId": "...",
+  "readUpTo": <ms>}`: this identity has read the conversation up to the
+  incoming message with that `createdAt` (ms since epoch). Receivers keep
+  the maximum per conversation, lower their unread count to the incoming
+  messages after it and cancel the conversation's notification when it
+  reaches 0. Never raises an unread count. Spec:
+  `docs/superpowers/specs/2026-11-09-auto-resend-read-sync.md`, code
+  `lib/messaging/read_state.dart`.
 
 ## Idempotence
 
