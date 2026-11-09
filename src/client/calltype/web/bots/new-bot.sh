@@ -1,0 +1,1 @@
+../../../../../infra/bots/jay-new-bot.sh

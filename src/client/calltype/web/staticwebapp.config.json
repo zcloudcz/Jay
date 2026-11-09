@@ -23,13 +23,22 @@
         "X-Frame-Options": "DENY",
         "X-Robots-Tag": "noindex, nofollow"
       }
+    },
+    {
+      "route": "/bots/*",
+      "headers": {
+        "Cache-Control": "no-cache",
+        "X-Content-Type-Options": "nosniff"
+      }
     }
   ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/admin", "/admin/*", "/legal/*", "/assets/*", "/icons/*", "/canvaskit/*", "/*.js", "/*.wasm", "/*.json", "/*.png", "/*.ico"]
+    "exclude": ["/admin", "/admin/*", "/legal/*", "/bots/*", "/assets/*", "/icons/*", "/canvaskit/*", "/*.js", "/*.wasm", "/*.json", "/*.png", "/*.ico"]
   },
   "mimeTypes": {
-    ".wasm": "application/wasm"
+    ".wasm": "application/wasm",
+    ".sh": "text/plain; charset=utf-8",
+    ".ps1": "text/plain; charset=utf-8"
   }
 }
