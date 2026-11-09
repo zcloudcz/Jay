@@ -22,6 +22,7 @@ import '../../core/network/signalr_client.dart';
 import 'package:calltype_core/storage/database.dart';
 import 'message_inbox_service.dart';
 import 'message_sender.dart';
+import 'read_sync.dart';
 import 'resend_service.dart';
 import 'attachment.dart';
 import 'bot_commands.dart';
@@ -70,7 +71,9 @@ class ChatController extends ChangeNotifier {
     BotCommandsCache? commandsCache,
     MediaService? media,
     ResendService? resend,
+    ReadStateService? readSync,
   }) : _db = database,
+       _readSync = readSync,
        media = media ?? MediaService.instance,
        _commandsCache = commandsCache ?? BotCommandsCache.shared,
        _api = apiClient,
@@ -404,7 +407,20 @@ class ChatController extends ChangeNotifier {
     await (_db.update(_db.conversations)
           ..where((c) => c.id.equals(conversationId)))
         .write(const ConversationsCompanion(unreadCount: Value(0)));
+    // Our other devices drop their unread count and notification too
+    // (spec 2026-11-09-auto-resend-read-sync, S2). Best effort.
+    final readSync = _readSync;
+    if (readSync != null && !_disposed) {
+      unawaited(
+        readSync
+            .conversationRead(conversationId)
+            .catchError((Object _) => false),
+      );
+    }
   }
+
+  /// Sends the read state to our other devices; null in tests without it.
+  final ReadStateService? _readSync;
 
   /// Text the composer starts with (bot deep link `/start <payload>`), set
   /// once by the route; never sent without the user pressing send. Wins over

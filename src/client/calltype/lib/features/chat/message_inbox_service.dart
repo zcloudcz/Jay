@@ -6,6 +6,7 @@ import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:calltype_core/messaging/contact_sync.dart';
 import 'package:calltype_core/messaging/history_transfer.dart';
+import 'package:calltype_core/messaging/read_state.dart';
 import 'package:drift/drift.dart';
 
 import 'package:calltype_core/crypto/session_manager.dart';
@@ -18,6 +19,7 @@ import '../media/media_service.dart';
 import 'attachment.dart';
 import 'pins.dart';
 import 'polls.dart';
+import 'read_sync.dart';
 import 'reactions.dart';
 
 /// One queue per device database protects ratchet updates across chats and inbox.
@@ -41,6 +43,7 @@ const ownSyncTypes = {
   contactSyncRequestType,
   historyTransferType,
   historyTransferDoneType,
+  readStateType,
 };
 
 /// Longest quote kept in a `replyTo` preview.
@@ -118,7 +121,13 @@ class MessageInboxService {
   final _errors = StreamController<Object>.broadcast();
   final _contactsChanged = StreamController<void>.broadcast();
   final _ownControls = StreamController<OwnControlMessage>.broadcast();
+  final _readElsewhere = StreamController<String>.broadcast();
   Stream<Message> get persistedMessages => _persisted.stream;
+
+  /// Conversations another own device has read completely (a `read-state`
+  /// brought their unread count to 0, spec 2026-11-09 S5): their
+  /// notifications can go. Emitted after the transaction committed.
+  Stream<String> get readElsewhere => _readElsewhere.stream;
 
   /// A `contact-sync` from an own device changed contacts or conversation
   /// headers (already written).
@@ -224,6 +233,7 @@ class MessageInboxService {
       Message? inserted;
       AppliedReaction? reacted;
       OwnControlMessage? ownControl;
+      String? readConversation;
       var contactsChanged = false;
       await _db.transaction(() async {
         final envelope = utf8.decode(
@@ -330,6 +340,18 @@ class MessageInboxService {
               final sync = ContactSyncPayload.decode(body);
               if (sync != null) {
                 contactsChanged = await applyContactSync(_db, sync);
+              }
+            } else if (type == readStateType) {
+              // Spec 2026-11-09-auto-resend-read-sync S3/S4: an unknown
+              // conversation or an older state is ignored (still acked).
+              final read = ReadStatePayload.decode(body);
+              if (read != null &&
+                  await applyReadState(
+                    _db,
+                    read,
+                    selfIdentityId: directory.selfIdentityId,
+                  )) {
+                readConversation = read.conversationId;
               }
             } else {
               ownControl = OwnControlMessage(
@@ -501,6 +523,7 @@ class MessageInboxService {
       if (reacted != null) _reactions.add(reacted!);
       if (contactsChanged) _contactsChanged.add(null);
       if (ownControl != null) _ownControls.add(ownControl!);
+      if (readConversation != null) _readElsewhere.add(readConversation!);
       await _acknowledge?.call(senderId, messageId);
     } catch (error) {
       // Leave failures queued on the server; never report corrupt ciphertext as delivered.
@@ -764,5 +787,6 @@ class MessageInboxService {
     await _errors.close();
     await _contactsChanged.close();
     await _ownControls.close();
+    await _readElsewhere.close();
   }
 }

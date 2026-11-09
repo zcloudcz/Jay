@@ -27,6 +27,7 @@ import '../features/channels/updates_screen.dart';
 import '../features/chat/chat_controller.dart';
 import '../features/chat/chat_screen.dart';
 import '../features/chat/message_inbox_service.dart';
+import '../features/chat/read_sync.dart';
 import '../features/chat/resend_service.dart';
 import '../features/chat/mentions.dart' show senderLabel;
 import '../features/chat_list/chat_list_controller.dart';
@@ -185,6 +186,7 @@ final router = GoRouter(
                   onStale: devices.reportStaleFanout,
                   // Absent in widget tests that build the router alone.
                   resend: ctx.read<ResendService?>(),
+                  readSync: ctx.read<ReadStateService?>(),
                 );
                 // Forward: the message to forward arrives as route `extra`.
                 // `create` runs once per route, so it is sent exactly once,

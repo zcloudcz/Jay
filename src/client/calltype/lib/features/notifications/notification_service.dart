@@ -438,6 +438,22 @@ class NotificationService extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Another own device read [conversationId] completely (spec
+  /// 2026-11-09-auto-resend-read-sync, S5): its notification goes, whether
+  /// this device showed it or the OS showed a server push with the same tag
+  /// (Android, web). Best effort, never throws.
+  Future<void> onConversationRead(String conversationId) async {
+    if (!_supported) return;
+    for (final kind in const [
+      NotificationKind.message,
+      NotificationKind.groupMessage,
+    ]) {
+      try {
+        await _notifier.cancel(NotificationTarget(kind, conversationId));
+      } catch (_) {}
+    }
+  }
+
   // -- Internals ----------------------------------------------------------------
 
   bool _skip(

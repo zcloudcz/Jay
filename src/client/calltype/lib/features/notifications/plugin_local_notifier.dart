@@ -191,10 +191,19 @@ class PluginLocalNotifier implements LocalNotifier {
   }
 
   @override
-  Future<void> cancel(NotificationTarget target) => _plugin.cancel(
-    id: notificationIdFor(target.kind, target.conversationId),
-    tag: target.conversationId,
-  );
+  Future<void> cancel(NotificationTarget target) async {
+    await _plugin.cancel(
+      id: notificationIdFor(target.kind, target.conversationId),
+      tag: target.conversationId,
+    );
+    // Android: a server push the OS showed (FCM `notification` block) has
+    // the conversation as tag and id 0, see PushPayloads.Fcm. iOS and macOS
+    // keep APNs pushes: the plugin cannot remove a delivered notification
+    // it did not create (no identifier to name).
+    if (_android != null) {
+      await _plugin.cancel(id: 0, tag: target.conversationId);
+    }
+  }
 
   @override
   Stream<Map<String, String>> get taps => _taps.stream;

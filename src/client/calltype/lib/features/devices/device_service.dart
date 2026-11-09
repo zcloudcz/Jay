@@ -321,6 +321,7 @@ class DeviceService extends ChangeNotifier {
                 s.key.like('ownsync:%') |
                 s.key.like('control:%') |
                 s.key.like('sendfail:%') |
+                s.key.like('read-upto:%') |
                 s.key.equals(companionOfKey) |
                 s.key.equals(linkedPrimaryHandleKey),
           ))
@@ -361,6 +362,7 @@ class DeviceService extends ChangeNotifier {
                   s.key.like('ownsync:%') |
                   s.key.like('control:%') |
                   s.key.like('sendfail:%') |
+                  s.key.like('read-upto:%') |
                   s.key.equals(companionOfKey) |
                   s.key.equals(linkedPrimaryHandleKey) |
                   s.key.equals(vanishedCompanionsKey),

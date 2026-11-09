@@ -22,6 +22,7 @@ import 'features/chat/message_inbox_service.dart';
 import 'features/chat/message_sender.dart';
 import 'features/chat/resend_service.dart';
 import 'features/chat/participant_colors.dart';
+import 'features/chat/read_sync.dart';
 import 'features/chat_list/chat_list_controller.dart';
 import 'features/contacts/contact_sync.dart';
 import 'features/contacts/contacts_controller.dart';
@@ -180,6 +181,25 @@ void main() async {
     strings: () => lookupAppLocalizations(_appLocale()),
   );
 
+  // Read state between own devices (spec 2026-11-09, part 2): the open
+  // chat reports a read, the other devices drop unread and notifications.
+  final readSync = ReadStateService(
+    database: db,
+    sender: ownDevices,
+    directory: () => devices.isOpen ? devices.directory : null,
+    foreground: () =>
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed,
+    openConversation: () {
+      try {
+        return openConversationOf(
+          router.routerDelegate.currentConfiguration.uri.path,
+        );
+      } catch (_) {
+        return null;
+      }
+    },
+  );
+
   // H2: archives every business call as a `call-event` group message as
   // soon as it ends, whether or not that conversation's chat screen is open
   // — same "app-wide, starts before connect" reasoning as the inbox above.
@@ -253,6 +273,9 @@ void main() async {
   );
   inbox.persistedMessages.listen((m) => unawaited(notifications.onMessage(m)));
   inbox.appliedReactions.listen((r) => unawaited(notifications.onReaction(r)));
+  inbox.readElsewhere.listen(
+    (id) => unawaited(notifications.onConversationRead(id)),
+  );
   channels.newPosts.listen((p) => unawaited(notifications.onChannelPost(p)));
   // An incoming call while the app is in the background: ring visibly. The
   // notification is withdrawn as soon as the call stops ringing.
@@ -274,8 +297,10 @@ void main() async {
   AppLifecycleListener(
     onResume: () {
       unawaited(notifications.refreshPermission());
-      // Back in the foreground: failed messages get a try now (R2).
+      // Back in the foreground: failed messages get a try now (R2), and
+      // the chat on screen counts as read now (S2).
       unawaited(resend.trigger());
+      unawaited(readSync.onResume().catchError((Object _) {}));
     },
   );
   // The server keeps no offline queue for channels, so every transition to
@@ -329,6 +354,7 @@ void main() async {
         Provider.value(value: inbox),
         Provider.value(value: contactSync),
         Provider.value(value: resend),
+        Provider.value(value: readSync),
         ChangeNotifierProvider.value(value: historyTransfer),
 
         // -- Network providers (ChangeNotifier-based) -----------------------
