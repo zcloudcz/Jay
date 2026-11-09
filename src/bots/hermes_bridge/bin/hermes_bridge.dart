@@ -172,6 +172,7 @@ Future<void> main() async {
     bot,
     allowedHandles: parseAllowedHandles(env['ALLOWED_HANDLES']),
     peerHandles: parseAllowedHandles(env['PEER_BOT_HANDLES']),
+    inbound: env[botInboundEnv],
     peerTurnsCap: peerTurnsCap,
     stream: hermes.chat,
     approve: hermes.approve,

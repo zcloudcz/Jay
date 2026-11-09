@@ -204,6 +204,25 @@ void main() {
       expect(backendCalls.last, '${alice.id}: [from CT-AAAA-0001]: again');
     });
 
+    test('publishes the server inbound policy: owners, or open via BOT_INBOUND', () async {
+      await runBridge(bot, allowedHandles: {'CT-AAAA-0001'}, backend: backend, log: logs.add);
+      expect(api.botPolicies[FakeApi.botId], {
+        'mode': 'owners',
+        'owners': ['CT-AAAA-0001'],
+      });
+      await bot.close();
+      bot = await CallTypeBot.start(
+        apiBaseUrl: api.url,
+        storePath: '${dir.path}/bot.store',
+        storeKeyBase64: testStoreKey,
+        transportFactory: (_, _) => hub,
+        log: logs.add,
+      );
+      await runBridge(bot,
+          allowedHandles: {'CT-AAAA-0001'}, inbound: 'open', backend: backend, log: logs.add);
+      expect(api.botPolicies[FakeApi.botId]?['mode'], 'open');
+    });
+
     test('disallowed handle: backend never called, no reply', () async {
       await runBridge(
         bot,

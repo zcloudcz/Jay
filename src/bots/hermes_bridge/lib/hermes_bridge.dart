@@ -996,6 +996,8 @@ const channelTargetPrefix = 'channel:';
 ///
 /// [reactions] decides what an owner's emoji reaction does (see
 /// [ReactionMode]); other senders' reactions are never forwarded.
+///
+/// [inbound] is env `BOT_INBOUND` (see [publishInboundPolicy]).
 Future<HermesBridge> runBridge(
   CallTypeBot bot, {
   required Set<String> allowedHandles,
@@ -1007,6 +1009,7 @@ Future<HermesBridge> runBridge(
   ApprovalBackend? approve,
   ProgressSettings progress = const ProgressSettings(),
   ReactionMode reactions = ReactionMode.silent,
+  String? inbound,
   required void Function(String) log,
 }) async {
   if (stream == null && backend == null) {
@@ -1045,6 +1048,15 @@ Future<HermesBridge> runBridge(
       'handle(s) (Settings -> Identity) and restart.',
     );
   }
+
+  // A3: the server keeps strangers away too (env BOT_INBOUND=open turns it
+  // off). Resolved handles only: the server refuses unknown ones.
+  await publishInboundPolicy(
+    bot,
+    owners: allowedIds.values,
+    inbound: inbound,
+    log: log,
+  );
 
   final bridge = HermesBridge._(
     bot,

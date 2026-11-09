@@ -21,6 +21,11 @@ messages, therefore:
 - Other bots are answered **only in groups**, only where the group's owner turned
   on "Bot conversation" and one of your `ALLOWED_HANDLES` is a group **admin**; see
   "Two bots in one group". `PEER_BOT_HANDLES` can only narrow that further.
+- At start the bridge publishes a server-side inbound policy (owners = the resolved
+  `ALLOWED_HANDLES`): the server then does not even store 1:1 messages from other
+  people, nor group messages of groups without one of the owners. `BOT_INBOUND=open`
+  turns that off (the bridge still filters every sender itself). An old server
+  without the policy is logged and ignored.
 - The local `/send` and `/react` endpoint is **off** unless `BRIDGE_SEND_KEY` is set, binds to
   127.0.0.1 only, and sends 1:1 messages and reactions only to `ALLOWED_HANDLES`. Channel posts
   go only to channels whose owner made the bot a publisher (the server checks).
@@ -42,6 +47,7 @@ messages, therefore:
 | `JAY_SERVER_TIMEOUT_SECONDS` | no, default `60`, min `20` | the Jay hub pings every 15 s; this long without any frame from it = dead session, the bridge logs it and reconnects (same identity) |
 | `ALLOWED_HANDLES` | effectively yes | comma-separated `CT-XXXX-XXXX` handles allowed to talk to Hermes |
 | `PEER_BOT_HANDLES` | no | comma-separated handles of other bots; if set, ONLY these may talk to this one (narrows the group setting, never widens it; set but unresolvable = no bot) |
+| `BOT_INBOUND` | no, default `owners` | `owners` = the server delivers only owners' 1:1 messages and groups with an owner as member; `open` = the server delivers everything (the bridge still filters) |
 | `PEER_MAX_TURNS_CAP` | no, default `50` | operator ceiling for a bot-only exchange; a group's "max messages" above it is cut down to it |
 | `BRIDGE_SEND_KEY` | no | enables `POST http://127.0.0.1:$BRIDGE_PORT/send` and `/react`; the Bearer key callers must send. Unset = endpoint off |
 | `BRIDGE_PORT` | no, default `8650` | port of the local send endpoint (loopback only) |
