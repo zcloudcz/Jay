@@ -72,6 +72,7 @@ class ChatController extends ChangeNotifier {
     MediaService? media,
     ResendService? resend,
     ReadStateService? readSync,
+    this.onOwnSend,
   }) : _db = database,
        _readSync = readSync,
        media = media ?? MediaService.instance,
@@ -1219,11 +1220,16 @@ class ChatController extends ChangeNotifier {
     await retryMessage(id);
   }
 
+  /// Told the id of every own message queued or retried here; the app adds
+  /// a 1:1 peer as a contact on reply (ContactsController.addPeerOnReply).
+  final void Function(String messageId)? onOwnSend;
+
   /// Sends (again) an own message of THIS conversation through the shared
   /// [MessageSender] (a media row first finishes its upload). A tap on the
   /// bubble is a manual attempt: it always runs and resets the automatic
   /// backoff (R3).
   Future<void> retryMessage(String messageId) async {
+    onOwnSend?.call(messageId);
     final message = await (_db.select(
       _db.messages,
     )..where((m) => m.id.equals(messageId))).getSingleOrNull();

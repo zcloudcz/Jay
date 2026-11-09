@@ -779,5 +779,6 @@
   "participantColorBlue": "Синий",
   "participantColorIndigo": "Индиго",
   "participantColorPurple": "Фиолетовый",
-  "participantColorPink": "Розовый"
+  "participantColorPink": "Розовый",
+  "contactsAddFromChatFailed": "Не удалось добавить контакт. Проверьте подключение и повторите попытку."
 }

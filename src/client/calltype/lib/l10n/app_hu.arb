@@ -779,5 +779,6 @@
   "participantColorBlue": "Kék",
   "participantColorIndigo": "Indigó",
   "participantColorPurple": "Lila",
-  "participantColorPink": "Rózsaszín"
+  "participantColorPink": "Rózsaszín",
+  "contactsAddFromChatFailed": "A névjegyet nem sikerült hozzáadni. Ellenőrizd a kapcsolatot, és próbáld újra."
 }

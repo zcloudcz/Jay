@@ -1922,5 +1922,9 @@
   "participantColorPink": "Pink",
   "@participantColorPink": {
     "description": "Name of the color \"Pink\" in the participant color picker (tooltip and screen reader label of the swatch)."
+  },
+  "contactsAddFromChatFailed": "Could not add this contact. Check your connection and try again.",
+  "@contactsAddFromChatFailed": {
+    "description": "Snackbar when adding the peer of a 1:1 chat as a contact (chat menu Add contact or Rename) failed because their profile could not be looked up, usually offline."
   }
 }

@@ -779,5 +779,6 @@
   "participantColorBlue": "蓝色",
   "participantColorIndigo": "靛蓝色",
   "participantColorPurple": "紫色",
-  "participantColorPink": "粉色"
+  "participantColorPink": "粉色",
+  "contactsAddFromChatFailed": "无法添加此联系人。请检查网络连接后重试。"
 }

@@ -246,6 +246,19 @@ class ApiClient {
     return response.data!;
   }
 
+  /// The public profile of [deviceId]: `{deviceId, userHandle, isBot,
+  /// displayName}`, the same fields as [findDeviceByHandle]. Unlike
+  /// [getKeyBundle] it consumes no one-time pre-key, so it is safe for
+  /// lookups such as naming a chat or adding its peer as a contact.
+  ///
+  /// GET /devices/{deviceId}/profile
+  Future<Map<String, dynamic>> getDeviceProfile(String deviceId) async {
+    final response = await _dio.get<Map<String, dynamic>>(
+      '/devices/${Uri.encodeComponent(deviceId)}/profile',
+    );
+    return response.data!;
+  }
+
   // -- Key bundle ------------------------------------------------------------
 
   /// Fetches the X3DH key bundle for a remote device.

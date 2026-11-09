@@ -240,6 +240,16 @@ class MockApiClient extends _i1.Mock implements _i5.ApiClient {
           as _i6.Future<Map<String, dynamic>>);
 
   @override
+  _i6.Future<Map<String, dynamic>> getDeviceProfile(String? deviceId) =>
+      (super.noSuchMethod(
+            Invocation.method(#getDeviceProfile, [deviceId]),
+            returnValue: _i6.Future<Map<String, dynamic>>.value(
+              <String, dynamic>{},
+            ),
+          )
+          as _i6.Future<Map<String, dynamic>>);
+
+  @override
   _i6.Future<Map<String, dynamic>> getKeyBundle(String? deviceId) =>
       (super.noSuchMethod(
             Invocation.method(#getKeyBundle, [deviceId]),

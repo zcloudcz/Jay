@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:calltype_core/storage/database.dart';
 import 'package:calltype_core/network/api_client.dart';
+
+import '../chat/chat_controller.dart' show controlTypes;
 
 /// Manages the local contact list — devices we have exchanged identity
 /// keys with or intend to communicate with.
@@ -13,7 +16,11 @@ import 'package:calltype_core/network/api_client.dart';
 /// the anonymous-first design. A contact is created when:
 ///   1. The user scans a QR code (gets handle + deviceId)
 ///   2. The user manually enters a handle
-///   3. A message arrives from an unknown sender (auto-create)
+///   3. I send a message in a 1:1 chat whose peer is not a contact yet
+///      ([addPeerOnReply]), or pick Add / Rename in that chat's menu
+///      ([ensureContact]). A message that only ARRIVES adds nothing, so
+///      spam senders do not become contacts
+///      (spec 2026-11-09-contacts-from-replies).
 ///
 /// The identity key exchange happens lazily on first message send —
 /// the sender fetches the recipient's key bundle from the server and
@@ -191,10 +198,236 @@ class ContactsController extends ChangeNotifier {
     _changed(id);
   }
 
+  // -- Contacts from replies (spec 2026-11-09-contacts-from-replies) -------
+
+  /// Key prefix of the cached peer profiles in `backup_state` (C4). A cache
+  /// only: not part of backups, refetched after [peerProfileMaxAge].
+  static const peerProfileKeyPrefix = 'peer-profile:';
+
+  /// How long a cached peer profile is used before it is fetched again.
+  static const peerProfileMaxAge = Duration(hours: 24);
+
+  /// After a failed lookup (offline, old server) the next try waits this
+  /// long, so a rebuilding chat list does not hammer the server.
+  static const _peerProfileRetryAfter = Duration(minutes: 5);
+
+  static final _deviceIdPattern = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  );
+
+  final _profiles = <String, PeerProfile>{};
+  final _profileLoads = <String>{};
+  final _profileFailedAt = <String, DateTime>{};
+  final _adds = <String, Future<Contact>>{};
+  bool _disposed = false;
+
+  /// The saved contact for [deviceId], if any.
+  Contact? contactOf(String deviceId) =>
+      _contacts.where((c) => c.deviceId == deviceId).firstOrNull;
+
+  /// The public profile of a 1:1 peer that may not be a contact (C4), for a
+  /// readable chat title instead of the raw device id. Returns what is
+  /// cached (possibly null) and, when nothing fresh is cached, starts a
+  /// background lookup that notifies listeners once it lands. Safe to call
+  /// from build methods.
+  PeerProfile? peerProfile(String deviceId) {
+    final cached = _profiles[deviceId];
+    if (cached == null ||
+        DateTime.now().difference(cached.fetchedAt) > peerProfileMaxAge) {
+      unawaited(_loadPeerProfile(deviceId));
+    }
+    return cached;
+  }
+
+  Future<void> _loadPeerProfile(String deviceId) async {
+    // Without an API there is nothing to look up (tests, bots); a non-GUID id
+    // is never a device and would only produce a 404.
+    if (_api == null || !_deviceIdPattern.hasMatch(deviceId)) return;
+    final failedAt = _profileFailedAt[deviceId];
+    if (failedAt != null &&
+        DateTime.now().difference(failedAt) < _peerProfileRetryAfter) {
+      return;
+    }
+    if (!_profileLoads.add(deviceId)) return;
+    try {
+      if (!_profiles.containsKey(deviceId)) {
+        final row =
+            await (_db.select(_db.backupState)..where(
+                  (s) => s.key.equals('$peerProfileKeyPrefix$deviceId'),
+                ))
+                .getSingleOrNull();
+        final stored = row == null ? null : PeerProfile.tryParse(row.value);
+        if (stored != null) {
+          _profiles[deviceId] = stored;
+          _notify();
+          if (DateTime.now().difference(stored.fetchedAt) <=
+              peerProfileMaxAge) {
+            return;
+          }
+        }
+      }
+      await _fetchPeerProfile(deviceId);
+      _notify();
+    } catch (_) {
+      // C5: a failed lookup only means the title stays as it was.
+      _profileFailedAt[deviceId] = DateTime.now();
+    } finally {
+      _profileLoads.remove(deviceId);
+    }
+  }
+
+  /// Asks the server for [deviceId]'s profile (C1) and caches it. Throws
+  /// when offline, on an old server (404) or on a mismatching answer.
+  Future<PeerProfile> _fetchPeerProfile(String deviceId) async {
+    final api = _api;
+    if (api == null) {
+      throw StateError('Contact lookup is unavailable.');
+    }
+    final result = await api.getDeviceProfile(deviceId);
+    final handle = result['userHandle'];
+    if (result['deviceId'] is! String ||
+        (result['deviceId'] as String).toLowerCase() !=
+            deviceId.toLowerCase() ||
+        handle is! String ||
+        handle.isEmpty) {
+      throw const FormatException('Unexpected device profile.');
+    }
+    final profile = PeerProfile(
+      handle: handle,
+      displayName: result['displayName'] as String?,
+      isBot: result['isBot'] == true,
+      fetchedAt: DateTime.now(),
+    );
+    _profiles[deviceId] = profile;
+    _profileFailedAt.remove(deviceId);
+    await _db
+        .into(_db.backupState)
+        .insertOnConflictUpdate(
+          BackupStateCompanion.insert(
+            key: '$peerProfileKeyPrefix$deviceId',
+            value: profile.encode(),
+          ),
+        );
+    return profile;
+  }
+
+  /// Returns the contact for [deviceId], adding it first when it is not one
+  /// yet (C2/C3): handle, bot flag and display-name suggestion come from a
+  /// fresh profile lookup (C1). The add goes through [addContact], so contact
+  /// sync carries it to our other devices. Concurrent calls for the same id
+  /// share one lookup and add. Throws when the lookup fails (C5).
+  Future<Contact> ensureContact(String deviceId) {
+    final running = _adds[deviceId];
+    if (running != null) return running;
+    final add = () async {
+      final existing = await _contactRow(deviceId);
+      if (existing != null) return existing;
+      final profile = await _fetchPeerProfile(deviceId);
+      await addContact(
+        ContactPreview(
+          deviceId: deviceId,
+          handle: profile.handle,
+          isBot: profile.isBot,
+          displayName: profile.displayName,
+        ),
+      );
+      return (await _contactRow(deviceId))!;
+    }();
+    _adds[deviceId] = add;
+    return add.whenComplete(() => _adds.remove(deviceId));
+  }
+
+  Future<Contact?> _contactRow(String deviceId) => (_db.select(
+    _db.contacts,
+  )..where((c) => c.deviceId.equals(deviceId))).getSingleOrNull();
+
+  /// The chat send path's hook (C2), called with the id of every message
+  /// this device queues or retries. When it is my own non-control message
+  /// in a direct conversation whose peer is not a contact yet, the peer is
+  /// added. Group and business conversations are left alone (C6). Never
+  /// throws and never blocks the send: a failed lookup is simply tried again
+  /// on the next send (C5).
+  Future<void> addPeerOnReply(String messageId) async {
+    try {
+      final message = await (_db.select(
+        _db.messages,
+      )..where((m) => m.id.equals(messageId))).getSingleOrNull();
+      if (message == null || controlTypes.contains(message.type)) return;
+      final conversation =
+          await (_db.select(_db.conversations)
+                ..where((c) => c.id.equals(message.conversationId)))
+              .getSingleOrNull();
+      if (conversation == null ||
+          conversation.type != 'direct' ||
+          conversation.organizationId != null ||
+          // In a direct chat the conversation id is the peer; a row sent BY
+          // the peer is an incoming message, never a reply of mine.
+          message.senderId == conversation.id ||
+          !_deviceIdPattern.hasMatch(conversation.id)) {
+        return;
+      }
+      await ensureContact(conversation.id);
+    } catch (_) {}
+  }
+
+  void _notify() {
+    if (!_disposed) notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     _remote?.cancel();
     super.dispose();
+  }
+}
+
+/// A 1:1 peer's public profile from `GET /devices/{id}/profile`, cached so a
+/// chat with a non-contact gets a readable title (C4).
+class PeerProfile {
+  const PeerProfile({
+    required this.handle,
+    required this.isBot,
+    required this.fetchedAt,
+    this.displayName,
+  });
+
+  final String handle;
+  final String? displayName;
+  final bool isBot;
+  final DateTime fetchedAt;
+
+  /// What a chat title shows: the peer's own display name, else the handle.
+  String get label {
+    final name = displayName?.trim();
+    return name == null || name.isEmpty ? handle : name;
+  }
+
+  String encode() => jsonEncode({
+    'userHandle': handle,
+    'displayName': displayName,
+    'isBot': isBot,
+    'fetchedAt': fetchedAt.millisecondsSinceEpoch,
+  });
+
+  /// Null for a malformed cache row (it is then fetched again).
+  static PeerProfile? tryParse(String value) {
+    try {
+      final json = jsonDecode(value);
+      if (json is! Map<String, dynamic>) return null;
+      final handle = json['userHandle'];
+      final fetchedAt = json['fetchedAt'];
+      if (handle is! String || fetchedAt is! int) return null;
+      final name = json['displayName'];
+      return PeerProfile(
+        handle: handle,
+        displayName: name is String ? name : null,
+        isBot: json['isBot'] == true,
+        fetchedAt: DateTime.fromMillisecondsSinceEpoch(fetchedAt),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 }
 

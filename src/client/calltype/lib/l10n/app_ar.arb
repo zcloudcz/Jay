@@ -779,5 +779,6 @@
   "participantColorBlue": "أزرق",
   "participantColorIndigo": "نيلي",
   "participantColorPurple": "بنفسجي",
-  "participantColorPink": "وردي"
+  "participantColorPink": "وردي",
+  "contactsAddFromChatFailed": "تعذّرت إضافة جهة الاتصال هذه. تحقق من اتصالك وحاول مرة أخرى."
 }

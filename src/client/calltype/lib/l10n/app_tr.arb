@@ -779,5 +779,6 @@
   "participantColorBlue": "Mavi",
   "participantColorIndigo": "Çivit",
   "participantColorPurple": "Mor",
-  "participantColorPink": "Pembe"
+  "participantColorPink": "Pembe",
+  "contactsAddFromChatFailed": "Bu kişi eklenemedi. Bağlantınızı kontrol edip tekrar deneyin."
 }

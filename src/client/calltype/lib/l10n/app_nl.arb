@@ -779,5 +779,6 @@
   "participantColorBlue": "Blauw",
   "participantColorIndigo": "Indigo",
   "participantColorPurple": "Paars",
-  "participantColorPink": "Roze"
+  "participantColorPink": "Roze",
+  "contactsAddFromChatFailed": "Dit contact kon niet worden toegevoegd. Controleer je verbinding en probeer het opnieuw."
 }

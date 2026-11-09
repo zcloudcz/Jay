@@ -19,6 +19,43 @@ Future<void> showRenameContactDialog(
   if (name != null) await controller.renameContact(contact.deviceId, name);
 }
 
+/// Rename from a 1:1 chat whose peer may not be a contact yet (spec
+/// 2026-11-09-contacts-from-replies, C3): adds the peer first, then opens the
+/// same dialog. A failed add shows a snackbar and opens nothing.
+Future<void> showRenamePeerDialog(BuildContext context, String deviceId) async {
+  final contact = await addPeerToContacts(context, deviceId, announce: false);
+  if (contact == null || !context.mounted) return;
+  await showRenameContactDialog(context, contact);
+}
+
+/// "Add contact" from a 1:1 chat's menu (C3). Returns the contact, or null
+/// after showing an error snackbar when the profile lookup failed (C5).
+/// [announce] shows the usual "Added ..." snackbar on success.
+Future<Contact?> addPeerToContacts(
+  BuildContext context,
+  String deviceId, {
+  bool announce = true,
+}) async {
+  // Read before the await: the chat may be closed while the lookup runs.
+  final controller = context.read<ContactsController>();
+  final messenger = ScaffoldMessenger.of(context);
+  final l10n = context.l10n;
+  try {
+    final contact = await controller.ensureContact(deviceId);
+    if (announce) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(l10n.contactsAdded(contact.userHandle))),
+      );
+    }
+    return contact;
+  } catch (_) {
+    messenger.showSnackBar(
+      SnackBar(content: Text(l10n.contactsAddFromChatFailed)),
+    );
+    return null;
+  }
+}
+
 /// A StatefulWidget so the TextEditingController is disposed together with
 /// the dialog's element, i.e. only after the exit animation finished (disposing
 /// it right after showDialog returns breaks the still-animating TextField).

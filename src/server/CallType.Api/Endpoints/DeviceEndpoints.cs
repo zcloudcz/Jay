@@ -45,6 +45,9 @@ public static class DeviceEndpoints
         // the authenticated caller matching {id} may change it (see Caller check
         // in UpdateProfile).
         app.MapPut("/devices/{id:guid}/profile", UpdateProfile).RequireAuthorization().RequireRateLimiting("api");
+        // Reverse of by-handle: a chat only knows the peer's device id, but a
+        // contact row needs the handle. Same fields as by-handle, nothing more.
+        app.MapGet("/devices/{id:guid}/profile", GetDeviceProfile).RequireAuthorization().RequireRateLimiting("api");
         // Bot commands: written only by the bot device itself, readable by any
         // authenticated device (the "/" menu of whoever chats with the bot).
         app.MapPut("/devices/{id:guid}/bot-commands", PutBotCommands).RequireAuthorization().RequireRateLimiting("api");
@@ -264,6 +267,18 @@ public static class DeviceEndpoints
         var device = await db.Devices.Where(d => d.UserHandle == normalized)
             // IsBot is included so the client can show the BOT badge BEFORE the
             // user adds the contact (lookup is the first thing the add flow calls).
+            .Select(d => new { d.DeviceId, d.UserHandle, d.IsBot, d.DisplayName }).SingleOrDefaultAsync(ct);
+        return device is null ? Results.NotFound() : Results.Ok(device);
+    }
+
+    // -----------------------------------------------------------------------
+    // GET /devices/{id}/profile: public profile of a device by id
+    // -----------------------------------------------------------------------
+    // Exposes exactly what GET /devices/by-handle/{handle} exposes. Unlike
+    // key-bundle it consumes no one-time pre-key, so clients may call it freely.
+    private static async Task<IResult> GetDeviceProfile(Guid id, AppDbContext db, CancellationToken ct)
+    {
+        var device = await db.Devices.Where(d => d.DeviceId == id)
             .Select(d => new { d.DeviceId, d.UserHandle, d.IsBot, d.DisplayName }).SingleOrDefaultAsync(ct);
         return device is null ? Results.NotFound() : Results.Ok(device);
     }
