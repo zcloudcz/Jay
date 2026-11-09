@@ -219,7 +219,7 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `POST /groups` | Create group | ✅ Done |
 | `GET /groups/{id}/members` | List members | ✅ Done |
 | `PUT /groups/{id}/members` | Add member | ✅ Done |
-| `DELETE /groups/{id}/members/{id}` | Remove member | ✅ Done |
+| `DELETE /groups/{id}/members/{id}` | Remove member (admin), or leave: any device of the member's own identity may remove it, a companion by removing its primary; last admin gets 409 `code: last_admin`, auditor 409 `auditor_immutable` | ✅ Done |
 | `PUT` / `GET /devices/{id}/bot-commands` | Bot command menu `{"commands":[{"command","description"}]}`: PUT only by the bot itself (403, 403 `not_a_bot`, 400 `invalid_bot_commands`; empty list clears), GET by any device (empty for a non-bot, 404 unknown) | ✅ Done |
 | `PUT /devices/{id}/push-token` | Register push (self only, else 403): `{"platform":"fcm"\|"apns"\|"webpush","token","locale"?,"ringCalls"?}`; APNs = 64..200 hex, Web Push = `PushSubscription.toJSON()` as a JSON string (https endpoint, keys), max 2048; `ringCalls: true` (FCM only, else stored false) = the Android app rings on data-only call pushes; 400 `invalid_platform` / `invalid_token` / `invalid_locale`; 204 | ✅ Done |
 | `DELETE /devices/{id}/push-token` | Clear token, platform, locale, `ringCalls` AND the VoIP token (self only, idempotent), 204 | ✅ Done |

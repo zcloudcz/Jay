@@ -6,6 +6,7 @@
 // ---------------------------------------------------------------------------
 
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
@@ -132,6 +133,34 @@ public class BusinessGroupEndpointsTests : IntegrationTestBase
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString()
+            .Should().Be("auditor_immutable");
+        await auditing.StopAsync();
+    }
+
+    [Fact]
+    public async Task A_member_can_leave_a_business_group_but_the_auditor_cannot()
+    {
+        // Spec 2026-11-09-delete-chats-contacts D6: leaving follows the same
+        // rule as an admin removing a member (allowed); the auditor stays.
+        var (member, memberToken, _) = await RegisterAndAuthenticateAsync();
+        var (auditor, auditorToken, _) = await RegisterAndAuthenticateAsync();
+        var (creator, _, _) = await RegisterAndAuthenticateAsync();
+        var organizationId = await CreateOrganizationAsync(auditor, creator, member);
+        await using var auditing = ConnectHub(auditor, auditorToken);
+        await auditing.StartAsync();
+        var createResponse = await Client.PostAsJsonAsync("/groups/business", new { organizationId, memberDeviceIds = new[] { member } });
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        var groupId = (await createResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("groupId").GetGuid();
+
+        var asMember = Factory.CreateClient();
+        asMember.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", memberToken);
+        (await asMember.DeleteAsync($"/groups/{groupId}/members/{member}")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var asAuditor = Factory.CreateClient();
+        asAuditor.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auditorToken);
+        var auditorLeave = await asAuditor.DeleteAsync($"/groups/{groupId}/members/{auditor}");
+        auditorLeave.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await auditorLeave.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString()
             .Should().Be("auditor_immutable");
         await auditing.StopAsync();
     }

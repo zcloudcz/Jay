@@ -298,7 +298,17 @@ public static class GroupEndpoints
     private static async Task<IResult> RemoveMember(Guid groupId, Guid deviceId, ClaimsPrincipal user,
         AppDbContext db, DeviceListService deviceLists, IHubContext<MessengerHub> hub, CancellationToken ct)
     {
-        var denial = await Authorize(groupId, Caller(user), db, true, ct);
+        var caller = Caller(user);
+        if (caller == Guid.Empty) return Results.Unauthorized();
+        // Leaving (spec 2026-11-09-delete-chats-contacts D5): any device of an
+        // identity may remove that identity's own member device, admin or
+        // not. Membership lives on the primary, so a companion leaves by
+        // removing its primary. Everybody else needs the admin gate.
+        var leaving = await deviceLists.PrimaryOfAsync(caller, ct) == await deviceLists.PrimaryOfAsync(deviceId, ct);
+        // A non-member "leaving" gets the same 403 as any outsider (Authorize).
+        var denial = leaving
+            ? await Authorize(groupId, deviceId, db, false, ct)
+            : await Authorize(groupId, caller, db, true, ct);
         if (denial != null) return denial;
         var member = await db.GroupMembers.SingleOrDefaultAsync(m => m.GroupId == groupId && m.DeviceId == deviceId, ct);
         if (member == null) return Results.NotFound();
@@ -307,7 +317,7 @@ public static class GroupEndpoints
         if (member.Role == "auditor")
             return Results.Conflict(new { error = "auditor_immutable" });
         if (member.Role == "admin" && await db.GroupMembers.CountAsync(m => m.GroupId == groupId && m.Role == "admin", ct) <= 1)
-            return Results.Conflict(new { error = "The last administrator cannot be removed." });
+            return Results.Conflict(new { error = "The last administrator cannot be removed.", code = "last_admin" });
         db.GroupMembers.Remove(member);
         // A removed bot must not stay "allowed": if it were re-added later it
         // would silently regain bot talk without the admin ticking it again.

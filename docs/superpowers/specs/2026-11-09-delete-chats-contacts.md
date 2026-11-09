@@ -15,9 +15,17 @@ Status: approved (owner 2026-11-09, Discord): after removing a test bot "Rád by
 | D7 | Bots: a 1:1 chat with a bot whose identity is gone (removed by `jay-new-bot --remove`) is deletable like any other chat. |
 | D8 | All new strings in the 19 ARB files. Backup: deleted chats are simply absent from a new backup; restoring an OLDER backup may bring them back (documented limit). |
 
+## Server change (D5)
+Checked on 2026-11-09: `DELETE /groups/{id}/members/{deviceId}` was admin only, so an ordinary member could not leave, and a companion is never a member itself (membership lives on the primary). Minimal change in `RemoveMember`:
+- Leaving = the target device belongs to the caller's own identity (`PrimaryOf(caller) == PrimaryOf(target)`). It needs no admin role; the target must be a member (else 403 like any outsider, 404 for an unknown group). A companion leaves for its identity by removing its primary.
+- Unchanged: removing anybody else is admin only; the auditor can never be removed (409 `auditor_immutable`), also not by itself; the last admin cannot be removed (409), also not by itself. That 409 now carries `code: "last_admin"` (additive) so the app can show a clear message. There is no endpoint to make another member admin, so the creator of a group cannot leave it while it is the only admin (see Limits).
+- Business groups: a member may leave like an admin may remove it (D6, the archive is untouched).
+- Tests: `GroupEndpointsTests` (member leaves but cannot remove others, companion leaves via its primary, last admin `code`, unknown group) and `BusinessGroupEndpointsTests` (member leaves a business group, the auditor cannot). AGENTS.md endpoint table updated.
+
 ## Tests
 Codec test for `chat-deleted`; controller tests: delete removes all rows of that conversation only (other conversations untouched, incl. media cache files via a fake), own-device message sent when companions exist and applied on the other device only up to `deletedAt`, foreign sender rejected; contact delete writes the tombstone and syncs; leave group calls the endpoint for own member devices and deletes locally; widget tests for the menus and dialogs (mobile and wide layout), business dialog text, l10n guard. Server tests only if D5 needed a server change.
 
 ## Limits
 - Deleting is not "delete for everyone".
 - Restoring an older backup can bring a deleted chat back.
+- The only admin of a group (usually its creator) cannot leave it: the server keeps at least one admin and there is no way yet to make another member admin. The app says so and offers to delete the chat only.

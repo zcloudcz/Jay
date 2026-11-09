@@ -190,6 +190,66 @@ public class GroupEndpointsTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task An_ordinary_member_can_leave_but_not_remove_others()
+    {
+        var (member, memberToken, _) = await RegisterAndAuthenticateAsync();
+        var (other, _, _) = await RegisterAndAuthenticateAsync();
+        var (admin, _, _) = await RegisterAndAuthenticateAsync();
+        var group = await CreateGroupAsync(member, other);
+        var asMember = As(memberToken);
+
+        // Leaving is not an admin action (spec 2026-11-09-delete-chats-contacts D5) ...
+        (await asMember.DeleteAsync($"/groups/{group}/members/{other}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await asMember.DeleteAsync($"/groups/{group}/members/{member}")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var members = await Client.GetFromJsonAsync<JsonElement>($"/groups/{group}/members");
+        members.EnumerateArray().Select(m => m.GetProperty("deviceId").GetGuid())
+            .Should().BeEquivalentTo(new[] { admin, other });
+        // ... and after it the device is an outsider: a repeated leave is refused like any outsider.
+        (await asMember.DeleteAsync($"/groups/{group}/members/{member}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await asMember.GetAsync($"/groups/{group}/members")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task A_companion_leaves_for_its_identity_by_removing_its_primary()
+    {
+        var phone = await RegisterAndAuthenticateAsync();
+        var web = await RegisterAndAuthenticateAsync();
+        var admin = await RegisterAndAuthenticateAsync();
+        await LinkAsync(phone.DeviceId, web.DeviceId);
+        var group = await CreateGroupAsync(phone.DeviceId);
+
+        (await As(web.Token).DeleteAsync($"/groups/{group}/members/{phone.DeviceId}"))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var members = await Client.GetFromJsonAsync<JsonElement>($"/groups/{group}/members");
+        members.EnumerateArray().Select(m => m.GetProperty("deviceId").GetGuid())
+            .Should().BeEquivalentTo(new[] { admin.DeviceId });
+    }
+
+    [Fact]
+    public async Task The_last_admin_cannot_leave_and_gets_a_machine_readable_code()
+    {
+        var (member, _, _) = await RegisterAndAuthenticateAsync();
+        var (admin, _, _) = await RegisterAndAuthenticateAsync();
+        var group = await CreateGroupAsync(member);
+
+        var response = await Client.DeleteAsync($"/groups/{group}/members/{admin}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("code").GetString()
+            .Should().Be("last_admin");
+    }
+
+    [Fact]
+    public async Task Leaving_an_unknown_group_returns_not_found()
+    {
+        var (device, _, _) = await RegisterAndAuthenticateAsync();
+        (await Client.DeleteAsync($"/groups/{Guid.NewGuid()}/members/{device}"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task Missing_group_returns_not_found()
     {
         var (device, _, _) = await RegisterAndAuthenticateAsync();
