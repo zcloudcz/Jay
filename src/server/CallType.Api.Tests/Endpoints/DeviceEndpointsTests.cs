@@ -501,6 +501,79 @@ public class DeviceEndpointsTests : IntegrationTestBase
     }
 
     // -----------------------------------------------------------------------
+    // GET /devices/{id}/profile
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Get_profile_returns_same_fields_as_handle_lookup()
+    {
+        var (deviceId, _, handle) = await RegisterAndAuthenticateAsync();
+        await Client.PutAsJsonAsync($"/devices/{deviceId}/profile", new { displayName = "Alice" });
+
+        var response = await Client.GetAsync($"/devices/{deviceId}/profile");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("deviceId").GetGuid().Should().Be(deviceId);
+        body.GetProperty("userHandle").GetString().Should().Be(handle);
+        body.GetProperty("isBot").GetBoolean().Should().BeFalse();
+        body.GetProperty("displayName").GetString().Should().Be("Alice");
+        // Exactly the by-handle fields: the id lookup must not leak anything more.
+        body.EnumerateObject().Select(p => p.Name).Should()
+            .BeEquivalentTo("deviceId", "userHandle", "isBot", "displayName");
+    }
+
+    [Fact]
+    public async Task Get_profile_of_another_device_shows_bot_flag_and_null_name()
+    {
+        await RegisterAndAuthenticateAsync();
+        var (botId, botHandle) = await RegisterDeviceAsync(isBot: true);
+
+        var body = await Client.GetFromJsonAsync<JsonElement>($"/devices/{botId}/profile");
+
+        body.GetProperty("userHandle").GetString().Should().Be(botHandle);
+        body.GetProperty("isBot").GetBoolean().Should().BeTrue();
+        body.GetProperty("displayName").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task Get_profile_of_unknown_device_returns_404()
+    {
+        await RegisterAndAuthenticateAsync();
+
+        var response = await Client.GetAsync($"/devices/{Guid.NewGuid()}/profile");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Get_profile_without_auth_returns_401()
+    {
+        var (id, _) = await RegisterDeviceAsync(isBot: null);
+
+        var response = await Client.GetAsync($"/devices/{id}/profile");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Get_profile_does_not_consume_one_time_prekeys()
+    {
+        await RegisterAndAuthenticateAsync();
+        var response = await Client.PostAsJsonAsync("/devices", new {
+            identityKey = ValidIdentityKey, signedPreKey = ValidSignedPreKey,
+            oneTimePreKeys = new[] { new { keyId = 7, publicKey = Convert.ToBase64String(new byte[32]) } }
+        });
+        var id = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("deviceId").GetGuid();
+
+        (await Client.GetAsync($"/devices/{id}/profile")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Client.GetAsync($"/devices/{id}/profile")).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var bundle = await Client.GetFromJsonAsync<JsonElement>($"/devices/{id}/key-bundle");
+        bundle.GetProperty("oneTimePreKey").GetProperty("keyId").GetInt32().Should().Be(7);
+    }
+
+    // -----------------------------------------------------------------------
     // Handle uniqueness
     // -----------------------------------------------------------------------
 

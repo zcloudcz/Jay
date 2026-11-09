@@ -205,6 +205,7 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `GET /health` | Health check | ✅ Done |
 | `POST /devices` | Register device + upload keys | ✅ Done |
 | `GET /devices/{id}/key-bundle` | Fetch key bundle for X3DH | ✅ Done |
+| `GET /devices/{id}/profile` | Public profile by device id, same fields as `GET /devices/by-handle/{handle}`: `{deviceId, userHandle, isBot, displayName}`; 404 unknown, 401 without auth; consumes no pre-key (used by the app to add a 1:1 peer as a contact) | ✅ Done |
 | `POST /accounts` | Register account (Argon2id) | ✅ Done |
 | `POST /accounts/login` | Authenticate | ✅ Done |
 | `POST /accounts/{id}/devices/{id}` | Link device to account | ✅ Done |
