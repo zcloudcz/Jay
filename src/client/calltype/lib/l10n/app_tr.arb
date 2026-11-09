@@ -780,5 +780,11 @@
   "participantColorIndigo": "Çivit",
   "participantColorPurple": "Mor",
   "participantColorPink": "Pembe",
-  "contactsAddFromChatFailed": "Bu kişi eklenemedi. Bağlantınızı kontrol edip tekrar deneyin."
+  "contactsAddFromChatFailed": "Bu kişi eklenemedi. Bağlantınızı kontrol edip tekrar deneyin.",
+  "callStateRinging": "Çalıyor…",
+  "callErrorDeclined": "Arama reddedildi.",
+  "notificationMissedCall": "Cevapsız arama",
+  "notificationChannelMissedCalls": "Cevapsız aramalar",
+  "notificationsFullScreenTitle": "Tam ekran gelen aramalar",
+  "notificationsFullScreenSubtitle": "İzin verilmedi: Jay kapalıyken aramalar yalnızca bildirim olarak çalar. İzin vermek için dokunun."
 }

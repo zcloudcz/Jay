@@ -77,6 +77,32 @@ void main() {
     expect(adapter.requests.single.path, '/devices/dev-1/push-token');
   });
 
+  test('updatePushToken declares ringCalls only when true', () async {
+    final (api, adapter) = _client(status: 204);
+    await api.updatePushToken(
+      deviceId: 'dev-1',
+      token: 't',
+      platform: 'fcm',
+      ringCalls: true,
+    );
+    expect(adapter.requests.single.data, {
+      'token': 't',
+      'platform': 'fcm',
+      'ringCalls': true,
+    });
+  });
+
+  test('voip token PUT and DELETE follow the call ringing contract', () async {
+    final (api, adapter) = _client(status: 204);
+    await api.updateVoipToken(deviceId: 'dev-1', token: 'ab' * 32);
+    await api.deleteVoipToken('dev-1');
+    expect(adapter.requests[0].method, 'PUT');
+    expect(adapter.requests[0].path, '/devices/dev-1/voip-token');
+    expect(adapter.requests[0].data, {'token': 'ab' * 32});
+    expect(adapter.requests[1].method, 'DELETE');
+    expect(adapter.requests[1].path, '/devices/dev-1/voip-token');
+  });
+
   test('getWebPushPublicKey reads publicKey', () async {
     final (api, adapter) = _client(body: {'publicKey': 'BPk_x'});
     expect(await api.getWebPushPublicKey(), 'BPk_x');

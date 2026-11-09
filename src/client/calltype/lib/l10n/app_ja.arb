@@ -780,5 +780,11 @@
   "participantColorIndigo": "インディゴ",
   "participantColorPurple": "紫",
   "participantColorPink": "ピンク",
-  "contactsAddFromChatFailed": "この連絡先を追加できませんでした。接続を確認して、もう一度お試しください。"
+  "contactsAddFromChatFailed": "この連絡先を追加できませんでした。接続を確認して、もう一度お試しください。",
+  "callStateRinging": "呼び出し中…",
+  "callErrorDeclined": "通話が拒否されました。",
+  "notificationMissedCall": "不在着信",
+  "notificationChannelMissedCalls": "不在着信",
+  "notificationsFullScreenTitle": "全画面の着信",
+  "notificationsFullScreenSubtitle": "許可されていません：Jay を閉じているとき、着信は通知としてのみ鳴ります。タップして許可します。"
 }

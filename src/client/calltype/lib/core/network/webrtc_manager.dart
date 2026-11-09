@@ -21,6 +21,9 @@ enum CallError {
   // ever happened, so no CallReport is emitted for either of these.
   auditorUnavailable,
   notABusinessMember,
+  // Call ringing spec R7: the callee declined (also from the lock screen
+  // before the offer reached their app).
+  declined,
 }
 
 class _CancelledCall implements Exception {}
@@ -115,6 +118,18 @@ class WebRTCManager extends ChangeNotifier {
   String? get remoteDeviceId => _remoteDeviceId;
   String? _offer;
   String? _callId;
+
+  /// The id of the current call (outgoing or incoming), null when idle.
+  String? get callId => _callId;
+
+  /// Caller side: the server reported that the callee's phone is ringing
+  /// through CallKit / a full-screen notification (call ringing spec R5).
+  bool _remoteRinging = false;
+  bool get isRemoteRinging => _remoteRinging;
+
+  /// Incoming calls that ring in the system UI (CallKit / Android full-screen
+  /// notification) instead of the in-app ringing screen; lowercase ids.
+  final _systemCalls = <String>{};
   final _finishedCalls = <String>{};
   // H2: business-call bookkeeping, so a CallReport can be built when the
   // call ends. Null for an anonymous call throughout.
@@ -126,6 +141,22 @@ class WebRTCManager extends ChangeNotifier {
   final _callReports = StreamController<CallReport>.broadcast();
   Stream<CallReport> get callReports => _callReports.stream;
   bool get isIncoming => _offer != null && _state == CallState.ringing;
+
+  /// The current incoming call rings in the system UI, so the app must not
+  /// show its own ringing screen / notification for it.
+  bool get ringsInSystemUi =>
+      isIncoming && _systemCalls.contains(_callId?.toLowerCase());
+
+  /// Marks [callId] as ringing in the system UI (spec section 2: an offer for
+  /// a call that CallKit already reported takes the accept path, not the
+  /// in-app ringing UI). May be called before the offer arrives.
+  void markSystemCall(String callId) {
+    if (_systemCalls.add(callId.toLowerCase())) {
+      if (_systemCalls.length > 16) _systemCalls.remove(_systemCalls.first);
+      notifyListeners();
+    }
+  }
+
   bool _isMuted = false;
   bool get isMuted => _isMuted;
 
@@ -173,6 +204,7 @@ class WebRTCManager extends ChangeNotifier {
     _error = null;
     _remoteDeviceId = targetDeviceId;
     _callId = const Uuid().v4();
+    _remoteRinging = false;
     _isVideo = video;
     _businessGroupId = businessGroupId;
     _state = CallState.connecting;
@@ -493,7 +525,26 @@ class WebRTCManager extends ChangeNotifier {
           _earlyIce.add(candidate);
         }
       case 'hangup':
+        // R7: a decline from the callee's lock screen (or its in-app decline
+        // button) carries the payload "declined".
+        if (payload == 'declined' &&
+            _offer == null &&
+            _state == CallState.ringing) {
+          _error = CallError.declined;
+        }
         await _cleanup();
+      case 'ringing':
+        // R5: the callee is offline but its phone rings through a VoIP / ring
+        // push. Keep ringing until answer, hangup or the 45 s timeout.
+        if (_offer == null && _state == CallState.ringing && !_remoteRinging) {
+          _remoteRinging = true;
+          notifyListeners();
+        }
+      case 'cancelled':
+        // R6: the caller gave up before this device received the offer.
+        if (_offer != null && _state == CallState.ringing) {
+          await _cleanup();
+        }
       case 'unavailable':
         // Server-generated reply to our offer: the callee has no live
         // connection, so ringing on would only end in the 45 s timeout.
@@ -535,14 +586,22 @@ class WebRTCManager extends ChangeNotifier {
   Future<void> endCall() async {
     final target = _remoteDeviceId;
     final callId = _callId;
+    // An unanswered incoming call is declined (R7 payload), so the caller can
+    // tell "declined" apart from a hang-up.
+    final reason = isIncoming ? 'declined' : '';
     // Detach immediately; slow network signalling must not keep media active.
     final cleanup = _cleanup();
     if (target != null) {
       try {
-        await _sendSignal(target, 'hangup', '', callId: callId);
+        await _sendSignal(target, 'hangup', reason, callId: callId);
       } catch (_) {}
     }
     await cleanup;
+  }
+
+  /// Mute from the system call UI (CallKit / Android call notification).
+  void setMuted(bool muted) {
+    if (_isMuted != muted) toggleMute();
   }
 
   void toggleMute() {
@@ -647,6 +706,7 @@ class WebRTCManager extends ChangeNotifier {
       }
     }
     _callId = null;
+    _remoteRinging = false;
     _isMuted = false;
     _isSpeakerMuted = false;
     _isCameraOff = false;

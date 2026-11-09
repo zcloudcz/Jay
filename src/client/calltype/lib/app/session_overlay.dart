@@ -128,6 +128,9 @@ class _SessionOverlayState extends State<SessionOverlay>
         _calls.state != CallState.connecting) {
       return;
     }
+    // Rings in CallKit / the Android call screen (call ringing spec): the
+    // call screen opens once it is accepted there (state connecting).
+    if (_calls.ringsInSystemUi) return;
     _callOpen = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final remote = _calls.remoteDeviceId;

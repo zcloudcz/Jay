@@ -780,5 +780,11 @@
   "participantColorIndigo": "Индиго",
   "participantColorPurple": "Фиолетовый",
   "participantColorPink": "Розовый",
-  "contactsAddFromChatFailed": "Не удалось добавить контакт. Проверьте подключение и повторите попытку."
+  "contactsAddFromChatFailed": "Не удалось добавить контакт. Проверьте подключение и повторите попытку.",
+  "callStateRinging": "Звонит…",
+  "callErrorDeclined": "Вызов отклонён.",
+  "notificationMissedCall": "Пропущенный вызов",
+  "notificationChannelMissedCalls": "Пропущенные вызовы",
+  "notificationsFullScreenTitle": "Входящие вызовы на весь экран",
+  "notificationsFullScreenSubtitle": "Не разрешено: когда Jay закрыт, вызовы звонят только как уведомление. Нажмите, чтобы разрешить."
 }

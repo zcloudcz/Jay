@@ -7,6 +7,7 @@ import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype/core/network/signalr_client.dart';
 import 'package:calltype/core/network/webrtc_manager.dart';
 import 'package:calltype/features/calls/call_screen.dart';
+import '../../helpers/fake_calls.dart';
 import '../../helpers/localized_app.dart';
 
 class ScreenTestApi extends ApiClient {
@@ -30,6 +31,31 @@ class ScreenTestSignal extends SignalRClient {
 }
 
 void main() {
+  testWidgets('caller shows Ringing… once the callee is rung, then '
+      'Call declined.', (tester) async {
+    final signal = CallTestSignal(online: true);
+    final manager = testCallManager(signal);
+    await tester.pumpWidget(
+      localizedApp(home: CallScreen(webrtcManager: manager)),
+    );
+    await manager.startCall('callee');
+    await tester.pump();
+    expect(find.text(l10nEn.callStateCalling), findsOneWidget);
+
+    signal.deliver('callee', 'ringing', manager.callId!);
+    await tester.pump();
+    await tester.pump();
+    expect(find.text(l10nEn.callStateRinging), findsOneWidget);
+
+    signal.deliver('callee', 'hangup', manager.callId!, 'declined');
+    await tester.pump();
+    await tester.pump();
+    expect(find.text(l10nEn.callErrorDeclined), findsOneWidget);
+
+    manager.dispose();
+    await signal.signals.close();
+  });
+
   testWidgets(
     'business notice is shown before the callee even accepts',
     (tester) async {

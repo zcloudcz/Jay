@@ -780,5 +780,11 @@
   "participantColorIndigo": "Indygo",
   "participantColorPurple": "Fioletowy",
   "participantColorPink": "Różowy",
-  "contactsAddFromChatFailed": "Nie udało się dodać tego kontaktu. Sprawdź połączenie i spróbuj ponownie."
+  "contactsAddFromChatFailed": "Nie udało się dodać tego kontaktu. Sprawdź połączenie i spróbuj ponownie.",
+  "callStateRinging": "Dzwoni…",
+  "callErrorDeclined": "Połączenie odrzucone.",
+  "notificationMissedCall": "Nieodebrane połączenie",
+  "notificationChannelMissedCalls": "Nieodebrane połączenia",
+  "notificationsFullScreenTitle": "Połączenia przychodzące na pełnym ekranie",
+  "notificationsFullScreenSubtitle": "Niedozwolone: gdy Jay jest zamknięty, połączenia dzwonią tylko jako powiadomienie. Dotknij, aby zezwolić."
 }

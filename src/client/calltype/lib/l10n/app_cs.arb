@@ -780,5 +780,11 @@
   "participantColorIndigo": "Indigová",
   "participantColorPurple": "Fialová",
   "participantColorPink": "Růžová",
-  "contactsAddFromChatFailed": "Kontakt se nepodařilo přidat. Zkontrolujte připojení a zkuste to znovu."
+  "contactsAddFromChatFailed": "Kontakt se nepodařilo přidat. Zkontrolujte připojení a zkuste to znovu.",
+  "callStateRinging": "Zvoní u příjemce…",
+  "callErrorDeclined": "Hovor byl odmítnut.",
+  "notificationMissedCall": "Zmeškaný hovor",
+  "notificationChannelMissedCalls": "Zmeškané hovory",
+  "notificationsFullScreenTitle": "Příchozí hovory přes celou obrazovku",
+  "notificationsFullScreenSubtitle": "Nepovoleno: když je Jay zavřený, hovor zazvoní jen jako oznámení. Klepnutím povolíte."
 }

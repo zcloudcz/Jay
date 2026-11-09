@@ -780,5 +780,11 @@
   "participantColorIndigo": "जामुनी",
   "participantColorPurple": "बैंगनी",
   "participantColorPink": "गुलाबी",
-  "contactsAddFromChatFailed": "यह संपर्क जोड़ा नहीं जा सका। अपना कनेक्शन जाँचें और फिर से कोशिश करें।"
+  "contactsAddFromChatFailed": "यह संपर्क जोड़ा नहीं जा सका। अपना कनेक्शन जाँचें और फिर से कोशिश करें।",
+  "callStateRinging": "घंटी बज रही है…",
+  "callErrorDeclined": "कॉल अस्वीकार की गई।",
+  "notificationMissedCall": "मिस्ड कॉल",
+  "notificationChannelMissedCalls": "मिस्ड कॉल",
+  "notificationsFullScreenTitle": "फ़ुल-स्क्रीन इनकमिंग कॉल",
+  "notificationsFullScreenSubtitle": "अनुमति नहीं: Jay बंद होने पर कॉल केवल सूचना के रूप में बजती है। अनुमति देने के लिए टैप करें।"
 }

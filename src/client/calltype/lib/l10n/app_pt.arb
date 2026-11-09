@@ -780,5 +780,11 @@
   "participantColorIndigo": "Índigo",
   "participantColorPurple": "Roxo",
   "participantColorPink": "Rosa",
-  "contactsAddFromChatFailed": "Não foi possível adicionar este contato. Verifique sua conexão e tente novamente."
+  "contactsAddFromChatFailed": "Não foi possível adicionar este contato. Verifique sua conexão e tente novamente.",
+  "callStateRinging": "A tocar…",
+  "callErrorDeclined": "Chamada recusada.",
+  "notificationMissedCall": "Chamada perdida",
+  "notificationChannelMissedCalls": "Chamadas perdidas",
+  "notificationsFullScreenTitle": "Chamadas recebidas em ecrã inteiro",
+  "notificationsFullScreenSubtitle": "Não permitido: com o Jay fechado, as chamadas tocam apenas como notificação. Toque para permitir."
 }

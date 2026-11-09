@@ -780,5 +780,11 @@
   "participantColorIndigo": "Індиго",
   "participantColorPurple": "Фіолетовий",
   "participantColorPink": "Рожевий",
-  "contactsAddFromChatFailed": "Не вдалося додати контакт. Перевірте з'єднання та спробуйте ще раз."
+  "contactsAddFromChatFailed": "Не вдалося додати контакт. Перевірте з'єднання та спробуйте ще раз.",
+  "callStateRinging": "Дзвонить…",
+  "callErrorDeclined": "Виклик відхилено.",
+  "notificationMissedCall": "Пропущений виклик",
+  "notificationChannelMissedCalls": "Пропущені виклики",
+  "notificationsFullScreenTitle": "Вхідні виклики на весь екран",
+  "notificationsFullScreenSubtitle": "Не дозволено: коли Jay закрито, виклики дзвонять лише як сповіщення. Торкніться, щоб дозволити."
 }

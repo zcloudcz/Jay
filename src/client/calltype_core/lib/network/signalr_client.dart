@@ -379,6 +379,22 @@ class SignalRClient {
     await _requireConnection().invoke('RequestPendingMessages');
   }
 
+  /// Asks the hub to deliver the pending calls kept for this device while it
+  /// was offline (offer + buffered ICE as ordinary `CallSignal`s, then a
+  /// `cancelled` signal for each call the caller gave up on). The server also
+  /// does this on connect; this is for listeners that subscribed late, such
+  /// as an app woken by a ring push (call ringing spec, section 1.2).
+  /// Idempotent: every pending call is delivered once.
+  Future<void> requestPendingCalls() =>
+      _requireConnection().invoke('RequestPendingCalls');
+
+  /// Declines a ringing call before its offer was delivered (lock screen /
+  /// full-screen notification). The server drops the pending call and tells
+  /// the caller with a `hangup` whose payload is `declined`. A no-op on the
+  /// server when nothing is pending for [callId].
+  Future<void> declinePendingCall(String callId) =>
+      _requireConnection().invoke('DeclinePendingCall', <Object>[callId]);
+
   /// Subscribes this connection to the SignalR groups of every channel the
   /// device follows or administers. Group membership belongs to the
   /// connection, so it must be re-invoked after each (re)connect and after
@@ -409,6 +425,7 @@ class SignalRClient {
   ///
   /// [targetDeviceId] is the call partner's device UUID.
   /// [signalType] is one of: 'offer', 'answer', 'ice-candidate', 'hangup'.
+  /// The server may also send 'unavailable', 'ringing' and 'cancelled'.
   /// [payload] is the SDP or ICE candidate JSON string.
   /// [businessGroupId], when set, marks this as a call inside a business
   /// conversation (H1): the hub then requires both devices to be members of

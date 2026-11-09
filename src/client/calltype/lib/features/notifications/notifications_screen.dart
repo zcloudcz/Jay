@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../l10n/l10n.dart';
+import '../calls/call_ring.dart';
 import 'notification_service.dart';
 
 /// Settings > Notifications (spec section 2): on/off (also registers or
@@ -17,12 +18,51 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
+  /// Android 14+ full-screen call permission (call ringing spec, section 2);
+  /// null elsewhere.
+  FullScreenIntentAccess? _fullScreen;
+  bool _fullScreenAllowed = true;
+  AppLifecycleListener? _lifecycle;
+
   @override
   void initState() {
     super.initState();
     // The user may come here straight from the system settings, where the
     // permission could have changed.
     unawaited(context.read<NotificationService>().refreshPermission());
+    _fullScreen = context.read<FullScreenIntentAccess?>();
+    if (_fullScreen != null) {
+      unawaited(_checkFullScreen());
+      // Back from the system setting the permission may have changed.
+      _lifecycle = AppLifecycleListener(
+        onResume: () => unawaited(_checkFullScreen()),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _lifecycle?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _checkFullScreen() async {
+    final access = _fullScreen;
+    if (access == null) return;
+    var allowed = true;
+    try {
+      allowed = await access.canUseFullScreenIntent();
+    } catch (_) {}
+    if (mounted && allowed != _fullScreenAllowed) {
+      setState(() => _fullScreenAllowed = allowed);
+    }
+  }
+
+  Future<void> _requestFullScreen() async {
+    try {
+      await _fullScreen?.requestFullScreenIntent();
+    } catch (_) {}
+    await _checkFullScreen();
   }
 
   Future<void> _test() async {
@@ -78,6 +118,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             value: service.previews,
             onChanged: service.enabled ? service.setPreviews : null,
           ),
+          if (!_fullScreenAllowed)
+            ListTile(
+              leading: Icon(
+                Icons.call_outlined,
+                color: theme.colorScheme.error,
+              ),
+              title: Text(l10n.notificationsFullScreenTitle),
+              subtitle: Text(l10n.notificationsFullScreenSubtitle),
+              trailing: const Icon(Icons.open_in_new),
+              onTap: _requestFullScreen,
+            ),
           ListTile(
             leading: const Icon(Icons.send_outlined),
             title: Text(l10n.notificationsTest),

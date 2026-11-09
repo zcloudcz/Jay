@@ -92,6 +92,8 @@ class NotificationService extends ChangeNotifier {
     String? Function()? deviceId,
     String? Function()? locale,
     void Function(Map<String, String> data)? onForegroundPush,
+    bool ringCalls = false,
+    VoipTokenSource? voip,
   }) : _notifier = notifier,
        _prefs = prefs,
        _strings = strings,
@@ -104,7 +106,9 @@ class NotificationService extends ChangeNotifier {
        _pushProvider = pushProvider,
        _deviceId = deviceId ?? (() => null),
        _locale = locale ?? (() => null),
-       _onForegroundPush = onForegroundPush;
+       _onForegroundPush = onForegroundPush,
+       _ringCalls = ringCalls,
+       _voip = voip;
 
   final LocalNotifier _notifier;
   final NotificationPrefsStore _prefs;
@@ -119,6 +123,8 @@ class NotificationService extends ChangeNotifier {
   final String? Function() _deviceId;
   final String? Function() _locale;
   final void Function(Map<String, String> data)? _onForegroundPush;
+  final bool _ringCalls;
+  final VoipTokenSource? _voip;
 
   static const _keyEnabled = 'ct_notifications_enabled';
   static const _keyPreviews = 'ct_notifications_previews';
@@ -454,6 +460,33 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
+  /// A call that rang this device was not answered: the caller hung up
+  /// (`cancelled`, call ringing spec R6) or the ringing timed out.
+  /// [callerDeviceId] is null when the caller is unknown (a ring push carries
+  /// no caller, R4). Unlike a ringing call this is shown even while the app
+  /// is focused: nothing else tells the user about it.
+  Future<void> onMissedCall(String? callerDeviceId) async {
+    try {
+      if (!_enabled || !_supported) return;
+      if (_permission != NotifierPermission.granted) return;
+      NotificationTarget? target;
+      String? title;
+      if (callerDeviceId != null) {
+        final identity = await _directory.identityOfDevice(callerDeviceId);
+        if (_muteOf(identity) == MuteMode.all) return;
+        target = NotificationTarget(NotificationKind.incomingCall, identity);
+        title = (await _directory.contact(identity)).name;
+      }
+      await _notifier.show(
+        LocalNotification(
+          target: target,
+          title: title ?? 'Jay',
+          body: _strings().notificationMissedCall,
+        ),
+      );
+    } catch (_) {}
+  }
+
   // -- Internals ----------------------------------------------------------------
 
   bool _skip(
@@ -544,6 +577,8 @@ class NotificationService extends ChangeNotifier {
       locale: _locale,
       onOpened: openFromData,
       onForegroundPush: _onForegroundPush,
+      ringCalls: _ringCalls,
+      voip: _voip,
     );
     await push.register();
     _changed();

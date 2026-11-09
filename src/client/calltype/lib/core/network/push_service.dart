@@ -65,6 +65,16 @@ abstract class PushProvider {
   Future<void> release();
 }
 
+/// The iOS PushKit (VoIP) token behind CallKit ringing (call ringing spec,
+/// section 2). A seam over flutter_callkit_incoming, faked in tests.
+abstract class VoipTokenSource {
+  /// The current token (lowercase hex), null or empty when there is none.
+  Future<String?> token();
+
+  /// Tokens issued later; an empty string means the token was invalidated.
+  Stream<String> get changes;
+}
+
 /// Registers this device's push token with the server and relays what the
 /// provider reports. Push is best effort: nothing here may throw into the
 /// app, messages always arrive through the store-and-forward queue anyway.
@@ -76,13 +86,24 @@ class PushService {
     String? Function()? locale,
     this.onForegroundPush,
     this.onOpened,
+    bool ringCalls = false,
+    VoipTokenSource? voip,
   }) : _provider = provider,
-       _locale = locale ?? (() => null);
+       _locale = locale ?? (() => null),
+       _ringCalls = ringCalls,
+       _voip = voip;
 
   final ApiClient _api;
   final String _deviceId;
   final PushProvider _provider;
   final String? Function() _locale;
+
+  /// Android: the app shows a full-screen incoming call for a data-only ring
+  /// push, so the registration declares `ringCalls: true` (spec R2).
+  final bool _ringCalls;
+
+  /// iOS: the PushKit token is registered next to the APNs token.
+  final VoipTokenSource? _voip;
 
   /// A push that arrived while the app runs (e.g. `channel_post` -> sync).
   final void Function(Map<String, String> data)? onForegroundPush;
@@ -112,6 +133,16 @@ class PushService {
       return _status = PushStatus.notConfigured;
     }
     await _put(token);
+    final voip = _voip;
+    if (voip != null) {
+      try {
+        // Nothing yet (PushKit answers asynchronously): the change stream
+        // delivers it. Only an explicit invalidation deletes the token.
+        final current = await voip.token();
+        if (current != null && current.isNotEmpty) await _putVoip(current);
+      } catch (_) {}
+      _subscriptions.add(voip.changes.listen(_putVoip));
+    }
     _subscriptions
       ..add(_provider.tokenRefresh.listen(_put))
       ..add(_provider.foreground.listen((data) => onForegroundPush?.call(data)))
@@ -131,6 +162,11 @@ class PushService {
   /// the platform subscription is dropped. Best effort, never throws.
   Future<void> unregister() async {
     await _cancelSubscriptions();
+    if (_voip != null) {
+      try {
+        await _api.deleteVoipToken(_deviceId);
+      } catch (_) {}
+    }
     try {
       await _api.deletePushToken(_deviceId);
     } catch (_) {
@@ -159,9 +195,27 @@ class PushService {
         token: token,
         platform: _provider.platform,
         locale: _locale(),
+        ringCalls: _ringCalls,
       );
     } catch (_) {
       // Non-fatal: the next reconnect or token refresh registers again.
+    }
+  }
+
+  /// Contract 1.1: 64..200 hex characters, stored lowercase.
+  static final _voipHex = RegExp(r'^[0-9a-f]{64,200}$');
+
+  Future<void> _putVoip(String? token) async {
+    final value = token?.trim().toLowerCase() ?? '';
+    try {
+      if (value.isEmpty) {
+        // Invalidated by PushKit: the server must stop ringing a dead token.
+        await _api.deleteVoipToken(_deviceId);
+      } else if (_voipHex.hasMatch(value)) {
+        await _api.updateVoipToken(deviceId: _deviceId, token: value);
+      }
+    } catch (_) {
+      // Retried on the next reconnect, like the push token.
     }
   }
 }
@@ -182,8 +236,20 @@ abstract class PushMessagingClient {
 }
 
 class FirebasePushMessagingClient implements PushMessagingClient {
+  FirebasePushMessagingClient({this.backgroundHandler});
+
+  /// Top-level handler for data messages while the app is in the background
+  /// or closed (call ringing spec: the Android ring push). Registered only
+  /// once Firebase is configured, so a build without google-services.json
+  /// never touches the background isolate.
+  final BackgroundMessageHandler? backgroundHandler;
+
   @override
-  Future<void> initializeFirebase() => Firebase.initializeApp();
+  Future<void> initializeFirebase() async {
+    await Firebase.initializeApp();
+    final handler = backgroundHandler;
+    if (handler != null) FirebaseMessaging.onBackgroundMessage(handler);
+  }
 
   @override
   Future<String?> getToken() => FirebaseMessaging.instance.getToken();
@@ -211,8 +277,12 @@ class FirebasePushMessagingClient implements PushMessagingClient {
 /// (google-services.json). Without it `Firebase.initializeApp()` throws and
 /// the provider reports [PushStatus.notConfigured].
 class FcmPushProvider implements PushProvider {
-  FcmPushProvider({PushMessagingClient? messaging})
-    : _messaging = messaging ?? FirebasePushMessagingClient();
+  FcmPushProvider({
+    PushMessagingClient? messaging,
+    BackgroundMessageHandler? backgroundHandler,
+  }) : _messaging =
+           messaging ??
+           FirebasePushMessagingClient(backgroundHandler: backgroundHandler);
 
   final PushMessagingClient _messaging;
   bool _initialized = false;

@@ -780,5 +780,11 @@
   "participantColorIndigo": "Indigo",
   "participantColorPurple": "Mov",
   "participantColorPink": "Roz",
-  "contactsAddFromChatFailed": "Contactul nu a putut fi adăugat. Verifică conexiunea și încearcă din nou."
+  "contactsAddFromChatFailed": "Contactul nu a putut fi adăugat. Verifică conexiunea și încearcă din nou.",
+  "callStateRinging": "Sună…",
+  "callErrorDeclined": "Apel respins.",
+  "notificationMissedCall": "Apel pierdut",
+  "notificationChannelMissedCalls": "Apeluri pierdute",
+  "notificationsFullScreenTitle": "Apeluri primite pe tot ecranul",
+  "notificationsFullScreenSubtitle": "Nepermis: când Jay este închis, apelurile sună doar ca notificare. Atingeți pentru a permite."
 }

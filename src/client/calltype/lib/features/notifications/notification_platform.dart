@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'package:calltype_core/network/api_client.dart';
+import '../calls/callkit_ring_platform.dart' show ringPushBackgroundHandler;
 import '../../core/network/push_service.dart';
 import '../../core/storage/secure_storage.dart';
 import 'local_notifier.dart';
@@ -35,7 +36,11 @@ PushProvider? createPushProvider(ApiClient apiClient) {
         : null;
   }
   return switch (defaultTargetPlatform) {
-    TargetPlatform.android => FcmPushProvider(),
+    // The background handler shows the full-screen call of a ring push
+    // (call ringing spec, section 2, Android).
+    TargetPlatform.android => FcmPushProvider(
+      backgroundHandler: ringPushBackgroundHandler,
+    ),
     // Native APNs token, not Firebase (spec section 2, iOS).
     TargetPlatform.iOS => ApnsPushProvider(),
     _ => null,

@@ -308,6 +308,110 @@ void main() {
     });
   });
 
+  group('call ringing registration', () {
+    const voipToken =
+        'ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef0123456789';
+
+    setUp(() {
+      when(
+        api.updateVoipToken(
+          deviceId: anyNamed('deviceId'),
+          token: anyNamed('token'),
+        ),
+      ).thenAnswer((_) async {});
+      when(api.deleteVoipToken(any)).thenAnswer((_) async {});
+    });
+
+    test('Android declares ringCalls with its FCM token', () async {
+      final service = PushService(
+        api,
+        'device-1',
+        provider: FcmPushProvider(
+          messaging: FakePushMessagingClient()..token = 'tok-1',
+        ),
+        ringCalls: true,
+      );
+      await service.register();
+      verify(
+        api.updatePushToken(
+          deviceId: 'device-1',
+          token: 'tok-1',
+          platform: 'fcm',
+          locale: anyNamed('locale'),
+          ringCalls: true,
+        ),
+      ).called(1);
+      verifyNever(
+        api.updateVoipToken(
+          deviceId: anyNamed('deviceId'),
+          token: anyNamed('token'),
+        ),
+      );
+    });
+
+    test('iOS registers the VoIP token, follows changes and deletes it '
+        'with the push token', () async {
+      final voip = FakeVoipTokenSource()..current = voipToken;
+      final service = PushService(
+        api,
+        'device-1',
+        provider: FcmPushProvider(
+          messaging: FakePushMessagingClient()..token = 'tok-1',
+        ),
+        voip: voip,
+      );
+      await service.register();
+      verify(
+        api.updateVoipToken(
+          deviceId: 'device-1',
+          token: voipToken.toLowerCase(),
+        ),
+      ).called(1);
+      verify(
+        api.updatePushToken(
+          deviceId: 'device-1',
+          token: 'tok-1',
+          platform: 'fcm',
+          locale: anyNamed('locale'),
+          ringCalls: false,
+        ),
+      ).called(1);
+
+      final rotated = 'b' * 64;
+      voip.controller.add(rotated);
+      voip.controller.add('not-hex');
+      voip.controller.add('');
+      await Future<void>.delayed(Duration.zero);
+      verify(
+        api.updateVoipToken(deviceId: 'device-1', token: rotated),
+      ).called(1);
+      verify(api.deleteVoipToken('device-1')).called(1);
+
+      await service.unregister();
+      verify(api.deleteVoipToken('device-1')).called(1);
+      verify(api.deletePushToken('device-1')).called(1);
+    });
+
+    test('no VoIP token yet registers nothing and deletes nothing', () async {
+      final service = PushService(
+        api,
+        'device-1',
+        provider: FcmPushProvider(
+          messaging: FakePushMessagingClient()..token = 'tok-1',
+        ),
+        voip: FakeVoipTokenSource(),
+      );
+      await service.register();
+      verifyNever(
+        api.updateVoipToken(
+          deviceId: anyNamed('deviceId'),
+          token: anyNamed('token'),
+        ),
+      );
+      verifyNever(api.deleteVoipToken(any));
+    });
+  });
+
   group('Web Push', () {
     test('outside a browser it reports notConfigured', () async {
       final service = PushService(
@@ -444,4 +548,13 @@ class _CountingSubscription<T> implements StreamSubscription<T> {
 
   @override
   Future<E> asFuture<E>([E? futureValue]) => _inner.asFuture(futureValue);
+}
+
+class FakeVoipTokenSource implements VoipTokenSource {
+  String? current;
+  final controller = StreamController<String>.broadcast();
+  @override
+  Stream<String> get changes => controller.stream;
+  @override
+  Future<String?> token() async => current;
 }

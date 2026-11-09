@@ -780,5 +780,11 @@
   "participantColorIndigo": "نيلي",
   "participantColorPurple": "بنفسجي",
   "participantColorPink": "وردي",
-  "contactsAddFromChatFailed": "تعذّرت إضافة جهة الاتصال هذه. تحقق من اتصالك وحاول مرة أخرى."
+  "contactsAddFromChatFailed": "تعذّرت إضافة جهة الاتصال هذه. تحقق من اتصالك وحاول مرة أخرى.",
+  "callStateRinging": "يرن…",
+  "callErrorDeclined": "تم رفض المكالمة.",
+  "notificationMissedCall": "مكالمة فائتة",
+  "notificationChannelMissedCalls": "المكالمات الفائتة",
+  "notificationsFullScreenTitle": "المكالمات الواردة بملء الشاشة",
+  "notificationsFullScreenSubtitle": "غير مسموح: عندما يكون Jay مغلقًا، ترن المكالمات كإشعار فقط. اضغط للسماح."
 }

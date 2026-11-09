@@ -380,6 +380,7 @@ class ApiClient {
     required String token,
     required String platform,
     String? locale,
+    bool ringCalls = false,
   }) async {
     await _dio.put(
       '/devices/$deviceId/push-token',
@@ -390,8 +391,31 @@ class ApiClient {
         // (contract 1.1 "default null = en") and the body stays what
         // callers without a locale always sent.
         'locale': ?locale,
+        // Call ringing spec R2: an FCM device that shows a full-screen
+        // incoming call for a data-only ring push says so explicitly. Only
+        // sent when true, so other platforms keep the old body.
+        if (ringCalls) 'ringCalls': true,
       },
     );
+  }
+
+  /// Registers the iOS PushKit (VoIP) token that lets the server ring this
+  /// device through CallKit while the app is closed (call ringing spec 1.1).
+  /// [token] is lowercase hex, 64..200 characters.
+  ///
+  /// PUT /devices/{deviceId}/voip-token
+  Future<void> updateVoipToken({
+    required String deviceId,
+    required String token,
+  }) async {
+    await _dio.put('/devices/$deviceId/voip-token', data: {'token': token});
+  }
+
+  /// Forgets the VoIP token (notifications off, token invalidated).
+  ///
+  /// DELETE /devices/{deviceId}/voip-token
+  Future<void> deleteVoipToken(String deviceId) async {
+    await _dio.delete('/devices/$deviceId/voip-token');
   }
 
   /// Forgets this device's push token, platform and locale (notifications

@@ -780,5 +780,11 @@
   "participantColorIndigo": "靛蓝色",
   "participantColorPurple": "紫色",
   "participantColorPink": "粉色",
-  "contactsAddFromChatFailed": "无法添加此联系人。请检查网络连接后重试。"
+  "contactsAddFromChatFailed": "无法添加此联系人。请检查网络连接后重试。",
+  "callStateRinging": "正在响铃…",
+  "callErrorDeclined": "通话被拒绝。",
+  "notificationMissedCall": "未接来电",
+  "notificationChannelMissedCalls": "未接来电",
+  "notificationsFullScreenTitle": "全屏来电",
+  "notificationsFullScreenSubtitle": "未允许：Jay 关闭时，来电只会以通知形式响铃。点按以允许。"
 }
