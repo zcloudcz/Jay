@@ -85,6 +85,15 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => context.push('/settings/devices'),
           ),
 
+          // -- Bots (spec 2026-11-09-bot-factory) ----------------------------
+          _SettingsTile(
+            icon: Icons.smart_toy_outlined,
+            iconColor: colorScheme.primary,
+            title: l10n.botsTitle,
+            subtitle: l10n.botsSubtitle,
+            onTap: () => context.push('/settings/bots'),
+          ),
+
           // -- Channels section -----------------------------------------------
           // Blocking a channel is local to this device, so the only place
           // to undo it has to be reachable without the (blocked) channel.

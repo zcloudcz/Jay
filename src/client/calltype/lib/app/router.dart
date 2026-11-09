@@ -36,6 +36,7 @@ import '../features/search/search_screen.dart';
 import '../features/contacts/bot_link.dart';
 import '../features/contacts/contacts_screen.dart';
 import '../features/contacts/qr_scanner_screen.dart';
+import '../features/bots/new_bot_screen.dart';
 import '../features/devices/device_service.dart';
 import '../features/devices/devices_screen.dart';
 import '../features/devices/link_controllers.dart';
@@ -374,6 +375,18 @@ final router = GoRouter(
         GoRoute(
           path: 'identity',
           builder: (context, state) => const IdentityScreen(),
+        ),
+        // Spec 2026-11-09-bot-factory (B7): the app only prepares the setup
+        // command; no server call, no key entered in the app.
+        GoRoute(
+          path: 'bots',
+          builder: (context, state) => const BotsScreen(),
+          routes: [
+            GoRoute(
+              path: 'new',
+              builder: (context, state) => const NewBotScreen(),
+            ),
+          ],
         ),
         GoRoute(
           path: 'devices',
