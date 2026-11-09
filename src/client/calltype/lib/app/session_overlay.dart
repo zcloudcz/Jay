@@ -33,6 +33,17 @@ class _SessionOverlayState extends State<SessionOverlay>
   /// Whether the app (widget.child) has been built once; from then on it
   /// stays mounted under the lock screen.
   bool _appBuilt = false;
+
+  /// Whether the biometric prompt was already offered automatically for the
+  /// current lock screen. Reset when the app unlocks or goes to the
+  /// background, so every return to a locked app asks once, but a cancelled
+  /// prompt does not come back on its own (the button stays for that).
+  bool _autoPrompted = false;
+
+  /// A system authentication dialog is open. On Android the device
+  /// credential fallback is its own activity, so the app reports `paused`
+  /// while it is shown: that must not count as leaving the app.
+  bool _authInProgress = false;
   _LockError? _error;
   late WebRTCManager _calls;
   @override
@@ -53,6 +64,7 @@ class _SessionOverlayState extends State<SessionOverlay>
         });
       }
       if (!enabled) _callChanged();
+      if (enabled) _maybeAutoBiometric();
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -68,8 +80,36 @@ class _SessionOverlayState extends State<SessionOverlay>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
+      if (_authInProgress) return;
+      _autoPrompted = false;
       _checkLock();
+    } else if (state == AppLifecycleState.resumed) {
+      _maybeAutoBiometric();
     }
+  }
+
+  /// Opens the biometric prompt by itself when the lock screen shows and the
+  /// user turned biometrics on, like other apps do: no extra tap on "Use
+  /// biometrics". Only while the app is in the foreground (a prompt cannot
+  /// show from the background) and once per lock screen.
+  void _maybeAutoBiometric() {
+    if (!_locked || _autoPrompted || _authInProgress || !mounted) return;
+    final state = WidgetsBinding.instance.lifecycleState;
+    if (state != null && state != AppLifecycleState.resumed) return;
+    _autoPrompted = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || !_locked) return;
+      final lock = context.read<AppLock>();
+      try {
+        if (!await lock.isBiometricEnabled() ||
+            !await lock.isBiometricAvailable()) {
+          return;
+        }
+      } catch (_) {
+        return;
+      }
+      if (mounted && _locked) await _unlock(biometric: true, automatic: true);
+    });
   }
 
   void _callChanged() {
@@ -105,28 +145,40 @@ class _SessionOverlayState extends State<SessionOverlay>
     });
   }
 
-  Future<void> _unlock({bool biometric = false}) async {
+  /// [automatic]: the prompt opened by itself; a cancel there is not an
+  /// error worth a red message, the PIN field and the button are right there.
+  Future<void> _unlock({bool biometric = false, bool automatic = false}) async {
+    if (biometric && _authInProgress) return;
     try {
       final lock = context.read<AppLock>();
       // Read before the first await: the OS prompt shows this reason.
       final reason = context.l10n.lockUnlockTitle;
-      final accepted = biometric
-          ? await lock.isBiometricEnabled() &&
-                await lock.authenticateWithBiometrics(reason: reason)
-          : await lock.verifyPin(_pin.text);
+      if (biometric) _authInProgress = true;
+      final bool accepted;
+      try {
+        accepted = biometric
+            ? await lock.isBiometricEnabled() &&
+                  await lock.authenticateWithBiometrics(reason: reason)
+            : await lock.verifyPin(_pin.text);
+      } finally {
+        if (biometric) _authInProgress = false;
+      }
       if (!mounted) return;
       if (accepted) {
         setState(() {
           _locked = false;
+          _autoPrompted = false;
           _error = null;
           _pin.clear();
         });
         _callChanged();
-      } else {
+      } else if (!automatic) {
         setState(() => _error = _LockError.rejected);
       }
     } catch (_) {
-      if (mounted) setState(() => _error = _LockError.unavailable);
+      if (mounted && !automatic) {
+        setState(() => _error = _LockError.unavailable);
+      }
     }
   }
 
