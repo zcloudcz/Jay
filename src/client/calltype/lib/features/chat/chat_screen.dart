@@ -1120,7 +1120,8 @@ class ChatScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<ChatController>();
-    final allContacts = context.watch<ContactsController>().contacts;
+    final contactsController = context.watch<ContactsController>();
+    final allContacts = contactsController.contacts;
     final contacts = allContacts.where((c) => c.deviceId == contactId);
     final conversations = context
         .watch<ChatListController>()
@@ -1129,12 +1130,18 @@ class ChatScreen extends StatelessWidget {
     final conversation = conversations.isEmpty ? null : conversations.first;
     final group = conversation?.type == 'group';
     final contact = contacts.isEmpty ? null : contacts.first;
+    // A 1:1 peer that is not a contact yet: its public profile instead of the
+    // raw device id (spec 2026-11-09-contacts-from-replies, C4).
+    final peer = group || contact != null || conversation?.title != null
+        ? null
+        : contactsController.peerProfile(contactId);
     final name =
         conversation?.title ??
         contact?.displayName ??
         contact?.userHandle ??
+        peer?.label ??
         contactId;
-    final isBot = contact?.isBot ?? false;
+    final isBot = contact?.isBot ?? peer?.isBot ?? false;
     // Bots whose "/" commands this chat offers: the 1:1 bot, or the group's
     // bot members (by profile or by the local contact flag).
     final commandBots = <CommandBot>[
@@ -1276,13 +1283,26 @@ class ChatScreen extends StatelessWidget {
                 ),
               ],
             ),
-          if (!group && contact != null)
+          // Every direct chat can be renamed (C3); for a peer that is not a
+          // contact yet, Rename adds it first and "Add contact" adds it
+          // without renaming.
+          if (!group)
             PopupMenuButton<void>(
+              key: const ValueKey('chat-direct-menu'),
               itemBuilder: (_) => [
                 PopupMenuItem(
-                  onTap: () => showRenameContactDialog(context, contact),
+                  key: const ValueKey('chat-rename'),
+                  onTap: () => contact != null
+                      ? showRenameContactDialog(context, contact)
+                      : showRenamePeerDialog(context, contactId),
                   child: Text(l10n.contactRename),
                 ),
+                if (contact == null)
+                  PopupMenuItem(
+                    key: const ValueKey('chat-add-contact'),
+                    onTap: () => addPeerToContacts(context, contactId),
+                    child: Text(l10n.contactsAddContact),
+                  ),
               ],
             ),
         ],

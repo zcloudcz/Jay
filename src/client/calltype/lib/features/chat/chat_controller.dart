@@ -69,6 +69,7 @@ class ChatController extends ChangeNotifier {
     void Function(String deviceId)? onMissingOwnDevice,
     BotCommandsCache? commandsCache,
     MediaService? media,
+    this.onOwnSend,
   }) : _db = database,
        media = media ?? MediaService.instance,
        _commandsCache = commandsCache ?? BotCommandsCache.shared,
@@ -1309,9 +1310,14 @@ class ChatController extends ChangeNotifier {
     await retryMessage(id);
   }
 
+  /// Told the id of every own message queued or retried here; the app adds
+  /// a 1:1 peer as a contact on reply (ContactsController.addPeerOnReply).
+  final void Function(String messageId)? onOwnSend;
+
   /// Sends (again) an own message. A media row first finishes its upload,
   /// outside the processing queue (see [_prepareMedia]).
   Future<void> retryMessage(String messageId) async {
+    onOwnSend?.call(messageId);
     if (!await _prepareMedia(messageId)) return;
     await _sendQueued(messageId);
   }

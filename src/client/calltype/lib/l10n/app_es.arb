@@ -779,5 +779,6 @@
   "participantColorBlue": "Azul",
   "participantColorIndigo": "Índigo",
   "participantColorPurple": "Morado",
-  "participantColorPink": "Rosa"
+  "participantColorPink": "Rosa",
+  "contactsAddFromChatFailed": "No se pudo añadir este contacto. Comprueba tu conexión e inténtalo de nuevo."
 }

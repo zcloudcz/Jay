@@ -76,7 +76,8 @@ class _ChatListScreenState extends State<ChatListScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<ChatListController>();
-    final contacts = context.watch<ContactsController>().contacts;
+    final contactsController = context.watch<ContactsController>();
+    final contacts = contactsController.contacts;
     final network = context.watch<SignalRClient>();
     final devices = context.watch<DeviceService>();
     final rows = controller.conversations;
@@ -186,16 +187,25 @@ class _ChatListScreenState extends State<ChatListScreen> {
                         (c) => c.deviceId == row.id,
                       );
                       final contact = matches.isEmpty ? null : matches.first;
+                      // A non-contact 1:1 peer: its public profile instead
+                      // of the raw device id (spec contacts-from-replies C4).
+                      final peer =
+                          row.title != null ||
+                              contact != null ||
+                              row.type == 'group'
+                          ? null
+                          : contactsController.peerProfile(row.id);
                       final title =
                           row.title ??
                           contact?.displayName ??
                           contact?.userHandle ??
+                          peer?.label ??
                           row.id;
                       return ListTile(
                         leading: LetterAvatar(name: title),
                         title: NameWithBotBadge(
                           name: title,
-                          isBot: contact?.isBot ?? false,
+                          isBot: contact?.isBot ?? peer?.isBot ?? false,
                         ),
                         subtitle: Row(
                           children: [

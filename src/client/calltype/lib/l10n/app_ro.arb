@@ -779,5 +779,6 @@
   "participantColorBlue": "Albastru",
   "participantColorIndigo": "Indigo",
   "participantColorPurple": "Mov",
-  "participantColorPink": "Roz"
+  "participantColorPink": "Roz",
+  "contactsAddFromChatFailed": "Contactul nu a putut fi adăugat. Verifică conexiunea și încearcă din nou."
 }

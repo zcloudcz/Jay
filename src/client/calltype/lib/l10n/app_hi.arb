@@ -779,5 +779,6 @@
   "participantColorBlue": "नीला",
   "participantColorIndigo": "जामुनी",
   "participantColorPurple": "बैंगनी",
-  "participantColorPink": "गुलाबी"
+  "participantColorPink": "गुलाबी",
+  "contactsAddFromChatFailed": "यह संपर्क जोड़ा नहीं जा सका। अपना कनेक्शन जाँचें और फिर से कोशिश करें।"
 }

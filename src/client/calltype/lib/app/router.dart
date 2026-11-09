@@ -169,6 +169,7 @@ final router = GoRouter(
             return ChangeNotifierProvider(
               create: (ctx) {
                 final devices = ctx.read<DeviceService>();
+                final contacts = ctx.read<ContactsController>();
                 final controller = ChatController(
                   database: ctx.read<AppDatabase>(),
                   signalRClient: ctx.read<SignalRClient>(),
@@ -177,6 +178,12 @@ final router = GoRouter(
                   apiClient: ctx.read<ApiClient>(),
                   conversationId: id,
                   directory: devices.directory,
+                  // Replying in a 1:1 chat adds the peer as a contact (spec
+                  // 2026-11-09-contacts-from-replies). Fire-and-forget from
+                  // the root zone: it must never delay or fail the send.
+                  onOwnSend: (messageId) => Zone.root.run(
+                    () => unawaited(contacts.addPeerOnReply(messageId)),
+                  ),
                   // Never takes the processing queue, so fire-and-forget is
                   // safe from inside a send.
                   onMissingOwnDevice: (d) =>

@@ -779,5 +779,6 @@
   "participantColorBlue": "Modrá",
   "participantColorIndigo": "Indigová",
   "participantColorPurple": "Fialová",
-  "participantColorPink": "Růžová"
+  "participantColorPink": "Růžová",
+  "contactsAddFromChatFailed": "Kontakt se nepodařilo přidat. Zkontrolujte připojení a zkuste to znovu."
 }

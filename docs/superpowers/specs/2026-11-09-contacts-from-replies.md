@@ -1,6 +1,6 @@
 # Contacts from replies, and rename in any 1:1 chat
 
-Status: approved (owner feedback 2026-11-09, Discord): "Když mi někdo napíše a já mu odepíšu, měl by se mi přidat do Kontaktů a měl bych mít možnost Kontakt přejmenovat. Minimálně na webu to teď nejde."
+Status: implemented on `feat/auto-contact` (not released; manual checks in `docs/acceptance/contacts-from-replies.md`). Approved (owner feedback 2026-11-09, Discord): "Když mi někdo napíše a já mu odepíšu, měl by se mi přidat do Kontaktů a měl bych mít možnost Kontakt přejmenovat. Minimálně na webu to teď nejde."
 
 ## Today
 - A message from someone who is not a contact creates only a conversation (`message_inbox_service.dart`, conversation insert); no contact row. The chat title falls back to the raw device id (known limit in `docs/acceptance/multi-device.md`).
@@ -24,3 +24,12 @@ Server: C1 integration tests. App: unit/widget tests: reply in a non-contact cha
 
 ## Compatibility
 Old app versions are unaffected. A new app against an old server (no C1) keeps today's behaviour (404 -> no auto-add, Rename/Add show an error).
+
+## Implementation notes (where reality differs from the decisions above)
+- C2 hook: `ChatController` got one optional callback `onOwnSend(messageId)`, called at the start of `retryMessage`, which every own send (text, bot button, file, media, poll, forward) and every manual retry goes through. The router wires it to `ContactsController.addPeerOnReply`, which does all filtering (own non-control message, `type == 'direct'`, no `organizationId`, peer id is a GUID, not a contact yet). Why: a parallel branch edits `chat_controller.dart`, so the logic lives in the contacts layer and the controller change is three lines. A manual retry of a failed message therefore also retries the add, which is what C5 asks for.
+- C2 concurrency: `ensureContact` shares one lookup and one insert per device id, so a quick double send adds one contact and calls the contact-sync hook once.
+- C3 strings: "Add to contacts" reuses the existing `contactsAddContact` ("Add contact") and the success snackbar the existing `contactsAdded`. One new key, `contactsAddFromChatFailed`, because the existing `contactsAddFailed` tells the user to check the invite, and there is no invite here (C7).
+- C4 cache: `backup_state` key `peer-profile:<id>` holds `{userHandle, displayName, isBot, fetchedAt}`. It is a cache only: not included in backups or history transfer (`buildBackupData` selects `backup_state` by prefix). A failed lookup is not retried for 5 minutes (in memory), so a rebuilding chat list does not hit the server on every frame. The profile's `isBot` also shows the BOT badge in the title before the peer is a contact.
+- C4 scope: the readable title is applied in the chat list and the chat app bar. Notifications, search results and the forward dialog still fall back to the raw id for a non-contact until the peer becomes a contact (after the first reply it is one).
+- C6: a business "1:1" is a group conversation, so it is excluded by the type check; a direct row with an `organizationId` is excluded as well.
+- Server: one extra test checks that `GET /devices/{id}/profile` does not consume one-time pre-keys (the reason it exists next to `key-bundle`).

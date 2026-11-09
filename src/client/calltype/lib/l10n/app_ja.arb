@@ -779,5 +779,6 @@
   "participantColorBlue": "青",
   "participantColorIndigo": "インディゴ",
   "participantColorPurple": "紫",
-  "participantColorPink": "ピンク"
+  "participantColorPink": "ピンク",
+  "contactsAddFromChatFailed": "この連絡先を追加できませんでした。接続を確認して、もう一度お試しください。"
 }
