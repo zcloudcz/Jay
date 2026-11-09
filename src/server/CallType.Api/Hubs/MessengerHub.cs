@@ -36,9 +36,10 @@ using Microsoft.EntityFrameworkCore;
 namespace CallType.Api.Hubs;
 
 [Authorize]
-public class MessengerHub(MessageQueueService queueService, PushNotificationService pushService, AppDbContext db,
+public partial class MessengerHub(MessageQueueService queueService, PushNotificationService pushService, AppDbContext db,
     AuditorLivenessService auditorLiveness, OrgCommunicationPolicy communicationPolicy, IMemoryCache cache,
-    DeviceListService deviceLists, ConversationMuteService mutes, PendingCallStore pendingCalls) : Hub
+    DeviceListService deviceLists, ConversationMuteService mutes, PendingCallStore pendingCalls,
+    BotInboundPolicy botPolicy) : Hub
 {
     // Maps DeviceId -> ConnectionId for all currently connected devices.
     // Static because SignalR creates a new Hub instance per invocation,
@@ -116,9 +117,12 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         if (!await communicationPolicy.IsAllowedAsync(sender, recipientDeviceId, Context.ConnectionAborted))
             throw new HubException("business_conversation_required");
         var body = DecodePayload(encryptedBodyBase64);
+        var senderPrimary = await deviceLists.PrimaryOfAsync(sender, Context.ConnectionAborted);
+        // Bot inbound policy: not stored, not delivered, same ack (no oracle).
+        if (await BotBlockedAsync(senderPrimary, [recipientDeviceId], null) is { Count: > 0 })
+            return;
         var message = await queueService.EnqueueReliableAsync(recipientDeviceId, sender, messageId,
             body, cancellationToken: Context.ConnectionAborted);
-        var senderPrimary = await deviceLists.PrimaryOfAsync(sender, Context.ConnectionAborted);
         var silenced = await SilencedAsync([message], sender, senderPrimary, null);
         await DeliverAsync(message, senderPrimary, push: !silenced.Contains(message.RecipientId));
     }
@@ -174,6 +178,10 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         }
         var decoded = encryptedPayloads.Where(p => p.Key != sender)
             .ToDictionary(p => p.Key, p => DecodePayload(p.Value));
+        var senderPrimary = await deviceLists.PrimaryOfAsync(sender, Context.ConnectionAborted);
+        // After all validation, so a dropped bot copy never hides an error.
+        foreach (var blocked in await BotBlockedAsync(senderPrimary, decoded.Keys, members))
+            decoded.Remove(blocked);
         var messages = new List<QueuedMessage>();
         await using (var transaction = await db.Database.BeginTransactionAsync(Context.ConnectionAborted))
         {
@@ -182,7 +190,6 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
                     body, groupId, Context.ConnectionAborted));
             await transaction.CommitAsync(Context.ConnectionAborted);
         }
-        var senderPrimary = await deviceLists.PrimaryOfAsync(sender, Context.ConnectionAborted);
         var silenced = await SilencedAsync(messages, sender, senderPrimary, groupId);
         foreach (var message in messages)
             await DeliverAsync(message, senderPrimary, push: !silenced.Contains(message.RecipientId));
@@ -215,7 +222,7 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         if (!await communicationPolicy.IsAllowedAsync(senderPrimary, recipientPrimaryId, ct))
             throw new HubException("business_conversation_required");
         var required = await deviceLists.DevicesOfAsync([recipientPrimaryId, senderPrimary], ct);
-        await FanoutAsync(sender, senderPrimary, messageId, null, required, allRecipients, encryptedPayloads);
+        await FanoutAsync(sender, senderPrimary, messageId, null, required, allRecipients, encryptedPayloads, null);
     }
 
     public async Task SendReliableGroupFanout(Guid groupId, Guid messageId,
@@ -238,11 +245,11 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
             if (!await communicationPolicy.IsAllowedAsync(senderPrimary, member, ct))
                 throw new HubException("business_conversation_required");
         var required = await deviceLists.DevicesOfAsync(members, ct);
-        await FanoutAsync(sender, senderPrimary, messageId, groupId, required, allRecipients, encryptedPayloads);
+        await FanoutAsync(sender, senderPrimary, messageId, groupId, required, allRecipients, encryptedPayloads, members);
     }
 
     private async Task FanoutAsync(Guid sender, Guid senderPrimary, Guid messageId, Guid? groupId, HashSet<Guid> required,
-        List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads)
+        List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads, IReadOnlyCollection<Guid>? groupMembers)
     {
         required.Remove(sender);
         // Own error text: this cap counts DEVICES (companions included), so the
@@ -257,6 +264,10 @@ public class MessengerHub(MessageQueueService queueService, PushNotificationServ
         if (encryptedPayloads.Count == 0 || encryptedPayloads.Keys.Any(id => !required.Contains(id)))
             throw new HubException("Fan-out payloads must target declared recipients");
         var decoded = encryptedPayloads.ToDictionary(p => p.Key, p => DecodePayload(p.Value));
+        // Completeness was checked on the declared set above, so a client
+        // still encrypts for the bot (no oracle) and the copy is dropped here.
+        foreach (var blocked in await BotBlockedAsync(senderPrimary, decoded.Keys, groupMembers))
+            decoded.Remove(blocked);
         var messages = new List<QueuedMessage>();
         await using (var transaction = await db.Database.BeginTransactionAsync(Context.ConnectionAborted))
         {

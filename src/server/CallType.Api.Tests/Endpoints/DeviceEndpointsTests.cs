@@ -726,4 +726,77 @@ public class DeviceEndpointsTests : IntegrationTestBase
         (await GetIsBotFromKeyBundleAsync(humanId)).Should().BeFalse();
         (await GetIsBotFromKeyBundleAsync(botId)).Should().BeTrue();
     }
+
+    // -----------------------------------------------------------------------
+    // One-time pre-keys: per-caller budget and replenishment (bot-access A6)
+    // -----------------------------------------------------------------------
+
+    private static object Otks(int from, int count) => new
+    {
+        oneTimePreKeys = Enumerable.Range(from, count)
+            .Select(i => new { keyId = i, publicKey = Convert.ToBase64String(new byte[32]) }).ToList()
+    };
+
+    [Fact]
+    public async Task One_caller_takes_at_most_its_budget_of_one_time_pre_keys_from_one_target()
+    {
+        var reg = await Client.PostAsJsonAsync("/devices", new
+        {
+            identityKey = ValidIdentityKey, signedPreKey = ValidSignedPreKey,
+            oneTimePreKeys = Enumerable.Range(1, 20).Select(i => new { keyId = i, publicKey = Convert.ToBase64String(new byte[32]) })
+        });
+        var target = Guid.Parse((await reg.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("deviceId").GetString()!);
+        await RegisterAndAuthenticateAsync();
+
+        var withKey = 0;
+        for (var i = 0; i < 8; i++)
+        {
+            var bundle = await Client.GetFromJsonAsync<JsonElement>($"/devices/{target}/key-bundle");
+            // Every bundle stays usable (signed pre-key), only the one-time key is withheld.
+            bundle.GetProperty("signedPreKey").GetString().Should().NotBeNullOrEmpty();
+            if (bundle.GetProperty("oneTimePreKey").ValueKind != JsonValueKind.Null) withKey++;
+        }
+        withKey.Should().Be(5);
+
+        // Another caller has its own budget.
+        await RegisterAndAuthenticateAsync();
+        (await Client.GetFromJsonAsync<JsonElement>($"/devices/{target}/key-bundle"))
+            .GetProperty("oneTimePreKey").ValueKind.Should().NotBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task Device_counts_and_replenishes_its_own_one_time_pre_keys()
+    {
+        var me = await RegisterAndAuthenticateAsync();
+        (await Client.GetFromJsonAsync<JsonElement>($"/devices/{me.DeviceId}/one-time-prekeys/count"))
+            .GetProperty("count").GetInt32().Should().Be(0);
+
+        var add = await Client.PostAsJsonAsync($"/devices/{me.DeviceId}/one-time-prekeys", Otks(101, 100));
+        add.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await add.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("count").GetInt32().Should().Be(100);
+
+        // Same key id again: 409, nothing added.
+        (await Client.PostAsJsonAsync($"/devices/{me.DeviceId}/one-time-prekeys", Otks(150, 1)))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        // Per-request and stored caps, bad key length.
+        (await Client.PostAsJsonAsync($"/devices/{me.DeviceId}/one-time-prekeys", Otks(300, 101)))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Client.PostAsJsonAsync($"/devices/{me.DeviceId}/one-time-prekeys", Otks(201, 100)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Client.PostAsJsonAsync($"/devices/{me.DeviceId}/one-time-prekeys", Otks(301, 1)))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await Client.GetFromJsonAsync<JsonElement>($"/devices/{me.DeviceId}/one-time-prekeys/count"))
+            .GetProperty("count").GetInt32().Should().Be(200);
+
+        // Only the device itself.
+        var other = await RegisterAndAuthenticateAsync();
+        (await Client.PostAsJsonAsync($"/devices/{me.DeviceId}/one-time-prekeys", Otks(500, 1)))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.GetAsync($"/devices/{me.DeviceId}/one-time-prekeys/count"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client.PostAsJsonAsync($"/devices/{other.DeviceId}/one-time-prekeys",
+            new { oneTimePreKeys = new[] { new { keyId = 1, publicKey = Convert.ToBase64String(new byte[5]) } } }))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
 }
+

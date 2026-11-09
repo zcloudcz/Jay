@@ -5,6 +5,9 @@
 // the clients' job, the hub only routes by the stored membership.
 // ---------------------------------------------------------------------------
 
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.SignalR;
@@ -507,5 +510,143 @@ public class FanoutHubTests : IntegrationTestBase
         await webHub.InvokeAsync("SendReliableDirectFanout", aPhone.DeviceId, fromWeb,
             new[] { aPhone.DeviceId }, Payloads(aPhone.DeviceId));
         (await QueuedForAsync(fromWeb)).Should().BeEquivalentTo(new[] { aPhone.DeviceId });
+    }
+
+    // -----------------------------------------------------------------------
+    // Bot inbound policy (spec 2026-11-09-bot-access A2)
+    // -----------------------------------------------------------------------
+
+    /// <summary>A bot device with its policy set through the real endpoint.</summary>
+    private async Task<Guid> BotAsync(string mode, params string[] owners)
+    {
+        var reg = await Client.PostAsJsonAsync("/devices", new
+        {
+            identityKey = Convert.ToBase64String([1, 2, 3]),
+            signedPreKey = Convert.ToBase64String([4, 5, 6]),
+            isBot = true
+        });
+        var body = await reg.Content.ReadFromJsonAsync<JsonElement>();
+        var id = Guid.Parse(body.GetProperty("deviceId").GetString()!);
+        var token = (await (await Client.PostAsJsonAsync("/auth/token",
+                new { deviceId = id, deviceSecret = body.GetProperty("deviceSecret").GetString() }))
+            .Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString()!;
+        using var http = Factory.CreateClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        (await http.PutAsJsonAsync($"/devices/{id}/bot-policy", new { mode, owners }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        return id;
+    }
+
+    private async Task<Guid> GroupAsync(params Guid[] members)
+    {
+        var groupId = Guid.NewGuid();
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Groups.Add(new Group { GroupId = groupId, CreatedBy = members[0], CreatedAt = DateTimeOffset.UtcNow });
+        foreach (var m in members)
+            db.GroupMembers.Add(new GroupMember { GroupId = groupId, DeviceId = m, Role = m == members[0] ? "admin" : "member", JoinedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+        return groupId;
+    }
+
+    private async Task<int> QueuedCountForAsync(Guid recipient)
+    {
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return await db.QueuedMessages.CountAsync(m => m.RecipientId == recipient);
+    }
+
+    [Fact]
+    public async Task Owners_bot_gets_1to1_from_an_owner_and_a_companion_of_the_owner_but_not_from_a_stranger()
+    {
+        var ownerPhone = await RegisterAndAuthenticateAsync();
+        var ownerWeb = await RegisterAndAuthenticateAsync();
+        var stranger = await RegisterAndAuthenticateAsync();
+        await LinkAsync(ownerPhone.DeviceId, ownerWeb.DeviceId);
+        var bot = await BotAsync("owners", ownerPhone.UserHandle);
+
+        await using var phoneHub = Hub(ownerPhone.Token);
+        await phoneHub.StartAsync();
+        var fromOwner = Guid.NewGuid();
+        await phoneHub.InvokeAsync("SendReliableDirectFanout", bot, fromOwner,
+            new[] { bot, ownerWeb.DeviceId }, Payloads(bot, ownerWeb.DeviceId));
+        (await QueuedForAsync(fromOwner)).Should().BeEquivalentTo(new[] { bot, ownerWeb.DeviceId });
+
+        // The owner's companion speaks for the same identity.
+        await using var webHub = Hub(ownerWeb.Token);
+        await webHub.StartAsync();
+        var fromCompanion = Guid.NewGuid();
+        await webHub.InvokeAsync("SendReliableDirectFanout", bot, fromCompanion,
+            new[] { bot, ownerPhone.DeviceId }, Payloads(bot, ownerPhone.DeviceId));
+        (await QueuedForAsync(fromCompanion)).Should().Contain(bot);
+
+        // A stranger: same ack as success (no exception), nothing stored, on
+        // both the fan-out and the legacy single-device path.
+        await using var strangerHub = Hub(stranger.Token);
+        await strangerHub.StartAsync();
+        var fromStranger = Guid.NewGuid();
+        await strangerHub.InvokeAsync("SendReliableDirectFanout", bot, fromStranger, new[] { bot }, Payloads(bot));
+        var legacy = Guid.NewGuid();
+        await strangerHub.InvokeAsync("SendReliableMessage", bot, legacy, Body);
+        (await QueuedForAsync(fromStranger)).Should().BeEmpty();
+        (await QueuedForAsync(legacy)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Owners_bot_gets_group_messages_only_while_an_owner_is_a_member()
+    {
+        var owner = await RegisterAndAuthenticateAsync();
+        var member = await RegisterAndAuthenticateAsync();
+        var other = await RegisterAndAuthenticateAsync();
+        var bot = await BotAsync("owners", owner.UserHandle);
+        var withOwner = await GroupAsync(member.DeviceId, owner.DeviceId, bot);
+        var withoutOwner = await GroupAsync(member.DeviceId, other.DeviceId, bot);
+        await using var hub = Hub(member.Token);
+        await hub.StartAsync();
+
+        // A non-owner member writing into a group WITH an owner reaches the bot.
+        var m1 = Guid.NewGuid();
+        var t1 = new[] { owner.DeviceId, bot };
+        await hub.InvokeAsync("SendReliableGroupFanout", withOwner, m1, t1, Payloads(t1));
+        (await QueuedForAsync(m1)).Should().BeEquivalentTo(t1);
+
+        // Without an owner: the other members still get theirs, the bot not.
+        var m2 = Guid.NewGuid();
+        var t2 = new[] { other.DeviceId, bot };
+        await hub.InvokeAsync("SendReliableGroupFanout", withoutOwner, m2, t2, Payloads(t2));
+        (await QueuedForAsync(m2)).Should().BeEquivalentTo(new[] { other.DeviceId });
+
+        // Legacy group path, same rule.
+        var m3 = Guid.NewGuid();
+        await hub.InvokeAsync("SendReliableGroupMessage", withoutOwner, m3, Payloads(t2));
+        (await QueuedForAsync(m3)).Should().BeEquivalentTo(new[] { other.DeviceId });
+
+        // Membership is read at send time: the owner leaves, the bot is cut off.
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.GroupMembers.Where(m => m.GroupId == withOwner && m.DeviceId == owner.DeviceId).ExecuteDeleteAsync();
+        }
+        var m4 = Guid.NewGuid();
+        await hub.InvokeAsync("SendReliableGroupFanout", withOwner, m4, new[] { bot }, Payloads(bot));
+        (await QueuedForAsync(m4)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Open_bot_and_bot_without_policy_are_reachable_by_anyone()
+    {
+        var stranger = await RegisterAndAuthenticateAsync();
+        var open = await BotAsync("open");
+        await using var hub = Hub(stranger.Token);
+        await hub.StartAsync();
+
+        var messageId = Guid.NewGuid();
+        await hub.InvokeAsync("SendReliableDirectFanout", open, messageId, new[] { open }, Payloads(open));
+        (await QueuedForAsync(messageId)).Should().BeEquivalentTo(new[] { open });
+        // A human recipient is never filtered, whatever is stored on its row.
+        var human = await RegisterAndAuthenticateAsync();
+        var legacy = Guid.NewGuid();
+        await hub.InvokeAsync("SendReliableMessage", human.DeviceId, legacy, Body);
+        (await QueuedCountForAsync(human.DeviceId)).Should().Be(1);
     }
 }

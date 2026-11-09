@@ -66,6 +66,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.Property(d => d.PushLocale).HasMaxLength(16);
             entity.Property(d => d.VoipPushToken).HasMaxLength(200);
             entity.Property(d => d.DisplayName).HasMaxLength(60);
+            // Bot inbound policy (bot-access A1). uuid[] instead of a child
+            // table: max 10 ids, always read and replaced as a whole.
+            entity.Property(d => d.BotInboundMode).HasMaxLength(10);
         });
 
         // -----------------------------------------------------------------

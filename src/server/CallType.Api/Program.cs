@@ -54,6 +54,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // because it depends on the scoped AppDbContext.
 builder.Services.AddScoped<MessageQueueService>();
 builder.Services.AddScoped<DeviceListService>();
+builder.Services.AddScoped<BotInboundPolicy>();
 builder.Services.AddScoped<ConversationMuteService>();
 
 // PushNotificationService is a singleton — it is stateless (reads config once)

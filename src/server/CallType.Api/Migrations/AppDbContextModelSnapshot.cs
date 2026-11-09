@@ -454,6 +454,13 @@ namespace CallType.Api.Migrations
                     b.Property<string>("BotCommandsJson")
                         .HasColumnType("text");
 
+                    b.Property<string>("BotInboundMode")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.PrimitiveCollection<List<Guid>>("BotInboundOwnerIds")
+                        .HasColumnType("uuid[]");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 

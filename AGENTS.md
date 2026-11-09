@@ -187,7 +187,7 @@ dotnet ef database update --project src/server/CallType.Api
 
 | Entity | Purpose | Key |
 |--------|---------|-----|
-| `Device` | Anonymous device identity + public keys; push registration (`PushToken`, `PushPlatform`, `PushLocale`, `PushRingCalls`, iOS `VoipPushToken`); bots may publish a command menu (`BotCommandsJson`, public plaintext metadata like `DisplayName`) | `DeviceId` (Guid) |
+| `Device` | Anonymous device identity + public keys; push registration (`PushToken`, `PushPlatform`, `PushLocale`, `PushRingCalls`, iOS `VoipPushToken`); bots may publish a command menu (`BotCommandsJson`, public plaintext metadata like `DisplayName`) and an inbound policy (`BotInboundMode` `open`/`owners`, `BotInboundOwnerIds` uuid[] of owner identities; private, never returned to others) | `DeviceId` (Guid) |
 | `OneTimePreKey` | Single-use X3DH pre-keys | `Id` (auto), unique(DeviceId, KeyId) |
 | `Account` | Optional registered account | `AccountId` (Guid), unique Email |
 | `AccountDevice` | Links accounts to devices (multi-device) | Composite(AccountId, DeviceId) |
@@ -210,7 +210,9 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 |----------|---------|--------|
 | `GET /health` | Health check | ✅ Done |
 | `POST /devices` | Register device + upload keys | ✅ Done |
-| `GET /devices/{id}/key-bundle` | Fetch key bundle for X3DH | ✅ Done |
+| `GET /devices/{id}/key-bundle` | Fetch key bundle for X3DH; one caller DEVICE takes at most 5 one-time pre-keys per target per hour (in memory), further bundles come without `oneTimePreKey` (signed pre-key X3DH still works) | ✅ Done |
+| `GET /devices/{id}/one-time-prekeys/count`, `POST /devices/{id}/one-time-prekeys` | Self only (else 403): count `{count}`; add `{"oneTimePreKeys":[{keyId,publicKey}]}` (1..100 per call, 32-byte keys, max 200 stored) -> `{count}`; 400 `invalid_prekeys`, 409 `duplicate_key_id`. Bots replenish below 20 (spec `2026-11-09-bot-access` A6) | ✅ Done |
+| `PUT` / `GET /devices/{id}/bot-policy` | Bot inbound policy, self only and bot only (403, 403 `not_a_bot`): `{"mode":"open"\|"owners","owners":["CT-..."]}` (max 10 handles, resolved to identities; 400 `invalid_bot_policy`, 400 `unknown_owner`) -> 200 `{mode, owners}` (current handles). Default `open`. With `owners` the hub silently skips the bot's copy (same ack as success) of a 1:1 send from a non-owner identity and of a group send when no owner identity is a member; spec `2026-11-09-bot-access` A1/A2 | ✅ Done |
 | `GET /devices/{id}/profile` | Public profile by device id, same fields as `GET /devices/by-handle/{handle}`: `{deviceId, userHandle, isBot, displayName}`; 404 unknown, 401 without auth; consumes no pre-key (used by the app to add a 1:1 peer as a contact) | ✅ Done |
 | `POST /accounts` | Register account (Argon2id) | ✅ Done |
 | `POST /accounts/login` | Authenticate | ✅ Done |

@@ -217,4 +217,66 @@ public class BotCommandsEndpointsTests : IntegrationTestBase
         stored.Should().HaveCount(50);
         stored[0].Should().Be((new string('a', 32), new string('d', 100)));
     }
+
+    // -----------------------------------------------------------------------
+    // PUT/GET /devices/{id}/bot-policy (spec 2026-11-09-bot-access A1)
+    // -----------------------------------------------------------------------
+
+    private static async Task<string> HandleOf((Guid Id, HttpClient Http) device) =>
+        (await (await device.Http.GetAsync($"/devices/{device.Id}/profile")).Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("userHandle").GetString()!;
+
+    [Fact]
+    public async Task Bot_policy_defaults_to_open_and_round_trips_owners_as_handles()
+    {
+        var bot = await DeviceAsync(isBot: true);
+        var owner = await DeviceAsync();
+        var handle = await HandleOf(owner);
+
+        var initial = await bot.Http.GetFromJsonAsync<JsonElement>($"/devices/{bot.Id}/bot-policy");
+        initial.GetProperty("mode").GetString().Should().Be("open");
+
+        // Lower case and duplicates are normalized.
+        var put = await bot.Http.PutAsJsonAsync($"/devices/{bot.Id}/bot-policy",
+            new { mode = "OWNERS", owners = new[] { handle.ToLowerInvariant(), handle } });
+        put.StatusCode.Should().Be(HttpStatusCode.OK);
+        var read = await bot.Http.GetFromJsonAsync<JsonElement>($"/devices/{bot.Id}/bot-policy");
+        read.GetProperty("mode").GetString().Should().Be("owners");
+        read.GetProperty("owners").EnumerateArray().Select(o => o.GetString()).Should().Equal(handle);
+
+        // Back to open clears the owners.
+        (await bot.Http.PutAsJsonAsync($"/devices/{bot.Id}/bot-policy", new { mode = "open", owners = new[] { handle } }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var row = await db.Devices.AsNoTracking().SingleAsync(d => d.DeviceId == bot.Id);
+        row.BotInboundMode.Should().Be("open");
+        row.BotInboundOwnerIds.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Bot_policy_is_self_only_bot_only_and_validated()
+    {
+        var bot = await DeviceAsync(isBot: true);
+        var human = await DeviceAsync();
+        var handle = await HandleOf(human);
+
+        // Another device may neither write nor READ it (the owner list must
+        // not leak, spec A2 "no oracle").
+        (await human.Http.PutAsJsonAsync($"/devices/{bot.Id}/bot-policy", new { mode = "open" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await human.Http.GetAsync($"/devices/{bot.Id}/bot-policy")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        // A human device cannot set one for itself.
+        await ShouldBeProblem(await human.Http.PutAsJsonAsync($"/devices/{human.Id}/bot-policy",
+            new { mode = "owners", owners = new[] { handle } }), HttpStatusCode.Forbidden, "not_a_bot");
+
+        await ShouldBeProblem(await bot.Http.PutAsJsonAsync($"/devices/{bot.Id}/bot-policy",
+            new { mode = "everyone" }), HttpStatusCode.BadRequest, "invalid_bot_policy");
+        await ShouldBeProblem(await bot.Http.PutAsJsonAsync($"/devices/{bot.Id}/bot-policy",
+            new { mode = "owners", owners = new[] { "CT-ZZZZ-ZZZZ" } }), HttpStatusCode.BadRequest, "unknown_owner");
+        var eleven = Enumerable.Range(0, 11).Select(i => $"CT-AAAA-{i:D4}").ToArray();
+        await ShouldBeProblem(await bot.Http.PutAsJsonAsync($"/devices/{bot.Id}/bot-policy",
+            new { mode = "owners", owners = eleven }), HttpStatusCode.BadRequest, "invalid_bot_policy");
+    }
 }
+

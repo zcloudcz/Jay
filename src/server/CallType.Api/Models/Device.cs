@@ -107,6 +107,25 @@ public class Device
     /// </summary>
     public string? BotCommandsJson { get; set; }
 
+    /// <summary>
+    /// Inbound policy a bot published via PUT /devices/{id}/bot-policy (spec
+    /// 2026-11-09-bot-access A1): null or "open" = anybody may message it
+    /// (the default, so bots older than the policy keep working), "owners" =
+    /// the hub stores 1:1 messages only from <see cref="BotInboundOwnerIds"/>
+    /// and group messages only for groups with one of them as a member.
+    /// WHY on the server at all: the bot drops strangers before decryption
+    /// anyway, but only after the server stored and pushed every message,
+    /// so a stranger could still fill the bot's queue.
+    /// </summary>
+    public string? BotInboundMode { get; set; }
+
+    /// <summary>
+    /// Owner IDENTITIES (primary device ids) of an "owners" policy, resolved
+    /// from handles when the bot published it; companions of an owner count
+    /// through their primary. Null when the mode is not "owners".
+    /// </summary>
+    public List<Guid>? BotInboundOwnerIds { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     /// <summary>

@@ -15,6 +15,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Npgsql;
 using CallType.Api.Data;
 using CallType.Api.Models;
@@ -54,6 +55,13 @@ public static class DeviceEndpoints
         // authenticated device (the "/" menu of whoever chats with the bot).
         app.MapPut("/devices/{id:guid}/bot-commands", PutBotCommands).RequireAuthorization().RequireRateLimiting("api");
         app.MapGet("/devices/{id:guid}/bot-commands", GetBotCommands).RequireAuthorization().RequireRateLimiting("api");
+        // Bot inbound policy (bot-access A1): read AND written only by the bot
+        // itself, because the owner list is exactly what A2 must not reveal.
+        app.MapPut("/devices/{id:guid}/bot-policy", PutBotPolicy).RequireAuthorization().RequireRateLimiting("api");
+        app.MapGet("/devices/{id:guid}/bot-policy", GetBotPolicy).RequireAuthorization().RequireRateLimiting("api");
+        // One-time pre-key replenishment (bot-access A6), self only.
+        app.MapGet("/devices/{id:guid}/one-time-prekeys/count", GetOneTimePreKeyCount).RequireAuthorization().RequireRateLimiting("api");
+        app.MapPost("/devices/{id:guid}/one-time-prekeys", AddOneTimePreKeys).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 
@@ -213,9 +221,21 @@ public static class DeviceEndpoints
     // -----------------------------------------------------------------------
     // GET /devices/{id}/key-bundle — Fetch key bundle for X3DH handshake
     // -----------------------------------------------------------------------
+    // How many one-time pre-keys one caller DEVICE may take from one target
+    // device per window (bot-access A6). Beyond that the bundle comes without
+    // a one-time key: X3DH still works on the signed pre-key alone, so a
+    // legitimate repeat (reinstall, session reset) never fails, while one
+    // device can no longer drain a bot's whole pool in a minute through the
+    // shared "api" bucket (100 requests/min). Per device, not per identity:
+    // every companion of a user needs its own session with the target.
+    internal const int OneTimePreKeysPerCallerPerWindow = 5;
+    internal static readonly TimeSpan OneTimePreKeyWindow = TimeSpan.FromHours(1);
+
     private static async Task<IResult> GetKeyBundle(
         Guid id,
+        ClaimsPrincipal user,
         AppDbContext db,
+        IMemoryCache cache,
         CancellationToken ct)
     {
         // Load device WITHOUT OTKs — the atomic SQL below handles OTK consumption.
@@ -230,6 +250,19 @@ public static class DeviceEndpoints
         // SKIP LOCKED ensures waiters grab the next available key instead
         // of blocking or duplicating.
         OneTimePreKeyDto? oneTimePreKeyDto = null;
+
+        // In-memory counter: one App Service instance today; with several
+        // instances each would allow its own budget, which still bounds it.
+        // Fixed window from the first fetch (absolute expiry, not sliding),
+        // so the budget really refills. Counted before consuming, so parallel
+        // requests cannot overshoot it.
+        var budget = cache.GetOrCreate($"otk-budget:{Caller(user)}:{id}", entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = OneTimePreKeyWindow;
+            return new System.Runtime.CompilerServices.StrongBox<int>(0);
+        })!;
+        if (Interlocked.Increment(ref budget.Value) > OneTimePreKeysPerCallerPerWindow)
+            return Results.Ok(BundleOf(device, null));
 
         var consumed = await db.Database.SqlQueryRaw<OtkResult>(
             """
@@ -252,16 +285,154 @@ public static class DeviceEndpoints
             oneTimePreKeyDto = new OneTimePreKeyDto(otk.KeyId, Convert.ToBase64String(otk.PublicKey));
         }
 
-        return Results.Ok(new KeyBundleResponse(
-            device.DeviceId,
-            Convert.ToBase64String(device.IdentityKey),
-            Convert.ToBase64String(device.SignedPreKey),
-            oneTimePreKeyDto,
-            device.SigningKey is null ? null : Convert.ToBase64String(device.SigningKey),
-            device.Signature is null ? null : Convert.ToBase64String(device.Signature),
-            device.IsBot,
-            device.DisplayName));
+        return Results.Ok(BundleOf(device, oneTimePreKeyDto));
     }
+
+    private static KeyBundleResponse BundleOf(Device device, OneTimePreKeyDto? oneTimePreKey) => new(
+        device.DeviceId,
+        Convert.ToBase64String(device.IdentityKey),
+        Convert.ToBase64String(device.SignedPreKey),
+        oneTimePreKey,
+        device.SigningKey is null ? null : Convert.ToBase64String(device.SigningKey),
+        device.Signature is null ? null : Convert.ToBase64String(device.Signature),
+        device.IsBot,
+        device.DisplayName);
+
+    // -----------------------------------------------------------------------
+    // One-time pre-key replenishment (bot-access A6)
+    // -----------------------------------------------------------------------
+    /// <summary>Most one-time pre-keys one POST may add.</summary>
+    internal const int MaxOneTimePreKeysPerUpload = 100;
+
+    /// <summary>
+    /// Most one-time pre-keys a device may have stored at once: a bounded
+    /// row count per device, and twice the registration batch of 100 leaves
+    /// room to top up before the pool runs dry.
+    /// </summary>
+    internal const int MaxStoredOneTimePreKeys = 200;
+
+    private static async Task<IResult> GetOneTimePreKeyCount(Guid id, ClaimsPrincipal user, AppDbContext db,
+        CancellationToken ct)
+    {
+        if (Caller(user) != id)
+            return Results.Forbid();
+        var count = await db.OneTimePreKeys.CountAsync(k => k.DeviceId == id, ct);
+        return Results.Ok(new OneTimePreKeyCountResponse(count));
+    }
+
+    private static async Task<IResult> AddOneTimePreKeys(Guid id, AddOneTimePreKeysRequest request,
+        ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
+    {
+        // Only the device itself: these keys must match private keys only it holds.
+        if (Caller(user) != id)
+            return Results.Forbid();
+        var input = request.OneTimePreKeys ?? [];
+        if (input.Count is 0 or > MaxOneTimePreKeysPerUpload)
+            return PreKeyProblem($"Between 1 and {MaxOneTimePreKeysPerUpload} keys per request.");
+        var keys = new List<OneTimePreKey>(input.Count);
+        foreach (var otk in input)
+        {
+            byte[] bytes;
+            try { bytes = Convert.FromBase64String(otk?.PublicKey ?? ""); }
+            catch (FormatException) { return PreKeyProblem("publicKey must be base64."); }
+            if (otk is null || otk.KeyId <= 0 || bytes.Length != 32)
+                return PreKeyProblem("Each key needs a positive keyId and a 32-byte publicKey.");
+            keys.Add(new OneTimePreKey { DeviceId = id, KeyId = otk.KeyId, PublicKey = bytes });
+        }
+        var ids = keys.Select(k => k.KeyId).ToList();
+        if (ids.Distinct().Count() != ids.Count
+            || await db.OneTimePreKeys.AnyAsync(k => k.DeviceId == id && ids.Contains(k.KeyId), ct))
+            return Results.Problem(title: "Duplicate key id", statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?> { ["error"] = "duplicate_key_id" });
+        var stored = await db.OneTimePreKeys.CountAsync(k => k.DeviceId == id, ct);
+        if (stored + keys.Count > MaxStoredOneTimePreKeys)
+            return PreKeyProblem($"At most {MaxStoredOneTimePreKeys} keys may be stored; {stored} are.");
+        db.OneTimePreKeys.AddRange(keys);
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new OneTimePreKeyCountResponse(stored + keys.Count));
+    }
+
+    private static IResult PreKeyProblem(string detail) => Results.Problem(title: "Invalid one-time pre-keys",
+        detail: detail, statusCode: StatusCodes.Status400BadRequest,
+        extensions: new Dictionary<string, object?> { ["error"] = "invalid_prekeys" });
+
+    // -----------------------------------------------------------------------
+    // PUT/GET /devices/{id}/bot-policy (bot-access A1)
+    // -----------------------------------------------------------------------
+    private static async Task<IResult> PutBotPolicy(Guid id, BotPolicyRequest request, ClaimsPrincipal user,
+        AppDbContext db, DeviceListService deviceLists, CancellationToken ct)
+    {
+        if (Caller(user) != id)
+            return Results.Forbid();
+        var device = await db.Devices.FirstOrDefaultAsync(d => d.DeviceId == id, ct);
+        if (device is null)
+            return Results.NotFound(new { error = "Device not found." });
+        // A human device must not be able to make itself unreachable for
+        // strangers through a bot feature (and IsBot is immutable).
+        if (!device.IsBot)
+            return NotABot("Only a bot device can publish an inbound policy.");
+
+        var mode = request.Mode?.Trim().ToLowerInvariant();
+        if (mode is not (BotInboundPolicy.ModeOpen or BotInboundPolicy.ModeOwners))
+            return BotPolicyProblem("invalid_bot_policy", "mode must be \"open\" or \"owners\".");
+        var handles = (request.Owners ?? []).Select(h => h?.Trim().ToUpperInvariant() ?? "")
+            .Distinct().ToList();
+        if (handles.Count > BotInboundPolicy.MaxOwners)
+            return BotPolicyProblem("invalid_bot_policy", $"At most {BotInboundPolicy.MaxOwners} owners.");
+
+        List<Guid>? ownerIds = null;
+        if (mode == BotInboundPolicy.ModeOwners)
+        {
+            var found = await db.Devices.Where(d => handles.Contains(d.UserHandle))
+                .Select(d => new { d.UserHandle, d.DeviceId }).ToListAsync(ct);
+            var unknown = handles.Except(found.Select(f => f.UserHandle)).ToList();
+            if (unknown.Count > 0)
+                return BotPolicyProblem("unknown_owner", $"Unknown handle(s): {string.Join(", ", unknown)}.");
+            // Identities: a handle of a companion means its user, and the hub
+            // compares against sender and member IDENTITIES.
+            var primaries = await deviceLists.PrimariesOfManyAsync(found.Select(f => f.DeviceId).ToList(), ct);
+            ownerIds = primaries.Values.Distinct().ToList();
+        }
+
+        device.BotInboundMode = mode;
+        device.BotInboundOwnerIds = ownerIds;
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(await BotPolicyOf(db, mode, ownerIds, ct));
+    }
+
+    private static async Task<IResult> GetBotPolicy(Guid id, ClaimsPrincipal user, AppDbContext db,
+        CancellationToken ct)
+    {
+        if (Caller(user) != id)
+            return Results.Forbid();
+        var device = await db.Devices.AsNoTracking().Where(d => d.DeviceId == id)
+            .Select(d => new { d.IsBot, d.BotInboundMode, d.BotInboundOwnerIds }).SingleOrDefaultAsync(ct);
+        if (device is null)
+            return Results.NotFound(new { error = "Device not found." });
+        if (!device.IsBot)
+            return NotABot("Only a bot device has an inbound policy.");
+        return Results.Ok(await BotPolicyOf(db, device.BotInboundMode ?? BotInboundPolicy.ModeOpen,
+            device.BotInboundOwnerIds, ct));
+    }
+
+    /// <summary>The policy with owners as their CURRENT handles (identity = primary device).</summary>
+    private static async Task<BotPolicyResponse> BotPolicyOf(AppDbContext db, string mode, List<Guid>? ownerIds,
+        CancellationToken ct)
+    {
+        if (mode != BotInboundPolicy.ModeOwners || ownerIds is null)
+            return new BotPolicyResponse(BotInboundPolicy.ModeOpen, []);
+        var handles = await db.Devices.Where(d => ownerIds.Contains(d.DeviceId))
+            .OrderBy(d => d.UserHandle).Select(d => d.UserHandle).ToListAsync(ct);
+        return new BotPolicyResponse(mode, handles);
+    }
+
+    private static IResult NotABot(string detail) => Results.Problem(title: "Not a bot", detail: detail,
+        statusCode: StatusCodes.Status403Forbidden,
+        extensions: new Dictionary<string, object?> { ["error"] = "not_a_bot" });
+
+    private static IResult BotPolicyProblem(string error, string detail) => Results.Problem(
+        title: "Invalid bot policy", detail: detail, statusCode: StatusCodes.Status400BadRequest,
+        extensions: new Dictionary<string, object?> { ["error"] = error });
 
     private static async Task<IResult> FindDeviceByHandle(string handle, AppDbContext db, CancellationToken ct)
     {
@@ -627,3 +798,12 @@ public record BotCommandsRequest(List<BotCommandDto?>? Commands);
 public record BotCommandDto(string Command, string Description);
 
 public record BotCommandsResponse(List<BotCommandDto> Commands);
+
+// Owners are nullable entries so a JSON null is our 400, not a binder failure.
+public record BotPolicyRequest(string? Mode, List<string?>? Owners);
+
+public record BotPolicyResponse(string Mode, List<string> Owners);
+
+public record AddOneTimePreKeysRequest(List<OneTimePreKeyInput?>? OneTimePreKeys);
+
+public record OneTimePreKeyCountResponse(int Count);
