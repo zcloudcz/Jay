@@ -2,6 +2,7 @@
 // as a2a_bridge): everything else is unit-tested without a hub.
 import 'package:calltype_bot/calltype_bot.dart';
 
+import 'access.dart';
 import 'bridge.dart';
 import 'history_store.dart';
 
@@ -54,20 +55,25 @@ Future<void> greetOwners({
 
 void _noLog(String _) {}
 
-/// Publishes the "/" menu and starts answering messages of the allowed
-/// owners through [bridge].
+/// Publishes the "/" menu and the server inbound policy, then starts
+/// answering through [bridge].
 ///
 /// [allowedIds]: owner device id (lower-case) -> handle, from
 /// `resolveAllowedHandles`.
 ///
-/// WHY only owners, also in groups, and never other bots: every answer is
-/// paid from the owner's API key or subscription and the history is his
-/// private conversation (spec, fail-closed access). Other senders are
-/// dropped by the runtime BEFORE decryption.
+/// Who is answered (spec 2026-11-09-bot-access, see [LlmAccess]): owners
+/// everywhere; with [groupReplies] `members` any human member of a group
+/// that has an owner in it; other bots only in groups, under the group's
+/// bot-talk setting with an owner as member, capped by [peerTurnsCap].
+/// Everyone else is dropped by the runtime BEFORE decryption.
 Future<void> runJayGlue(
   CallTypeBot bot, {
   required LlmBridge bridge,
   required Map<String, String> allowedIds,
+  GroupReplies groupReplies = GroupReplies.members,
+  int peerTurnsCap = 50,
+  String? inbound,
+  DateTime Function()? now,
   required void Function(String) log,
 }) async {
   try {
@@ -79,22 +85,63 @@ Future<void> runJayGlue(
     // The menu is a convenience; the bot works without it (old server).
     log('Publishing bot commands failed: $e');
   }
+  // A3: the server keeps strangers and owner-less groups away too.
+  await publishInboundPolicy(
+    bot,
+    owners: allowedIds.values,
+    inbound: inbound,
+    log: log,
+  );
+
+  final access = LlmAccess(
+    owners: allowedIds,
+    groupReplies: groupReplies,
+    botTalk: BotTalkPolicy(
+      selfDeviceId: bot.deviceId,
+      ownerIds: allowedIds.keys.toSet(),
+      turnsCap: peerTurnsCap,
+      ownerRule: OwnerRule.member,
+      now: now,
+    ),
+  );
 
   Future<void> handle(BotMessage message) async {
-    final owner = allowedIds[message.senderId.toLowerCase()];
-    if (owner == null) return; // belt and braces; allowSender already said no
-    await bridge.handle(
-      conversationId: message.conversationId,
-      text: message.text,
-      sink: _MessageSink(message),
-      senderLabel: message.isGroup ? owner : null,
-    );
+    GroupInfo? group;
+    final groupId = message.groupId;
+    if (groupId != null) {
+      try {
+        group = await bot.group(groupId);
+      } catch (e) {
+        log('Group $groupId unreadable, message dropped: $e');
+        return;
+      }
+    }
+    switch (access.decide(message.senderId, group)) {
+      case Ignore():
+        return;
+      case BotLimitNotice():
+        // Unquoted on purpose (same as hermes_bridge): a quote addresses
+        // the other bot, which would count the notice as one more turn.
+        await bot.send(to: groupId!, text: BridgeTexts.botLimit);
+        return;
+      case Answer(:final label):
+        await bridge.handle(
+          conversationId: message.conversationId,
+          text: message.text,
+          sink: _MessageSink(message),
+          senderLabel: label,
+        );
+    }
   }
 
   // Reactions: no handler is set, so the runtime acknowledges and ignores
   // them (spec B2).
   await bot.onMessage(
     handle,
-    allowSender: (id) => allowedIds.containsKey(id.toLowerCase()),
+    allowSender: access.allowSender,
+    // WHY a group lookup before decryption: only for senders that are not
+    // owners, cached per group and dropped on the server's group hints.
+    allowGroupSender: (id, groupId) async =>
+        access.admitGroupSender(await bot.group(groupId), id),
   );
 }

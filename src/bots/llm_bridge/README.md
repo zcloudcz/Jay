@@ -15,14 +15,25 @@ Contract: `docs/superpowers/specs/2026-11-09-bot-factory.md`.
 
 - `ALLOWED_HANDLES` is **fail-closed and required**: empty, malformed, or none
   of the handles known to the server = the bridge **refuses to start**
-  (exit 78). Only those owners can talk to the bot; every answer is paid from
-  the owner's key or plan.
-- Messages from anyone else are acknowledged and dropped **before
-  decryption**: no model call, no reply, no typing indicator. Other bots are
-  never answered.
-- In a group, an owner addresses the bot by `@mention` or by replying to it;
-  the answer is visible to **every** member. The model sees
-  `[from CT-XXXX-XXXX]` in front of group messages.
+  (exit 78). Every answer is paid from the owner's key or plan.
+- Who can reach the bot (spec `2026-11-09-bot-access`):
+  1. **Owners**, 1:1 and in groups.
+  2. **Members of a group that has an owner in it** (`GROUP_REPLIES=members`,
+     the default for API keys) when they `@mention` the bot or reply to it.
+     Their questions are paid from the **owner's** key. In a group without
+     an owner the bot stays silent. The CLI (subscription) providers default
+     to `GROUP_REPLIES=owners`, see "Subscription providers" below.
+  3. **Other bots**, only in groups, only where the group's "Bot
+     conversation" setting allows it and an owner is a member, up to the
+     group's turn limit (capped by `PEER_MAX_TURNS_CAP`). Never 1:1.
+- Everyone else is acknowledged and dropped **before decryption**: no model
+  call, no reply, no typing indicator. At start the bot also publishes a
+  server-side inbound policy (owners = the resolved `ALLOWED_HANDLES`), so
+  the server does not even store 1:1 messages from strangers or messages of
+  groups without an owner (`BOT_INBOUND=open` turns that off).
+- In a group the answer quotes the asker and is visible to **every** member.
+  The model sees `[from CT-XXXX-XXXX]` (or `[from Name (bot)]`) in front of
+  group messages; a group has ONE history shared by all its members.
 - Messages are end-to-end encrypted between the owner and **this process**;
   the plaintext of the conversation (the last `LLM_HISTORY_MESSAGES`
   messages and the system prompt) then goes to the chosen provider and
@@ -83,7 +94,10 @@ So the supported path is: **you** install the official CLI on **your**
 machine, sign in through the vendor's own flow (`claude`, `codex login`), and
 this bridge runs that unmodified CLI as a subprocess for **your own**
 messages only. It is personal use; do not make such a bot answer other
-people. For Codex, OpenAI's
+people. That is why the CLI providers default to `GROUP_REPLIES=owners`;
+`GROUP_REPLIES=members` is your explicit choice and your responsibility
+under those terms (and it spends your plan's limits on other people's
+questions). For Codex, OpenAI's
 [authentication docs](https://developers.openai.com/codex/auth) say ChatGPT
 sign-in uses your plan's limits, recommend API key sign-in for programmatic
 workflows such as CI, and ask not to expose Codex execution in untrusted or
@@ -117,6 +131,9 @@ want a bot for more people or for heavy use, use an API key (`anthropic` or
 | `CLAUDE_BIN`, `CODEX_BIN` | no | `claude`, `codex` | CLI path (the setup script writes the absolute path, services have a short `PATH`) |
 | `LLM_CLI_WORKDIR` | no | `<BOT_STORE_PATH>.cli` | empty working directory of the CLI |
 | `BOT_GREETING` | no | `on` | `off` = no first message to the owners |
+| `GROUP_REPLIES` | no | `members` (API keys), `owners` (CLI providers) | `members` = in a group with an owner, any human member who addresses the bot is answered; `owners` = owners only |
+| `BOT_INBOUND` | no | `owners` | server-side inbound policy: `owners` = the server delivers only owners' 1:1 messages and groups with an owner; `open` = everything (the bot still filters) |
+| `PEER_MAX_TURNS_CAP` | no | `50` | ceiling for a bot-only exchange in a group; a group's "max messages" above it is cut down to it |
 
 Exit codes: 78 configuration (nothing to retry; the services do not restart
 on it), 69 Jay API unreachable, 73 history file not writable.
@@ -171,4 +188,5 @@ docker run -d --restart unless-stopped -v jay-bot:/data --env-file bot.env llm-b
 executables (argv, stdin, timeout kill, non-zero exit), the turn logic
 (history cap, `/new`, progress edits, chunking, retry, timeout) and the real
 bot runtime with the calltype_bot test fakes (owner-only before decrypt,
-greeting once).
+group members of owner groups, inbound policy, greeting once). `access_test`
+covers who is answered (A4/A5) without a hub.

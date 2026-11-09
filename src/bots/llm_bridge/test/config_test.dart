@@ -185,4 +185,42 @@ void main() {
       throwsA(isA<ConfigException>()),
     );
   });
+
+  test('bot access: GROUP_REPLIES, BOT_INBOUND, PEER_MAX_TURNS_CAP', () {
+    final cli = {'LLM_PROVIDER': 'claude-cli'};
+    final d = parse(cli);
+    // Subscription CLIs answer only owners unless opted in; API keys
+    // answer members of owner groups by default.
+    expect(d.groupReplies, GroupReplies.owners);
+    expect(
+      parse({
+        'LLM_PROVIDER': 'anthropic',
+        'ANTHROPIC_API_KEY': 'k',
+      }).groupReplies,
+      GroupReplies.members,
+    );
+    expect(
+      parse({...cli, 'GROUP_REPLIES': 'members'}).groupReplies,
+      GroupReplies.members,
+    );
+    expect(d.inbound, isNull);
+    expect(d.peerTurnsCap, 50);
+    final c = parse({
+      ...cli,
+      'GROUP_REPLIES': 'Owners',
+      'BOT_INBOUND': 'open',
+      'PEER_MAX_TURNS_CAP': '0',
+    });
+    expect(c.groupReplies, GroupReplies.owners);
+    expect(c.inbound, 'open');
+    expect(c.peerTurnsCap, 0);
+    expect(
+      () => parse({...cli, 'GROUP_REPLIES': 'all'}),
+      configError('GROUP_REPLIES must be members or owners'),
+    );
+    expect(
+      () => parse({...cli, 'BOT_INBOUND': 'everyone'}),
+      configError('BOT_INBOUND must be owners or open'),
+    );
+  });
 }

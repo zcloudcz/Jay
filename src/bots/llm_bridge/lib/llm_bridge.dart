@@ -5,6 +5,7 @@
 /// bot runtime and is used by `bin/`.
 library;
 
+export 'src/access.dart';
 export 'src/bridge.dart';
 export 'src/cli_providers.dart';
 export 'src/config.dart';

@@ -91,7 +91,15 @@ Future<void> main() async {
     progressAfter: config.progressAfter,
     log: log,
   );
-  await runJayGlue(bot, bridge: bridge, allowedIds: allowedIds, log: log);
+  await runJayGlue(
+    bot,
+    bridge: bridge,
+    allowedIds: allowedIds,
+    groupReplies: config.groupReplies,
+    peerTurnsCap: config.peerTurnsCap,
+    inbound: config.inbound,
+    log: log,
+  );
   log('Connected. Waiting for messages.');
 
   if (config.greeting) {

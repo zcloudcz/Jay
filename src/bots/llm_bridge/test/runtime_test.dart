@@ -105,6 +105,65 @@ void main() {
     },
   );
 
+  test('publishes the inbound policy: owners = the resolved handles', () {
+    expect(api.botPolicies[FakeApi.botId], {
+      'mode': 'owners',
+      'owners': ['CT-AAAA-0001'],
+    });
+  });
+
+  group('groups (bot-access A4)', () {
+    const withOwner = '00000000-0000-4000-8000-0000000000c1';
+    const withoutOwner = '00000000-0000-4000-8000-0000000000c2';
+    late FakeUser other;
+
+    setUp(() async {
+      other = await FakeUser.create('00000000-0000-4000-8000-00000000000f');
+      api.keyBundles[other.id] = await other.keyBundle();
+      api.groups[withOwner] = [owner.id, stranger.id, bot.deviceId];
+      api.groups[withoutOwner] = [stranger.id, other.id, bot.deviceId];
+      api.memberFields[stranger.id] = {'userHandle': 'CT-MEMB-0002'};
+    });
+    tearDown(() => other.close());
+
+    Future<void> say(FakeUser from, String group, String text) async {
+      final before = hub.calls('AcknowledgeMessage').length;
+      hub.deliver(
+        await from.messageTo(
+          bot.deviceId,
+          api.botBundle,
+          '@${bot.handle} $text',
+          groupId: group,
+        ),
+      );
+      await until(() => hub.calls('AcknowledgeMessage').length == before + 1);
+    }
+
+    test('a member of a group with the owner is answered, labelled', () async {
+      provider.scripts.add(() => answer(['Ahoj']));
+      await say(stranger, withOwner, 'kolik je hodin?');
+      expect(
+        provider.calls.single.conversation.single.text,
+        '[from CT-MEMB-0002] @${bot.handle} kolik je hodin?',
+      );
+      final sent = hub.calls('SendReliableGroupFanout').single;
+      final payload = await stranger.readPayload(
+        bot.deviceId,
+        (sent[3] as Map<String, String>)[stranger.id]!,
+      );
+      expect(payload['body'], 'Ahoj');
+      // The reply quotes the asker, like an answer to an owner.
+      expect((payload['replyTo'] as Map)['senderId'], stranger.id);
+    });
+
+    test('the same member in a group without an owner gets nothing', () async {
+      await say(stranger, withoutOwner, 'hello?');
+      expect(provider.calls, isEmpty);
+      expect(hub.calls('SendReliableGroupFanout'), isEmpty);
+      expect(hub.calls('TypingIndicator'), isEmpty);
+    });
+  });
+
   test('greeting goes to each owner exactly once, across restarts', () async {
     Future<void> greet(HistoryStore s) => greetOwners(
       handles: ['CT-AAAA-0001'],

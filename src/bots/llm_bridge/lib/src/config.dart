@@ -2,6 +2,8 @@
 /// fail-closed rules are unit-tested.
 library;
 
+import 'access.dart' show GroupReplies;
+
 /// A configuration error: the process exits with EX_CONFIG and this text.
 class ConfigException implements Exception {
   const ConfigException(this.message);
@@ -90,6 +92,9 @@ class LlmConfig {
     this.cliBinary,
     this.cliWorkDir,
     this.greeting = true,
+    this.groupReplies = GroupReplies.members,
+    this.inbound,
+    this.peerTurnsCap = 50,
   });
 
   final String apiUrl;
@@ -125,6 +130,16 @@ class LlmConfig {
 
   /// Send the one-time "Ahoj, jsem ..." greeting to the owners.
   final bool greeting;
+
+  /// `GROUP_REPLIES`: who besides the owners is answered in groups.
+  final GroupReplies groupReplies;
+
+  /// `BOT_INBOUND` as given (`owners` default, `open`), see
+  /// `publishInboundPolicy`.
+  final String? inbound;
+
+  /// `PEER_MAX_TURNS_CAP`: ceiling for a bot-only exchange in a group.
+  final int peerTurnsCap;
 
   /// The path of the encrypted history/greeting store next to the identity.
   String get statePath => '$storePath.llm';
@@ -249,6 +264,28 @@ class LlmConfig {
       );
     }
 
+    // WHY the CLI providers default to owners: they run on the owner's
+    // personal subscription, which the vendors' terms cover for his own use
+    // (README "Subscription providers"). Answering other group members is
+    // an explicit opt-in there; API keys default to members (bot-access A4).
+    final cli =
+        provider == LlmProviderKind.claudeCli ||
+        provider == LlmProviderKind.codexCli;
+    final groupRepliesRaw =
+        opt('GROUP_REPLIES') ?? (cli ? 'owners' : 'members');
+    final groupReplies =
+        GroupReplies.parse(groupRepliesRaw) ??
+        (throw ConfigException(
+          'GROUP_REPLIES must be members or owners, got "$groupRepliesRaw".',
+        ));
+    final inbound = opt('BOT_INBOUND');
+    if (inbound != null &&
+        !const {'open', 'owners'}.contains(inbound.toLowerCase())) {
+      throw ConfigException(
+        'BOT_INBOUND must be owners or open, got "$inbound".',
+      );
+    }
+
     return LlmConfig(
       apiUrl: httpUrl('CALLTYPE_API_URL', required('CALLTYPE_API_URL')),
       storePath: storePath,
@@ -274,6 +311,9 @@ class LlmConfig {
       cliBinary: cliBinary,
       cliWorkDir: cliWorkDir,
       greeting: const {'on', 'true', '1'}.contains(greetingRaw),
+      groupReplies: groupReplies,
+      inbound: inbound,
+      peerTurnsCap: positive('PEER_MAX_TURNS_CAP', 50, min: 0),
     );
   }
 }

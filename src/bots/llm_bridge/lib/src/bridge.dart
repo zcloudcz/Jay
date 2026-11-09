@@ -71,6 +71,9 @@ abstract final class BridgeTexts {
       'of this chat.';
   static const empty = '(The model sent an empty reply.)';
 
+  /// Bot talk hit the group's limit (same text as hermes_bridge).
+  static const botLimit = 'Bot limit reached, waiting for a human.';
+
   /// The one-time first message to each owner (spec B4), Czech first: the
   /// owner base is Czech, the second line serves everyone else.
   static String greeting(String name) =>
@@ -135,8 +138,9 @@ class LlmBridge {
   final void Function(String) log;
 
   /// Answers [text] from conversation [conversationId] into [sink].
-  /// [senderLabel] (a handle) is prefixed in groups so the model knows who
-  /// of several owners is speaking.
+  /// [senderLabel] (a handle or name, `(bot)` for bots) is prefixed in
+  /// groups so the model knows who of several members is speaking; the
+  /// history of a group is shared by all its members.
   Future<void> handle({
     required String conversationId,
     required String text,
