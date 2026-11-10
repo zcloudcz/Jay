@@ -12,7 +12,7 @@ dependencies:
   calltype_bot:
     path: ../calltype_bot
   dio: ^5.9.2
-  crypto: ^3.0.7
+  crypto: ^3.0.8
   drift: ^2.33.0
 
 dev_dependencies:
@@ -20,5 +20,5 @@ dev_dependencies:
   # real bridge rules against the local API.
   hermes_bridge:
     path: ../hermes_bridge
-  test: ^1.25.0
+  test: ^1.33.0
   lints: ^6.0.0
