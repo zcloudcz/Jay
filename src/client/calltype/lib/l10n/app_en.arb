@@ -2190,5 +2190,21 @@
   "chatListRowActions": "Chat actions",
   "@chatListRowActions": {
     "description": "Tooltip of the per-row overflow button in the chat list on wide screens (mute, delete, leave, delete contact)."
+  },
+  "chatLinkOpen": "Open link",
+  "@chatLinkOpen": {
+    "description": "Link sheet entry (long press on a link in a message): open the link in the browser or mail app."
+  },
+  "chatLinkCopy": "Copy link",
+  "@chatLinkCopy": {
+    "description": "Link sheet entry: copy the link text to the clipboard."
+  },
+  "chatLinkCopied": "Link copied",
+  "@chatLinkCopied": {
+    "description": "Snackbar after a link from a message was copied."
+  },
+  "chatLinkOpenFailed": "Could not open the link",
+  "@chatLinkOpenFailed": {
+    "description": "Snackbar when the browser or mail app could not be opened for a link in a message."
   }
 }

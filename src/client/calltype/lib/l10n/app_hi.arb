@@ -843,5 +843,9 @@
   "contactDeleteBody": "{name} को इस डिवाइस और आपके अन्य डिवाइस पर आपके संपर्कों से हटा दिया जाता है। उन्हें ब्लॉक नहीं किया गया है और वे अब भी आपको लिख सकते हैं।",
   "contactDeleteAlsoChat": "चैट भी हटाएँ",
   "contactDeleted": "संपर्क हटा दिया गया",
-  "chatListRowActions": "चैट कार्रवाइयाँ"
+  "chatListRowActions": "चैट कार्रवाइयाँ",
+  "chatLinkOpen": "लिंक खोलें",
+  "chatLinkCopy": "लिंक कॉपी करें",
+  "chatLinkCopied": "लिंक कॉपी किया गया",
+  "chatLinkOpenFailed": "लिंक नहीं खुल सका"
 }

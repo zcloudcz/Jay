@@ -843,5 +843,9 @@
   "contactDeleteBody": "{name} bu cihazda ve diğer cihazlarınızda kişilerinizden kaldırılır. Engellenmez ve size yazmaya devam edebilir.",
   "contactDeleteAlsoChat": "Sohbeti de sil",
   "contactDeleted": "Kişi silindi",
-  "chatListRowActions": "Sohbet işlemleri"
+  "chatListRowActions": "Sohbet işlemleri",
+  "chatLinkOpen": "Bağlantıyı aç",
+  "chatLinkCopy": "Bağlantıyı kopyala",
+  "chatLinkCopied": "Bağlantı kopyalandı",
+  "chatLinkOpenFailed": "Bağlantı açılamadı"
 }

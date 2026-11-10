@@ -843,5 +843,9 @@
   "contactDeleteBody": "{name} буде видалено з ваших контактів на цьому пристрої та на інших ваших пристроях. Його не заблоковано, і він може й далі вам писати.",
   "contactDeleteAlsoChat": "Видалити також чат",
   "contactDeleted": "Контакт видалено",
-  "chatListRowActions": "Дії з чатом"
+  "chatListRowActions": "Дії з чатом",
+  "chatLinkOpen": "Відкрити посилання",
+  "chatLinkCopy": "Копіювати посилання",
+  "chatLinkCopied": "Посилання скопійовано",
+  "chatLinkOpenFailed": "Не вдалося відкрити посилання"
 }

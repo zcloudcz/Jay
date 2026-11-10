@@ -843,5 +843,9 @@
   "contactDeleteBody": "{name} bude odstránený z vašich kontaktov na tomto zariadení aj na vašich ďalších zariadeniach. Nie je zablokovaný a môže vám ďalej písať.",
   "contactDeleteAlsoChat": "Zmazať aj chat",
   "contactDeleted": "Kontakt zmazaný",
-  "chatListRowActions": "Akcie chatu"
+  "chatListRowActions": "Akcie chatu",
+  "chatLinkOpen": "Otvoriť odkaz",
+  "chatLinkCopy": "Kopírovať odkaz",
+  "chatLinkCopied": "Odkaz skopírovaný",
+  "chatLinkOpenFailed": "Odkaz sa nepodarilo otvoriť"
 }

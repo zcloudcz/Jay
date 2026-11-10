@@ -843,5 +843,9 @@
   "contactDeleteBody": "{name} wordt uit je contacten verwijderd op dit apparaat en je andere apparaten. Deze persoon is niet geblokkeerd en kan je nog steeds schrijven.",
   "contactDeleteAlsoChat": "Ook de chat verwijderen",
   "contactDeleted": "Contact verwijderd",
-  "chatListRowActions": "Chatacties"
+  "chatListRowActions": "Chatacties",
+  "chatLinkOpen": "Link openen",
+  "chatLinkCopy": "Link kopiëren",
+  "chatLinkCopied": "Link gekopieerd",
+  "chatLinkOpenFailed": "Kan de link niet openen"
 }

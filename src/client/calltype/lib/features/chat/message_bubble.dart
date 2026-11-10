@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import 'link_text.dart';
 import 'reaction_widgets.dart';
 import 'reactions.dart';
 
@@ -55,7 +56,12 @@ class MessageBubble extends StatelessWidget {
     this.pickEmoji = showReactionEmojiPicker,
     this.outlineColor,
     this.quoteAccent,
+    this.launchLink,
   });
+
+  /// Opens a tapped link; null = the system browser / mail app (a test
+  /// seam, spec 2026-11-10-clickable-links D8).
+  final LinkLauncher? launchLink;
 
   /// A 1.5 px outline in this color (a group member's color, spec
   /// 2026-11-09-participant-colors D1). Null = no outline, as before.
@@ -200,6 +206,9 @@ class MessageBubble extends StatelessWidget {
     final textColor = isMine
         ? colorScheme.onPrimaryContainer
         : colorScheme.onSurface;
+    // Own bubble: the text color the theme pairs with primaryContainer, the
+    // underline marks the link; others: primary (spec D12).
+    final linkColor = isMine ? textColor : colorScheme.primary;
 
     // WHY a visible button and not just a gesture: in a browser the right
     // mouse button belongs to the browser's own context menu and nobody
@@ -356,22 +365,32 @@ class MessageBubble extends StatelessWidget {
                                 content!,
                                 Padding(
                                   padding: const EdgeInsets.only(top: 6),
-                                  child: Text(
+                                  child: LinkifiedText(
                                     caption!,
                                     style: theme.textTheme.bodyMedium?.copyWith(
                                       color: textColor,
                                     ),
+                                    linkColor: linkColor,
+                                    launcher: launchLink,
+                                    onLongPressOutsideLink: hasMenu
+                                        ? () => _showSheet(context)
+                                        : null,
                                   ),
                                 ),
                               ],
                             )
                           else
                             content ??
-                                Text(
+                                LinkifiedText(
                                   text,
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     color: textColor,
                                   ),
+                                  linkColor: linkColor,
+                                  launcher: launchLink,
+                                  onLongPressOutsideLink: hasMenu
+                                      ? () => _showSheet(context)
+                                      : null,
                                 ),
                           if (buttons.isNotEmpty && !deleted)
                             Padding(

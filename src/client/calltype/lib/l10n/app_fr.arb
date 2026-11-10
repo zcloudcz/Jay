@@ -843,5 +843,9 @@
   "contactDeleteBody": "{name} est retiré de vos contacts sur cet appareil et sur vos autres appareils. Cette personne n'est pas bloquée et peut toujours vous écrire.",
   "contactDeleteAlsoChat": "Supprimer aussi la discussion",
   "contactDeleted": "Contact supprimé",
-  "chatListRowActions": "Actions de la discussion"
+  "chatListRowActions": "Actions de la discussion",
+  "chatLinkOpen": "Ouvrir le lien",
+  "chatLinkCopy": "Copier le lien",
+  "chatLinkCopied": "Lien copié",
+  "chatLinkOpenFailed": "Impossible d'ouvrir le lien"
 }

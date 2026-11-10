@@ -843,5 +843,9 @@
   "contactDeleteBody": "{name} se elimina de tus contactos en este dispositivo y en tus otros dispositivos. No queda bloqueado y puede seguir escribiéndote.",
   "contactDeleteAlsoChat": "Eliminar también el chat",
   "contactDeleted": "Contacto eliminado",
-  "chatListRowActions": "Acciones del chat"
+  "chatListRowActions": "Acciones del chat",
+  "chatLinkOpen": "Abrir enlace",
+  "chatLinkCopy": "Copiar enlace",
+  "chatLinkCopied": "Enlace copiado",
+  "chatLinkOpenFailed": "No se pudo abrir el enlace"
 }

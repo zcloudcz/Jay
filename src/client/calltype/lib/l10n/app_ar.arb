@@ -843,5 +843,9 @@
   "contactDeleteBody": "تتم إزالة {name} من جهات اتصالك على هذا الجهاز وعلى أجهزتك الأخرى. لا يتم حظره ويمكنه مواصلة مراسلتك.",
   "contactDeleteAlsoChat": "حذف الدردشة أيضًا",
   "contactDeleted": "تم حذف جهة الاتصال",
-  "chatListRowActions": "إجراءات الدردشة"
+  "chatListRowActions": "إجراءات الدردشة",
+  "chatLinkOpen": "فتح الرابط",
+  "chatLinkCopy": "نسخ الرابط",
+  "chatLinkCopied": "تم نسخ الرابط",
+  "chatLinkOpenFailed": "تعذّر فتح الرابط"
 }

@@ -6,6 +6,7 @@ import 'package:calltype/features/channels/channel_screen.dart';
 import 'package:calltype/features/channels/channels_controller.dart';
 import 'package:calltype/features/channels/updates_screen.dart';
 import 'package:calltype/features/chat/attachment_media.dart';
+import 'package:calltype/features/chat/link_text.dart';
 import 'package:calltype/features/contacts/contacts_controller.dart';
 import 'package:calltype_core/network/channel_dtos.dart';
 import 'package:drift/drift.dart' show Value;
@@ -119,6 +120,34 @@ void main() {
     expect(bytes.length, lessThanOrEqualTo(channelImageMaxBytes));
     expect(h.api.calls, contains('post c1 image'));
     debugDefaultTargetPlatformOverride = null;
+    await tearDownHarness(tester, h);
+  });
+
+  testWidgets('a link in a channel post opens on tap', (tester) async {
+    final launched = <Uri>[];
+    debugLinkLauncherOverride = (uri) async {
+      launched.add(uri);
+      return true;
+    };
+    addTearDown(() => debugLinkLauncherOverride = null);
+    final h = await pumpWithChannel(
+      tester,
+      const ChannelScreen(channelId: 'c1'),
+    );
+    await tester.runAsync(
+      () => h.emitPost(postEvent('p1')..['body'] = 'https://a.cz/news'),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pump();
+    final post = find.widgetWithText(LinkifiedText, 'https://a.cz/news');
+    expect(post, findsOneWidget);
+    await tester.tap(
+      find.descendant(of: post, matching: find.byType(SelectableText)),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(launched, [Uri.parse('https://a.cz/news')]);
     await tearDownHarness(tester, h);
   });
 

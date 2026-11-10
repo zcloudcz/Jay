@@ -12,6 +12,7 @@ import '../../l10n/l10n.dart';
 import '../../shared/widgets/bot_badge.dart';
 import '../chat/attachment_media.dart';
 import '../chat/attachment_sheet.dart';
+import '../chat/link_text.dart';
 import 'channel_moderation.dart';
 import 'channel_notice.dart';
 import 'channels_controller.dart';
@@ -197,7 +198,11 @@ class _PostCard extends StatelessWidget {
             else if (post.body.isNotEmpty)
               Padding(
                 padding: const EdgeInsetsDirectional.only(end: 8, top: 4),
-                child: SelectableText(post.body),
+                child: LinkifiedText(
+                  post.body,
+                  linkColor: theme.colorScheme.primary,
+                  selectable: true,
+                ),
               ),
             Row(
               children: [

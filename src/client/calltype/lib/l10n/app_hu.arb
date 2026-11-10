@@ -843,5 +843,9 @@
   "contactDeleteBody": "{name} törlődik a névjegyeid közül ezen az eszközön és a többi eszközödön. Nincs letiltva, továbbra is írhat neked.",
   "contactDeleteAlsoChat": "A csevegés törlése is",
   "contactDeleted": "Névjegy törölve",
-  "chatListRowActions": "Csevegési műveletek"
+  "chatListRowActions": "Csevegési műveletek",
+  "chatLinkOpen": "Link megnyitása",
+  "chatLinkCopy": "Link másolása",
+  "chatLinkCopied": "Link másolva",
+  "chatLinkOpenFailed": "Nem sikerült megnyitni a linket"
 }

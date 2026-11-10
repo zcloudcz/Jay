@@ -843,5 +843,9 @@
   "contactDeleteBody": "{name} は、このデバイスとほかのデバイスの連絡先から削除されます。ブロックはされず、引き続きメッセージを送ることができます。",
   "contactDeleteAlsoChat": "チャットも削除",
   "contactDeleted": "連絡先を削除しました",
-  "chatListRowActions": "チャットの操作"
+  "chatListRowActions": "チャットの操作",
+  "chatLinkOpen": "リンクを開く",
+  "chatLinkCopy": "リンクをコピー",
+  "chatLinkCopied": "リンクをコピーしました",
+  "chatLinkOpenFailed": "リンクを開けませんでした"
 }

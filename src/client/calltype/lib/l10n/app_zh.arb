@@ -843,5 +843,9 @@
   "contactDeleteBody": "{name} 将从此设备和你其他设备上的联系人中移除。对方不会被屏蔽，仍然可以给你发消息。",
   "contactDeleteAlsoChat": "同时删除聊天",
   "contactDeleted": "联系人已删除",
-  "chatListRowActions": "聊天操作"
+  "chatListRowActions": "聊天操作",
+  "chatLinkOpen": "打开链接",
+  "chatLinkCopy": "复制链接",
+  "chatLinkCopied": "链接已复制",
+  "chatLinkOpenFailed": "无法打开链接"
 }

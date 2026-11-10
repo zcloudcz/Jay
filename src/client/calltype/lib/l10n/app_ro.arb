@@ -843,5 +843,9 @@
   "contactDeleteBody": "{name} este eliminat din contactele tale pe acest dispozitiv și pe celelalte dispozitive ale tale. Nu este blocat și îți poate scrie în continuare.",
   "contactDeleteAlsoChat": "Șterge și conversația",
   "contactDeleted": "Contact șters",
-  "chatListRowActions": "Acțiuni pentru conversație"
+  "chatListRowActions": "Acțiuni pentru conversație",
+  "chatLinkOpen": "Deschide linkul",
+  "chatLinkCopy": "Copiază linkul",
+  "chatLinkCopied": "Link copiat",
+  "chatLinkOpenFailed": "Linkul nu a putut fi deschis"
 }
