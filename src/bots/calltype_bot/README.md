@@ -148,6 +148,53 @@ Spec `docs/superpowers/specs/2026-11-08-chat-extras.md`.
   ignored; they never reach a handler. Bots cannot create polls, vote or pin
   in v1.
 
+### Files: voice messages, images, any file
+
+Encrypted media (`type: text` + `media` object, spec 2026-11-07-encrypted-media) arrives as a normal `BotMessage`
+with `attachment` set; `text` stays the sender's fallback body, so text-only bots behave as before. Old inline
+`type: file` messages (`{name, data, caption?}`, up to 256 KiB) reach the handler only with
+`onMessage(..., receiveFiles: true)`; their `text` is the caption or `''`.
+
+```dart
+await bot.onMessage((m) async {
+  final a = m.attachment;
+  if (a == null) return;
+  // a.kind (MediaKind.voice/image/audio/video/file), a.name, a.mime, a.size,
+  // a.duration, a.caption, a.expiresAt, a.width/height, a.isInline
+  final file = await a.saveTo('/tmp/${a.name}', maxBytes: 50 << 20);
+  final small = await a.readBytes(maxBytes: 5 << 20); // e.g. an image
+}, receiveFiles: true);
+```
+
+Nothing is downloaded until `saveTo`/`readBytes`. `saveTo` streams `GET /media/{id}` through calltype_core's
+`MediaCipher` (4 MiB AES-256-GCM chunks, the app's code) into `<path>.part`, verifies the SHA-256 and renames; on any
+error the partial file is deleted. Errors: `BotMediaTooLarge` (before any request), `BotMediaExpired` (404/410),
+`MediaTampered`, `MediaHashMismatch`. An invalid `media` object leaves a plain text message (never dropped).
+
+### Sending files and voice messages
+
+```dart
+await bot.sendFile(to: 'CT-XXXX-XXXX', path: '/tmp/report.pdf', caption: 'November');
+await bot.sendFile(to: groupId, path: '/tmp/reply.mp3', kind: MediaKind.voice);
+await message.replyFile('/tmp/chart.png'); // in a group it quotes the message, like reply()
+```
+
+The file is encrypted with a fresh key in calltype_core's `MediaCipher` format (4 MiB AES-256-GCM chunks, the app's
+code), read from disk chunk by chunk while the plaintext SHA-256 is computed, and uploaded through the media relay
+(`POST /media`, `PUT /media/{id}/chunks/{i}` with retries on 5xx/429, `POST /media/{id}/complete`; a failure withdraws
+the upload with `DELETE`). The message is `type: text` with the app's English fallback body plus the `media` object.
+Small images (JPEG/PNG/GIF/WebP up to 256 KiB) go inline as `type: file` like the app's photos
+(`inlineSmallImages: false` forces the media path).
+
+`kind` defaults from the name / MIME type; `MediaKind.voice` only when asked. With ffmpeg (`bot.mediaTools`, default
+`ffmpeg`/`ffprobe` on PATH, `BotMediaTools.disabled()` turns it off) a voice message is converted to AAC-LC mono
+44.1 kHz `.m4a` (`audio/mp4`, what the app records and plays on every platform) and gets `durationMs` and a 64-bar
+`waveform` (the app's dBFS -50..0 scale); images and videos get width, height, duration and a JPEG thumbnail
+(<= 320 px, <= 24 KiB). Without ffmpeg the file goes as it is (MP3 and M4A play everywhere; OGG/Opus not on iOS).
+Errors: `ArgumentError` (missing file), `BotMediaTooLarge` (over `bot.maxFileBytes`, default 5 GiB - 1 MiB, before any
+request), `BotMediaRefused` (server 4xx/503 with its code: `media_too_large`, `media_quota_exceeded`,
+`media_rate_limited`, `media_storage_full`), `BotSendException` (unknown target).
+
 ## What the runtime guarantees
 
 - **Registration** with `isBot: true` on first start; identity is reused afterwards.

@@ -10,6 +10,8 @@ import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/devices/fanout_sender.dart';
+import 'package:calltype_core/media/media_info.dart';
+import 'package:calltype_core/network/media_api.dart';
 import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:calltype_core/messaging/poll.dart';
 import 'package:calltype_core/messaging/reaction.dart';
@@ -24,10 +26,17 @@ import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
+import 'src/attachment.dart';
 import 'src/encrypted_file_store.dart';
 import 'src/group_info.dart';
+import 'src/media_tools.dart';
+import 'src/media_upload.dart';
 import 'src/ws_hub_transport.dart';
 
+export 'package:calltype_core/media/media_crypto.dart'
+    show MediaHashMismatch, MediaTampered;
+export 'package:calltype_core/media/media_info.dart'
+    show MediaKind, formatMediaDuration, formatMediaSize;
 export 'package:calltype_core/messaging/agent_payload.dart'
     show ActionRef, MessageButton, maxActionId, maxActionLabel, maxActions;
 export 'package:calltype_core/messaging/reaction.dart'
@@ -44,9 +53,12 @@ export 'package:calltype_core/network/bot_dtos.dart' show BotCommand;
 export 'package:calltype_core/network/group_dtos.dart'
     show BotTalkMode, BotTalkSettings, MuteMode, MuteSetting;
 export 'src/bot_talk.dart';
+export 'src/attachment.dart';
 export 'src/encrypted_file_store.dart';
 export 'src/inbound_policy.dart';
 export 'src/group_info.dart';
+export 'src/media_tools.dart';
+export 'src/media_upload.dart';
 export 'src/ws_hub_transport.dart';
 
 typedef BotMessageHandler = Future<void> Function(BotMessage message);
@@ -165,6 +177,7 @@ class BotMessage {
     this.replyTo,
     this.action,
     this.poll,
+    this.attachment,
   }) : _groupName = groupName,
        _textMentionsBot = textMentionsBot,
        _ackSenderId = ackSenderId;
@@ -205,6 +218,14 @@ class BotMessage {
   /// which is what a bot that ignores this field works with. Votes
   /// (`poll-vote`) and pins (`pin`) never reach the handler.
   final PollPayload? poll;
+
+  /// A file that came with the message (voice message, image, audio,
+  /// video, any file), or null. For an encrypted media message [text] is
+  /// the sender's fallback body (what an old client shows, caption on its
+  /// own line), so a text-only handler keeps working; for an inline `file`
+  /// message (only with `receiveFiles`, see [CallTypeBot.onMessage]) it is
+  /// the caption or ''. Nothing is downloaded until the handler asks.
+  final BotAttachment? attachment;
 
   /// The structured mentions name the bot, or the text says `@handle` /
   /// `@display name` (fallback for clients without structured mentions).
@@ -256,6 +277,36 @@ class BotMessage {
 
   /// Removes the bot's reaction from this message.
   Future<void> removeReaction() => react('');
+
+  /// Sends the file at [path] back into this conversation, quoting this
+  /// message in a group like [reply]. Options as in [CallTypeBot.sendFile].
+  Future<BotSentMessage> replyFile(
+    String path, {
+    MediaKind? kind,
+    String? caption,
+    String? name,
+    String? mime,
+    int? durationMs,
+    Uint8List? waveform,
+    Uint8List? thumbnail,
+    bool inlineSmallImages = true,
+  }) => _bot._sendFile(
+    conversationId,
+    path,
+    kind: kind,
+    caption: caption,
+    name: name,
+    mime: mime,
+    durationMs: durationMs,
+    waveform: waveform,
+    thumbnail: thumbnail,
+    inlineSmallImages: inlineSmallImages,
+    groupId: isGroup ? conversationId : null,
+    groupName: _groupName,
+    replyTo: isGroup
+        ? BotReplyRef(id: id, senderId: senderId, preview: _preview(text))
+        : null,
+  );
 }
 
 /// Characters of a sent message the bot remembers for [BotReaction.targetText].
@@ -392,6 +443,7 @@ class CallTypeBot {
   BotMessageHandler? _handler;
   BotMessageHandler? _actionHandler;
   BotReactionHandler? _reactionHandler;
+  bool _receiveFiles = false;
 
   /// Ids of messages this bot sent WITH buttons (lower-case). Mirrored in
   /// `backupState` as `sent-actions:<id>` so a press after a restart is still
@@ -578,12 +630,21 @@ class CallTypeBot {
   /// so a bot can admit other bots of groups it is in without knowing them in
   /// advance; the final decision still belongs to the handler, which sees the
   /// authenticated group id.
+  ///
+  /// Encrypted media messages (voice, images, files; spec
+  /// 2026-11-07-encrypted-media) always reach [handler] with
+  /// [BotMessage.attachment] set; they are `text` on the wire, so older
+  /// runtimes already delivered their fallback text. Old inline `type: file`
+  /// messages reach it only with [receiveFiles] (older runtimes acked and
+  /// ignored them, and a text-only bot would get an empty text).
   Future<void> onMessage(
     BotMessageHandler handler, {
     bool Function(String senderId)? allowSender,
     GroupSenderCheck? allowGroupSender,
+    bool receiveFiles = false,
   }) async {
     _handler = handler;
+    _receiveFiles = receiveFiles;
     _allowSender = allowSender;
     _allowGroupSender = allowGroupSender;
     if (_subscription == null) {
@@ -816,6 +877,68 @@ class CallTypeBot {
       groupName: target.groupName,
     );
   }
+
+  /// Sends the file at [path] to [to] (a handle or a group id, as [send]).
+  ///
+  /// Encrypted media (contract 2026-11-07-encrypted-media): the file is
+  /// encrypted with a fresh key in the app's chunk format (calltype_core
+  /// `MediaCipher`), streamed from disk to the media relay, and the message
+  /// carries the key (`type: text` + English fallback body + `media`).
+  /// Small images (JPEG, PNG, GIF, WebP up to 256 KiB) go inline as an old
+  /// `type: file` message instead, like the app's photos, so they show
+  /// without a download tap; [inlineSmallImages] false forces the media
+  /// path.
+  ///
+  /// [kind] defaults to what the name / MIME type say ([MediaKind.voice]
+  /// only when asked for). A voice message is converted with [mediaTools]
+  /// (ffmpeg) to AAC-LC mono `.m4a`, the format the app records and plays
+  /// everywhere; without ffmpeg the file goes as it is (MP3 and M4A play on
+  /// every client). Duration, waveform, dimensions and a thumbnail are
+  /// added when ffmpeg is there and the caller did not pass them.
+  ///
+  /// Throws [ArgumentError] for a missing file, [BotMediaTooLarge] above
+  /// [maxFileBytes] (default: the client cap of 5 GiB - 1 MiB),
+  /// [BotMediaRefused] when the server refuses (size cap, quota) and
+  /// [BotSendException] for an unknown target.
+  Future<BotSentMessage> sendFile({
+    required String to,
+    required String path,
+    MediaKind? kind,
+    String? caption,
+    String? name,
+    String? mime,
+    int? durationMs,
+    Uint8List? waveform,
+    Uint8List? thumbnail,
+    bool inlineSmallImages = true,
+  }) async {
+    if (!await File(path).exists()) {
+      throw ArgumentError.value(path, 'path', 'no such file');
+    }
+    final target = await _resolveTarget(to);
+    return _sendFile(
+      target.conversationId,
+      path,
+      kind: kind,
+      caption: caption,
+      name: name,
+      mime: mime,
+      durationMs: durationMs,
+      waveform: waveform,
+      thumbnail: thumbnail,
+      inlineSmallImages: inlineSmallImages,
+      groupId: target.groupId,
+      groupName: target.groupName,
+    );
+  }
+
+  /// ffmpeg / ffprobe for outgoing media (voice conversion, waveform,
+  /// thumbnails). Defaults to the binaries on PATH; replace it to point at
+  /// other binaries or with [BotMediaTools.disabled].
+  BotMediaTools mediaTools = BotMediaTools();
+
+  /// Largest file [sendFile] uploads (plaintext bytes).
+  int maxFileBytes = mediaMaxBytes;
 
   /// Removes the bot's reaction from [targetMessageId] (an empty emoji).
   Future<void> removeReaction({
@@ -1114,14 +1237,31 @@ class CallTypeBot {
       );
       return;
     }
-    // Text only. Other types (also `edit`: a bot keeps no history to edit,
+    // Text, media (`text` + `media` object) and, when asked for, inline
+    // files. Other types (also `edit`: a bot keeps no history to edit,
     // `delete`, and the chat extras `pin` / `poll-vote`, spec 2026-11-08)
     // are acknowledged and ignored.
-    if ((payload['type'] ?? 'text') != 'text') {
+    final type = payload['type'] ?? 'text';
+    BotAttachment? attachment;
+    var body = payload['body'] as String;
+    if ((type == 'text' || type == 'media') && payload['media'] != null) {
+      // An invalid `media` object leaves the fallback text, never drops the
+      // message (contract section 3).
+      attachment = BotAttachment.fromMedia(payload['media'], _fetchMedia);
+    } else if (type == 'file' && _receiveFiles) {
+      attachment = BotAttachment.fromInlineBody(body);
+      if (attachment == null) {
+        if (_reportedFailures.add(messageId)) {
+          _log('Dropped invalid inline file $messageId from $senderId');
+        }
+        await _ack(senderId, messageId);
+        return;
+      }
+      body = attachment.caption ?? '';
+    } else if (type != 'text') {
       await _ack(senderId, messageId);
       return;
     }
-    final body = payload['body'] as String;
     final groupName = payload['groupName'] as String?;
     final message = BotMessage._(
       this,
@@ -1145,6 +1285,7 @@ class CallTypeBot {
       poll: payload['media'] == null
           ? PollPayload.tryParse(payload[pollKey])
           : null,
+      attachment: attachment,
     );
     // In groups the bot speaks only when addressed: mentioned, or replied
     // to (which a button press always is). Everything else is acknowledged
@@ -1306,6 +1447,11 @@ class CallTypeBot {
     await (_db.delete(_db.backupState)..where((r) => r.key.isIn(drop))).go();
   }
 
+  /// GET /media/{id} for [BotAttachment]: the encrypted stream. Outside the
+  /// crypto queue: a download never touches ratchet state.
+  Future<MediaDownload> _fetchMedia(String mediaId) =>
+      _api.downloadMedia(mediaId);
+
   Future<bool> _isOwnButtonMessage(String messageId) async {
     final id = messageId.toLowerCase();
     if (_sentWithActions.contains(id)) return true;
@@ -1434,6 +1580,179 @@ class CallTypeBot {
       groupId: groupId,
       groupName: groupName,
     );
+  }
+
+  static const _inlineImageMimes = {
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+  };
+
+  Future<BotSentMessage> _sendFile(
+    String conversationId,
+    String path, {
+    MediaKind? kind,
+    String? caption,
+    String? name,
+    String? mime,
+    int? durationMs,
+    Uint8List? waveform,
+    Uint8List? thumbnail,
+    bool inlineSmallImages = true,
+    String? groupId,
+    String? groupName,
+    BotReplyRef? replyTo,
+  }) async {
+    var file = File(path);
+    if (!await file.exists()) {
+      throw ArgumentError.value(path, 'path', 'no such file');
+    }
+    var fileName = name ?? file.uri.pathSegments.last;
+    if (!isValidMediaName(fileName)) {
+      final cleaned = fileName
+          .replaceAll(
+            RegExp('[/\\\\\x00-\x1f\x7f:<>"|?*\u202a-\u202e\u2066-\u2069]'),
+            '_',
+          )
+          .replaceAll(RegExp(r'[. ]+$'), '');
+      fileName = isValidMediaName(cleaned) ? cleaned : 'file';
+    }
+    var fileMime = normalizeMediaMime(mime, fileName);
+    final fileKind = kind ?? mediaKindFor(fileName, mime: fileMime);
+    var text = caption?.trim();
+    if (text != null && text.isEmpty) text = null;
+    int? width;
+    int? height;
+    Directory? temp;
+    try {
+      final tools = mediaTools;
+      if (fileKind == MediaKind.voice) {
+        if (await tools.available) {
+          temp = await Directory.systemTemp.createTemp('calltype_bot_voice');
+          final now = DateTime.now();
+          String two(int v) => v.toString().padLeft(2, '0');
+          fileName =
+              'voice-${now.year}${two(now.month)}${two(now.day)}-'
+              '${two(now.hour)}${two(now.minute)}${two(now.second)}.m4a';
+          file = await tools.toVoiceM4a(file, '${temp.path}/$fileName');
+          fileMime = 'audio/mp4';
+        } else if (!const {
+          'audio/mp4',
+          'audio/aac',
+          'audio/mpeg',
+        }.contains(fileMime)) {
+          _log(
+            'Voice message $fileName is $fileMime and ffmpeg is missing: '
+            'some clients (iOS) may not play it.',
+          );
+        }
+        if (durationMs == null || waveform == null) {
+          final analysed = await tools.analyzeAudio(file);
+          durationMs ??= analysed?.durationMs;
+          waveform ??= analysed?.waveform;
+        }
+      } else if (fileKind == MediaKind.audio && durationMs == null) {
+        durationMs = (await tools.probe(file))?.durationMs;
+      }
+      final size = await file.length();
+      if (fileKind == MediaKind.image &&
+          inlineSmallImages &&
+          size <= inlineFileMaxBytes &&
+          _inlineImageMimes.contains(fileMime)) {
+        // The app's photo path: inline, shown without a download tap.
+        final inlineCaption = text == null || text.runes.length <= 1024
+            ? text
+            : String.fromCharCodes(text.runes.take(1024)).trimRight();
+        final messageId = _uuidV4();
+        await _send(
+          conversationId,
+          messageId,
+          {
+            'type': 'file',
+            'body': jsonEncode({
+              'name': fileName,
+              'data': base64Encode(await file.readAsBytes()),
+              'caption': ?inlineCaption,
+            }),
+            if (replyTo != null) 'replyTo': replyTo.toJson(),
+          },
+          groupId: groupId,
+          groupName: groupName,
+        );
+        await _rememberSent(
+          messageId,
+          conversationId,
+          inlineCaption ?? fileName,
+        );
+        return BotSentMessage._(
+          this,
+          id: messageId,
+          conversationId: conversationId,
+          groupId: groupId,
+          groupName: groupName,
+        );
+      }
+      if (fileKind == MediaKind.image || fileKind == MediaKind.video) {
+        final probed = await tools.probe(file);
+        width = probed?.width;
+        height = probed?.height;
+        if (fileKind == MediaKind.video) durationMs ??= probed?.durationMs;
+        thumbnail ??= await tools.thumbnail(file);
+      }
+      if (text != null && text.length > 4096) {
+        text = text.substring(0, 4096);
+      }
+      final info = await uploadMediaFile(
+        _api,
+        file,
+        kind: fileKind,
+        name: fileName,
+        mime: fileMime,
+        maxBytes: maxFileBytes,
+        durationMs: durationMs,
+        width: width,
+        height: height,
+        thumbnail: thumbnail,
+        waveform: waveform == null || waveform.isEmpty ? null : waveform,
+        caption: text,
+        retryDelay: _sendRetryDelay,
+      );
+      final fallback = mediaFallbackText(info);
+      final messageId = _uuidV4();
+      // Contract M7: `text` with a fallback body for old clients plus the
+      // `media` object new clients read.
+      await _send(
+        conversationId,
+        messageId,
+        {
+          'type': 'text',
+          'body': fallback,
+          'media': info.toJson(),
+          if (replyTo != null) 'replyTo': replyTo.toJson(),
+        },
+        groupId: groupId,
+        groupName: groupName,
+      );
+      _log(
+        'Sent ${fileKind.name} $fileName (${formatMediaSize(info.size)}) '
+        'as media ${info.id}.',
+      );
+      await _rememberSent(messageId, conversationId, text ?? fallback);
+      return BotSentMessage._(
+        this,
+        id: messageId,
+        conversationId: conversationId,
+        groupId: groupId,
+        groupName: groupName,
+      );
+    } finally {
+      if (temp != null) {
+        try {
+          await temp.delete(recursive: true);
+        } catch (_) {}
+      }
+    }
   }
 
   Future<void> _sendEdit(

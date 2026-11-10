@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:calltype_bot/calltype_bot.dart';
@@ -32,6 +33,42 @@ import 'package:hermes_bridge/hermes_bridge.dart';
 /// Hermes may start an answer with a line `[react:EMOJI]` to react to the
 /// owner's message (`[react:]` removes it; only that line = no text), see
 /// README "The bot reacting".
+///
+/// Received files (all optional, see README "Voice messages, images and
+/// files"):
+/// - `MEDIA_MODE`             `on` (default) or `off` (the agent sees only the
+///                            sender's fallback text, as before).
+/// - `MEDIA_DIR`              where files are saved (default `media` next to
+///                            BOT_STORE_PATH), mode 700.
+/// - `MEDIA_MAX_BYTES`        larger files are not downloaded (default 200 MB).
+/// - `MEDIA_RETENTION_DAYS`   saved files are deleted after N days (default 7).
+/// - `STT_ELEVENLABS_API_KEY` ElevenLabs key for voice transcription;
+///                            `ELEVENLABS_API_KEY` is read when it is unset.
+///                            No key = a note instead of a transcript.
+/// - `STT_MODEL`              ElevenLabs model (default `scribe_v2`).
+/// - `STT_MAX_SECONDS` / `STT_MAX_BYTES` longer or larger audio is not
+///                            transcribed (default 600 s / 25 MB).
+/// - `IMAGE_INPUT`            `true` (default): images up to `IMAGE_MAX_BYTES`
+///                            (default 5 MB) go to Hermes as image input;
+///                            `false`: saved and passed as a path.
+///
+/// Sending files and voice replies (all optional, see README "Sending files
+/// and voice replies"):
+/// - `MEDIA_SEND`             `on` (default) or `off` (replies are text only).
+/// - `MEDIA_SEND_ROOTS`       comma-separated directories files may be sent
+///                            from (default: Hermes' media caches and scratch
+///                            under HERMES_HOME (~/.hermes) plus MEDIA_DIR).
+/// - `MEDIA_SEND_MAX_BYTES`   larger files are not sent (default 200 MB).
+/// - `VOICE_REPLY_MODE`       `auto` (default: when the owner sent a voice
+///                            message, asked for one, or the agent wrote
+///                            `[voice]`), `always`, `off`.
+/// - `VOICE_REPLY_WITH_TEXT`  `true` (default): a voice reply also posts the
+///                            text; `false`: voice only.
+/// - `ELEVENLABS_VOICE_ID`    voice for TTS; no voice id or no key = no TTS.
+/// - `TTS_ELEVENLABS_API_KEY` TTS key; `ELEVENLABS_API_KEY` when unset.
+/// - `TTS_MODEL`              default `eleven_v4`. `TTS_MAX_CHARS` default 2500.
+/// - `FFMPEG_PATH` / `FFPROBE_PATH` voice conversion to AAC .m4a, waveform,
+///                            thumbnails (default `ffmpeg` / `ffprobe` on PATH).
 ///
 /// Timeouts (all optional):
 /// - `HERMES_ASK_TIMEOUT_SECONDS` longest wait for a Hermes answer (plain
@@ -101,6 +138,107 @@ Future<void> main() async {
     exit(78); // EX_CONFIG
   }
 
+  bool flag(String name, {required bool fallback}) {
+    final raw = (env[name] ?? '').trim().toLowerCase();
+    if (raw.isEmpty) return fallback;
+    if (const {'true', '1', 'yes', 'on'}.contains(raw)) return true;
+    if (const {'false', '0', 'no', 'off'}.contains(raw)) return false;
+    stderr.writeln('$name must be true/false (on/off), got "$raw".');
+    exit(78); // EX_CONFIG
+  }
+
+  final mediaOn = flag('MEDIA_MODE', fallback: true);
+  final storePath = env['BOT_STORE_PATH']?.trim() ?? '';
+  final mediaDirRaw = env['MEDIA_DIR']?.trim() ?? '';
+  final mediaSettings = MediaSettings(
+    dir: mediaDirRaw.isNotEmpty
+        ? mediaDirRaw
+        : '${File(storePath.isEmpty ? 'bot.store' : storePath).parent.path}'
+              '/media',
+    maxFileBytes: positiveInt('MEDIA_MAX_BYTES', 200 * 1000 * 1000),
+    retention: Duration(days: positiveInt('MEDIA_RETENTION_DAYS', 7)),
+    sttMaxBytes: positiveInt('STT_MAX_BYTES', 25 * 1000 * 1000),
+    sttMaxDuration: Duration(seconds: positiveInt('STT_MAX_SECONDS', 600)),
+    imageMaxBytes: positiveInt('IMAGE_MAX_BYTES', 5 * 1000 * 1000),
+    imageInput: flag('IMAGE_INPUT', fallback: true),
+  );
+  final sttKeyName = (env['STT_ELEVENLABS_API_KEY'] ?? '').trim().isNotEmpty
+      ? 'STT_ELEVENLABS_API_KEY'
+      : 'ELEVENLABS_API_KEY';
+  final sttKey = (env[sttKeyName] ?? '').trim();
+  final sttModel = (env['STT_MODEL'] ?? '').trim();
+  final transcriber = sttKey.isEmpty
+      ? null
+      : ElevenLabsTranscriber(
+          apiKey: sttKey,
+          model: sttModel.isEmpty ? 'scribe_v2' : sttModel,
+          baseUrl: env['STT_URL']?.trim().isNotEmpty == true
+              ? env['STT_URL']!.trim()
+              : 'https://api.elevenlabs.io',
+        );
+
+  final sendOn = flag('MEDIA_SEND', fallback: true);
+  final VoiceReplyMode voiceMode;
+  try {
+    voiceMode = parseVoiceReplyMode(env['VOICE_REPLY_MODE']);
+  } on FormatException catch (error) {
+    stderr.writeln(error.message);
+    exit(78); // EX_CONFIG
+  }
+  final voiceWithText = flag('VOICE_REPLY_WITH_TEXT', fallback: true);
+  final hermesHome = (env['HERMES_HOME'] ?? '').trim().isNotEmpty
+      ? env['HERMES_HOME']!.trim()
+      : '${env['HOME'] ?? ''}/.hermes';
+  final rootsRaw = (env['MEDIA_SEND_ROOTS'] ?? '').trim();
+  final sendRoots = rootsRaw.isNotEmpty
+      ? rootsRaw.split(',').map((r) => r.trim()).where((r) => r.isNotEmpty)
+      : [
+          // Hermes' own media delivery roots (gateway MEDIA_DELIVERY_SAFE_ROOTS)
+          // plus its scratch dir, and the bridge's received files.
+          for (final d in const [
+            'image_cache',
+            'audio_cache',
+            'video_cache',
+            'document_cache',
+            'browser_screenshots',
+            'cache/images',
+            'cache/audio',
+            'cache/videos',
+            'cache/documents',
+            'cache/screenshots',
+            'cache/generated',
+            'cache/scratch',
+          ])
+            '$hermesHome/$d',
+          mediaSettings.dir,
+        ];
+  for (final root in sendRoots) {
+    if (!root.startsWith('/')) {
+      stderr.writeln('MEDIA_SEND_ROOTS entries must be absolute, got "$root".');
+      exit(78); // EX_CONFIG
+    }
+  }
+  final sendMaxBytes = positiveInt('MEDIA_SEND_MAX_BYTES', 200 * 1000 * 1000);
+  final ttsKeyName = (env['TTS_ELEVENLABS_API_KEY'] ?? '').trim().isNotEmpty
+      ? 'TTS_ELEVENLABS_API_KEY'
+      : 'ELEVENLABS_API_KEY';
+  final ttsKey = (env[ttsKeyName] ?? '').trim();
+  final voiceId = (env['ELEVENLABS_VOICE_ID'] ?? '').trim();
+  final ttsModel = (env['TTS_MODEL'] ?? '').trim();
+  final tts = ttsKey.isEmpty || voiceId.isEmpty
+      ? null
+      : ElevenLabsTts(
+          apiKey: ttsKey,
+          voiceId: voiceId,
+          model: ttsModel.isEmpty ? 'eleven_v4' : ttsModel,
+          baseUrl: env['TTS_URL']?.trim().isNotEmpty == true
+              ? env['TTS_URL']!.trim()
+              : 'https://api.elevenlabs.io',
+        );
+  final ttsMaxChars = positiveInt('TTS_MAX_CHARS', 2500);
+  final ffmpegPath = (env['FFMPEG_PATH'] ?? '').trim();
+  final ffprobePath = (env['FFPROBE_PATH'] ?? '').trim();
+
   // Bot-to-bot limits now come from each group's "Bot conversation" setting;
   // this is only the operator's ceiling over all of them.
   final peerTurnsCap = positiveInt('PEER_MAX_TURNS_CAP', 50);
@@ -154,6 +292,11 @@ Future<void> main() async {
     exit(69); // EX_UNAVAILABLE
   }
   log('Bot ${bot.handle} starting — invite: ${bot.inviteLink}');
+  bot.mediaTools = BotMediaTools(
+    ffmpeg: ffmpegPath.isEmpty ? null : ffmpegPath,
+    ffprobe: ffprobePath.isEmpty ? null : ffprobePath,
+  );
+  bot.maxFileBytes = sendMaxBytes;
   log(
     'Hermes timeout ${askTimeout.inSeconds} s, Jay hub reconnects after '
     '${hubTimeout.inSeconds} s of silence.',
@@ -168,6 +311,55 @@ Future<void> main() async {
     }
   }
 
+  MediaProcessor? media;
+  Timer? mediaCleanup;
+  if (mediaOn) {
+    media = MediaProcessor(
+      settings: mediaSettings,
+      transcribe: transcriber?.call,
+      log: log,
+    );
+    final processor = media;
+    Future<void> clean() async {
+      final removed = await processor.cleanup();
+      if (removed > 0) log('Media cleanup: removed $removed old item(s).');
+    }
+
+    await clean();
+    mediaCleanup = Timer.periodic(const Duration(hours: 6), (_) => clean());
+    log(
+      'Media: files in ${mediaSettings.dir} '
+      '(${mediaSettings.retention.inDays} days, '
+      'max ${formatMediaSize(mediaSettings.maxFileBytes)}), voice '
+      '${transcriber == null ? 'NOT transcribed (no ELEVENLABS_API_KEY)' : 'transcribed (${transcriber.model}, key from $sttKeyName)'}, '
+      'images ${mediaSettings.imageInput ? 'as image input' : 'as files'}.',
+    );
+  } else {
+    log('MEDIA_MODE=off: received files reach Hermes as fallback text only.');
+  }
+
+  OutgoingMedia? outgoing;
+  if (sendOn) {
+    outgoing = OutgoingMedia(
+      roots: FileRoots(sendRoots.toList(), maxBytes: sendMaxBytes),
+      ttsDir: '${mediaSettings.dir}/tts',
+      speak: tts?.call,
+      voiceMode: voiceMode,
+      voiceWithText: voiceWithText,
+      ttsMaxChars: ttsMaxChars,
+      log: log,
+    );
+    final ffmpegOk = await bot.mediaTools.available;
+    log(
+      'Sending files: from ${sendRoots.length} root(s) '
+      '(max ${formatMediaSize(sendMaxBytes)}), ffmpeg '
+      '${ffmpegOk ? 'found (voice as AAC .m4a)' : 'NOT found (voice sent as MP3)'}, '
+      'voice replies ${tts == null ? 'off (no ELEVENLABS_VOICE_ID or key)' : '${voiceMode.name} (${tts.model}, key from $ttsKeyName)'}.',
+    );
+  } else {
+    log('MEDIA_SEND=off: replies are text only.');
+  }
+
   final bridge = await runBridge(
     bot,
     allowedHandles: parseAllowedHandles(env['ALLOWED_HANDLES']),
@@ -178,6 +370,10 @@ Future<void> main() async {
     approve: hermes.approve,
     progress: progress,
     reactions: reactionMode,
+    media: media,
+    multimodal: (text, images, {required conversationId}) =>
+        hermes.chat(text, conversationId: conversationId, images: images),
+    outgoing: outgoing,
     log: log,
   );
   log('Connected. Waiting for messages (reactions: ${reactionMode.name}).');
@@ -198,6 +394,7 @@ Future<void> main() async {
       key: sendKey,
       port: sendPort,
       send: bridge.sendFromLocal,
+      sendMedia: bridge.sendMediaFromLocal,
       react: bridge.reactFromLocal,
       log: log,
     );
@@ -213,8 +410,11 @@ Future<void> main() async {
   Future<void> shutdown(ProcessSignal _) async {
     log('Shutting down.');
     await endpoint?.close(force: true);
+    mediaCleanup?.cancel();
     await bot.close();
     hermes.close();
+    transcriber?.close();
+    tts?.close();
     exit(0);
   }
 

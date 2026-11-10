@@ -24,9 +24,11 @@ RUN cd bots/hermes_bridge \
  && dart build cli -o /out
 
 # glibc base: the AOT binary and the bundled libsqlite3 are dynamically linked.
+# ffmpeg: voice replies are converted to AAC .m4a (the app's voice format)
+# with duration, waveform and thumbnails; without it voice goes as MP3.
 FROM mirror.gcr.io/library/debian:bookworm-slim
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates \
+ && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home bot \
  && mkdir /data && chown bot /data

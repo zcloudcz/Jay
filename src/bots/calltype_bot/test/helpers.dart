@@ -1,14 +1,18 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:calltype_core/crypto/device_list.dart';
 import 'package:calltype_core/crypto/key_manager.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
+import 'package:calltype_core/media/media_crypto.dart';
+import 'package:calltype_core/media/media_info.dart';
 import 'package:calltype_core/network/hub_transport.dart';
 import 'package:calltype_core/storage/database.dart';
 import 'package:calltype_core/storage/secret_store.dart';
 import 'package:calltype_core/storage/drift_protocol_store.dart';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:drift/native.dart';
 
 /// 32 zero bytes — a valid BOT_STORE_KEY for tests.
@@ -215,6 +219,27 @@ class FakeApi {
   /// (status, error body or null for the server's bodyless role 403).
   final channelPostFailures = <(int, Map<String, dynamic>?)>[];
 
+  /// GET /media/{id}: encrypted blobs by media id (lower-case).
+  final media = <String, List<int>>{};
+
+  /// GET /media/{id} answers this status instead (e.g. 410 expired).
+  final mediaStatus = <String, int>{};
+
+  /// Uploads in progress (POST /media .. complete): id -> declared sizes
+  /// and the chunks received. `complete` moves the blob into [media].
+  final uploads =
+      <String, ({int size, int chunkSize, Map<int, List<int>> chunks})>{};
+
+  /// Ids withdrawn with DELETE /media/{id}.
+  final deletedMedia = <String>[];
+
+  /// Scripted refusal of the next POST /media: (status, error code).
+  (int, String)? mediaCreateFailure;
+
+  /// The next N chunk PUTs answer 503 (a transient error to retry).
+  int failChunkPuts = 0;
+  int _nextMediaId = 1;
+
   String get url => 'http://127.0.0.1:${_server.port}';
 
   int _nextOneTimeKey = 0;
@@ -243,6 +268,25 @@ class FakeApi {
     final segments = request.uri.pathSegments;
     requests.add('${request.method} $path');
     Object? body;
+    if (segments.length == 2 &&
+        segments[0] == 'media' &&
+        request.method == 'GET') {
+      final id = segments[1].toLowerCase();
+      final blob = media[id];
+      final status = mediaStatus[id] ?? (blob == null ? 404 : 200);
+      request.response.statusCode = status;
+      if (status == 200) {
+        request.response.headers.contentType = ContentType.binary;
+        request.response.contentLength = blob!.length;
+        request.response.add(blob);
+      }
+      await request.response.close();
+      return;
+    }
+    if (segments.isNotEmpty && segments[0] == 'media') {
+      final handled = await _serveMediaUpload(request, segments);
+      if (handled) return;
+    }
     if (request.method == 'POST' && path == '/devices') {
       registrations.add(
         jsonDecode(await utf8.decodeStream(request)) as Map<String, dynamic>,
@@ -329,6 +373,101 @@ class FakeApi {
     await request.response.close();
   }
 
+  /// The upload half of the media relay (contract section 2), strict about
+  /// sizes like the real server. Returns false for routes it does not own.
+  Future<bool> _serveMediaUpload(
+    HttpRequest request,
+    List<String> segments,
+  ) async {
+    Future<bool> answer(int status, [Object? body]) async {
+      request.response.statusCode = status;
+      request.response.headers.contentType = ContentType.json;
+      if (body != null) request.response.write(jsonEncode(body));
+      await request.response.close();
+      return true;
+    }
+
+    final method = request.method;
+    if (segments.length == 1 && method == 'POST') {
+      final json =
+          jsonDecode(await utf8.decodeStream(request)) as Map<String, dynamic>;
+      final failure = mediaCreateFailure;
+      if (failure != null) {
+        mediaCreateFailure = null;
+        return answer(failure.$1, {'error': 'refused', 'code': failure.$2});
+      }
+      final size = json['size'] as int;
+      final chunkSize = json['chunkSize'] as int;
+      if (chunkSize < mediaMinChunkSize + 16 ||
+          chunkSize > mediaMaxChunkSize + 16 ||
+          size < 16) {
+        return answer(400, {'code': 'invalid_media_size'});
+      }
+      final id =
+          '00000000-0000-4000-8000-${(_nextMediaId++).toString().padLeft(12, '0')}';
+      uploads[id] = (size: size, chunkSize: chunkSize, chunks: {});
+      return answer(201, {
+        'id': id,
+        'chunkSize': chunkSize,
+        'chunkCount': (size + chunkSize - 1) ~/ chunkSize,
+        'uploadExpiresAt': DateTime.now()
+            .add(const Duration(hours: 24))
+            .toUtc()
+            .toIso8601String(),
+      });
+    }
+    final id = segments.length > 1 ? segments[1].toLowerCase() : '';
+    final upload = uploads[id];
+    if (segments.length == 4 && segments[2] == 'chunks' && method == 'PUT') {
+      final bytes = BytesBuilder();
+      await for (final chunk in request) {
+        bytes.add(chunk);
+      }
+      if (failChunkPuts > 0) {
+        failChunkPuts--;
+        return answer(503, {'code': 'unavailable'});
+      }
+      if (upload == null) return answer(404, {'code': 'media_not_found'});
+      final index = int.parse(segments[3]);
+      final count = (upload.size + upload.chunkSize - 1) ~/ upload.chunkSize;
+      final expected = index == count - 1
+          ? upload.size - upload.chunkSize * (count - 1)
+          : upload.chunkSize;
+      if (index < 0 || index >= count || bytes.length != expected) {
+        return answer(400, {'code': 'invalid_chunk'});
+      }
+      upload.chunks[index] = bytes.toBytes();
+      return answer(204);
+    }
+    if (segments.length == 3 && segments[2] == 'complete' && method == 'POST') {
+      if (upload == null) return answer(404, {'code': 'media_not_found'});
+      final count = (upload.size + upload.chunkSize - 1) ~/ upload.chunkSize;
+      final missing = [
+        for (var i = 0; i < count; i++)
+          if (!upload.chunks.containsKey(i)) i,
+      ];
+      if (missing.isNotEmpty) {
+        return answer(409, {'code': 'media_incomplete', 'missing': missing});
+      }
+      media[id] = [for (var i = 0; i < count; i++) ...upload.chunks[i]!];
+      return answer(200, {
+        'id': id,
+        'size': upload.size,
+        'expiresAt': DateTime.now()
+            .add(const Duration(hours: 72))
+            .toUtc()
+            .toIso8601String(),
+      });
+    }
+    if (segments.length == 2 && method == 'DELETE') {
+      deletedMedia.add(id);
+      uploads.remove(id);
+      media.remove(id);
+      return answer(204);
+    }
+    return false;
+  }
+
   Future<void> close() => _server.close(force: true);
 }
 
@@ -364,4 +503,48 @@ Future<Map<String, dynamic>> signedDeviceList(
     'payload': signed.payload,
     'signature': signed.signature,
   };
+}
+
+/// Encrypts [plain] exactly like the app's upload (calltype_core
+/// MediaCipher), stores the blob on [api] under [id] and returns the
+/// `media` object the app puts into the message.
+Future<Map<String, Object?>> uploadMedia(
+  FakeApi api,
+  Uint8List plain, {
+  String id = '11111111-2222-4333-8444-555555555555',
+  MediaKind kind = MediaKind.voice,
+  String name = 'voice.m4a',
+  String mime = 'audio/mp4',
+  int chunkSize = mediaMinChunkSize,
+  int? durationMs = 10400,
+  String? caption,
+}) async {
+  final keys = newMediaKey();
+  final cipher = MediaCipher(
+    key: keys.key,
+    noncePrefix: keys.nonce,
+    size: plain.length,
+    chunkSize: chunkSize,
+  );
+  final blob = BytesBuilder();
+  for (var i = 0; i < cipher.chunkCount; i++) {
+    final start = i * chunkSize;
+    final end = start + mediaPlainChunkLength(plain.length, chunkSize, i);
+    blob.add(await cipher.encryptChunk(i, plain.sublist(start, end)));
+  }
+  api.media[id] = blob.toBytes();
+  return MediaInfo(
+    id: id,
+    kind: kind,
+    name: name,
+    mime: mime,
+    size: plain.length,
+    sha256: Uint8List.fromList(crypto.sha256.convert(plain).bytes),
+    key: keys.key,
+    nonce: keys.nonce,
+    chunkSize: chunkSize,
+    expiresAt: DateTime.now().toUtc().add(const Duration(days: 3)),
+    durationMs: durationMs,
+    caption: caption,
+  ).toJson();
 }

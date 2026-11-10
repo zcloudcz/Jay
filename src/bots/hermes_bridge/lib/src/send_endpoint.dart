@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:calltype_bot/calltype_bot.dart'
-    show isValidReactionEmoji, maxReactionTargetLength;
+    show MediaKind, isValidReactionEmoji, maxReactionTargetLength;
 
 /// Result of a local send request, see [startSendEndpoint].
 enum SendOutcome {
@@ -33,7 +33,49 @@ enum SendOutcome {
 
   /// Allowed, but delivery to the hub failed.
   failed,
+
+  /// `file` outside the allowed roots (`MEDIA_SEND_ROOTS`), missing, or not
+  /// a regular file.
+  fileNotAllowed,
+
+  /// `file` larger than `MEDIA_SEND_MAX_BYTES` (or the server cap).
+  fileTooLarge,
+
+  /// Files are off, or `voice` was asked without a TTS key / voice id.
+  mediaUnavailable,
 }
+
+/// `/send` with a file or a voice message: `{"to", "file"?, "kind"?,
+/// "caption"?, "voice"?, "text"?}`.
+class LocalMediaRequest {
+  const LocalMediaRequest({
+    required this.to,
+    this.text,
+    this.file,
+    this.kind,
+    this.caption,
+    this.voice = false,
+  });
+
+  final String to;
+
+  /// With [file]: posted as a normal message first. Without: with [voice]
+  /// it is spoken (TTS) and sent as a voice message.
+  final String? text;
+
+  /// Absolute path under the allowed roots.
+  final String? file;
+
+  /// Forced kind; null = from the file name / type.
+  final MediaKind? kind;
+  final String? caption;
+
+  /// Send as a voice message (the file, or [text] spoken).
+  final bool voice;
+}
+
+typedef LocalSendMedia =
+    Future<SendOutcome> Function(LocalMediaRequest request);
 
 typedef LocalSend = Future<SendOutcome> Function(String to, String text);
 
@@ -64,6 +106,7 @@ const maxSendBodyBytes = 256 * 1024;
 Future<HttpServer?> startSendEndpoint({
   required String? key,
   required LocalSend send,
+  LocalSendMedia? sendMedia,
   LocalReact? react,
   required void Function(String) log,
   int port = 8650,
@@ -71,7 +114,7 @@ Future<HttpServer?> startSendEndpoint({
   if (key == null || key.trim().isEmpty) return null;
   final expected = utf8.encode('Bearer ${key.trim()}');
   final routes = <String, _Route>{
-    '/send': (json) => _send(json, send),
+    '/send': (json) => _send(json, send, sendMedia),
     if (react != null) '/react': (json) => _react(json, react),
   };
   final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
@@ -131,7 +174,17 @@ Future<(int, Object)> _serve(
   return route(json);
 }
 
-Future<(int, Object)> _send(Map<dynamic, dynamic> json, LocalSend send) async {
+const _mediaKeys = {'file', 'kind', 'caption', 'voice'};
+
+Future<(int, Object)> _send(
+  Map<dynamic, dynamic> json,
+  LocalSend send,
+  LocalSendMedia? sendMedia,
+) async {
+  if (json.keys.any(_mediaKeys.contains)) {
+    if (sendMedia == null) return (400, {'error': 'files_unsupported'});
+    return _sendMedia(json, sendMedia);
+  }
   final to = json['to'];
   final text = json['text'];
   if (to is! String ||
@@ -141,6 +194,49 @@ Future<(int, Object)> _send(Map<dynamic, dynamic> json, LocalSend send) async {
     return (400, {'error': 'expected {"to": string, "text": string}'});
   }
   return _answer(await send(to.trim(), text), 'sent');
+}
+
+Future<(int, Object)> _sendMedia(
+  Map<dynamic, dynamic> json,
+  LocalSendMedia sendMedia,
+) async {
+  const usage =
+      'expected {"to": string, "file"?: absolute path, "kind"?: '
+      'image|video|audio|voice|file, "caption"?: string, "voice"?: bool, '
+      '"text"?: string} with a file, or with voice and text';
+  final to = json['to'];
+  final text = json['text'];
+  final file = json['file'];
+  final kind = json['kind'];
+  final caption = json['caption'];
+  final voice = json['voice'] ?? false;
+  if (to is! String ||
+      to.trim().isEmpty ||
+      (text != null && text is! String) ||
+      (file != null && (file is! String || !file.startsWith('/'))) ||
+      (kind != null &&
+          (kind is! String || !MediaKind.values.any((k) => k.name == kind))) ||
+      (caption != null && (caption is! String || caption.length > 4096)) ||
+      voice is! bool) {
+    return (400, {'error': usage});
+  }
+  final hasText = text is String && text.trim().isNotEmpty;
+  if (file == null && !(voice && hasText)) {
+    return (400, {'error': usage});
+  }
+  return _answer(
+    await sendMedia(
+      LocalMediaRequest(
+        to: to.trim(),
+        text: text as String?,
+        file: file as String?,
+        kind: kind == null ? null : MediaKind.parse(kind),
+        caption: caption as String?,
+        voice: voice,
+      ),
+    ),
+    'sent',
+  );
 }
 
 Future<(int, Object)> _react(
@@ -183,6 +279,9 @@ Future<(int, Object)> _react(
   SendOutcome.textTooLong => (400, {'error': 'text_too_long'}),
   SendOutcome.noMessage => (404, {'error': 'no_message'}),
   SendOutcome.failed => (502, {'error': 'delivery_failed'}),
+  SendOutcome.fileNotAllowed => (403, {'error': 'file_not_allowed'}),
+  SendOutcome.fileTooLarge => (413, {'error': 'file_too_large'}),
+  SendOutcome.mediaUnavailable => (503, {'error': 'media_unavailable'}),
 };
 
 /// WHY constant time: a byte-by-byte early exit leaks how much of the key a

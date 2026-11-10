@@ -49,7 +49,7 @@ packages:
     source: path
     version: "0.1.0"
   calltype_core:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       path: "../../client/calltype_core"
       relative: true
