@@ -139,6 +139,8 @@ want a bot for more people or for heavy use, use an API key (`anthropic` or
 | `GROUP_REPLIES` | no | `members` (API keys), `owners` (CLI providers) | `members` = in a group with an owner, any human member who addresses the bot is answered; `owners` = owners only |
 | `BOT_INBOUND` | no | `owners` | server-side inbound policy: `owners` = the server delivers only owners' 1:1 messages and groups with an owner; `open` = everything (the bot still filters) |
 | `PEER_MAX_TURNS_CAP` | no | `50` | ceiling for a bot-only exchange in a group; a group's "max messages" above it is cut down to it |
+| `LLM_IMAGE_MAX_BYTES` | no | `5242880` (5 MB) | largest received image passed to the model (max 20 MB) |
+| `LLM_IMAGE_MODEL` | no | unset (no image generation) | `LLM_PROVIDER=openai` only: image model of `POST {OPENAI_BASE_URL}/images/generations`, e.g. `gpt-image-1`; any other provider refuses to start with it |
 
 Exit codes: 78 configuration (nothing to retry; the services do not restart
 on it), 69 Jay API unreachable, 73 history file not writable.
@@ -161,7 +163,35 @@ on it), 69 Jay API unreachable, 73 history file not writable.
   `retry-after` (max 30 s). Nothing is remembered from a failed turn.
 - `/new` forgets this chat; `/help` (and `/start` from a bot link) explains
   the bot. Both are published as the bot's "/" menu.
-- Reactions are ignored. Voice, files and tools are out of scope.
+- Reactions are ignored. Voice messages, other files and tools are out of
+  scope (see Images).
+
+## Images (spec `2026-11-10-bot-media`)
+
+- **Receiving**: an image from someone the bot answers anyway (the access
+  rules above decide first; nothing is downloaded for anyone else) is
+  decrypted by calltype_bot and passed to the model with its caption. In a
+  group the image needs a caption with `@bot` or must be a reply to the bot.
+  JPEG, PNG, GIF and WebP (typed by their bytes) up to `LLM_IMAGE_MAX_BYTES`;
+  no downscaling. Voice messages, videos and other files get a short reply
+  saying what the bot can read, without a model call.
+
+  | Provider | How the image goes in |
+  |---|---|
+  | `anthropic` | `image` content block, base64 |
+  | `openai` | `image_url` part with a `data:` URL (the model must support vision; a text-only model's error is shown) |
+  | `codex-cli` | `codex exec --image=<file>`; the file is written into `LLM_CLI_WORKDIR` (inside the sandbox) and deleted after the run |
+  | `claude-cli` | `--input-format stream-json --output-format stream-json --verbose`, one user message with an `image` block (checked with Claude Code 2.1.319) |
+
+  The history keeps `[image: <name>]` and the caption, never the image, so
+  later turns only know that an image was there.
+- **Sending** (opt-in, `LLM_PROVIDER=openai` + `LLM_IMAGE_MODEL`): the system
+  prompt tells the model to write `[[image: <description>]]` when the user
+  asks for a picture. The bridge removes the tag, calls the OpenAI Images
+  API (1024x1024, at most 2 per answer, billed to the same key), sends the
+  image after the text and deletes the temporary file
+  (`<BOT_STORE_PATH>.media`). A failed generation adds a short note.
+  Anthropic and the CLIs cannot create images.
 
 ## Run
 
@@ -193,5 +223,7 @@ docker run -d --restart unless-stopped -v jay-bot:/data --env-file bot.env llm-b
 executables (argv, stdin, timeout kill, non-zero exit), the turn logic
 (history cap, `/new`, progress edits, chunking, retry, timeout) and the real
 bot runtime with the calltype_bot test fakes (owner-only before decrypt,
-group members of owner groups, inbound policy, greeting once). `access_test`
+group members of owner groups, inbound policy, greeting once, images in and
+out). `images_test` covers image intake, request bodies, generation and the
+image settings. `access_test`
 covers who is answered (A4/A5) without a hub.

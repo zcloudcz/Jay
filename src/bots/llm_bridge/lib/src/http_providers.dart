@@ -17,7 +17,7 @@ List<ChatTurn> normalizeTurns(List<ChatTurn> turns) {
     if (out.isNotEmpty && out.last.role == t.role) {
       final merged = '${out.last.text}\n\n${t.text}';
       out[out.length - 1] = t.role == 'user'
-          ? ChatTurn.user(merged)
+          ? ChatTurn.user(merged, images: [...out.last.images, ...t.images])
           : ChatTurn.assistant(merged);
     } else {
       out.add(t);
@@ -62,11 +62,29 @@ class AnthropicProvider extends HttpLlmProvider {
     'system': system,
     'messages': [
       for (final t in normalizeTurns(conversation))
-        {'role': t.role, 'content': t.text},
+        {'role': t.role, 'content': _content(t)},
     ],
     'stream': true,
     if (effort != null) 'output_config': {'effort': effort},
   };
+
+  /// A plain string, or image blocks (base64 source) followed by the text
+  /// block: Anthropic recommends images before the text that refers to
+  /// them (vision docs, checked 2026-11-10).
+  static Object _content(ChatTurn t) => t.images.isEmpty
+      ? t.text
+      : [
+          for (final image in t.images)
+            {
+              'type': 'image',
+              'source': {
+                'type': 'base64',
+                'media_type': image.mediaType,
+                'data': image.base64Data,
+              },
+            },
+          {'type': 'text', 'text': t.text},
+        ];
 
   @override
   Stream<String> reply(
@@ -150,7 +168,7 @@ class OpenAiProvider extends HttpLlmProvider {
     'messages': [
       {'role': 'system', 'content': system},
       for (final t in normalizeTurns(conversation))
-        {'role': t.role, 'content': t.text},
+        {'role': t.role, 'content': _content(t)},
     ],
     'stream': true,
     // OpenAI deprecated `max_tokens` for reasoning models in favour of
@@ -162,6 +180,21 @@ class OpenAiProvider extends HttpLlmProvider {
       'max_tokens': maxTokens,
     if (effort != null) 'reasoning_effort': effort,
   };
+
+  /// A plain string, or content parts: the text, then each image as an
+  /// `image_url` part with a `data:` URL (Chat Completions vision input).
+  static Object _content(ChatTurn t) => t.images.isEmpty
+      ? t.text
+      : [
+          {'type': 'text', 'text': t.text},
+          for (final image in t.images)
+            {
+              'type': 'image_url',
+              'image_url': {
+                'url': 'data:${image.mediaType};base64,${image.base64Data}',
+              },
+            },
+        ];
 
   @override
   Stream<String> reply(

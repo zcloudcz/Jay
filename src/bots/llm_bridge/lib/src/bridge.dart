@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'history_store.dart';
+import 'images.dart';
 import 'provider.dart';
 
 /// Where the bridge writes into a chat. The Jay glue implements it on top
@@ -15,6 +17,9 @@ abstract class ChatSink {
 
   /// Sends [text] as a normal reply.
   Future<void> reply(String text);
+
+  /// Sends the file at [path] (a generated image) as a reply.
+  Future<void> replyFile(String path);
 }
 
 /// A sent progress message.
@@ -81,8 +86,8 @@ abstract final class BridgeTexts {
 
   static String help(String name, String provider, int history) =>
       'I am $name, an AI assistant ($provider).\n'
-      'Write to me like to a person. In a group, mention me or reply to my '
-      'message.\n'
+      'Write to me like to a person, or send me a picture. In a group, '
+      'mention me or reply to my message.\n'
       '/new: start a new conversation (I remember the last $history '
       'messages of each chat until then).\n'
       '/help: this text.';
@@ -110,9 +115,12 @@ class LlmBridge {
     this.progressAfter = const Duration(seconds: 5),
     this.editInterval = const Duration(seconds: 3),
     this.maxProgressEdits = 30,
+    this.imageGenerator,
+    this.mediaDir,
     Future<void> Function(Duration)? sleep,
     this.log = _noLog,
-  }) : _sleep = sleep ?? Future<void>.delayed;
+  }) : assert(imageGenerator == null || mediaDir != null),
+       _sleep = sleep ?? Future<void>.delayed;
 
   static void _noLog(String _) {}
 
@@ -134,23 +142,40 @@ class LlmBridge {
   /// (agent-messaging contract, compatibility section). A long streamed
   /// answer must not pile up hundreds of them.
   final int maxProgressEdits;
+
+  /// Opt-in image generation (`LLM_IMAGE_MODEL`, spec M8); null = the
+  /// `[[image: ...]]` tags stay text and no image API is called.
+  final ImageGenerator? imageGenerator;
+
+  /// Where generated images are written before sending (deleted after).
+  final String? mediaDir;
   final Future<void> Function(Duration) _sleep;
+
+  /// The system prompt of one call: the configured one, plus the image
+  /// tag syntax when generation is on.
+  String get _system => imageGenerator == null
+      ? systemPrompt
+      : '$systemPrompt\n\n${ImageTexts.generationHint}';
   final void Function(String) log;
 
   /// Answers [text] from conversation [conversationId] into [sink].
   /// [senderLabel] (a handle or name, `(bot)` for bots) is prefixed in
   /// groups so the model knows who of several members is speaking; the
   /// history of a group is shared by all its members.
+  ///
+  /// [images] (spec M4/M7) go to the provider with this turn only; the
+  /// history keeps `[image: name]` placeholders in the turn's text.
   Future<void> handle({
     required String conversationId,
     required String text,
     required ChatSink sink,
     String? senderLabel,
+    List<ChatImage> images = const [],
   }) async {
-    final message = text.trim();
-    if (message.isEmpty) return;
+    var message = text.trim();
+    if (message.isEmpty && images.isEmpty) return;
 
-    final slash = parseSlashCommand(message);
+    final slash = images.isEmpty ? parseSlashCommand(message) : null;
     switch (slash?.command) {
       case 'new' || 'reset':
         await history.reset(conversationId);
@@ -164,19 +189,45 @@ class LlmBridge {
         return;
     }
 
-    final userTurn = ChatTurn.user(
-      senderLabel == null ? message : '[from $senderLabel] $message',
-    );
-    final conversation = [...await history.history(conversationId), userTurn];
+    if (images.isNotEmpty) {
+      message = [
+        for (final image in images) imagePlaceholder(image.name),
+        if (message.isNotEmpty) message,
+      ].join('\n');
+    }
+    final turnText = senderLabel == null
+        ? message
+        : '[from $senderLabel] $message';
+    // The provider gets the bytes; the history only the text.
+    final userTurn = ChatTurn.user(turnText);
+    final conversation = [
+      ...await history.history(conversationId),
+      ChatTurn.user(turnText, images: images),
+    ];
     final run = _Run(this, sink);
     try {
-      final answer = await _answer(conversation, run);
+      final raw = await _answer(conversation, run);
+      final tags = imageGenerator == null
+          ? (text: raw, prompts: const <String>[])
+          : extractImageTags(raw);
+      final prompts = tags.prompts.take(maxImagesPerAnswer).toList();
+      final answer = tags.text.trim().isEmpty && prompts.isNotEmpty
+          ? prompts.map(generatedPlaceholder).join('\n')
+          : tags.text;
       final shown = answer.trim().isEmpty ? BridgeTexts.empty : answer;
       await run.finish(shown);
+      final notes = await _sendImages(prompts, sink);
       if (answer.trim().isNotEmpty) {
         await history.append(conversationId, [
           userTurn,
-          ChatTurn.assistant(answer),
+          ChatTurn.assistant(
+            [
+              answer,
+              if (tags.text.trim().isNotEmpty)
+                for (final p in prompts) generatedPlaceholder(p),
+              ...notes,
+            ].join('\n'),
+          ),
         ]);
       }
     } on TimeoutException {
@@ -192,6 +243,42 @@ class LlmBridge {
     } finally {
       run.stop();
     }
+  }
+
+  /// Generates and sends one image per prompt (spec M8). A failure costs
+  /// that image only: the user gets a short note, the turn goes on.
+  /// Returns the notes (they also go into the history).
+  Future<List<String>> _sendImages(List<String> prompts, ChatSink sink) async {
+    final generator = imageGenerator;
+    if (generator == null) return const [];
+    final notes = <String>[];
+    for (final prompt in prompts) {
+      String? path;
+      try {
+        final bytes = await generator.generate(prompt);
+        path = await writeTempImage(mediaDir!, bytes);
+        await sink.replyFile(path);
+      } catch (e) {
+        final detail = e is LlmException ? e.message : '$e';
+        log('LLM: image generation/sending failed: $detail');
+        final note = ImageTexts.generationFailed(_short(detail));
+        notes.add(note);
+        try {
+          await sink.reply(note);
+        } catch (e) {
+          log('LLM: could not report the failed image ($e).');
+        }
+      } finally {
+        if (path != null) {
+          try {
+            await File(path).delete();
+          } on FileSystemException {
+            // Already gone.
+          }
+        }
+      }
+    }
+    return notes;
   }
 
   /// One provider call, retried once on a 429 that came before any text.
@@ -226,7 +313,7 @@ class LlmBridge {
     final buffer = StringBuffer();
     late final StreamSubscription<String> sub;
     sub = provider
-        .reply(conversation, system: systemPrompt)
+        .reply(conversation, system: _system)
         .listen(
           (piece) {
             buffer.write(piece);
@@ -297,7 +384,15 @@ class _Run {
   void partial(String text) => _partial = text;
 
   String _progressText() {
-    final p = _partial.trim();
+    // Image tags are instructions to the bridge, not text for the chat.
+    final p =
+        (bridge.imageGenerator == null
+                ? _partial
+                : _partial.replaceAll(
+                    RegExp(r'\[\[image:[\s\S]*?(\]\]|$)'),
+                    '',
+                  ))
+            .trim();
     if (p.isEmpty) return BridgeTexts.working;
     // The first chunk only: the rest follows as replies at the end.
     final head = p.length <= maxReplyChars - 4

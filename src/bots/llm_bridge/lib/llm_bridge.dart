@@ -12,4 +12,5 @@ export 'src/config.dart';
 export 'src/factory.dart';
 export 'src/history_store.dart';
 export 'src/http_providers.dart';
+export 'src/images.dart';
 export 'src/provider.dart';

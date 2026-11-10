@@ -5,6 +5,7 @@ import 'package:calltype_bot/calltype_bot.dart';
 import 'access.dart';
 import 'bridge.dart';
 import 'history_store.dart';
+import 'images.dart';
 
 /// [ChatSink] over one incoming Jay message: replies go back into the
 /// conversation it came from (the runtime quotes it in groups).
@@ -20,7 +21,31 @@ class _MessageSink implements ChatSink {
   Future<void> reply(String text) async {
     await _message.reply(text);
   }
+
+  @override
+  Future<void> replyFile(String path) async {
+    await _message.replyFile(path);
+  }
 }
+
+/// [IncomingFile] over a runtime attachment: the download and decryption
+/// stay in calltype_bot (the app's MediaCipher), errors are mapped.
+IncomingFile incomingFileOf(BotAttachment a) => IncomingFile(
+  name: a.name,
+  mime: a.mime,
+  size: a.size,
+  isImage: a.kind == MediaKind.image || a.mime.startsWith('image/'),
+  caption: a.caption,
+  read: (maxBytes) async {
+    try {
+      return await a.readBytes(maxBytes: maxBytes);
+    } on BotMediaExpired {
+      throw const IncomingFileExpired();
+    } on BotMediaTooLarge {
+      throw const IncomingFileTooLarge();
+    }
+  },
+);
 
 class _SentProgress implements ProgressHandle {
   _SentProgress(this._sent);
@@ -73,6 +98,7 @@ Future<void> runJayGlue(
   GroupReplies groupReplies = GroupReplies.members,
   int peerTurnsCap = 50,
   String? inbound,
+  int imageMaxBytes = defaultImageMaxBytes,
   DateTime Function()? now,
   required void Function(String) log,
 }) async {
@@ -125,12 +151,36 @@ Future<void> runJayGlue(
         await bot.send(to: groupId!, text: BridgeTexts.botLimit);
         return;
       case Answer(:final label):
-        await bridge.handle(
-          conversationId: message.conversationId,
-          text: message.text,
-          sink: _MessageSink(message),
-          senderLabel: label,
-        );
+        // Files are looked at only now, after the access rules: nothing is
+        // downloaded for a sender the bot would not answer (spec M4).
+        final attachment = message.attachment;
+        if (attachment == null) {
+          await bridge.handle(
+            conversationId: message.conversationId,
+            text: message.text,
+            sink: _MessageSink(message),
+            senderLabel: label,
+          );
+          return;
+        }
+        switch (await readIncomingImage(
+          incomingFileOf(attachment),
+          maxBytes: imageMaxBytes,
+          log: log,
+        )) {
+          case RefusedFile(:final reply):
+            await message.reply(reply);
+          case AcceptedImage(:final image):
+            await bridge.handle(
+              conversationId: message.conversationId,
+              // The caption, never the media fallback body ("Image (12 KB).
+              // Update Jay..."), which is for old clients.
+              text: attachment.caption ?? '',
+              sink: _MessageSink(message),
+              senderLabel: label,
+              images: [image],
+            );
+        }
     }
   }
 
@@ -138,6 +188,8 @@ Future<void> runJayGlue(
   // them (spec B2).
   await bot.onMessage(
     handle,
+    // The app sends small photos inline (`type: file`), spec M4.
+    receiveFiles: true,
     allowSender: access.allowSender,
     // WHY a group lookup before decryption: only for senders that are not
     // owners, cached per group and dropped on the server's group hints.

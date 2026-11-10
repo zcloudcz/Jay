@@ -4,6 +4,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:llm_bridge/llm_bridge.dart';
 import 'package:test/test.dart';
@@ -393,6 +394,128 @@ void main() {
       expect(await store.history('c'), isEmpty);
     },
   );
+
+  group('images (spec 2026-11-10-bot-media M5)', () {
+    final png = Uint8List.fromList([
+      0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, //
+    ]);
+    final withImage = [
+      const ChatTurn.user('Ahoj'),
+      const ChatTurn.assistant('Ahoj!'),
+      ChatTurn.user(
+        '[image: red.png]\nWhat color?',
+        images: [
+          ChatImage(bytes: png, mediaType: 'image/png', name: 'red.png'),
+        ],
+      ),
+    ];
+
+    test(
+      'codex: --image=<file in the work dir>, deleted after the run',
+      () async {
+        final exe = await fake(
+          'codex',
+          'for a in "\$@"; do case "\$a" in --image=*) '
+              'cp "\${a#--image=}" "${dir.path}/codex.img";; esac; done\n'
+              'echo Red',
+        );
+        final p = CodexCliProvider(executable: exe, workDir: work);
+        expect(await p.reply(withImage, system: 'Jsi bot.').join(), 'Red');
+        final args = await argsOf('codex');
+        final image = args.singleWhere((a) => a.startsWith('--image='));
+        final path = image.substring('--image='.length);
+        expect(path, startsWith('$work/jay-image-'));
+        expect(path, endsWith('.png'));
+        // The flag comes before the stdin marker, which stays last.
+        expect(args.last, '-');
+        expect(args.indexOf(image), lessThan(args.length - 1));
+        expect(await File('${dir.path}/codex.img').readAsBytes(), png);
+        expect(File(path).existsSync(), isFalse);
+        expect(await stdinOf('codex'), contains('[image: red.png]'));
+      },
+    );
+
+    test('codex: the image file is deleted when the CLI fails too', () async {
+      final exe = await fake('codex', 'echo boom >&2; exit 3');
+      final p = CodexCliProvider(executable: exe, workDir: work);
+      await expectLater(
+        p.reply(withImage, system: 's').join(),
+        throwsA(isA<LlmException>()),
+      );
+      expect(
+        Directory(work).listSync().where((e) => e.path.contains('jay-image-')),
+        isEmpty,
+      );
+    });
+
+    test('codex: text-only turns have no --image', () async {
+      final exe = await fake('codex', 'echo ok');
+      final p = CodexCliProvider(executable: exe, workDir: work);
+      await p.reply(conversation, system: 's').join();
+      expect(
+        (await argsOf('codex')).where((a) => a.startsWith('--image')),
+        isEmpty,
+      );
+    });
+
+    test('claude: stream-json in and out, image block in stdin', () async {
+      final exe = await fake(
+        'claude',
+        "echo '{\"type\":\"system\",\"subtype\":\"init\"}'\n"
+            "echo '{\"type\":\"assistant\",\"message\":{\"content\":[]}}'\n"
+            "echo '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"Red.\"}'",
+      );
+      final p = ClaudeCliProvider(executable: exe, workDir: work);
+      expect(await p.reply(withImage, system: 's').join(), 'Red.');
+      expect(await argsOf('claude'), [
+        '-p',
+        '--input-format',
+        'stream-json',
+        '--output-format',
+        'stream-json',
+        '--verbose',
+        '--system-prompt-file',
+        '$work/system-prompt.txt',
+        '--tools',
+        '',
+        '--no-session-persistence',
+        '--disable-slash-commands',
+      ]);
+      final lines = const LineSplitter().convert(await stdinOf('claude'));
+      final message = jsonDecode(lines.single) as Map;
+      expect(message['type'], 'user');
+      final content = (message['message'] as Map)['content'] as List;
+      expect(content.first, {
+        'type': 'image',
+        'source': {
+          'type': 'base64',
+          'media_type': 'image/png',
+          'data': base64Encode(png),
+        },
+      });
+      expect(content.last['type'], 'text');
+      expect(content.last['text'], contains('[User]\nAhoj'));
+      expect(content.last['text'], contains('[image: red.png]\nWhat color?'));
+    });
+
+    test('claude: a stream-json error result is an LlmException', () async {
+      final exe = await fake(
+        'claude',
+        "echo '{\"type\":\"result\",\"is_error\":true,\"result\":\"Not logged in\"}'; exit 1",
+      );
+      final p = ClaudeCliProvider(executable: exe, workDir: work);
+      await expectLater(
+        p.reply(withImage, system: 's').join(),
+        throwsA(
+          isA<LlmException>().having(
+            (e) => e.message,
+            'message',
+            contains('Not logged in'),
+          ),
+        ),
+      );
+    });
+  });
 }
 
 Future<HistoryStore> openTestHistory(String dir) => HistoryStore.open(
@@ -408,4 +531,6 @@ class RecordingSink implements ChatSink {
       throw UnimplementedError();
   @override
   Future<void> reply(String text) async => replies.add(text);
+  @override
+  Future<void> replyFile(String path) async => throw UnimplementedError();
 }

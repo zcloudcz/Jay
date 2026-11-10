@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:calltype_bot/calltype_bot.dart';
 import 'package:llm_bridge/llm_bridge.dart';
@@ -20,6 +21,7 @@ void main() {
   late CallTypeBot bot;
   late FakeProvider provider;
   late HistoryStore store;
+  late FakeGenerator generator;
   final logs = <String>[];
 
   setUp(() async {
@@ -41,6 +43,7 @@ void main() {
       sendRetryDelay: Duration.zero,
     );
     provider = FakeProvider();
+    generator = FakeGenerator();
     store = await HistoryStore.open(
       '${dir.path}/bot.store.llm',
       base64Decode(testStoreKey),
@@ -57,6 +60,8 @@ void main() {
         displayName: 'Pepa',
         systemPrompt: 's',
         progressAfter: Duration.zero,
+        imageGenerator: generator,
+        mediaDir: '${dir.path}/bot.store.media',
       ),
       allowedIds: allowed,
       log: logs.add,
@@ -202,5 +207,134 @@ void main() {
     );
     expect(await store.greeted('CT-AAAA-0001'), isFalse);
     expect(logs.single, contains('will retry'));
+  });
+
+  group('images (spec 2026-11-10-bot-media)', () {
+    Future<void> send(
+      FakeUser from,
+      String text, {
+      Map<String, dynamic> extra = const {},
+      String? groupId,
+    }) async {
+      final before = hub.calls('AcknowledgeMessage').length;
+      hub.deliver(
+        await from.messageTo(
+          bot.deviceId,
+          api.botBundle,
+          text,
+          extra: extra,
+          groupId: groupId,
+        ),
+      );
+      await until(() => hub.calls('AcknowledgeMessage').length == before + 1);
+    }
+
+    Future<Map<String, dynamic>> lastReplyTo(FakeUser user) async =>
+        user.readPayload(
+          bot.deviceId,
+          (hub.calls('SendReliableDirectFanout').last[3]
+              as Map<String, String>)[user.id]!,
+        );
+
+    test(
+      'an owner image (media) reaches the provider with its caption',
+      () async {
+        provider.scripts.add(() => answer(['A cat.']));
+        final media = await uploadMedia(
+          api,
+          pngBytes,
+          kind: MediaKind.image,
+          name: 'cat.png',
+          mime: 'image/png',
+          durationMs: null,
+          caption: 'what is it?',
+        );
+        await send(
+          owner,
+          'Image (1 KB). Update Jay.\nwhat is it?',
+          extra: {'media': media},
+        );
+        final turn = provider.calls.single.conversation.single;
+        expect(turn.text, '[image: cat.png]\nwhat is it?');
+        expect(turn.images.single.bytes, pngBytes);
+        expect(turn.images.single.mediaType, 'image/png');
+        expect((await lastReplyTo(owner))['body'], 'A cat.');
+      },
+    );
+
+    test('an inline photo (type file) is read too', () async {
+      provider.scripts.add(() => answer(['Nice.']));
+      await send(
+        owner,
+        jsonEncode({'name': 'p.png', 'data': base64Encode(pngBytes)}),
+        extra: {'type': 'file'},
+      );
+      final turn = provider.calls.single.conversation.single;
+      expect(turn.text, '[image: p.png]');
+      expect(turn.images.single.bytes, pngBytes);
+    });
+
+    test('a voice message gets a polite text, no provider call', () async {
+      final media = await uploadMedia(api, Uint8List.fromList([1, 2, 3]));
+      await send(owner, 'Voice message (0:10).', extra: {'media': media});
+      expect(provider.calls, isEmpty);
+      expect((await lastReplyTo(owner))['body'], contains('JPEG, PNG'));
+      expect(api.requests.where((r) => r.startsWith('GET /media/')), isEmpty);
+    });
+
+    test("a stranger's image is never downloaded", () async {
+      final media = await uploadMedia(
+        api,
+        pngBytes,
+        kind: MediaKind.image,
+        name: 'x.png',
+        mime: 'image/png',
+        durationMs: null,
+      );
+      await send(stranger, 'Image', extra: {'media': media});
+      expect(provider.calls, isEmpty);
+      expect(api.requests.where((r) => r.startsWith('GET /media/')), isEmpty);
+      expect(hub.calls('SendReliableDirectFanout'), isEmpty);
+    });
+
+    test('a member image in a group without an owner is ignored', () async {
+      const group = '00000000-0000-4000-8000-0000000000c3';
+      final other = await FakeUser.create(
+        '00000000-0000-4000-8000-00000000001f',
+      );
+      addTearDown(other.close);
+      api.keyBundles[other.id] = await other.keyBundle();
+      api.groups[group] = [stranger.id, other.id, bot.deviceId];
+      final media = await uploadMedia(
+        api,
+        pngBytes,
+        kind: MediaKind.image,
+        name: 'x.png',
+        mime: 'image/png',
+        durationMs: null,
+        caption: '@${bot.handle} look',
+      );
+      await send(
+        stranger,
+        'Image\n@${bot.handle} look',
+        extra: {'media': media},
+        groupId: group,
+      );
+      expect(provider.calls, isEmpty);
+      expect(api.requests.where((r) => r.startsWith('GET /media/')), isEmpty);
+    });
+
+    test('a generated image is uploaded and sent as media', () async {
+      provider.scripts.add(() => answer(['Here. [[image: a red square]]']));
+      await send(owner, 'draw a red square');
+      expect(generator.prompts, ['a red square']);
+      await until(() => hub.calls('SendReliableDirectFanout').length == 2);
+      final payload = await lastReplyTo(owner);
+      // Small images go inline like the app's photos.
+      expect(payload['type'], 'file');
+      final body = jsonDecode(payload['body'] as String) as Map;
+      expect(base64Decode(body['data'] as String), pngBytes);
+      expect(Directory('${dir.path}/bot.store.media').listSync(), isEmpty);
+    });
   });
 }

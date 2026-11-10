@@ -3,6 +3,7 @@
 library;
 
 import 'access.dart' show GroupReplies;
+import 'images.dart' show defaultImageMaxBytes, imageMaxBytesCeiling;
 
 /// A configuration error: the process exits with EX_CONFIG and this text.
 class ConfigException implements Exception {
@@ -68,7 +69,8 @@ abstract final class LlmDefaults {
       'You are $name, a friendly personal assistant inside the Jay '
       'messenger. Answer in the language the user writes in (often Czech). '
       'Be brief and clear; use simple formatting that reads well in a chat '
-      'bubble (short paragraphs, plain lists, no tables).';
+      'bubble (short paragraphs, plain lists, no tables). You can see '
+      'images the user sends you.';
 }
 
 final _handlePattern = RegExp(r'^CT-[A-Z0-9]{4}-[A-Z0-9]{4}$');
@@ -95,6 +97,8 @@ class LlmConfig {
     this.groupReplies = GroupReplies.members,
     this.inbound,
     this.peerTurnsCap = 50,
+    this.imageModel,
+    this.imageMaxBytes = defaultImageMaxBytes,
   });
 
   final String apiUrl;
@@ -140,6 +144,16 @@ class LlmConfig {
 
   /// `PEER_MAX_TURNS_CAP`: ceiling for a bot-only exchange in a group.
   final int peerTurnsCap;
+
+  /// `LLM_IMAGE_MODEL`: image generation model (provider openai only, spec
+  /// 2026-11-10-bot-media M8); null = no image generation.
+  final String? imageModel;
+
+  /// `LLM_IMAGE_MAX_BYTES`: largest received image passed to the model.
+  final int imageMaxBytes;
+
+  /// Generated images wait here until they are sent (then deleted).
+  String get mediaDir => '$storePath.media';
 
   /// The path of the encrypted history/greeting store next to the identity.
   String get statePath => '$storePath.llm';
@@ -257,6 +271,25 @@ class LlmConfig {
         cliWorkDir = opt('LLM_CLI_WORKDIR') ?? '$storePath.cli';
     }
 
+    final imageModel = opt('LLM_IMAGE_MODEL');
+    if (imageModel != null && provider != LlmProviderKind.openai) {
+      throw ConfigException(
+        'LLM_IMAGE_MODEL works only with LLM_PROVIDER=openai (the OpenAI '
+        'Images API); ${provider.id} cannot create images. Remove it.',
+      );
+    }
+    final imageMaxBytes = positive(
+      'LLM_IMAGE_MAX_BYTES',
+      defaultImageMaxBytes,
+      min: 1024,
+    );
+    if (imageMaxBytes > imageMaxBytesCeiling) {
+      throw ConfigException(
+        'LLM_IMAGE_MAX_BYTES must be at most $imageMaxBytesCeiling '
+        '(20 MB), got $imageMaxBytes.',
+      );
+    }
+
     final greetingRaw = (opt('BOT_GREETING') ?? 'on').toLowerCase();
     if (!const {'on', 'off', 'true', 'false', '1', '0'}.contains(greetingRaw)) {
       throw ConfigException(
@@ -314,6 +347,8 @@ class LlmConfig {
       groupReplies: groupReplies,
       inbound: inbound,
       peerTurnsCap: positive('PEER_MAX_TURNS_CAP', 50, min: 0),
+      imageModel: imageModel,
+      imageMaxBytes: imageMaxBytes,
     );
   }
 }

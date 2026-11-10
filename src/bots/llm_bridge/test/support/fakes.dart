@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:llm_bridge/llm_bridge.dart';
 
@@ -39,6 +41,14 @@ class FakeSink implements ChatSink {
 
   @override
   Future<void> reply(String text) async => messages.add(Sent(text));
+
+  /// Files sent, with their bytes read at send time (the bridge deletes
+  /// the file right after).
+  final files = <({String path, List<int> bytes})>[];
+
+  @override
+  Future<void> replyFile(String path) async =>
+      files.add((path: path, bytes: await File(path).readAsBytes()));
 }
 
 class _Handle implements ProgressHandle {
@@ -60,3 +70,29 @@ Stream<String> answer(
     yield p;
   }
 }
+
+/// Fake image API: returns [pngBytes] or throws.
+class FakeGenerator implements ImageGenerator {
+  FakeGenerator({this.fail = false});
+  final bool fail;
+  final prompts = <String>[];
+
+  @override
+  String get label => 'fake images';
+
+  @override
+  Future<Uint8List> generate(String prompt) async {
+    prompts.add(prompt);
+    if (fail) throw const LlmException('content policy');
+    return pngBytes;
+  }
+
+  @override
+  Future<void> close() async {}
+}
+
+/// Magic bytes of a PNG (all the bridge checks) plus a few body bytes.
+final pngBytes = Uint8List.fromList([
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, //
+  0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 1, 2, 3,
+]);

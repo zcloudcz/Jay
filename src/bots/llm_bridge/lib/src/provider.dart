@@ -3,15 +3,87 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+/// An image of the current user turn (spec 2026-11-10-bot-media M4/M7).
+/// Never stored: the history keeps only the turn's text placeholder.
+class ChatImage {
+  const ChatImage({
+    required this.bytes,
+    required this.mediaType,
+    required this.name,
+  });
+
+  final Uint8List bytes;
+
+  /// `image/jpeg`, `image/png`, `image/gif` or `image/webp`, from the
+  /// magic bytes (see [sniffImageType]).
+  final String mediaType;
+  final String name;
+
+  String get base64Data => base64Encode(bytes);
+
+  /// File extension for [mediaType] (`png`, `jpg`, ...).
+  String get extension => switch (mediaType) {
+    'image/jpeg' => 'jpg',
+    'image/png' => 'png',
+    'image/gif' => 'gif',
+    _ => 'webp',
+  };
+
+  @override
+  String toString() => 'ChatImage($name, $mediaType, ${bytes.length} B)';
+}
+
+/// The image types every provider path accepts (Anthropic, OpenAI, Codex,
+/// Claude Code all take these four).
+const supportedImageTypes = {
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+};
+
+/// The image type of [bytes] from their magic bytes, or null when they are
+/// none of [supportedImageTypes].
+///
+/// WHY not the declared MIME type: the APIs reject an image whose declared
+/// `media_type` does not match its content, and the sender's MIME is only
+/// a hint (a renamed file, `application/octet-stream`).
+String? sniffImageType(List<int> bytes) {
+  bool at(int offset, List<int> sig) {
+    if (bytes.length < offset + sig.length) return false;
+    for (var i = 0; i < sig.length; i++) {
+      if (bytes[offset + i] != sig[i]) return false;
+    }
+    return true;
+  }
+
+  if (at(0, const [0xFF, 0xD8, 0xFF])) return 'image/jpeg';
+  if (at(0, const [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) {
+    return 'image/png';
+  }
+  if (at(0, ascii.encode('GIF87a')) || at(0, ascii.encode('GIF89a'))) {
+    return 'image/gif';
+  }
+  if (at(0, ascii.encode('RIFF')) && at(8, ascii.encode('WEBP'))) {
+    return 'image/webp';
+  }
+  return null;
+}
+
 /// One message of a conversation as the provider sees it.
 class ChatTurn {
-  const ChatTurn.user(this.text) : role = 'user';
-  const ChatTurn.assistant(this.text) : role = 'assistant';
+  const ChatTurn.user(this.text, {this.images = const []}) : role = 'user';
+  const ChatTurn.assistant(this.text) : role = 'assistant', images = const [];
 
   /// `user` or `assistant` (the wire names of both APIs).
   final String role;
   final String text;
 
+  /// Images of this turn; only the current user turn has any (history
+  /// keeps the text placeholder, never the bytes).
+  final List<ChatImage> images;
+
+  /// What the history keeps: role and text, never [images].
   Map<String, String> toJson() => {'role': role, 'text': text};
 
   static ChatTurn? fromJson(Object? json) {
@@ -27,13 +99,18 @@ class ChatTurn {
 
   @override
   bool operator ==(Object other) =>
-      other is ChatTurn && other.role == role && other.text == text;
+      other is ChatTurn &&
+      other.role == role &&
+      other.text == text &&
+      other.images.length == images.length;
 
   @override
-  int get hashCode => Object.hash(role, text);
+  int get hashCode => Object.hash(role, text, images.length);
 
   @override
-  String toString() => '$role: $text';
+  String toString() => images.isEmpty
+      ? '$role: $text'
+      : '$role: $text (+${images.length} image)';
 }
 
 /// A provider failed. [message] is safe to show to the owner: it never
@@ -107,12 +184,12 @@ Stream<SseEvent> parseSse(Stream<List<int>> bytes) async* {
   if (data.isNotEmpty) yield SseEvent(event, data.join('\n'));
 }
 
-/// Shared plumbing of the two HTTP providers.
+/// Shared plumbing of the HTTP providers and the image generator.
 ///
-/// WHY dart:io instead of package:http or dio: two POSTs with SSE bodies do
-/// not justify another dependency in a bundle that strangers download.
-abstract class HttpLlmProvider implements LlmProvider {
-  HttpLlmProvider({HttpClient? client})
+/// WHY dart:io instead of package:http or dio: a few POSTs with SSE bodies
+/// do not justify another dependency in a bundle that strangers download.
+abstract class HttpJsonClient {
+  HttpJsonClient({HttpClient? client})
     : _client =
           client ??
           (HttpClient()..connectionTimeout = const Duration(seconds: 20));
@@ -184,6 +261,29 @@ abstract class HttpLlmProvider implements LlmProvider {
     return seconds == null || seconds < 0 ? null : Duration(seconds: seconds);
   }
 
-  @override
+  /// Reads a whole JSON response of at most [maxBytes].
+  static Future<Object?> readJson(
+    HttpClientResponse response, {
+    int maxBytes = 64 << 20,
+  }) async {
+    final out = BytesBuilder(copy: false);
+    await for (final chunk in response) {
+      out.add(chunk);
+      if (out.length > maxBytes) {
+        throw const LlmException('response too large');
+      }
+    }
+    try {
+      return jsonDecode(utf8.decode(out.takeBytes(), allowMalformed: true));
+    } on FormatException {
+      throw const LlmException('response is not JSON');
+    }
+  }
+
   Future<void> close() async => _client.close(force: true);
+}
+
+/// Base of the two chat providers (Anthropic, OpenAI-compatible).
+abstract class HttpLlmProvider extends HttpJsonClient implements LlmProvider {
+  HttpLlmProvider({super.client});
 }

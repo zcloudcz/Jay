@@ -60,8 +60,17 @@ abstract class CliProvider implements LlmProvider {
   final String? model;
   final Duration timeoutKill;
 
-  /// Arguments of one run, public for tests.
-  List<String> arguments(String system);
+  /// Arguments of one run, public for tests. [images] are the current
+  /// turn's images; [imageFiles] their paths when [imagesAsFiles].
+  List<String> arguments(
+    String system, {
+    List<ChatImage> images = const [],
+    List<String> imageFiles = const [],
+  });
+
+  /// Whether this CLI takes images as files (written into [workDir] for
+  /// the run and deleted after it) rather than in its stdin.
+  bool get imagesAsFiles => false;
 
   /// The stdin text of one run.
   String stdinText(List<ChatTurn> conversation, String system);
@@ -76,14 +85,17 @@ abstract class CliProvider implements LlmProvider {
     late final StreamController<String> controller;
     Process? process;
     var finished = false;
+    final imageFiles = <String>[];
     Future<void> run() async {
       try {
         await Directory(workDir).create(recursive: true);
         await prepare(system);
+        final images = currentImages(conversation);
+        if (imagesAsFiles) imageFiles.addAll(await _writeImages(images));
         try {
           process = await Process.start(
             executable,
-            arguments(system),
+            arguments(system, images: images, imageFiles: imageFiles),
             workingDirectory: workDir,
             // npm installs `claude.cmd` / `codex.cmd` on Windows, which
             // only a shell can start; the native installers ship .exe.
@@ -115,6 +127,7 @@ abstract class CliProvider implements LlmProvider {
         if (!controller.isClosed) controller.addError(e, st);
       } finally {
         finished = true;
+        await _deleteAll(imageFiles);
         if (!controller.isClosed) unawaited(controller.close());
       }
     }
@@ -138,6 +151,47 @@ abstract class CliProvider implements LlmProvider {
 
   /// Hook before the process starts (e.g. writing the system prompt file).
   Future<void> prepare(String system) async {}
+
+  /// The images of the turn being answered (the last user turn).
+  static List<ChatImage> currentImages(List<ChatTurn> conversation) {
+    final turns = normalizeTurns(conversation);
+    return turns.isEmpty || turns.last.role != 'user'
+        ? const []
+        : turns.last.images;
+  }
+
+  static var _imageCounter = 0;
+
+  /// Writes [images] into [workDir] (the only folder the sandboxed CLI is
+  /// sure to see) under unique names, owner-only where the OS allows.
+  Future<List<String>> _writeImages(List<ChatImage> images) async {
+    final paths = <String>[];
+    try {
+      for (final image in images) {
+        final path =
+            '$workDir${Platform.pathSeparator}jay-image-'
+            '${DateTime.now().microsecondsSinceEpoch}-${_imageCounter++}.'
+            '${image.extension}';
+        paths.add(path);
+        await File(path).writeAsBytes(image.bytes, flush: true);
+        if (!Platform.isWindows) await Process.run('chmod', ['600', path]);
+      }
+    } catch (_) {
+      await _deleteAll(paths);
+      rethrow;
+    }
+    return paths;
+  }
+
+  static Future<void> _deleteAll(List<String> paths) async {
+    for (final path in paths) {
+      try {
+        await File(path).delete();
+      } on FileSystemException {
+        // Never written or already gone.
+      }
+    }
+  }
 
   static String excerpt(String text, [int max = 300]) {
     final t = text.trim();
@@ -239,11 +293,27 @@ class ClaudeCliProvider extends CliProvider {
   Future<void> prepare(String system) =>
       File(_systemFile).writeAsString(system, flush: true);
 
+  /// With images the run switches to stream-json input (one user message
+  /// with image blocks); Claude Code requires stream-json output and
+  /// `--verbose` with it. Verified with Claude Code 2.1.319 in print mode
+  /// (spec 2026-11-10-bot-media M5). Text-only turns keep plain stdin.
   @override
-  List<String> arguments(String system) => [
+  List<String> arguments(
+    String system, {
+    List<ChatImage> images = const [],
+    List<String> imageFiles = const [],
+  }) => [
     '-p',
-    '--output-format',
-    'json',
+    if (images.isEmpty) ...[
+      '--output-format',
+      'json',
+    ] else ...[
+      '--input-format',
+      'stream-json',
+      '--output-format',
+      'stream-json',
+      '--verbose',
+    ],
     '--system-prompt-file',
     _systemFile,
     '--tools',
@@ -254,18 +324,50 @@ class ClaudeCliProvider extends CliProvider {
   ];
 
   @override
-  String stdinText(List<ChatTurn> conversation, String system) =>
-      transcriptPrompt(conversation);
+  String stdinText(List<ChatTurn> conversation, String system) {
+    final prompt = transcriptPrompt(conversation);
+    final images = CliProvider.currentImages(conversation);
+    if (images.isEmpty) return prompt;
+    return '${jsonEncode({
+      'type': 'user',
+      'message': {
+        'role': 'user',
+        'content': [
+          for (final image in images) {
+              'type': 'image',
+              'source': {'type': 'base64', 'media_type': image.mediaType, 'data': image.base64Data},
+            },
+          {'type': 'text', 'text': prompt},
+        ],
+      },
+    })}\n';
+  }
+
+  /// The `result` object: the whole stdout (`--output-format json`) or the
+  /// last `type: result` line of a stream-json run.
+  static Map? _resultObject(String stdout) {
+    try {
+      final decoded = jsonDecode(stdout.trim());
+      if (decoded is Map) return decoded;
+    } on FormatException {
+      // stream-json: one object per line.
+    }
+    Map? last;
+    for (final line in const LineSplitter().convert(stdout)) {
+      if (line.trim().isEmpty) continue;
+      try {
+        final decoded = jsonDecode(line);
+        if (decoded is Map && decoded['type'] == 'result') last = decoded;
+      } on FormatException {
+        continue;
+      }
+    }
+    return last;
+  }
 
   @override
   String parseOutput(String stdout, String stderr, int exitCode) {
-    Map? json;
-    try {
-      final decoded = jsonDecode(stdout.trim());
-      if (decoded is Map) json = decoded;
-    } on FormatException {
-      json = null;
-    }
+    final json = _resultObject(stdout);
     if (json != null) {
       final result = json['result'];
       if (json['is_error'] == true || exitCode != 0) {
@@ -328,8 +430,15 @@ class CodexCliProvider extends CliProvider {
   @override
   String get label => 'Codex CLI${model == null ? '' : ' $model'}';
 
+  /// Images go as `--image=<file>` (one per image, `=` so the
+  /// multi-value flag cannot swallow the `-` that follows); the files lie in
+  /// the work dir, inside the bot's sandbox.
   @override
-  List<String> arguments(String system) => [
+  List<String> arguments(
+    String system, {
+    List<ChatImage> images = const [],
+    List<String> imageFiles = const [],
+  }) => [
     'exec',
     '--skip-git-repo-check',
     '--ephemeral',
@@ -338,8 +447,12 @@ class CodexCliProvider extends CliProvider {
     '--color',
     'never',
     if (model != null) ...['-m', model!],
+    for (final file in imageFiles) '--image=$file',
     '-',
   ];
+
+  @override
+  bool get imagesAsFiles => true;
 
   @override
   String stdinText(List<ChatTurn> conversation, String system) =>

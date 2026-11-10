@@ -32,6 +32,8 @@ Future<void> main() async {
 
   final provider = buildProvider(config);
   log('Provider: ${provider.label}.');
+  final imageGenerator = buildImageGenerator(config);
+  if (imageGenerator != null) log('Image generation: ${imageGenerator.label}.');
 
   final HistoryStore history;
   try {
@@ -89,6 +91,8 @@ Future<void> main() async {
     systemPrompt: config.systemPrompt,
     timeout: config.timeout,
     progressAfter: config.progressAfter,
+    imageGenerator: imageGenerator,
+    mediaDir: config.mediaDir,
     log: log,
   );
   await runJayGlue(
@@ -98,6 +102,7 @@ Future<void> main() async {
     groupReplies: config.groupReplies,
     peerTurnsCap: config.peerTurnsCap,
     inbound: config.inbound,
+    imageMaxBytes: config.imageMaxBytes,
     log: log,
   );
   log('Connected. Waiting for messages.');
@@ -118,6 +123,7 @@ Future<void> main() async {
     log('Shutting down.');
     await bot.close();
     await provider.close();
+    await imageGenerator?.close();
     exit(0);
   }
 
