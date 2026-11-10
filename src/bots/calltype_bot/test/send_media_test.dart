@@ -11,7 +11,7 @@ import 'package:test/test.dart';
 import 'helpers.dart';
 
 /// A bot SENDING files (contract 2026-11-07-encrypted-media): encrypt +
-/// upload with calltype_core MediaCipher, the `media` message the app
+/// upload with calltype_protocol MediaCipher, the `media` message the app
 /// reads, and the round trip through the bot's own receive path.
 void main() {
   late Directory dir;

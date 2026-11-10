@@ -12,7 +12,7 @@ import 'helpers.dart';
 
 /// Received media (spec 2026-11-07-encrypted-media, section 3) and old
 /// inline files: decode, download, decrypt, verify. Blobs are made with the
-/// app's encoder (calltype_core MediaCipher + MediaInfo).
+/// app's encoder (calltype_protocol MediaCipher + MediaInfo).
 void main() {
   late Directory dir;
   late FakeApi api;

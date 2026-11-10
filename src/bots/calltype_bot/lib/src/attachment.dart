@@ -162,7 +162,7 @@ class BotAttachment {
   /// Downloads (if needed), decrypts and verifies the file into [path].
   ///
   /// Streams chunk by chunk with the app's AES-GCM chunk format
-  /// (calltype_core `MediaCipher`), never holding more than one chunk in
+  /// (calltype_protocol `MediaCipher`), never holding more than one chunk in
   /// memory, into `<path>.part`; the SHA-256 from the message must match
   /// before the file is renamed to [path]. On any error the partial file
   /// is deleted. Throws [BotMediaTooLarge] (above [maxBytes], before any

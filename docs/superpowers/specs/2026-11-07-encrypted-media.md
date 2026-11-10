@@ -329,7 +329,7 @@ bubble states (not downloaded, downloading, expired, downloaded) with fakes; no 
 
 ## Bots (`fix/bridge-media`)
 
-- The format code is shared: `calltype_core/lib/media/media_crypto.dart` (`MediaCipher`, moved from the app) and
+- The format code is shared: `calltype_protocol/lib/media/media_crypto.dart` (`MediaCipher`, moved from the app) and
   `media_info.dart` (`MediaInfo`, `MediaKind`, validation, `jpegDimensions`). The app's `features/media` files
   re-export them; the bots decrypt with the same code.
 - `calltype_bot`: a received `text` + `media` message is a `BotMessage` with `attachment` (metadata, `saveTo` /

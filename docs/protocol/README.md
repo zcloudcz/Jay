@@ -17,6 +17,7 @@ primitive inventory and the known limits.
 | [payloads.md](payloads.md) | The JSON payload inside an envelope: message types and their bodies |
 | [devices.md](devices.md) | Signed device lists, fan-out to devices and to groups |
 | [vectors.md](vectors.md) | Deterministic test vectors and how to replay them |
+| `docs/superpowers/specs/2026-11-07-encrypted-media.md` | Encrypted media: the `media` object and the chunked AES-256-GCM file format (code: `calltype_protocol/lib/media/`) |
 
 ## Layers
 

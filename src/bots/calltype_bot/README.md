@@ -166,7 +166,7 @@ await bot.onMessage((m) async {
 }, receiveFiles: true);
 ```
 
-Nothing is downloaded until `saveTo`/`readBytes`. `saveTo` streams `GET /media/{id}` through calltype_core's
+Nothing is downloaded until `saveTo`/`readBytes`. `saveTo` streams `GET /media/{id}` through calltype_protocol's
 `MediaCipher` (4 MiB AES-256-GCM chunks, the app's code) into `<path>.part`, verifies the SHA-256 and renames; on any
 error the partial file is deleted. Errors: `BotMediaTooLarge` (before any request), `BotMediaExpired` (404/410),
 `MediaTampered`, `MediaHashMismatch`. An invalid `media` object leaves a plain text message (never dropped).
@@ -179,7 +179,7 @@ await bot.sendFile(to: groupId, path: '/tmp/reply.mp3', kind: MediaKind.voice);
 await message.replyFile('/tmp/chart.png'); // in a group it quotes the message, like reply()
 ```
 
-The file is encrypted with a fresh key in calltype_core's `MediaCipher` format (4 MiB AES-256-GCM chunks, the app's
+The file is encrypted with a fresh key in calltype_protocol's `MediaCipher` format (4 MiB AES-256-GCM chunks, the app's
 code), read from disk chunk by chunk while the plaintext SHA-256 is computed, and uploaded through the media relay
 (`POST /media`, `PUT /media/{id}/chunks/{i}` with retries on 5xx/429, `POST /media/{id}/complete`; a failure withdraws
 the upload with `DELETE`). The message is `type: text` with the app's English fallback body plus the `media` object.

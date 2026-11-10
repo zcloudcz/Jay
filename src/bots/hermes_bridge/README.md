@@ -144,7 +144,7 @@ decrypts and verifies the file (calltype_core chunk format, SHA-256) and Hermes 
 ## Sending files and voice replies
 
 The bridge sends files with the bot runtime's `sendFile` (calltype_bot): encrypted with a fresh key in the app's chunk
-format (calltype_core `MediaCipher`), streamed from disk to the media relay, so every Jay client shows it like a file a
+format (calltype_protocol `MediaCipher`), streamed from disk to the media relay, so every Jay client shows it like a file a
 person sent. Small images (JPEG/PNG/GIF/WebP up to 256 KiB) go inline like the app's photos and show without a
 download tap. The server's 5 GB cap and per-device quotas apply; `MEDIA_SEND_MAX_BYTES` is the bridge's own cap.
 
