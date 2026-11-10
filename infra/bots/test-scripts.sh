@@ -289,7 +289,9 @@ else
   expect_in "ps1 npm shim" "$out" "includes the folder of node"
   expect_in "ps1 npm shim" "$out" "PATH starts with $fk/win-node:$fk/win-npm"
   set +e
-  out=$(CODEX_BIN="$fk/win-npm/codex.cmd" USERPROFILE="$work/profile" pwsh -NoProfile -Command "& '$ps_script' -DryRun -Name npm -Owner CT-AAAA-0001 -Provider codex-cli -Arch AMD64" 2>&1)
+  # Hermetic: a hosted runner has a real node on its PATH, so hide it.
+  mkdir -p "$fk/empty"
+  out=$(CODEX_BIN="$fk/win-npm/codex.cmd" USERPROFILE="$work/profile" pwsh -NoProfile -Command "\$env:PATH = '$fk/empty'; & '$ps_script' -DryRun -Name npm -Owner CT-AAAA-0001 -Provider codex-cli -Arch AMD64" 2>&1)
   rc=$?
   set -e
   if [ "$rc" != 0 ]; then ok; else bad "ps1 missing node: must fail"; fi

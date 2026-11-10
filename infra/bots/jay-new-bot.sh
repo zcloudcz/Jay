@@ -497,7 +497,7 @@ esac
 if [ -n "$cli_var" ]; then
   if [ -n "${!cli_var:-}" ]; then
     cli_path=${!cli_var} # an explicit choice, e.g. a second install
-    [ -f "$cli_path" ] && [ -x "$cli_path" ] || die "$cli_var=$cli_path is not an executable file"
+    if [ ! -f "$cli_path" ] || [ ! -x "$cli_path" ]; then die "$cli_var=$cli_path is not an executable file"; fi
   elif [ -n "$os_override" ]; then
     cli_path="/usr/local/bin/$cli" # dry-run matrix on a machine without it
   else
