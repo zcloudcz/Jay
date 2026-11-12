@@ -1,7 +1,7 @@
 # Bots acknowledge messages with a reaction (contract)
 
 Status: built on `feat/bot-ack-reactions` (`calltype_bot`, `hermes_bridge`, `llm_bridge`, `a2a_bridge`; no
-server, protocol or app change). Not released.
+server, protocol or app change). Not released. Acceptance: `docs/acceptance/bot-ack-reactions.md`.
 
 Owner (2026-11-11): "potřeboval bych v aplikaci vidět, že Bot přijal zprávu. Discord reaguje emotikonem na
 zprávu. Chci to podobně, aby Bot vybral správného emotikona (oko, palec...) a označil zprávu při přečtení.
@@ -63,3 +63,14 @@ two per accepted message.
 - "Answered" means a reply went through `BotMessage.reply`/`replyFile`; a bridge sending into the same chat
   by other means (`bot.send`) does not count.
 - At most once, like turns: a re-delivered message (seen-row) gets no second receipt.
+- Notifications (not changed here, follow-up): the app notifies "X reacted 👀 to: ..." for every
+  reaction on the user's own message when the chat is not open and focused, and the server sends its
+  generic "New message" push for every envelope to an offline device (it cannot tell a reaction from a
+  message). An acknowledged turn can therefore add up to two notifications (👀, final emoji) when the user
+  left the chat. The 👀 usually reaches a device that is still connected (no push). Fix candidates: the
+  app skips notifications for reactions of bot contacts, and the bots send reactions with a server-side
+  "no push" hint (needs a hub change).
+- App display: checked, no change needed. The inbox applies a reaction from any authenticated sender in
+  the conversation (bots included) to a message of that conversation, the user's own messages included,
+  last writer wins with equal timestamps applied; the chips render under incoming and outgoing bubbles.
+  Covered by `message_reactions_inbox_test` ("stores the reaction under the authenticated sender").
