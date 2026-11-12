@@ -315,7 +315,7 @@ void main() {
         await bridge().handle(conversationId: 'C1', text: 'cat', sink: sink);
         expect(sink.texts, ['Here [[image: a cat]]']);
         expect(sink.files, isEmpty);
-        expect(provider.calls.single.system, 'You are Pepa.');
+        expect(provider.calls.single.system, isNot(contains('[[image:')));
       });
 
       test('on: tag removed, image generated, sent and deleted', () async {

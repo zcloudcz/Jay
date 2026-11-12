@@ -103,9 +103,13 @@ Future<void> main() async {
     peerTurnsCap: config.peerTurnsCap,
     inbound: config.inbound,
     imageMaxBytes: config.imageMaxBytes,
+    ackReactions: config.ackReactions,
     log: log,
   );
-  log('Connected. Waiting for messages.');
+  log(
+    'Connected. Waiting for messages (acknowledgement reactions: '
+    '${config.ackReactions ? 'on' : 'off'}).',
+  );
 
   if (config.greeting) {
     await greetOwners(

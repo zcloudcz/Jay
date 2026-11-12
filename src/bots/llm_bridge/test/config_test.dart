@@ -157,6 +157,21 @@ void main() {
     );
   });
 
+  test('ACK_REACTIONS: on by default, off, typo refused', () {
+    expect(parse({'LLM_PROVIDER': 'claude-cli'}).ackReactions, isTrue);
+    expect(
+      parse({
+        'LLM_PROVIDER': 'claude-cli',
+        'ACK_REACTIONS': 'off',
+      }).ackReactions,
+      isFalse,
+    );
+    expect(
+      () => parse({'LLM_PROVIDER': 'claude-cli', 'ACK_REACTIONS': 'yes'}),
+      configError('ACK_REACTIONS'),
+    );
+  });
+
   test('custom prompt, name, history, greeting off', () {
     final c = parse({
       'LLM_PROVIDER': 'claude-cli',

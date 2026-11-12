@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:calltype_bot/calltype_bot.dart' show ackDirectiveHint;
 import 'package:llm_bridge/llm_bridge.dart';
 import 'package:test/test.dart';
 
@@ -47,12 +48,120 @@ void main() {
     final sink = FakeSink();
     await bridge().handle(conversationId: 'C1', text: 'Ahoj', sink: sink);
     expect(sink.texts, ['Ahoj, Martine.']);
-    expect(provider.calls.single.system, 'You are Pepa.');
+    expect(provider.calls.single.system, 'You are Pepa.\n\n$ackDirectiveHint');
     expect(provider.calls.single.conversation, [const ChatTurn.user('Ahoj')]);
     expect(await store.history('c1'), [
       const ChatTurn.user('Ahoj'),
       const ChatTurn.assistant('Ahoj, Martine.'),
     ]);
+  });
+
+  group('reaction directive (spec 2026-11-11-bot-ack-reactions)', () {
+    test('a plain answer: no reaction, not failed', () async {
+      provider.scripts.add(() => answer(['Ahoj']));
+      final sink = FakeSink();
+      final r = await bridge().handle(
+        conversationId: 'C1',
+        text: 'Ahoj',
+        sink: sink,
+      );
+      expect(r, (reaction: null, failed: false));
+      expect(sink.texts, ['Ahoj']);
+    });
+
+    test('directive + text: stripped, emoji returned', () async {
+      provider.scripts.add(() => answer(['[react: 🎉]\n', 'Hotovo.']));
+      final sink = FakeSink();
+      final r = await bridge().handle(
+        conversationId: 'C1',
+        text: 'nasaď to',
+        sink: sink,
+      );
+      expect(r, (reaction: '🎉', failed: false));
+      expect(sink.texts, ['Hotovo.']);
+      expect(
+        (await store.history('c1')).last,
+        const ChatTurn.assistant('Hotovo.'),
+      );
+    });
+
+    test(
+      'reaction only: no text message, remembered as the directive',
+      () async {
+        provider.scripts.add(() => answer(['[react:👍]']));
+        final sink = FakeSink();
+        final r = await bridge().handle(
+          conversationId: 'C1',
+          text: 'díky',
+          sink: sink,
+        );
+        expect(r, (reaction: '👍', failed: false));
+        expect(sink.messages, isEmpty);
+        expect(await store.history('c1'), [
+          const ChatTurn.user('díky'),
+          const ChatTurn.assistant('[react:👍]'),
+        ]);
+      },
+    );
+
+    test('reaction only after a progress message: it says "Done."; the '
+        'directive never shows while streaming', () async {
+      provider.scripts.add(
+        () =>
+            answer(['[rea', 'ct:👍]'], pause: const Duration(milliseconds: 60)),
+      );
+      final sink = FakeSink();
+      final r = await bridge(
+        progressAfter: const Duration(milliseconds: 10),
+      ).handle(conversationId: 'C1', text: 'díky', sink: sink);
+      expect(r.reaction, '👍');
+      expect(sink.messages, hasLength(1));
+      final progress = sink.messages.single;
+      expect(progress.text, BridgeTexts.done);
+      expect(progress.edits.where((e) => e.contains('[')), isEmpty);
+    });
+
+    test('an invalid directive is stripped, the text still posted', () async {
+      provider.scripts.add(() => answer(['[react:yes]\nOK.']));
+      final sink = FakeSink();
+      final r = await bridge().handle(
+        conversationId: 'C1',
+        text: 'x',
+        sink: sink,
+      );
+      expect(r, (reaction: null, failed: false));
+      expect(sink.texts, ['OK.']);
+    });
+
+    test('a directive further down is ordinary text', () async {
+      provider.scripts.add(() => answer(['Use:\n[react:👍]']));
+      final sink = FakeSink();
+      final r = await bridge().handle(
+        conversationId: 'C1',
+        text: 'x',
+        sink: sink,
+      );
+      expect(r.reaction, isNull);
+      expect(sink.texts, ['Use:\n[react:👍]']);
+    });
+
+    test('provider failure and timeout are failed turns', () async {
+      provider.scripts.add(() => Stream.error(LlmException('boom')));
+      final sink = FakeSink();
+      expect(
+        await bridge().handle(conversationId: 'C1', text: 'x', sink: sink),
+        (reaction: null, failed: true),
+      );
+      provider.scripts.add(
+        () => answer(['late'], pause: const Duration(seconds: 2)),
+      );
+      expect(
+        await bridge(
+          timeout: const Duration(milliseconds: 50),
+        ).handle(conversationId: 'C1', text: 'x', sink: sink),
+        (reaction: null, failed: true),
+      );
+    });
   });
 
   test('history is sent with the next message and capped', () async {

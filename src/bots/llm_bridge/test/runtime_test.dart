@@ -64,6 +64,8 @@ void main() {
         mediaDir: '${dir.path}/bot.store.media',
       ),
       allowedIds: allowed,
+      // The existing tests count messages; ack_test.dart covers it on.
+      ackReactions: false,
       log: logs.add,
     );
   });

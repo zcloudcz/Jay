@@ -100,6 +100,7 @@ Future<void> runJayGlue(
   String? inbound,
   int imageMaxBytes = defaultImageMaxBytes,
   DateTime Function()? now,
+  bool ackReactions = true,
   required void Function(String) log,
 }) async {
   try {
@@ -131,6 +132,12 @@ Future<void> runJayGlue(
     ),
   );
 
+  /// The turn's outcome becomes the final acknowledgement reaction.
+  void settle(BotMessage message, TurnOutcome outcome) {
+    if (outcome.failed) message.markFailed();
+    if (outcome.reaction != null) message.finalReaction = outcome.reaction;
+  }
+
   Future<void> handle(BotMessage message) async {
     GroupInfo? group;
     final groupId = message.groupId;
@@ -151,15 +158,21 @@ Future<void> runJayGlue(
         await bot.send(to: groupId!, text: BridgeTexts.botLimit);
         return;
       case Answer(:final label):
+        // Accepted: 👀 before the turn (spec 2026-11-11-bot-ack-reactions).
+        // Ignored messages and the bot-limit notice above get nothing.
+        await message.accept();
         // Files are looked at only now, after the access rules: nothing is
         // downloaded for a sender the bot would not answer (spec M4).
         final attachment = message.attachment;
         if (attachment == null) {
-          await bridge.handle(
-            conversationId: message.conversationId,
-            text: message.text,
-            sink: _MessageSink(message),
-            senderLabel: label,
+          settle(
+            message,
+            await bridge.handle(
+              conversationId: message.conversationId,
+              text: message.text,
+              sink: _MessageSink(message),
+              senderLabel: label,
+            ),
           );
           return;
         }
@@ -171,21 +184,25 @@ Future<void> runJayGlue(
           case RefusedFile(:final reply):
             await message.reply(reply);
           case AcceptedImage(:final image):
-            await bridge.handle(
-              conversationId: message.conversationId,
-              // The caption, never the media fallback body ("Image (12 KB).
-              // Update Jay..."), which is for old clients.
-              text: attachment.caption ?? '',
-              sink: _MessageSink(message),
-              senderLabel: label,
-              images: [image],
+            settle(
+              message,
+              await bridge.handle(
+                conversationId: message.conversationId,
+                // The caption, never the media fallback body ("Image (12
+                // KB). Update Jay..."), which is for old clients.
+                text: attachment.caption ?? '',
+                sink: _MessageSink(message),
+                senderLabel: label,
+                images: [image],
+              ),
             );
         }
     }
   }
 
   // Reactions: no handler is set, so the runtime acknowledges and ignores
-  // them (spec B2).
+  // them (spec B2). Also other bots' reactions to this bot's
+  // acknowledgements: they never start a turn, so two bots cannot loop.
   await bot.onMessage(
     handle,
     // The app sends small photos inline (`type: file`), spec M4.
@@ -195,5 +212,8 @@ Future<void> runJayGlue(
     // owners, cached per group and dropped on the server's group hints.
     allowGroupSender: (id, groupId) async =>
         access.admitGroupSender(await bot.group(groupId), id),
+    // Manual: [LlmAccess] decides above, and only an answered message
+    // gets 👀 then ✅ / 👍 / ❌ or the model's [react:EMOJI].
+    ackReactions: ackReactions ? const AckReactions(manual: true) : null,
   );
 }

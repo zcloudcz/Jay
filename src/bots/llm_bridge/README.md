@@ -135,6 +135,7 @@ want a bot for more people or for heavy use, use an API key (`anthropic` or
 | `PROGRESS_AFTER_SECONDS` | no | `5` | "Working on it..." after this long, then edited with the streamed text (max 30 edits); `0` = never |
 | `CLAUDE_BIN`, `CODEX_BIN` | no | `claude`, `codex` | CLI path (the setup script writes the absolute path, services have a short `PATH`) |
 | `LLM_CLI_WORKDIR` | no | `<BOT_STORE_PATH>.cli` | empty working directory of the CLI |
+| `ACK_REACTIONS` | no | `on` | `on`: 👀 on every message the bot answers, then ✅ / 👍 / ❌ or the model's `[react:EMOJI]` (see "What it does"); `off`: no automatic reactions |
 | `BOT_GREETING` | no | `on` | `off` = no first message to the owners |
 | `GROUP_REPLIES` | no | `members` (API keys), `owners` (CLI providers) | `members` = in a group with an owner, any human member who addresses the bot is answered; `owners` = owners only |
 | `BOT_INBOUND` | no | `owners` | server-side inbound policy: `owners` = the server delivers only owners' 1:1 messages and groups with an owner; `open` = everything (the bot still filters) |
@@ -163,7 +164,18 @@ on it), 69 Jay API unreachable, 73 history file not writable.
   `retry-after` (max 30 s). Nothing is remembered from a failed turn.
 - `/new` forgets this chat; `/help` (and `/start` from a bot link) explains
   the bot. Both are published as the bot's "/" menu.
-- Reactions are ignored. Voice messages, other files and tools are out of
+- Acknowledgement reactions (`ACK_REACTIONS=on`, spec
+  `2026-11-11-bot-ack-reactions`): every message the bot takes gets 👀 before
+  the model is asked; when the turn ends it becomes ✅ (answered), ❌ (the
+  error text above) or the emoji the model chose. The system prompt (also a
+  custom `LLM_SYSTEM_PROMPT`) gets one line about the directive: the FIRST
+  line of an answer may be `[react:EMOJI]`; it is stripped from the text and
+  never shown while streaming, and an answer of only that line sends no text
+  ("díky" -> 👍). Ignored messages (strangers, groups without an owner, bot
+  talk off, the bot limit and its notice) get no reaction, so no 👀 means
+  the bridge is down or did not take the message.
+- Reactions are ignored, also other bots' reactions to the bot's
+  acknowledgements (they never start a turn). Voice messages, other files and tools are out of
   scope (see Images).
 
 ## Images (spec `2026-11-10-bot-media`)

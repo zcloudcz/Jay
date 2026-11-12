@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:calltype_bot/calltype_bot.dart'
+    show ackDirectiveHint, hideReplyDirective, parseReplyDirective;
+
 import 'history_store.dart';
 import 'images.dart';
 import 'provider.dart';
@@ -76,6 +79,10 @@ abstract final class BridgeTexts {
       'of this chat.';
   static const empty = '(The model sent an empty reply.)';
 
+  /// What a progress message becomes when the answer was only a reaction
+  /// (a bot cannot delete it; same text as hermes_bridge).
+  static const done = 'Done.';
+
   /// Bot talk hit the group's limit (same text as hermes_bridge).
   static const botLimit = 'Bot limit reached, waiting for a human.';
 
@@ -99,6 +106,14 @@ abstract final class BridgeTexts {
       'owner has to fix the API key or the CLI login and restart the bot.';
   static String failed(String detail) => 'Sorry, I could not answer: $detail';
 }
+
+/// How a turn ended, for the acknowledgement reaction (spec
+/// 2026-11-11-bot-ack-reactions): [reaction] is the model's
+/// `[react:EMOJI]` choice ('' = remove, null = none), [failed] means an
+/// error text was posted instead of an answer.
+typedef TurnOutcome = ({String? reaction, bool failed});
+
+const _plain = (reaction: null, failed: false);
 
 /// The LLM side of the bot: one [handle] call per incoming chat message.
 ///
@@ -151,11 +166,13 @@ class LlmBridge {
   final String? mediaDir;
   final Future<void> Function(Duration) _sleep;
 
-  /// The system prompt of one call: the configured one, plus the image
-  /// tag syntax when generation is on.
+  /// The system prompt of one call: the configured one, the reaction
+  /// directive, plus the image tag syntax when generation is on. WHY the
+  /// directive also with a custom LLM_SYSTEM_PROMPT: like the image hint,
+  /// the operator's prompt would otherwise never learn it.
   String get _system => imageGenerator == null
-      ? systemPrompt
-      : '$systemPrompt\n\n${ImageTexts.generationHint}';
+      ? '$systemPrompt\n\n$ackDirectiveHint'
+      : '$systemPrompt\n\n$ackDirectiveHint\n\n${ImageTexts.generationHint}';
   final void Function(String) log;
 
   /// Answers [text] from conversation [conversationId] into [sink].
@@ -165,7 +182,11 @@ class LlmBridge {
   ///
   /// [images] (spec M4/M7) go to the provider with this turn only; the
   /// history keeps `[image: name]` placeholders in the turn's text.
-  Future<void> handle({
+  ///
+  /// The answer's first line may be `[react:EMOJI]` (see
+  /// [parseReplyDirective]): stripped from the text and returned in the
+  /// [TurnOutcome]; an answer of only that line posts no text.
+  Future<TurnOutcome> handle({
     required String conversationId,
     required String text,
     required ChatSink sink,
@@ -173,20 +194,20 @@ class LlmBridge {
     List<ChatImage> images = const [],
   }) async {
     var message = text.trim();
-    if (message.isEmpty && images.isEmpty) return;
+    if (message.isEmpty && images.isEmpty) return _plain;
 
     final slash = images.isEmpty ? parseSlashCommand(message) : null;
     switch (slash?.command) {
       case 'new' || 'reset':
         await history.reset(conversationId);
         await sink.reply(BridgeTexts.reset);
-        return;
+        return _plain;
       case 'help' || 'start':
         // `/start` is what a calltype://bot/<handle>?start= link pre-fills.
         await sink.reply(
           BridgeTexts.help(displayName, provider.label, history.cap),
         );
-        return;
+        return _plain;
     }
 
     if (images.isNotEmpty) {
@@ -207,13 +228,28 @@ class LlmBridge {
     final run = _Run(this, sink);
     try {
       final raw = await _answer(conversation, run);
+      final directive = parseReplyDirective(raw);
+      if (directive.invalid) {
+        log('LLM: invalid reaction directive in $conversationId stripped.');
+      }
+      final reaction = directive.emoji;
       final tags = imageGenerator == null
-          ? (text: raw, prompts: const <String>[])
-          : extractImageTags(raw);
+          ? (text: directive.text, prompts: const <String>[])
+          : extractImageTags(directive.text);
       final prompts = tags.prompts.take(maxImagesPerAnswer).toList();
       final answer = tags.text.trim().isEmpty && prompts.isNotEmpty
           ? prompts.map(generatedPlaceholder).join('\n')
           : tags.text;
+      if (answer.trim().isEmpty && reaction != null) {
+        // Only a reaction ("díky" -> 👍): no text message. The history
+        // keeps the directive so the model sees how it answered.
+        await run.finishWithoutText();
+        await history.append(conversationId, [
+          userTurn,
+          ChatTurn.assistant('[react:$reaction]'),
+        ]);
+        return (reaction: reaction, failed: false);
+      }
       final shown = answer.trim().isEmpty ? BridgeTexts.empty : answer;
       await run.finish(shown);
       final notes = await _sendImages(prompts, sink);
@@ -230,9 +266,11 @@ class LlmBridge {
           ),
         ]);
       }
+      return (reaction: reaction, failed: false);
     } on TimeoutException {
       log('LLM: timeout in conversation $conversationId');
       await run.finish(BridgeTexts.timeout(timeout));
+      return (reaction: null, failed: true);
     } on LlmException catch (e) {
       log('LLM: ${provider.label}: $e');
       await run.finish(
@@ -240,6 +278,7 @@ class LlmBridge {
             ? BridgeTexts.auth('HTTP ${e.status}: ${_short(e.message)}')
             : BridgeTexts.failed(_short(e.message)),
       );
+      return (reaction: null, failed: true);
     } finally {
       run.stop();
     }
@@ -384,14 +423,13 @@ class _Run {
   void partial(String text) => _partial = text;
 
   String _progressText() {
-    // Image tags are instructions to the bridge, not text for the chat.
+    // Image tags and a leading reaction directive are instructions to the
+    // bridge, not text for the chat.
+    final partial = hideReplyDirective(_partial);
     final p =
         (bridge.imageGenerator == null
-                ? _partial
-                : _partial.replaceAll(
-                    RegExp(r'\[\[image:[\s\S]*?(\]\]|$)'),
-                    '',
-                  ))
+                ? partial
+                : partial.replaceAll(RegExp(r'\[\[image:[\s\S]*?(\]\]|$)'), ''))
             .trim();
     if (p.isEmpty) return BridgeTexts.working;
     // The first chunk only: the rest follows as replies at the end.
@@ -427,6 +465,18 @@ class _Run {
     _finished = true;
     _timer?.cancel();
     _ticker?.cancel();
+  }
+
+  /// A reaction-only answer: a progress message on screen says the turn is
+  /// over instead of staying "Working on it...".
+  Future<void> finishWithoutText() async {
+    stop();
+    await _op;
+    try {
+      await _progress?.update(BridgeTexts.done);
+    } catch (e) {
+      bridge.log('LLM: progress edit failed ($e).');
+    }
   }
 
   /// The final answer: the progress message becomes its first chunk (so the

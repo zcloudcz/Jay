@@ -94,6 +94,7 @@ class LlmConfig {
     this.cliBinary,
     this.cliWorkDir,
     this.greeting = true,
+    this.ackReactions = true,
     this.groupReplies = GroupReplies.members,
     this.inbound,
     this.peerTurnsCap = 50,
@@ -134,6 +135,10 @@ class LlmConfig {
 
   /// Send the one-time "Ahoj, jsem ..." greeting to the owners.
   final bool greeting;
+
+  /// `ACK_REACTIONS`: 👀 on accepted messages, then the turn's final emoji
+  /// (spec 2026-11-11-bot-ack-reactions).
+  final bool ackReactions;
 
   /// `GROUP_REPLIES`: who besides the owners is answered in groups.
   final GroupReplies groupReplies;
@@ -297,6 +302,11 @@ class LlmConfig {
       );
     }
 
+    final ackRaw = (opt('ACK_REACTIONS') ?? 'on').toLowerCase();
+    if (!const {'on', 'off', 'true', 'false', '1', '0'}.contains(ackRaw)) {
+      throw ConfigException('ACK_REACTIONS must be on or off, got "$ackRaw".');
+    }
+
     // WHY the CLI providers default to owners: they run on the owner's
     // personal subscription, which the vendors' terms cover for his own use
     // (README "Subscription providers"). Answering other group members is
@@ -344,6 +354,7 @@ class LlmConfig {
       cliBinary: cliBinary,
       cliWorkDir: cliWorkDir,
       greeting: const {'on', 'true', '1'}.contains(greetingRaw),
+      ackReactions: const {'on', 'true', '1'}.contains(ackRaw),
       groupReplies: groupReplies,
       inbound: inbound,
       peerTurnsCap: positive('PEER_MAX_TURNS_CAP', 50, min: 0),
