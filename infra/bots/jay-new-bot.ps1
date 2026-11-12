@@ -32,6 +32,15 @@ param(
   # (default: members for API keys, owners for claude-cli/codex-cli).
   [ValidateSet('', 'members', 'owners')]
   [string]$GroupReplies = '',
+  # Named commands the bot may run for its owners (LLM_ACTIONS):
+  # 'name=command; name2=command2'; 'none' removes them.
+  [string]$Actions,
+  # Rescue bot for Hermes: actions status, restart (and logs with -LogFile)
+  # for the Scheduled Task or service of this name; forces owners only.
+  [string]$RescueHermes,
+  [ValidateSet('task', 'service')]
+  [string]$RescueKind = 'task',
+  [string]$LogFile,
   [switch]$Remove,
   [switch]$Yes,
   [switch]$DryRun,
@@ -65,7 +74,7 @@ if (-not $slug) { Fail '-Name must contain at least one letter or digit (a-z, 0-
 $taskName = "Jay bot $slug"
 $botDir = Join-Path $botsDir $slug
 $settingsFile = Join-Path $botDir 'bot.env.json'
-$logFile = Join-Path $botDir 'bot.log'
+$botLogFile = Join-Path $botDir 'bot.log'
 $errFile = Join-Path $botDir 'bot.err.log'
 $bridge = if ($Provider -eq 'hermes') { 'hermes_bridge' } else { 'llm_bridge' }
 
@@ -86,6 +95,23 @@ if (-not $Remove) {
   }
   if ($HermesUrl -and $Provider -ne 'hermes') { Fail '-HermesUrl is only for -Provider hermes' }
   if ($GroupReplies -and $Provider -eq 'hermes') { Fail '-GroupReplies is not for -Provider hermes (Hermes answers owners only)' }
+  # Spec 2026-11-12-llm-bridge-fallback-rescue A5.
+  if (($PSBoundParameters.ContainsKey('Actions') -or $RescueHermes) -and $Provider -eq 'hermes') {
+    Fail '-Actions and -RescueHermes are not for -Provider hermes'
+  }
+  if ($Actions -match '[\r\n]') { Fail '-Actions must be one line' }
+  if ($LogFile) {
+    if (-not $RescueHermes) { Fail '-LogFile is only for -RescueHermes' }
+    if ($LogFile -match "['`";]") { Fail '-LogFile must not contain quotes or ;' }
+  }
+  if ($RescueHermes) {
+    if ($RescueHermes -notmatch '^[A-Za-z0-9 ._\\-]{1,128}$') {
+      Fail "-RescueHermes: '$RescueHermes' is not a Scheduled Task or service name (letters, digits, space . _ \ -)"
+    }
+    if ($PSBoundParameters.ContainsKey('GroupReplies') -and $GroupReplies -ne 'owners') {
+      Fail "-RescueHermes answers owners only; drop -GroupReplies $GroupReplies"
+    }
+  }
 }
 
 $cpu = if ($Arch) { $Arch } else { $env:PROCESSOR_ARCHITECTURE }
@@ -206,6 +232,33 @@ if ($Provider -eq 'hermes') {
 if ($Provider -eq 'openai' -and $BaseUrl -and -not $Model) {
   Fail '-Model is required with -BaseUrl (the endpoint decides which models exist)'
 }
+
+# --- actions (spec 2026-11-12-llm-bridge-fallback-rescue A5) -----------------
+# The bridge runs these commands itself, without a shell; the model can only
+# name them. -RescueHermes fills the Windows presets, -Actions adds more.
+$actionsGiven = $PSBoundParameters.ContainsKey('Actions')
+if (-not $actionsGiven) { $Actions = Get-Old $old 'LLM_ACTIONS' }
+if ($Actions -eq 'none') { $Actions = '' }
+if ($RescueHermes) {
+  $n = $RescueHermes
+  $ps = 'powershell.exe -NoProfile -NonInteractive -Command'
+  if ($RescueKind -eq 'service') {
+    $preset = "status=sc.exe query `"$n`"; restart=$ps `"Restart-Service -Name '$n'`""
+  } else {
+    $preset = "status=schtasks.exe /query /tn `"$n`" /v /fo list; restart=$ps `"schtasks.exe /end /tn '$n'; schtasks.exe /run /tn '$n'`""
+  }
+  if ($LogFile) {
+    $preset += "; logs=$ps `"Get-Content -Tail 200 -LiteralPath '$LogFile'`""
+  } else {
+    Write-Host "Note: add -LogFile <Hermes log> for a 'logs' action."
+  }
+  $Actions = if ($actionsGiven -and $Actions) { "$preset; $Actions" } else { $preset }
+  # A rescue bot must never act for anyone but its owners.
+  $GroupReplies = 'owners'
+  Write-Host 'Rescue bot: group replies: owners.'
+}
+# Not secret by contract (the bridge logs them too), so shown here.
+if ($Actions) { Write-Host "Actions (run by the bot for its owners in 1:1 chats only): $Actions" }
 
 # --- CLI providers: the owner's own, signed-in CLI ----------------------------------
 $cliVar = ''
@@ -369,6 +422,7 @@ if ($Provider -eq 'hermes') {
   if ($BaseUrl) { $settings.OPENAI_BASE_URL = $BaseUrl }
   if ($GroupReplies) { $settings.GROUP_REPLIES = $GroupReplies }
   if ($cliVar) { $settings[$cliVar] = $cliPath }
+  if ($Actions) { $settings.LLM_ACTIONS = $Actions }
 }
 
 $runFile = Join-Path $botDir 'run.ps1'
@@ -407,7 +461,7 @@ while (`$true) {
 $user = "$env:USERDOMAIN\$env:USERNAME"
 if ($DryRun) {
   Note "would register the Scheduled Task '$taskName' (at logon of $user, no time limit) and start it"
-  Note "would wait for 'Connected.' in $logFile and print the handle and invite"
+  Note "would wait for 'Connected.' in $botLogFile and print the handle and invite"
   return
 }
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
@@ -418,7 +472,7 @@ $taskSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopI
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $taskSettings `
   -Principal $principal -Description "Jay bot '$Name' (jay-new-bot.ps1)" -Force | Out-Null
-foreach ($f in @($logFile, $errFile)) { if (Test-Path -LiteralPath $f) { Remove-Item -Force -LiteralPath $f } }
+foreach ($f in @($botLogFile, $errFile)) { if (Test-Path -LiteralPath $f) { Remove-Item -Force -LiteralPath $f } }
 Start-ScheduledTask -TaskName $taskName
 
 Write-Host 'Starting ...'
@@ -426,14 +480,14 @@ $out = ''
 $ok = $false
 for ($i = 0; $i -lt 90; $i++) {
   Start-Sleep -Seconds 1
-  $out = if (Test-Path -LiteralPath $logFile) { Get-Content -Raw -LiteralPath $logFile } else { '' }
+  $out = if (Test-Path -LiteralPath $botLogFile) { Get-Content -Raw -LiteralPath $botLogFile } else { '' }
   if ($out -match 'Connected\.') { $ok = $true; break }
   $err = if (Test-Path -LiteralPath $errFile) { Get-Content -Raw -LiteralPath $errFile } else { '' }
   if ($err -and $err.Trim()) { Write-Host $err -ForegroundColor Red; break }
 }
 if (-not $ok) {
   Stop-Bot
-  Fail "the bot did not start (log: $logFile, $errFile)"
+  Fail "the bot did not start (log: $botLogFile, $errFile)"
 }
 $handle = [regex]::Match($out, 'CT-[A-Z0-9]{4}-[A-Z0-9]{4}').Value
 $invite = [regex]::Match($out, 'ct://\S+').Value

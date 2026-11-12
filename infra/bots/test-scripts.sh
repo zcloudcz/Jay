@@ -10,6 +10,8 @@
 #      works here) and must not see the rest of the home folder
 #   3. PowerShell: parse jay-new-bot.ps1 (PSScriptAnalyzer when installed)
 #      and the same dry-run matrix through -DryRun
+#   4. (both) actions and the Hermes rescue presets per OS, and where the
+#      sandbox sits with actions (spec 2026-11-12 A5, A6)
 # Needs bash, shellcheck and (for 3) pwsh; set SKIP_PWSH=1 to skip 3.
 # Run from anywhere: infra/bots/test-scripts.sh
 set -euo pipefail
@@ -105,6 +107,45 @@ done
 out=$(bash "$sh_script" --dry-run --name x --owner CT-AAAA-0001 --provider anthropic --group-replies members --os Darwin --arch arm64 2>&1)
 expect_not "macos anthropic members" "$out" "WARNING"
 
+echo "== bash actions and Hermes rescue presets (spec 2026-11-12 A5, A6)"
+uid=$(id -u)
+out=$(bash "$sh_script" --dry-run --name rescue --owner CT-AAAA-0001 --provider claude-cli --rescue-hermes hermes-gateway --os Linux --arch x64 2>&1)
+label="sh linux rescue claude-cli"
+expect_in "$label" "$out" "Actions (run by the bot for its owners in 1:1 chats only): status=systemctl --user status hermes-gateway --no-pager; restart=systemctl --user restart hermes-gateway; logs=journalctl --user -u hermes-gateway -n 200 --no-pager"
+# A6: only the CLI is sandboxed; the bridge must reach systemd.
+expect_in "$label" "$out" "Isolation: claude runs in a bubblewrap sandbox"
+expect_in "$label" "$out" "run.sh starts the bot outside the sandbox"
+expect_in "$label" "$out" "would write $JAY_BOTS_DIR/rescue/cli.sh as CLAUDE_BIN: exec '$JAY_BOTS_DIR/rescue/sandbox.sh' '/usr/local/bin/claude' \"\$@\""
+expect_in "$label" "$out" "sandbox.sh (bubblewrap: empty home"
+out=$(bash "$sh_script" --dry-run --name rescue --owner CT-AAAA-0001 --provider codex-cli --rescue-hermes ai.hermes.gateway --log-file /Users/m/.hermes/logs/gateway.log --os Darwin --arch arm64 2>&1)
+label="sh macos rescue codex-cli"
+expect_in "$label" "$out" "status=launchctl print gui/$uid/ai.hermes.gateway; restart=launchctl kickstart -k gui/$uid/ai.hermes.gateway; logs=tail -n 200 '/Users/m/.hermes/logs/gateway.log'"
+expect_not "$label" "$out" "cli.sh"
+expect_not "$label" "$out" "sandbox.sh"
+out=$(bash "$sh_script" --dry-run --name rescue --owner CT-AAAA-0001 --provider claude-cli --rescue-hermes ai.hermes.gateway --os Darwin --arch arm64 2>&1)
+expect_in "sh macos rescue no log" "$out" "add --log-file"
+expect_not "sh macos rescue no log" "$out" "logs="
+# Extra actions are appended to the preset; an API provider has no CLI to sandbox.
+out=$(bash "$sh_script" --dry-run --name rescue --owner CT-AAAA-0001 --provider anthropic --rescue-hermes hermes-gateway --actions 'restart-bridge=systemctl --user restart jay-bridge' --os Linux --arch x64 2>&1)
+label="sh linux rescue anthropic + actions"
+expect_in "$label" "$out" "logs=journalctl --user -u hermes-gateway -n 200 --no-pager; restart-bridge=systemctl --user restart jay-bridge"
+expect_in "$label" "$out" "Isolation: none needed for anthropic"
+expect_not "$label" "$out" "sandbox.sh"
+expect_not "$label" "$out" "cli.sh"
+for secret in LEAKCHECK-1 LEAKCHECK-2 LEAKCHECK-3; do expect_not "$label" "$out" "$secret"; done
+# Without actions nothing changes: the whole bot stays in the sandbox.
+out=$(bash "$sh_script" --dry-run --name plain --owner CT-AAAA-0001 --provider claude-cli --os Linux --arch x64 2>&1)
+expect_not "sh linux no actions" "$out" "Actions"
+expect_not "sh linux no actions" "$out" "cli.sh"
+expect_in "sh linux no actions" "$out" "Isolation: the bot runs in a bubblewrap sandbox"
+# A rerun keeps the actions; 'none' removes them.
+mkdir -p "$JAY_BOTS_DIR/keepact"
+printf "BOT_STORE_KEY='%s'\nLLM_ACTIONS='status=echo kept'\n" "AAAA" > "$JAY_BOTS_DIR/keepact/bot.env"
+out=$(bash "$sh_script" --dry-run --name keepact --owner CT-AAAA-0001 --os Linux --arch x64 2>&1)
+expect_in "rerun keeps actions" "$out" "1:1 chats only): status=echo kept"
+out=$(bash "$sh_script" --dry-run --name keepact --owner CT-AAAA-0001 --actions none --os Linux --arch x64 2>&1)
+expect_not "--actions none" "$out" "Actions ("
+
 echo "== bash argument errors"
 check_error() { # label needle args...
   local label=$1 needle=$2; shift 2
@@ -123,6 +164,13 @@ check_error "base url w/o model" "--model is required" --name x --owner CT-AAAA-
 check_error "key as argument" "unknown argument" --name x --owner CT-AAAA-0001 --api-key sk-x
 check_error "bad group replies" "--group-replies must be" --name x --owner CT-AAAA-0001 --group-replies all
 check_error "group replies hermes" "not for --provider hermes" --name x --owner CT-AAAA-0001 --provider hermes --group-replies members
+
+check_error "rescue + docker" "drop --docker" --name x --owner CT-AAAA-0001 --rescue-hermes hermes-gateway --docker --os Linux --arch x64
+check_error "actions + hermes" "not for --provider hermes" --name x --owner CT-AAAA-0001 --provider hermes --actions 'a=b'
+check_error "rescue + members" "answers owners only" --name x --owner CT-AAAA-0001 --rescue-hermes h --group-replies members
+check_error "rescue bad name" "is not a systemd unit or launchd label" --name x --owner CT-AAAA-0001 --rescue-hermes 'h; rm -rf /'
+check_error "log file w/o rescue" "--log-file is only for --rescue-hermes" --name x --owner CT-AAAA-0001 --log-file /tmp/x.log
+check_error "relative log file" "absolute path" --name x --owner CT-AAAA-0001 --rescue-hermes h --log-file x.log
 
 echo "== bash --remove dry-run"
 out=$(bash "$sh_script" --dry-run --remove --name "$name" --os Linux --arch x64 2>&1)
@@ -274,6 +322,26 @@ else
   expect_in "ps1 codex members" "$out" "no sandbox on Windows"
   out=$(USERPROFILE="$work/profile" pwsh -NoProfile -Command "& '$ps_script' -DryRun -Remove -Name x -Arch AMD64" 2>&1)
   expect_in "ps1 remove" "$out" "would unregister the Scheduled Task 'Jay bot x'"
+
+  echo "== PowerShell actions and Hermes rescue presets (spec 2026-11-12 A5)"
+  ps_run() { USERPROFILE="$work/profile" pwsh -NoProfile -Command "& '$ps_script' -DryRun -Owner CT-AAAA-0001 -Arch AMD64 $1" 2>&1; }
+  out=$(ps_run "-Name rescue -Provider claude-cli -RescueHermes 'Hermes Gateway'")
+  label="ps1 rescue task"
+  expect_in "$label" "$out" "Actions (run by the bot for its owners in 1:1 chats only): status=schtasks.exe /query /tn \"Hermes Gateway\" /v /fo list; restart=powershell.exe -NoProfile -NonInteractive -Command \"schtasks.exe /end /tn 'Hermes Gateway'; schtasks.exe /run /tn 'Hermes Gateway'\""
+  expect_in "$label" "$out" "group replies: owners"
+  out=$(ps_run "-Name rescue -Provider codex-cli -RescueHermes hermes -RescueKind service -LogFile 'C:\\Users\\m\\.hermes\\logs\\gateway.log' -Actions 'ping=ping.exe -n 1 127.0.0.1'")
+  label="ps1 rescue service"
+  expect_in "$label" "$out" "status=sc.exe query \"hermes\"; restart=powershell.exe -NoProfile -NonInteractive -Command \"Restart-Service -Name 'hermes'\"; logs=powershell.exe -NoProfile -NonInteractive -Command \"Get-Content -Tail 200 -LiteralPath 'C:\\Users\\m\\.hermes\\logs\\gateway.log'\"; ping=ping.exe -n 1 127.0.0.1"
+  for secret in LEAKCHECK-1 LEAKCHECK-2 LEAKCHECK-3; do expect_not "$label" "$out" "$secret"; done
+  ps_error() { # label needle args
+    set +e; out=$(ps_run "$3"); rc=$?; set -e
+    if [ "$rc" != 0 ]; then ok; else bad "$1: must fail"; fi
+    expect_in "$1" "$out" "$2"
+  }
+  ps_error "ps1 rescue hermes provider" "not for -Provider hermes" "-Name x -Provider hermes -RescueHermes h"
+  ps_error "ps1 rescue members" "answers owners only" "-Name x -RescueHermes h -GroupReplies members"
+  ps_error "ps1 rescue bad name" "is not a Scheduled Task or service name" "-Name x -RescueHermes \"h'; x\""
+  ps_error "ps1 log file w/o rescue" "-LogFile is only for -RescueHermes" "-Name x -LogFile C:\\x.log"
 
   echo "== PowerShell CLI interpreter (npm .cmd shim needs node)"
   mkdir -p "$fk/win-npm" "$fk/win-node"

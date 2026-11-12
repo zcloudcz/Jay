@@ -56,6 +56,11 @@ What it sets up (per bot, `~/.jay-bots/<name>/`, Windows
   (`226/NAMESPACE`, or the option is silently ignored); Ubuntu ships an AppArmor
   profile for bwrap. The unit itself adds `NoNewPrivileges=yes`. Without `bwrap`
   the bot runs unsandboxed and the script says so.
+- With actions (`--actions`, `--rescue-hermes`, spec `2026-11-12-llm-bridge-fallback-rescue`
+  A6) the bridge must reach the service manager, so `run.sh` starts it outside
+  the sandbox and only the CLI runs inside it: `cli.sh` (`exec sandbox.sh <cli>`)
+  is written as `CLAUDE_BIN`/`CODEX_BIN`. An API provider then has no sandbox
+  at all (it starts no CLI).
 - macOS and Windows have no sandbox in this setup. With a CLI provider and
   `--group-replies members` the scripts print a warning: run such a bot under a
   separate OS user (its own home with only the CLI login), or keep
@@ -68,7 +73,13 @@ groups whose "Bot conversation" setting allows it. The server enforces the
 owner rules too (the bot publishes its policy at start).
 
 Options: `--model`, `--prompt`, `--base-url` (any OpenAI-compatible endpoint),
-`--group-replies members|owners`,
+`--group-replies members|owners`, `--actions 'name=command; ...'` (`none`
+removes them; kept on a rerun like the other options), `--rescue-hermes <unit
+or label>` with `--log-file <path>` (Windows: `-Actions`, `-RescueHermes
+<task or service>`, `-RescueKind task|service`, `-LogFile`): a rescue bot with
+`status`/`restart`/`logs` presets per OS, owners only (see
+`src/bots/llm_bridge/README.md`, "Rescue bot"). `LLM_FALLBACK` has no script
+option yet: add it to `bot.env` by hand.
 `--hermes-url`, `--api` (another Jay server), `--dry-run`. `claude-cli` and
 `codex-cli` use your own installed and signed-in CLI (personal use, see
 `src/bots/llm_bridge/README.md` for the vendor terms); they cannot run in

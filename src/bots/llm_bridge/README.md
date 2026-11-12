@@ -52,7 +52,8 @@ Contract: `docs/superpowers/specs/2026-11-09-bot-factory.md`.
   through stdin, never argv (argv is visible to other users in `ps`).
   Installed by `infra/bots/jay-new-bot.sh` on Linux, the whole bot runs in a
   bubblewrap sandbox: an empty home folder with only the bot folder, the CLI
-  and its login visible (spec `2026-11-09-bot-access` A7). On macOS and
+  and its login visible (spec `2026-11-09-bot-access` A7); with
+  `LLM_ACTIONS` only the CLI does (see "Rescue bot"). On macOS and
   Windows there is no such sandbox; run a CLI bot that answers group members
   under a separate OS user.
 - The bot's SQLite session DB is plaintext on disk (see
@@ -150,6 +151,72 @@ want a bot for more people or for heavy use, use an API key (`anthropic` or
 
 Exit codes: 78 configuration (nothing to retry; the services do not restart
 on it), 69 Jay API unreachable, 73 history file not writable.
+
+## Rescue bot: fallback providers and actions (spec `2026-11-12-llm-bridge-fallback-rescue`)
+
+A second contact that can still reach Hermes when Hermes itself hangs. Two
+independent settings make it:
+
+- `LLM_FALLBACK` (e.g. `LLM_PROVIDER=claude-cli`, `LLM_FALLBACK=codex-cli`):
+  when Claude fails before it sent any text (not signed in, out of quota,
+  429, crashed, silent for `LLM_FIRST_OUTPUT_SECONDS`), Codex answers the
+  same message. The log shows `LLM: Claude Code CLI failed (...), trying
+  Codex CLI.`; when all fail, one apology names every failure.
+- `LLM_ACTIONS`: named commands. The model never runs anything itself (the
+  CLIs keep all tools off); it writes a line `[action: restart]`, and the
+  BRIDGE runs exactly the command configured for `restart`, without a shell
+  and without any argument from the model, then gives the model the exit
+  code and the last 8 KiB of output (colors removed) and posts its final
+  answer. While it runs, the progress message says `Running: restart`.
+  Unknown names run nothing. At most `LLM_ACTION_STEPS` rounds per message,
+  each command at most `LLM_ACTION_SECONDS` (then its process tree is
+  killed). Only the owners' own 1:1 chats can trigger actions; in groups and
+  from other bots a directive is removed, ignored and logged, and the model
+  is not even told that actions exist.
+
+Command line rules (`name=command; name2=command2`, the same on every OS):
+names are `a-z`, `0-9`, `-` (max 32, max 20 actions); a `;` inside quotes
+does not separate actions; spaces separate arguments; `'...'` is literal;
+`"..."` is literal except `\"`; a backslash anywhere else is a plain
+character (Windows paths); `""` is an empty argument. Nothing is expanded
+(`$HOME`, `*`, `&&`, `|` are plain text), so `restart=systemctl --user
+restart hermes && rm -rf x` runs systemctl with those words as arguments, it
+does not chain a second command. A Windows `.cmd`/`.bat` runs through
+`cmd.exe` with every argument quoted; PowerShell is written out:
+`restart=powershell.exe -NoProfile -Command "Restart-Service -Name 'hermes'"`.
+
+Presets from the setup scripts (`--rescue-hermes <name>`, Windows
+`-RescueHermes <name>`; `--actions`/`-Actions` adds more):
+
+| OS | `status` | `restart` | `logs` |
+| --- | --- | --- | --- |
+| Linux (systemd user unit) | `systemctl --user status <name> --no-pager` | `systemctl --user restart <name>` | `journalctl --user -u <name> -n 200 --no-pager`, or `tail -n 200 <--log-file>` |
+| macOS (launchd label) | `launchctl print gui/<uid>/<name>` | `launchctl kickstart -k gui/<uid>/<name>` | `tail -n 200 <--log-file>` (only with `--log-file`) |
+| Windows Scheduled Task (`-RescueKind task`, default) | `schtasks.exe /query /tn "<name>" /v /fo list` | `schtasks.exe /end` + `/run` through `powershell.exe -Command` | `Get-Content -Tail 200` of `-LogFile` |
+| Windows service (`-RescueKind service`) | `sc.exe query "<name>"` | `Restart-Service -Name '<name>'` (may need admin rights) | as above |
+
+A rescue preset also forces `GROUP_REPLIES=owners`. On Linux the bubblewrap
+sandbox then wraps only the CLI (`cli.sh` as `CLAUDE_BIN`/`CODEX_BIN`), not the
+bridge: the bridge has to reach the service manager. Without actions nothing
+changes. macOS and Windows have no sandbox (as before).
+
+Sample prompt (there is no built-in rescue persona), `--prompt` /
+`LLM_SYSTEM_PROMPT`:
+
+> You are the rescue agent of Hermes on this machine. Check status and logs
+> first, restart only when Hermes does not answer, report in Czech what you
+> found and did.
+
+Security notes:
+
+- The configured commands and their names are logged at start and shown by
+  the setup script: never put a secret into a command line.
+- The model reads the output. Do not configure a command that prints
+  secrets (e.g. `env`, `cat ~/.hermes/.env`); a journal can contain whatever
+  Hermes logged.
+- Higher Codex permissions (`danger-full-access`, no approvals) do not help
+  here: they remove Codex's sandbox but give no allowlist. With actions Codex
+  needs no permissions at all (spec A9).
 
 ## What it does
 

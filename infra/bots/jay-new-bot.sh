@@ -42,6 +42,13 @@ Usage: new-bot.sh --name NAME --owner CT-XXXX-XXXX[,CT-...] [options]
   --group-replies M    members | owners: who besides you the bot answers in a
                        group that you are in (default: members for API keys,
                        owners for claude-cli/codex-cli)
+  --actions VALUE      named commands the bot may run for you (LLM_ACTIONS):
+                       'name=command; name2=command2'; 'none' removes them
+  --rescue-hermes NAME make this a rescue bot for Hermes: actions status,
+                       logs and restart for the systemd user unit (Linux) or
+                       launchd label (macOS) NAME; forces --group-replies owners
+  --log-file PATH      with --rescue-hermes: 'logs' reads this file (macOS
+                       needs it; on Linux it replaces journalctl)
   --docker             run as a Docker container instead of a native service
   --remove             stop and remove the bot (asks before deleting its identity)
   --yes                with --remove: also delete the identity without asking
@@ -68,6 +75,7 @@ say() { printf '%s\n' "$*"; }
 name='' owner='' provider=anthropic api=$DEFAULT_API model='' prompt=''
 base_url='' hermes_url='' remove=0 dry=0 docker=0 yes=0 group_replies='' check_only=0
 model_set=0 prompt_set=0 base_url_set=0 hermes_url_set=0 group_replies_set=0
+actions='' actions_set=0 rescue='' log_file_arg=''
 os_override='' arch_override=''
 
 need_value() { if [ $# -lt 2 ] || [ -z "$2" ]; then die "$1 needs a value (see --help)"; fi; }
@@ -82,6 +90,9 @@ while [ $# -gt 0 ]; do
     --base-url) need_value "$@"; base_url=$2; base_url_set=1; shift 2 ;;
     --hermes-url) need_value "$@"; hermes_url=$2; hermes_url_set=1; shift 2 ;;
     --group-replies) need_value "$@"; group_replies=$2; group_replies_set=1; shift 2 ;;
+    --actions) need_value "$@"; actions=$2; actions_set=1; shift 2 ;;
+    --rescue-hermes) need_value "$@"; rescue=$2; shift 2 ;;
+    --log-file) need_value "$@"; log_file_arg=$2; shift 2 ;;
     --docker) docker=1; shift ;;
     --remove) remove=1; shift ;;
     --yes) yes=1; shift ;;
@@ -159,6 +170,26 @@ if [ "$remove" = 0 ]; then
       claude-cli|codex-cli) ;;
       *) die "--check-only is for --provider claude-cli or codex-cli" ;;
     esac
+  fi
+  # Spec 2026-11-12-llm-bridge-fallback-rescue A5: actions run commands on
+  # THIS machine, so neither Hermes (no actions) nor a container fits.
+  if [ "$actions_set" = 1 ] || [ -n "$rescue" ]; then
+    [ "$provider" != hermes ] || die "--actions and --rescue-hermes are not for --provider hermes"
+    [ "$docker" = 0 ] || die "--actions and --rescue-hermes run commands on this machine; drop --docker"
+  fi
+  case "$actions" in *$'\n'*) die "--actions must be one line" ;; esac
+  if [ -n "$log_file_arg" ]; then
+    [ -n "$rescue" ] || die "--log-file is only for --rescue-hermes"
+    case "$log_file_arg" in /*) ;; *) die "--log-file must be an absolute path" ;; esac
+    case "$log_file_arg" in *"'"*|*'"'*|*';'*) die "--log-file must not contain quotes or ;" ;; esac
+  fi
+  if [ -n "$rescue" ]; then
+    [[ "$rescue" =~ ^[A-Za-z0-9@._:-]{1,128}$ ]] || die "--rescue-hermes: '$rescue' is not a systemd unit or launchd label name (letters, digits, @ . _ : -)"
+    if [ "$group_replies_set" = 1 ] && [ "$group_replies" != owners ]; then
+      die "--rescue-hermes answers owners only; drop --group-replies $group_replies"
+    fi
+    # A rescue bot must never act for anyone but its owners.
+    group_replies=owners group_replies_set=1
   fi
 fi
 
@@ -395,6 +426,37 @@ if [ "$provider" = openai ] && [ -n "$base_url" ] && [ -z "$model" ]; then
   die "--model is required with --base-url (the endpoint decides which models exist)"
 fi
 
+# --- actions (spec 2026-11-12-llm-bridge-fallback-rescue A5) -----------------
+# The bridge runs these commands itself, without a shell; the model can only
+# name them. Presets per OS for a Hermes rescue bot; --actions adds more.
+[ "$actions_set" = 1 ] || actions=$(old_value LLM_ACTIONS)
+[ "$actions" != none ] || actions=''
+if [ -n "$rescue" ]; then
+  if [ "$os" = macos ]; then
+    target="gui/$(id -u)/$rescue"
+    preset="status=launchctl print $target; restart=launchctl kickstart -k $target"
+    if [ -n "$log_file_arg" ]; then
+      preset="$preset; logs=tail -n 200 '$log_file_arg'"
+    else
+      say "Note: launchd keeps no log of its own; add --log-file <Hermes log> for a 'logs' action."
+    fi
+  else
+    preset="status=systemctl --user status $rescue --no-pager; restart=systemctl --user restart $rescue"
+    if [ -n "$log_file_arg" ]; then
+      preset="$preset; logs=tail -n 200 '$log_file_arg'"
+    else
+      preset="$preset; logs=journalctl --user -u $rescue -n 200 --no-pager"
+    fi
+  fi
+  if [ "$actions_set" = 1 ] && [ -n "$actions" ]; then
+    actions="$preset; $actions"
+  else
+    actions=$preset
+  fi
+fi
+# Not secret by contract (the bridge logs them too), so shown here.
+[ -z "$actions" ] || say "Actions (run by the bot for its owners in 1:1 chats only): $actions"
+
 # --- isolation (spec 2026-11-09-bot-access A7) ----------------------------------------
 # On Linux the native bot runs under bubblewrap: the whole home folder is
 # replaced by an empty one, only the bot folder (read-write), the CLI and
@@ -488,6 +550,14 @@ EOF
   chmod 700 "$1"
 }
 
+# Prints cli.sh (spec A6): the bot starts its CLI through it, so only the
+# CLI runs in the sandbox. The last line is the command (shown in dry-run).
+cli_wrapper() {
+  printf '#!/bin/sh\n'
+  printf '# Generated by jay-new-bot.sh: runs %s in the bot sandbox (spec A6).\n' "$cli"
+  printf 'exec %s %s "$@"\n' "$(shq "$bot_dir/sandbox.sh")" "$(shq "$cli_path")"
+}
+
 # --- CLI providers: the owner's own, signed-in CLI ----------------------------------
 cli_var='' cli_path='' service_path='' interp='' interp_bin='' interp_env=0
 case "$provider" in
@@ -561,12 +631,24 @@ if [ -n "$cli_var" ]; then
   if [ "$check_only" = 1 ]; then exit 0; fi
 fi
 
+# Spec A6: with actions the bridge must reach the service manager (systemd
+# D-Bus, launchctl), which the sandbox hides. So on Linux the sandbox then
+# wraps only the CLI process (cli.sh as CLAUDE_BIN/CODEX_BIN), not the bridge.
+split_sandbox=0
+if [ "$sandbox" = 1 ] && [ -n "$actions" ]; then split_sandbox=1; fi
+cli_setting=$cli_path
+[ "$split_sandbox" = 1 ] && [ -n "$cli_var" ] && cli_setting="$bot_dir/cli.sh"
+
 effective_replies=$group_replies
 if [ -z "$effective_replies" ] && [ "$provider" != hermes ]; then
   effective_replies=members
   [ -n "$cli_var" ] && effective_replies=owners
 fi
-if [ "$sandbox" = 1 ]; then
+if [ "$split_sandbox" = 1 ] && [ -n "$cli_var" ]; then
+  say "Isolation: $cli runs in a bubblewrap sandbox (sees only $bot_dir and what it needs); the bot itself runs outside it, so its actions reach the service manager."
+elif [ "$split_sandbox" = 1 ]; then
+  say "Isolation: none needed for $provider; with actions the bot runs outside the sandbox (its actions must reach the service manager)."
+elif [ "$sandbox" = 1 ]; then
   say "Isolation: the bot runs in a bubblewrap sandbox (sees only $bot_dir and what its provider needs)."
 elif [ "$docker" = 0 ]; then
   if [ -n "$cli_var" ] && [ "$effective_replies" = members ]; then
@@ -606,7 +688,8 @@ write_settings() {
       [ -n "$key_var" ] && emit "$key_var" "$api_key"
       emit OPENAI_BASE_URL "$base_url"
       emit GROUP_REPLIES "$group_replies"
-      [ -n "$cli_var" ] && emit "$cli_var" "$cli_path"
+      [ -n "$cli_var" ] && emit "$cli_var" "$cli_setting"
+      emit LLM_ACTIONS "$actions"
     fi
   } > "$tmp"
   chmod 600 "$tmp"
@@ -731,8 +814,12 @@ fi
 if [ "$dry" = 1 ]; then
   note "would write $env_file (600): settings and secrets, values hidden"
   note "would write $bot_dir/run.sh (loads the settings, starts app/bin/$bridge, logs to $log_file${service_path:+, PATH=$service_path})"
-  if [ "$sandbox" = 1 ]; then
+  if [ "$sandbox" = 1 ] && { [ "$split_sandbox" = 0 ] || [ -n "$cli_var" ]; }; then
     note "would write $bot_dir/sandbox.sh (bubblewrap: empty home, only $bot_dir read-write$([ -n "$cli_var" ] && printf ', %s read-only and its login' "$cli")${interp:+, $interp read-only})"
+  fi
+  if [ "$split_sandbox" = 1 ]; then
+    note "run.sh starts the bot outside the sandbox (actions need the service manager)"
+    [ -z "$cli_var" ] || note "would write $bot_dir/cli.sh as $cli_var: $(cli_wrapper | tail -n 1)"
   fi
 else
   mkdir -p "$bot_dir/data"
@@ -743,7 +830,7 @@ else
   [ -n "$service_path" ] && path_line="PATH=$(shq "$service_path"); export PATH"
   launcher=''
   # shellcheck disable=SC2016 # $DIR is run.sh's own variable
-  [ "$sandbox" = 1 ] && launcher='"$DIR/sandbox.sh" '
+  [ "$sandbox" = 1 ] && [ "$split_sandbox" = 0 ] && launcher='"$DIR/sandbox.sh" '
   cat > "$bot_dir/run.sh" <<EOF
 #!/bin/sh
 # Generated by jay-new-bot.sh: starts the bot '$slug' with its settings.
@@ -759,10 +846,16 @@ fi
 exec ${launcher}"\$DIR/app/bin/$bridge" >> "\$DIR/bot.log" 2>&1
 EOF
   chmod 700 "$bot_dir/run.sh"
-  if [ "$sandbox" = 1 ]; then
+  if [ "$sandbox" = 1 ] && { [ "$split_sandbox" = 0 ] || [ -n "$cli_var" ]; }; then
     write_sandbox "$bot_dir/sandbox.sh"
   else
     rm -f "$bot_dir/sandbox.sh"
+  fi
+  if [ "$split_sandbox" = 1 ] && [ -n "$cli_var" ]; then
+    cli_wrapper > "$bot_dir/cli.sh"
+    chmod 700 "$bot_dir/cli.sh"
+  else
+    rm -f "$bot_dir/cli.sh"
   fi
 fi
 
