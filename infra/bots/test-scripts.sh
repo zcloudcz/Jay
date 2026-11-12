@@ -12,6 +12,9 @@
 #      and the same dry-run matrix through -DryRun
 #   4. (both) actions and the Hermes rescue presets per OS, and where the
 #      sandbox sits with actions (spec 2026-11-12 A5, A6)
+#   5. (both) --fallback / -Fallback: the provider chain, a key or CLI check
+#      per fallback, and (real bubblewrap) a fake two-CLI bot whose claude
+#      and codex both start in the sandbox (spec 2026-11-12 F12)
 # Needs bash, shellcheck and (for 3) pwsh; set SKIP_PWSH=1 to skip 3.
 # Run from anywhere: infra/bots/test-scripts.sh
 set -euo pipefail
@@ -115,7 +118,7 @@ expect_in "$label" "$out" "Actions (run by the bot for its owners in 1:1 chats o
 # A6: only the CLI is sandboxed; the bridge must reach systemd.
 expect_in "$label" "$out" "Isolation: claude runs in a bubblewrap sandbox"
 expect_in "$label" "$out" "run.sh starts the bot outside the sandbox"
-expect_in "$label" "$out" "would write $JAY_BOTS_DIR/rescue/cli.sh as CLAUDE_BIN: exec '$JAY_BOTS_DIR/rescue/sandbox.sh' '/usr/local/bin/claude' \"\$@\""
+expect_in "$label" "$out" "would write $JAY_BOTS_DIR/rescue/cli-claude.sh as CLAUDE_BIN: exec '$JAY_BOTS_DIR/rescue/sandbox.sh' '/usr/local/bin/claude' \"\$@\""
 expect_in "$label" "$out" "sandbox.sh (bubblewrap: empty home"
 out=$(bash "$sh_script" --dry-run --name rescue --owner CT-AAAA-0001 --provider codex-cli --rescue-hermes ai.hermes.gateway --log-file /Users/m/.hermes/logs/gateway.log --os Darwin --arch arm64 2>&1)
 label="sh macos rescue codex-cli"
@@ -146,6 +149,55 @@ expect_in "rerun keeps actions" "$out" "1:1 chats only): status=echo kept"
 out=$(bash "$sh_script" --dry-run --name keepact --owner CT-AAAA-0001 --actions none --os Linux --arch x64 2>&1)
 expect_not "--actions none" "$out" "Actions ("
 
+echo "== bash --fallback (spec 2026-11-12 F12)"
+out=$(bash "$sh_script" --dry-run --name fb --owner CT-AAAA-0001 --provider claude-cli --fallback codex-cli --os Linux --arch x64 2>&1)
+label="sh linux claude-cli + codex-cli"
+expect_in "$label" "$out" "Provider chain: claude-cli -> codex-cli (the next one answers"
+expect_in "$label" "$out" "(claude-cli -> codex-cli, systemd)"
+expect_in "$label" "$out" "would check that claude starts the way the service starts it in the bubblewrap sandbox: env -i HOME=$HOME PATH=/usr/local/bin:/usr/bin:/bin $JAY_BOTS_DIR/fb/sandbox.sh /usr/local/bin/claude --version"
+expect_in "$label" "$out" "would check that codex starts the way the service starts it in the bubblewrap sandbox: env -i HOME=$HOME PATH=/usr/local/bin:/usr/bin:/bin $JAY_BOTS_DIR/fb/sandbox.sh /usr/local/bin/codex --version"
+expect_in "$label" "$out" "Using your own codex at /usr/local/bin/codex"
+expect_in "$label" "$out" "only $JAY_BOTS_DIR/fb read-write, claude and codex read-only with their logins)"
+expect_in "$label" "$out" "Isolation: the bot runs in a bubblewrap sandbox"
+expect_not "$label" "$out" "cli-"
+# With actions every CLI of the chain gets its own wrapper (A6 + F12).
+out=$(bash "$sh_script" --dry-run --name fb --owner CT-AAAA-0001 --provider claude-cli --fallback codex-cli --rescue-hermes hermes-gateway --os Linux --arch x64 2>&1)
+label="sh linux rescue claude-cli + codex-cli"
+expect_in "$label" "$out" "would write $JAY_BOTS_DIR/fb/cli-claude.sh as CLAUDE_BIN: exec '$JAY_BOTS_DIR/fb/sandbox.sh' '/usr/local/bin/claude' \"\$@\""
+expect_in "$label" "$out" "would write $JAY_BOTS_DIR/fb/cli-codex.sh as CODEX_BIN: exec '$JAY_BOTS_DIR/fb/sandbox.sh' '/usr/local/bin/codex' \"\$@\""
+expect_in "$label" "$out" "Isolation: claude and codex run in a bubblewrap sandbox"
+# An API fallback: its key is asked for like the primary's, never printed.
+out=$(env -u OPENAI_API_KEY bash "$sh_script" --dry-run --name fb --owner CT-AAAA-0001 --provider anthropic --fallback ' OpenAI ' --os Linux --arch x64 2>&1)
+label="sh anthropic + openai"
+expect_in "$label" "$out" "Provider chain: anthropic -> openai"
+expect_in "$label" "$out" "would ask for OPENAI_API_KEY for --fallback openai with a hidden prompt"
+expect_not "$label" "$out" "would ask for ANTHROPIC_API_KEY"
+for secret in LEAKCHECK-1 LEAKCHECK-2 LEAKCHECK-3; do expect_not "$label" "$out" "$secret"; done
+out=$(bash "$sh_script" --dry-run --name fb --owner CT-AAAA-0001 --provider openai --fallback anthropic,codex-cli --os Darwin --arch arm64 2>&1)
+label="sh macos openai + anthropic + codex-cli"
+expect_in "$label" "$out" "Provider chain: openai -> anthropic -> codex-cli"
+expect_not "$label" "$out" "would ask for"
+expect_in "$label" "$out" "would check that codex starts the way the service starts it: env -i"
+for secret in LEAKCHECK-1 LEAKCHECK-2 LEAKCHECK-3; do expect_not "$label" "$out" "$secret"; done
+# F8: a CLI anywhere in the chain makes owners the default (no warning);
+# members on macOS (no sandbox) warns about the fallback CLI.
+expect_not "$label" "$out" "WARNING"
+out=$(bash "$sh_script" --dry-run --name fb --owner CT-AAAA-0001 --provider anthropic --fallback codex-cli --group-replies members --os Darwin --arch arm64 2>&1)
+expect_in "sh macos anthropic + codex-cli members" "$out" "WARNING: group members can make this bot run your codex"
+# Docker: an API fallback is fine, a CLI fallback is not.
+out=$(bash "$sh_script" --dry-run --name fb --owner CT-AAAA-0001 --provider anthropic --fallback openai --docker --os Linux --arch x64 2>&1)
+expect_in "sh docker anthropic + openai" "$out" "Provider chain: anthropic -> openai"
+expect_in "sh docker anthropic + openai" "$out" "docker run -d --name jay-bot-fb"
+# A rerun keeps the stored chain; 'none' removes it.
+mkdir -p "$JAY_BOTS_DIR/keepfb"
+printf "BOT_STORE_KEY='%s'\nLLM_FALLBACK='codex-cli'\n" "AAAA" > "$JAY_BOTS_DIR/keepfb/bot.env"
+out=$(bash "$sh_script" --dry-run --name keepfb --owner CT-AAAA-0001 --os Linux --arch x64 2>&1)
+expect_in "rerun keeps fallback" "$out" "Provider chain: anthropic -> codex-cli"
+expect_in "rerun keeps fallback" "$out" "would check that codex starts"
+out=$(bash "$sh_script" --dry-run --name keepfb --owner CT-AAAA-0001 --fallback none --os Linux --arch x64 2>&1)
+expect_not "--fallback none" "$out" "Provider chain"
+expect_not "--fallback none" "$out" "codex"
+
 echo "== bash argument errors"
 check_error() { # label needle args...
   local label=$1 needle=$2; shift 2
@@ -171,6 +223,19 @@ check_error "rescue + members" "answers owners only" --name x --owner CT-AAAA-00
 check_error "rescue bad name" "is not a systemd unit or launchd label" --name x --owner CT-AAAA-0001 --rescue-hermes 'h; rm -rf /'
 check_error "log file w/o rescue" "--log-file is only for --rescue-hermes" --name x --owner CT-AAAA-0001 --log-file /tmp/x.log
 check_error "relative log file" "absolute path" --name x --owner CT-AAAA-0001 --rescue-hermes h --log-file x.log
+check_error "fallback unknown" "--fallback: 'gemini' is unknown" --name x --owner CT-AAAA-0001 --fallback gemini --os Linux --arch x64
+check_error "fallback hermes id" "--fallback: 'hermes' is unknown" --name x --owner CT-AAAA-0001 --fallback hermes --os Linux --arch x64
+check_error "fallback twice" "--fallback: openai is listed twice" --name x --owner CT-AAAA-0001 --fallback openai,openai --os Linux --arch x64
+check_error "fallback = primary" "--fallback: claude-cli is already --provider" --name x --owner CT-AAAA-0001 --provider claude-cli --fallback codex-cli,claude-cli --os Linux --arch x64
+check_error "fallback + hermes" "--fallback is not for --provider hermes" --name x --owner CT-AAAA-0001 --provider hermes --fallback anthropic
+check_error "cli fallback + docker" "--fallback codex-cli needs your signed-in CLI" --name x --owner CT-AAAA-0001 --fallback codex-cli --docker --os Linux --arch x64
+check_error "check-only w/o cli" "--check-only is for claude-cli or codex-cli" --name x --owner CT-AAAA-0001 --fallback openai --check-only --os Linux --arch x64
+mkdir -p "$JAY_BOTS_DIR/badfb"
+printf "BOT_STORE_KEY='%s'\nLLM_FALLBACK='codex-cli'\n" "AAAA" > "$JAY_BOTS_DIR/badfb/bot.env"
+check_error "stored fallback = new primary" "(stored in $JAY_BOTS_DIR/badfb/bot.env" --name badfb --owner CT-AAAA-0001 --provider codex-cli --os Linux --arch x64
+set +e; out=$(CODEX_BIN=/nonexistent/codex bash "$sh_script" --dry-run --name x --owner CT-AAAA-0001 --provider claude-cli --fallback codex-cli --os Linux --arch x64 2>&1); rc=$?; set -e
+if [ "$rc" != 0 ]; then ok; else bad "missing fallback cli: must fail"; fi
+expect_in "missing fallback cli" "$out" "CODEX_BIN=/nonexistent/codex is not an executable file (needed by --fallback codex-cli)"
 
 echo "== bash --remove dry-run"
 out=$(bash "$sh_script" --dry-run --remove --name "$name" --os Linux --arch x64 2>&1)
@@ -278,6 +343,96 @@ if command -v bwrap > /dev/null 2>&1 && bwrap --ro-bind / / --unshare-user --die
   # The same interpreter outside the sandbox sees the files: the test is real.
   if HOME="$work" "$fk/hidden/node-sbx/bin/node" > /dev/null 2>&1; then bad "sandboxed check: fake node must see the files outside the sandbox"; else ok; fi
   if [ -e "$JAY_BOTS_DIR/npm" ]; then bad "sandboxed check: wrote $JAY_BOTS_DIR/npm"; else ok; fi
+
+  echo "== bash two CLIs in one sandbox: claude + --fallback codex-cli (spec 2026-11-12 F12)"
+  # Fake claude (Claude Code layout under ~/.local) and fake codex (npm
+  # layout), both `#!/usr/bin/env node`; node lives in a hidden folder of the
+  # home and runs the script with sh. Each CLI fails when it can see the
+  # rest of the home (a secret, a ~/.hermes-like folder, node's real folder)
+  # or when its own login is missing.
+  two="$work/two"
+  mkdir -p "$work/hidden/node-two/bin" "$work/.local/share/claude/versions/9.9.9" "$work/.local/bin" \
+    "$work/npm2/lib/node_modules/@openai/codex/bin" "$work/npm2/bin" "$work/.hermes" "$work/.claude" "$work/.codex" "$two/sys"
+  printf 'token\n' > "$work/.hermes/.env"
+  printf '{}\n' > "$work/.claude.json"
+  printf '#!/bin/sh\nexec /bin/sh "$@"\n' > "$work/hidden/node-two/bin/node"
+  # shellcheck disable=SC2016 # expanded by the fake CLI, inside the sandbox
+  for c in claude codex; do
+    login='"$HOME/.claude" "$HOME/.claude.json"'
+    [ "$c" = codex ] && login='"$HOME/.codex"'
+    printf '#!/usr/bin/env node\nfor p in "$HOME/secret.txt" "$HOME/.hermes" "$HOME/hidden"; do if [ -e "$p" ]; then echo "VISIBLE $p"; exit 3; fi; done\nfor p in %s; do if [ ! -e "$p" ]; then echo "NO LOGIN $p"; exit 4; fi; done\necho "%s 9.9.9-fake"\n' "$login" "$c" > "$two/$c"
+  done
+  mv "$two/claude" "$work/.local/share/claude/versions/9.9.9/claude"
+  ln -s ../share/claude/versions/9.9.9/claude "$work/.local/bin/claude"
+  mv "$two/codex" "$work/npm2/lib/node_modules/@openai/codex/bin/codex.js"
+  ln -s ../lib/node_modules/@openai/codex/bin/codex.js "$work/npm2/bin/codex"
+  chmod +x "$work/hidden/node-two/bin/node" "$work/.local/share/claude/versions/9.9.9/claude" "$work/npm2/lib/node_modules/@openai/codex/bin/codex.js"
+  two_env=(env -i HOME="$work" PATH="$two/sys:$work/hidden/node-two/bin:/usr/bin:/bin" CLAUDE_BIN="$work/.local/bin/claude"
+    CODEX_BIN="$work/npm2/bin/codex" JAY_BOTS_DIR="$JAY_BOTS_DIR" JAY_BOT_BUNDLE_BASE="file://$two/bundle")
+  set +e
+  out=$("${two_env[@]}" bash "$sh_script" --check-only --name two --owner CT-AAAA-0001 --provider claude-cli --fallback codex-cli --os Linux --arch x64 2>&1)
+  rc=$?
+  set -e
+  label="two-CLI check"
+  if [ "$rc" = 0 ]; then ok; else bad "$label: exit $rc"; printf '%s\n' "$out" | sed 's/^/    /' >&2; fi
+  expect_in "$label" "$out" "Checked: claude starts with the bot service PATH ($work/hidden/node-two/bin:$work/.local/bin:$work/npm2/bin:/usr/local/bin:/usr/bin:/bin) in the bubblewrap sandbox."
+  expect_in "$label" "$out" "Checked: codex starts with the bot service PATH"
+  expect_not "$label" "$out" "VISIBLE"
+  # The same CLIs outside the sandbox see the files: the test is real.
+  if PATH="$work/hidden/node-two/bin:$PATH" HOME="$work" "$work/npm2/bin/codex" > /dev/null 2>&1; then bad "$label: fake codex must see the files outside the sandbox"; else ok; fi
+  # A whole (fake) install, without systemd and without the network: a
+  # fake bundle served from a file:// URL whose "bridge" starts both CLIs
+  # the way llm_bridge does (CLAUDE_BIN, CODEX_BIN from bot.env) and logs
+  # what they printed. systemctl is a fake that fails, so the script uses
+  # its background mode and never touches the real user services.
+  printf '#!/bin/sh\necho "systemctl $*" >> "%s/systemctl.calls"\nexit 1\n' "$two" > "$two/sys/systemctl"
+  chmod +x "$two/sys/systemctl"
+  mkdir -p "$two/bundle-src/bin"
+  # shellcheck disable=SC2016 # expanded by the fake bridge
+  printf '#!/bin/sh\nfor v in CLAUDE_BIN CODEX_BIN; do eval "b=\\${$v:-}"; if o=$("$b" --version 2>&1); then echo "0 $v ok $o"; else echo "0 $v FAILED $(printf %%s "$o" | tr "\\n" " ")"; fi; done\nif [ -e "$HOME/secret.txt" ]; then echo "0 bridge sees the home"; else echo "0 bridge in the sandbox"; fi\necho "0 Connected. CT-TEST-0001"\n' > "$two/bundle-src/bin/llm_bridge"
+  mkdir -p "$two/bundle"
+  for a in x64 arm64; do (cd "$two/bundle-src" && python3 -m zipfile -c "$two/bundle/jay-llm-bridge-linux-$a.zip" bin); done
+  (cd "$two/bundle" && sha256sum -- *.zip > SHA256SUMS)
+  for variant in plain rescue; do
+    label="two-CLI install $variant"
+    extra=()
+    [ "$variant" = rescue ] && extra=(--actions 'status=true')
+    set +e
+    out=$("${two_env[@]}" bash "$sh_script" --name "two-$variant" --owner CT-AAAA-0001 --provider claude-cli --fallback codex-cli ${extra[@]+"${extra[@]}"} 2>&1)
+    rc=$?
+    set -e
+    d="$JAY_BOTS_DIR/two-$variant"
+    if [ "$rc" = 0 ]; then ok; else bad "$label: exit $rc"; printf '%s\n' "$out" | sed 's/^/    /' >&2; continue; fi
+    expect_in "$label" "$out" "No user systemd here"
+    expect_in "$label" "$out" "Handle: CT-TEST-0001"
+    for _ in $(seq 1 20); do grep -q Connected "$d/bot.log" 2> /dev/null && break; sleep 0.5; done
+    log=$(cat "$d/bot.log" 2> /dev/null || true)
+    expect_in "$label" "$log" "CLAUDE_BIN ok claude 9.9.9-fake"
+    expect_in "$label" "$log" "CODEX_BIN ok codex 9.9.9-fake"
+    expect_not "$label" "$log" "VISIBLE"
+    settings=$(cat "$d/bot.env")
+    expect_in "$label" "$settings" "LLM_FALLBACK='codex-cli'"
+    if [ "$variant" = rescue ]; then
+      # A6: the bridge runs outside the sandbox, each CLI through its wrapper.
+      expect_in "$label" "$log" "bridge sees the home"
+      expect_in "$label" "$settings" "CLAUDE_BIN='$d/cli-claude.sh'"
+      expect_in "$label" "$settings" "CODEX_BIN='$d/cli-codex.sh'"
+      if [ -x "$d/cli-claude.sh" ] && [ -x "$d/cli-codex.sh" ]; then ok; else bad "$label: cli-claude.sh and cli-codex.sh must exist"; fi
+    else
+      expect_in "$label" "$log" "bridge in the sandbox"
+      expect_in "$label" "$settings" "CLAUDE_BIN='$work/.local/bin/claude'"
+      expect_in "$label" "$settings" "CODEX_BIN='$work/npm2/bin/codex'"
+      if [ -e "$d/cli-claude.sh" ] || [ -e "$d/cli-codex.sh" ]; then bad "$label: no cli-*.sh without actions"; else ok; fi
+    fi
+    # Nothing else of the home is visible in the bot's sandbox.
+    # shellcheck disable=SC2016 # expanded inside the sandbox
+    if HOME="$work" "$d/sandbox.sh" /bin/sh -c 'ls -a "$HOME/.hermes" "$HOME/secret.txt" "$HOME/hidden"' > /dev/null 2>&1; then bad "$label: sandbox shows the home"; else ok; fi
+    # shellcheck disable=SC2016 # expanded inside the sandbox
+    if HOME="$work" "$d/sandbox.sh" /bin/sh -c 'test -e "$HOME/.claude" && test -e "$HOME/.codex"'; then ok; else bad "$label: sandbox must show both logins"; fi
+  done
+  calls=$(cat "$two/systemctl.calls" 2> /dev/null || true)
+  expect_not "two-CLI install: only the detection called systemctl" "$calls" "restart"
+  expect_not "two-CLI install: only the detection called systemctl" "$calls" "enable"
 else
   echo "   skipped: bubblewrap is not usable on this machine"
 fi
@@ -342,6 +497,33 @@ else
   ps_error "ps1 rescue members" "answers owners only" "-Name x -RescueHermes h -GroupReplies members"
   ps_error "ps1 rescue bad name" "is not a Scheduled Task or service name" "-Name x -RescueHermes \"h'; x\""
   ps_error "ps1 log file w/o rescue" "-LogFile is only for -RescueHermes" "-Name x -LogFile C:\\x.log"
+
+  echo "== PowerShell -Fallback (spec 2026-11-12 F12)"
+  out=$(ps_run "-Name fb -Provider claude-cli -Fallback codex-cli")
+  label="ps1 claude-cli + codex-cli"
+  expect_in "$label" "$out" "Provider chain: claude-cli -> codex-cli (the next one answers"
+  expect_in "$label" "$out" "(claude-cli -> codex-cli, Scheduled Task)"
+  expect_in "$label" "$out" "would check that claude starts the way the bot starts it"
+  expect_in "$label" "$out" "would check that codex starts the way the bot starts it"
+  expect_in "$label" "$out" "Using your own codex at"
+  out=$(unset OPENAI_API_KEY; ps_run "-Name fb -Provider anthropic -Fallback ' OpenAI '")
+  label="ps1 anthropic + openai"
+  expect_in "$label" "$out" "Provider chain: anthropic -> openai"
+  expect_in "$label" "$out" "would ask for OPENAI_API_KEY for -Fallback openai with a hidden prompt"
+  expect_not "$label" "$out" "would ask for ANTHROPIC_API_KEY"
+  for secret in LEAKCHECK-1 LEAKCHECK-2 LEAKCHECK-3; do expect_not "$label" "$out" "$secret"; done
+  ps_error "ps1 fallback unknown" "-Fallback: 'gemini' is unknown" "-Name x -Fallback gemini"
+  ps_error "ps1 fallback twice" "-Fallback: codex-cli is listed twice" "-Name x -Fallback codex-cli,codex-cli"
+  out=$(ps_run "-Name fb -Fallback 'openai, codex-cli'")
+  expect_in "ps1 quoted list" "$out" "Provider chain: anthropic -> openai -> codex-cli"
+  ps_error "ps1 fallback = primary" "-Fallback: codex-cli is already -Provider" "-Name x -Provider codex-cli -Fallback codex-cli"
+  ps_error "ps1 fallback + hermes" "-Fallback is not for -Provider hermes" "-Name x -Provider hermes -Fallback anthropic"
+  mkdir -p "$JAY_BOTS_DIR/keepfbps"
+  printf '{"BOT_STORE_KEY":"AAAA","LLM_FALLBACK":"openai"}' > "$JAY_BOTS_DIR/keepfbps/bot.env.json"
+  out=$(ps_run "-Name keepfbps")
+  expect_in "ps1 rerun keeps fallback" "$out" "Provider chain: anthropic -> openai"
+  out=$(ps_run "-Name keepfbps -Fallback none")
+  expect_not "ps1 -Fallback none" "$out" "Provider chain"
 
   echo "== PowerShell CLI interpreter (npm .cmd shim needs node)"
   mkdir -p "$fk/win-npm" "$fk/win-node"

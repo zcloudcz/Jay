@@ -28,6 +28,11 @@ param(
   [string]$Prompt,
   [string]$BaseUrl,
   [string]$HermesUrl,
+  # Providers tried in order when the one before fails before it sent any
+  # text (LLM_FALLBACK), comma-separated: anthropic, openai, claude-cli,
+  # codex-cli; 'none' removes stored ones. A rerun keeps them. An unquoted
+  # list (-Fallback codex-cli,anthropic) arrives as an array: also fine.
+  [string[]]$Fallback,
   # members | owners: who besides you the bot answers in a group you are in
   # (default: members for API keys, owners for claude-cli/codex-cli).
   [ValidateSet('', 'members', 'owners')]
@@ -95,6 +100,9 @@ if (-not $Remove) {
   }
   if ($HermesUrl -and $Provider -ne 'hermes') { Fail '-HermesUrl is only for -Provider hermes' }
   if ($GroupReplies -and $Provider -eq 'hermes') { Fail '-GroupReplies is not for -Provider hermes (Hermes answers owners only)' }
+  if ($PSBoundParameters.ContainsKey('Fallback') -and $Provider -eq 'hermes') {
+    Fail '-Fallback is not for -Provider hermes (Hermes falls back between its models itself)'
+  }
   # Spec 2026-11-12-llm-bridge-fallback-rescue A5.
   if (($PSBoundParameters.ContainsKey('Actions') -or $RescueHermes) -and $Provider -eq 'hermes') {
     Fail '-Actions and -RescueHermes are not for -Provider hermes'
@@ -175,8 +183,36 @@ if ($Remove) {
   return
 }
 
-# --- secrets ---------------------------------------------------------------------
+# --- provider chain (spec 2026-11-12-llm-bridge-fallback-rescue F1, F2, F12) --
+# -Provider first, then every -Fallback in order, checked like the bridge's
+# LLM_FALLBACK (a known id, no duplicate, not the primary).
 $old = Get-OldSetting
+$fallbacks = @()
+if ($Provider -ne 'hermes') {
+  $fbHint = ''
+  if (-not $PSBoundParameters.ContainsKey('Fallback')) {
+    $Fallback = Get-Old $old 'LLM_FALLBACK'
+    $fbHint = " (stored in $($settingsFile): give -Fallback again, or -Fallback none)"
+  }
+  $fbRaw = ((@($Fallback) -join ',') -replace '\s', '').ToLowerInvariant()
+  if ($fbRaw -eq 'none') { $fbRaw = '' }
+  foreach ($f in @($fbRaw -split ',' | Where-Object { $_ })) {
+    if ($f -notin @('anthropic', 'openai', 'claude-cli', 'codex-cli')) {
+      Fail "-Fallback: '$f' is unknown; use anthropic, openai, claude-cli or codex-cli$fbHint"
+    }
+    if ($f -eq $Provider) { Fail "-Fallback: $f is already -Provider; list only the providers to try after it$fbHint" }
+    if ($fallbacks -contains $f) { Fail "-Fallback: $f is listed twice$fbHint" }
+    $fallbacks += $f
+  }
+}
+$fallbackList = $fallbacks -join ','
+$chain = @($Provider) + $fallbacks
+$chainText = $chain -join ' -> '
+if ($fallbackList) {
+  Write-Host "Provider chain: $chainText (the next one answers when the one before fails before it sent any text)"
+}
+
+# --- secrets ---------------------------------------------------------------------
 $storeKey = Get-Old $old 'BOT_STORE_KEY'
 if ($storeKey) {
   Note 'keeps the existing BOT_STORE_KEY (same identity)'
@@ -190,40 +226,49 @@ if ($storeKey) {
   $storeKey = [Convert]::ToBase64String($bytes)
 }
 
-$keyVar = switch ($Provider) {
-  'anthropic' { 'ANTHROPIC_API_KEY' }
-  'openai' { 'OPENAI_API_KEY' }
-  'hermes' { 'HERMES_API_KEY' }
-  default { '' }
-}
-$apiKey = ''
-if ($keyVar) {
+# The API key of every API provider in the chain: from the environment, the
+# stored settings, or a hidden prompt (never an argument). A fallback needs
+# its key exactly like -Provider (spec F2).
+$keys = [ordered]@{}
+foreach ($p in $chain) {
+  $keyVar = switch ($p) {
+    'anthropic' { 'ANTHROPIC_API_KEY' }
+    'openai' { 'OPENAI_API_KEY' }
+    'hermes' { 'HERMES_API_KEY' }
+    default { '' }
+  }
+  if (-not $keyVar) { continue }
+  $role = if ($p -ne $Provider) { " for -Fallback $p" } else { '' }
   $apiKey = [Environment]::GetEnvironmentVariable($keyVar)
   if (-not $apiKey) { $apiKey = Get-Old $old $keyVar }
   if (-not $apiKey) {
     # A local OpenAI-compatible server (Ollama, LM Studio) needs no key.
-    $optional = ($Provider -eq 'openai' -and $BaseUrl)
+    $optional = ($p -eq $Provider -and $p -eq 'openai' -and $BaseUrl)
     if ($DryRun) {
-      Note "would ask for $keyVar with a hidden prompt"
+      Note "would ask for $keyVar$role with a hidden prompt"
     } else {
-      $hint = switch ($Provider) {
+      $hint = switch ($p) {
         'anthropic' { ' (https://platform.claude.com > API keys)' }
         'openai' { if ($optional) { ' (empty if the server needs none)' } else { ' (https://platform.openai.com/api-keys)' } }
         'hermes' { " (Hermes' API_SERVER_KEY)" }
       }
-      $secure = Read-Host -AsSecureString "$keyVar$hint"
+      $secure = Read-Host -AsSecureString "$keyVar$role$hint"
       $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
       try { $apiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
       finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
-      if (-not $apiKey -and -not $optional) { Fail "$keyVar is needed" }
+      if (-not $apiKey -and -not $optional) { Fail "$keyVar is needed$role" }
     }
   }
+  $keys[$keyVar] = [string]$apiKey
 }
 
 # Keep earlier optional settings on a rerun unless given again.
 if (-not $PSBoundParameters.ContainsKey('Model')) { $Model = Get-Old $old 'LLM_MODEL' }
 if (-not $PSBoundParameters.ContainsKey('Prompt')) { $Prompt = Get-Old $old 'LLM_SYSTEM_PROMPT' }
 if (-not $PSBoundParameters.ContainsKey('BaseUrl')) { $BaseUrl = Get-Old $old 'OPENAI_BASE_URL' }
+# Only for -Provider openai: with an openai fallback a stored custom endpoint
+# would make the bridge refuse to start (spec F3).
+if ($Provider -ne 'openai') { $BaseUrl = '' }
 if (-not $PSBoundParameters.ContainsKey('GroupReplies')) { $GroupReplies = Get-Old $old 'GROUP_REPLIES' }
 if ($Provider -eq 'hermes') {
   if (-not $HermesUrl) { $HermesUrl = Get-Old $old 'HERMES_URL' }
@@ -260,38 +305,38 @@ if ($RescueHermes) {
 # Not secret by contract (the bridge logs them too), so shown here.
 if ($Actions) { Write-Host "Actions (run by the bot for its owners in 1:1 chats only): $Actions" }
 
-# --- CLI providers: the owner's own, signed-in CLI ----------------------------------
-$cliVar = ''
-$cliPath = ''
-$servicePrefix = ''
-if ($Provider -eq 'claude-cli' -or $Provider -eq 'codex-cli') {
-  $cli = if ($Provider -eq 'claude-cli') { 'claude' } else { 'codex' }
+# --- CLI providers: the owner's own, signed-in CLIs --------------------------------
+# Every CLI of the chain (primary and fallbacks, spec F12) is found and
+# checked the same way; their folders form one PATH prefix for run.ps1.
+$sep = [IO.Path]::PathSeparator
+$clis = @()
+$prefixDirs = @()
+foreach ($p in $chain) {
+  if ($p -ne 'claude-cli' -and $p -ne 'codex-cli') { continue }
+  $cli = if ($p -eq 'claude-cli') { 'claude' } else { 'codex' }
   $cliVar = if ($cli -eq 'claude') { 'CLAUDE_BIN' } else { 'CODEX_BIN' }
+  $role = if ($p -ne $Provider) { " (needed by -Fallback $p)" } else { '' }
   # -CommandType Application: the .exe or .cmd, not a .ps1 shim the bot
   # could not start.
   $cmd = Get-Command $cli -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   $override = [Environment]::GetEnvironmentVariable($cliVar)
   if ($override) {
     # An explicit choice, e.g. a second install.
-    if (-not (Test-Path -LiteralPath $override -PathType Leaf)) { Fail "$cliVar=$override is not a file" }
+    if (-not (Test-Path -LiteralPath $override -PathType Leaf)) { Fail "$cliVar=$override is not a file$role" }
     $cliPath = $override
   }
   elseif ($cmd) { $cliPath = $cmd.Source }
   elseif ($DryRun) { $cliPath = "C:\Program Files\$cli\$cli.exe" }
   else {
     if ($cli -eq 'claude') {
-      Fail "Claude Code (claude) is not installed. Install it (https://code.claude.com/docs/en/setup), run 'claude' once and sign in with your Claude account, then run this command again."
+      Fail "Claude Code (claude) is not installed$role. Install it (https://code.claude.com/docs/en/setup), run 'claude' once and sign in with your Claude account, then run this command again."
     }
-    Fail "Codex CLI (codex) is not installed. Install it (https://developers.openai.com/codex/cli), run 'codex login', then run this command again."
+    Fail "Codex CLI (codex) is not installed$role. Install it (https://developers.openai.com/codex/cli), run 'codex login', then run this command again."
   }
   # npm installs claude/codex as a .cmd shim that runs node.exe from PATH
-  # (a native installer ships an .exe). Find that interpreter now, put its
-  # folder first on the bot's PATH in run.ps1, and start the CLI once with
-  # that PATH before anything is installed: a bot that cannot start its CLI
-  # only answers every message with an error.
-  $sep = [IO.Path]::PathSeparator
+  # (a native installer ships an .exe). Find that interpreter now and put
+  # its folder first on the bot's PATH in run.ps1.
   $interp = ''
-  $prefixDirs = @()
   if (Test-Path -LiteralPath $cliPath -PathType Leaf) {
     $isScript = $cliPath -match '\.(cmd|bat|ps1)$'
     if (-not $isScript) {
@@ -309,28 +354,41 @@ if ($Provider -eq 'claude-cli' -or $Provider -eq 'codex-cli') {
     $found = Get-Command $interp -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($found) { $prefixDirs += Split-Path -Parent $found.Source }
     elseif (-not (Test-Path -LiteralPath (Join-Path $cliDir "$interp.exe"))) {
-      Fail "$cli at $cliPath runs '$interp', but '$interp' is not on your PATH. Install it (node: https://nodejs.org) so that '$interp' works in this terminal, then run this command again."
+      Fail "$cli at $cliPath runs '$interp', but '$interp' is not on your PATH$role. Install it (node: https://nodejs.org) so that '$interp' works in this terminal, then run this command again."
     }
   }
   $prefixDirs += $cliDir
+  $clis += [pscustomobject]@{ Cli = $cli; Var = $cliVar; Path = $cliPath; Interp = $interp }
+}
+$servicePrefix = ''
+if ($clis.Count -gt 0) {
   $servicePrefix = ($prefixDirs | Select-Object -Unique) -join $sep
   # The task inherits the user's PATH (machine + user); run.ps1 puts the
   # folders above in front of it.
   $basePath = @([Environment]::GetEnvironmentVariable('Path', 'Machine'), [Environment]::GetEnvironmentVariable('Path', 'User')) | Where-Object { $_ }
   if (-not $basePath) { $basePath = @('/usr/local/bin', '/usr/bin', '/bin') } # pwsh on Linux (tests)
   $servicePath = (@($servicePrefix) + $basePath) -join $sep
+  $interpNames = @($clis | Where-Object { $_.Interp } | ForEach-Object { $_.Interp } | Select-Object -Unique)
   if ($DryRun) {
-    $interpNote = if ($interp) { " (includes the folder of $interp, which $cli needs)" } else { '' }
+    $cliNames = @($clis | ForEach-Object { $_.Cli }) -join ' and '
+    $needs = if ($clis.Count -eq 1) { 'needs' } else { 'need' }
+    $interpNote = if ($interpNames.Count -gt 0) { " (includes the folder of $($interpNames -join ' and '), which $cliNames $needs)" } else { '' }
     Note "service PATH=$servicePath$interpNote"
-    Note "would check that $cli starts the way the bot starts it: $cliPath --version with that PATH"
-  } else {
+  }
+  # Start every CLI once with that PATH before anything is installed: a bot
+  # that cannot start its CLI only answers every message with an error.
+  foreach ($c in $clis) {
+    if ($DryRun) {
+      Note "would check that $($c.Cli) starts the way the bot starts it: $($c.Path) --version with that PATH"
+      continue
+    }
     $oldPath = $env:PATH
     $checkCode = 0
     $checkOut = ''
     try {
       $ErrorActionPreference = 'Continue' # a CLI may write to stderr and still succeed
       $env:PATH = $servicePath
-      $checkOut = (& $cliPath --version 2>&1 | Out-String).Trim()
+      $checkOut = (& $c.Path --version 2>&1 | Out-String).Trim()
       $checkCode = $LASTEXITCODE
     } catch {
       $checkOut = $_.Exception.Message
@@ -340,30 +398,34 @@ if ($Provider -eq 'claude-cli' -or $Provider -eq 'codex-cli') {
       $ErrorActionPreference = 'Stop'
     }
     if ($checkCode -ne 0) {
-      if ($interp) {
-        Fail "$interp (or something it needs) is not found in the bot's PATH ($servicePath): '$cli --version' failed with exit $($checkCode): $checkOut. Install $interp in a standard place, or make sure '$interp' works from that PATH, then run this command again."
+      if ($c.Interp) {
+        Fail "$($c.Interp) (or something it needs) is not found in the bot's PATH ($servicePath): '$($c.Cli) --version' failed with exit $($checkCode): $checkOut. Install $($c.Interp) in a standard place, or make sure '$($c.Interp)' works from that PATH, then run this command again."
       }
-      Fail "$cli at $cliPath does not start with the bot's PATH ($servicePath): '$cli --version' failed with exit $($checkCode): $checkOut"
+      Fail "$($c.Cli) at $($c.Path) does not start with the bot's PATH ($servicePath): '$($c.Cli) --version' failed with exit $($checkCode): $checkOut"
     }
-    Write-Host "Checked: $cli starts with the bot's PATH."
+    Write-Host "Checked: $($c.Cli) starts with the bot's PATH."
   }
-  if (-not $DryRun) {
-    $statusArgs = if ($cli -eq 'claude') { @('auth', 'status') } else { @('login', 'status') }
-    & $cliPath @statusArgs *> $null
-    if ($LASTEXITCODE -ne 0) {
-      Write-Host "Warning: '$cli $($statusArgs -join ' ')' says you are not signed in. Sign in first, or the bot will answer with an error." -ForegroundColor Yellow
+  foreach ($c in $clis) {
+    if (-not $DryRun) {
+      $statusArgs = if ($c.Cli -eq 'claude') { @('auth', 'status') } else { @('login', 'status') }
+      & $c.Path @statusArgs *> $null
+      if ($LASTEXITCODE -ne 0) {
+        Write-Host "Warning: '$($c.Cli) $($statusArgs -join ' ')' says you are not signed in. Sign in first, or the bot will answer with an error." -ForegroundColor Yellow
+      }
     }
+    Write-Host "Using your own $($c.Cli) at $($c.Path) (personal use only; Jay never sees your login)."
   }
-  Write-Host "Using your own $cli at $cliPath (personal use only; Jay never sees your login)."
   # Spec 2026-11-09-bot-access A7: Windows has no sandbox for the CLI in
-  # this setup, and group members could make the bot run it.
+  # this setup, and group members could make the bot run it. (Spec F8: the
+  # default is owners when any provider of the chain is a CLI.)
   if ($GroupReplies -eq 'members') {
-    Write-Host "WARNING: group members can make this bot run your $cli, and there is no sandbox on Windows." -ForegroundColor Yellow
+    $cliNames = @($clis | ForEach-Object { $_.Cli }) -join ' and '
+    Write-Host "WARNING: group members can make this bot run your $cliNames, and there is no sandbox on Windows." -ForegroundColor Yellow
     Write-Host '  Run the bot under a separate Windows user, or use -GroupReplies owners. See infra/bots/README.md.' -ForegroundColor Yellow
   }
 }
 
-Write-Host "Setting up bot '$Name' for $($owners -join ',') ($Provider, Scheduled Task) in $botDir"
+Write-Host "Setting up bot '$Name' for $($owners -join ',') ($chainText, Scheduled Task) in $botDir"
 
 # --- bundle -----------------------------------------------------------------------
 $asset = "jay-$($bridge -replace '_', '-')-windows-x64.zip"
@@ -413,15 +475,16 @@ $settings = [ordered]@{
 }
 if ($Provider -eq 'hermes') {
   $settings.HERMES_URL = $HermesUrl
-  $settings.HERMES_API_KEY = $apiKey
+  $settings.HERMES_API_KEY = if ($keys.Contains('HERMES_API_KEY')) { $keys['HERMES_API_KEY'] } else { '' }
 } else {
   $settings.LLM_PROVIDER = $Provider
+  if ($fallbackList) { $settings.LLM_FALLBACK = $fallbackList }
   if ($Model) { $settings.LLM_MODEL = $Model }
   if ($Prompt) { $settings.LLM_SYSTEM_PROMPT = $Prompt }
-  if ($keyVar -and $apiKey) { $settings[$keyVar] = $apiKey }
+  foreach ($k in $keys.Keys) { if ($keys[$k]) { $settings[$k] = $keys[$k] } }
   if ($BaseUrl) { $settings.OPENAI_BASE_URL = $BaseUrl }
   if ($GroupReplies) { $settings.GROUP_REPLIES = $GroupReplies }
-  if ($cliVar) { $settings[$cliVar] = $cliPath }
+  foreach ($c in $clis) { $settings[$c.Var] = $c.Path }
   if ($Actions) { $settings.LLM_ACTIONS = $Actions }
 }
 

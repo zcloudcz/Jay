@@ -15,7 +15,7 @@ s Windows a Hermes jako Scheduled Task.
 | `calltype_bot`, `hermes_bridge`, `a2a_bridge`: analyze + test (regrese, beze změn) | PASS: 155 / 174 / 47 testů |
 | Pravidla Windows (spouštění `.cmd` přes cmd.exe, `taskkill /T`, kódování, CRLF) přes OS seam `HostOs` | PASS v unit testech (12 testů seamu); na skutečném Windows NOT_RUN (AC7) |
 | Docker build `llm_bridge`, `dart build cli` linux-x64 | PASS |
-| `infra/bots/test-scripts.sh` v kontejneru jako runner (PowerShell, shellcheck, PSScriptAnalyzer 1.22.0) + `koalaman/shellcheck:stable` | PASS: 309 kontrol; lokálně se skutečným bubblewrap 254 kontrol (bez PowerShell) |
+| `infra/bots/test-scripts.sh` v kontejneru jako runner (PowerShell, shellcheck, PSScriptAnalyzer 1.22.0) + `koalaman/shellcheck:stable` | PASS: 380 kontrol (309 před `--fallback`); lokálně se skutečným bubblewrap 336 kontrol (bez PowerShell), vč. falešné instalace se dvěma CLI v sandboxu |
 
 ## Ruční scénáře
 
@@ -28,13 +28,14 @@ s Windows a Hermes jako Scheduled Task.
 | AC5 | R, P napíše "smaž /tmp/x" nebo "restart hermes && rm -rf /tmp/x" | Odmítnuto, nic se nesmaže (model nemůže předat argumenty ani spustit nic mimo seznam) | NOT_RUN |
 | AC6 | R s rozbitým Claude (běží Codex), znovu AC4 a AC5 | Stejné výsledky (seznam vynucuje bridge, Codex nemá nástroje) | NOT_RUN |
 | AC7 | W, `-RescueHermes '<task>'`, P napíše "status" | Spustí se nastavený `schtasks.exe /query` a model ho nahlásí | NOT_RUN |
+| AC8 | Linux: `jay-new-bot.sh --provider claude-cli --fallback codex-cli --rescue-hermes hermes-gateway`, pak rozbít Claude (`claude auth logout` nebo vyčerpaný plán), P napíše "status" | Skript při instalaci ověří obě CLI v sandboxu; odpoví Codex přes `cli-codex.sh` v sandboxu, v `bot.log` řádek o přepnutí | NOT_RUN (automaticky: falešné claude + codex + node s opravdovým bubblewrap, obě CLI startují v sandboxu, `~/.hermes` neviditelný: PASS) |
 
 Poznámky pro ruční test:
 
 - Akce smí spustit jen vlastník v 1:1 chatu; ve skupině se direktiva zahodí a zaloguje (pokryto unit a runtime testy).
-- Na Linuxu je s akcemi v sandboxu jen CLI (`cli.sh`), ne celý bridge. Zkontrolovat `~/.jay-bots/<name>/cli.sh`
+- Na Linuxu je s akcemi v sandboxu jen CLI (`cli-claude.sh`, `cli-codex.sh`), ne celý bridge. Zkontrolovat `~/.jay-bots/<name>/cli-claude.sh`
   a že `~/.jay-bots/<name>/sandbox.sh /bin/sh -c 'ls ~/.hermes'` selže.
-- `LLM_FALLBACK` zatím nemá volbu ve skriptu: přidat do `bot.env` ručně `LLM_FALLBACK=codex-cli` a
-  `CODEX_BIN=<absolutní cesta>` (plus složku node na `PATH` v `run.sh`, pokud je codex npm skript). U záchranného
-  bota (s akcemi) pak Codex běží mimo sandbox; u bota bez akcí na Linuxu se sandboxem záložní CLI nespustí, protože
-  sandbox zpřístupní jen login a soubory primárního CLI (viz spec A5).
+- `LLM_FALLBACK` nastaví skript volbou `--fallback codex-cli` (Windows `-Fallback codex-cli`, spec F12): uloží
+  `LLM_FALLBACK`, `CODEX_BIN`, dá složku node na `PATH` v `run.sh` a sandbox zpřístupní obě CLI i oba loginy.
+  S akcemi vzniknou `cli-claude.sh` i `cli-codex.sh`. Zkontrolovat:
+  `~/.jay-bots/<name>/sandbox.sh /bin/sh -c 'ls ~/.claude ~/.codex'` projde, `... 'ls ~/.hermes'` selže.

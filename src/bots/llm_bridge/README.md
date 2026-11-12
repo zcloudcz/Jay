@@ -157,7 +157,8 @@ on it), 69 Jay API unreachable, 73 history file not writable.
 A second contact that can still reach Hermes when Hermes itself hangs. Two
 independent settings make it:
 
-- `LLM_FALLBACK` (e.g. `LLM_PROVIDER=claude-cli`, `LLM_FALLBACK=codex-cli`):
+- `LLM_FALLBACK` (e.g. `LLM_PROVIDER=claude-cli`, `LLM_FALLBACK=codex-cli`;
+  the setup scripts set it with `--fallback` / `-Fallback`):
   when Claude fails before it sent any text (not signed in, out of quota,
   429, crashed, silent for `LLM_FIRST_OUTPUT_SECONDS`), Codex answers the
   same message. The log shows `LLM: Claude Code CLI failed (...), trying
@@ -196,9 +197,19 @@ Presets from the setup scripts (`--rescue-hermes <name>`, Windows
 | Windows service (`-RescueKind service`) | `sc.exe query "<name>"` | `Restart-Service -Name '<name>'` (may need admin rights) | as above |
 
 A rescue preset also forces `GROUP_REPLIES=owners`. On Linux the bubblewrap
-sandbox then wraps only the CLI (`cli.sh` as `CLAUDE_BIN`/`CODEX_BIN`), not the
-bridge: the bridge has to reach the service manager. Without actions nothing
-changes. macOS and Windows have no sandbox (as before).
+sandbox then wraps only the CLIs (`cli-claude.sh` / `cli-codex.sh` as
+`CLAUDE_BIN` / `CODEX_BIN`), not the bridge: the bridge has to reach the
+service manager. Without actions nothing changes. macOS and Windows have no
+sandbox (as before).
+
+Recommended for a `claude-cli` rescue bot: add `--fallback codex-cli`
+(Windows `-Fallback codex-cli`), so Codex answers when Claude is signed out,
+out of quota or hangs. The script checks both CLIs at install time, stores
+`LLM_FALLBACK`, `CLAUDE_BIN` and `CODEX_BIN`, and on Linux the sandbox exposes
+both CLIs with their logins:
+
+    jay-new-bot.sh --name 'Hermes rescue' --owner CT-XXXX-XXXX \
+      --provider claude-cli --fallback codex-cli --rescue-hermes hermes-gateway
 
 Sample prompt (there is no built-in rescue persona), `--prompt` /
 `LLM_SYSTEM_PROMPT`:

@@ -58,9 +58,13 @@ What it sets up (per bot, `~/.jay-bots/<name>/`, Windows
   the bot runs unsandboxed and the script says so.
 - With actions (`--actions`, `--rescue-hermes`, spec `2026-11-12-llm-bridge-fallback-rescue`
   A6) the bridge must reach the service manager, so `run.sh` starts it outside
-  the sandbox and only the CLI runs inside it: `cli.sh` (`exec sandbox.sh <cli>`)
-  is written as `CLAUDE_BIN`/`CODEX_BIN`. An API provider then has no sandbox
-  at all (it starts no CLI).
+  the sandbox and only the CLIs run inside it: one wrapper per CLI,
+  `cli-claude.sh` / `cli-codex.sh` (`exec sandbox.sh <cli>`), is written as
+  `CLAUDE_BIN` / `CODEX_BIN`. An API-only bot then has no sandbox at all (it
+  starts no CLI).
+- With `--fallback` the sandbox exposes every CLI of the chain (each with its
+  interpreter and login: `~/.claude` + `~/.claude.json`, `~/.codex`), and
+  nothing else of the home folder.
 - macOS and Windows have no sandbox in this setup. With a CLI provider and
   `--group-replies members` the scripts print a warning: run such a bot under a
   separate OS user (its own home with only the CLI login), or keep
@@ -78,8 +82,18 @@ removes them; kept on a rerun like the other options), `--rescue-hermes <unit
 or label>` with `--log-file <path>` (Windows: `-Actions`, `-RescueHermes
 <task or service>`, `-RescueKind task|service`, `-LogFile`): a rescue bot with
 `status`/`restart`/`logs` presets per OS, owners only (see
-`src/bots/llm_bridge/README.md`, "Rescue bot"). `LLM_FALLBACK` has no script
-option yet: add it to `bot.env` by hand.
+`src/bots/llm_bridge/README.md`, "Rescue bot"), `--fallback <ids>` (Windows
+`-Fallback`): providers tried in order when the one before fails before it
+sent any text (`LLM_FALLBACK`), e.g. `--provider claude-cli --fallback
+codex-cli`; each fallback gets its own key prompt (or env variable) or CLI
+start check like `--provider`, a rerun keeps them, `none` removes them; a CLI
+fallback cannot run with `--docker`. Recommended rescue bot for Hermes on
+Linux (Codex answers when Claude is down or out of quota):
+
+    curl -fsSL https://jay.zcloud.cz/bots/new-bot.sh | bash -s -- \
+      --name 'Hermes rescue' --owner CT-XXXX-XXXX --provider claude-cli \
+      --fallback codex-cli --rescue-hermes hermes-gateway
+
 `--hermes-url`, `--api` (another Jay server), `--dry-run`. `claude-cli` and
 `codex-cli` use your own installed and signed-in CLI (personal use, see
 `src/bots/llm_bridge/README.md` for the vendor terms); they cannot run in
