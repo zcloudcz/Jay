@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'http_providers.dart' show normalizeTurns;
+import 'os_process.dart';
 import 'provider.dart';
 
 /// Renders a conversation as one prompt for a CLI that takes a single
@@ -50,7 +51,12 @@ abstract class CliProvider implements LlmProvider {
     required this.workDir,
     this.model,
     this.timeoutKill = const Duration(seconds: 5),
-  });
+    HostOs? os,
+  }) : os = os ?? HostOs.current;
+
+  /// Whose process rules apply (a seam: tests check the Windows launcher on
+  /// any host).
+  final HostOs os;
 
   final String executable;
 
@@ -92,20 +98,15 @@ abstract class CliProvider implements LlmProvider {
         await prepare(system);
         final images = currentImages(conversation);
         if (imagesAsFiles) imageFiles.addAll(await _writeImages(images));
+        final args = arguments(system, images: images, imageFiles: imageFiles);
+        final LaunchPlan plan;
         try {
-          process = await Process.start(
-            executable,
-            arguments(system, images: images, imageFiles: imageFiles),
-            workingDirectory: workDir,
-            // npm installs `claude.cmd` / `codex.cmd` on Windows, which
-            // only a shell can start; the native installers ship .exe.
-            runInShell:
-                Platform.isWindows &&
-                RegExp(
-                  r'\.(cmd|bat)$',
-                  caseSensitive: false,
-                ).hasMatch(executable),
-          );
+          plan = launchPlan(args);
+        } on ArgumentError catch (e) {
+          throw LlmException('$cliName cannot be started: ${e.message}');
+        }
+        try {
+          process = await plan.start(workingDirectory: workDir);
         } on ProcessException catch (e) {
           throw LlmException(
             '$cliName or its interpreter cannot be started ($executable: '
@@ -114,14 +115,18 @@ abstract class CliProvider implements LlmProvider {
           );
         }
         final p = process!;
-        final out = p.stdout.transform(utf8.decoder).join();
-        final err = p.stderr.transform(utf8.decoder).join();
+        final out = p.stdout.transform(processOutputDecoder).join();
+        final err = p.stderr.transform(processOutputDecoder).join();
         p.stdin.add(utf8.encode(stdinText(conversation, system)));
         await p.stdin.close().catchError((Object _) {});
         final code = await p.exitCode;
         finished = true;
         if (controller.isClosed) return;
-        final answer = parseOutput(await out, await err, code);
+        final answer = parseOutput(
+          normalizeNewlines(await out),
+          normalizeNewlines(await err),
+          code,
+        );
         controller.add(answer);
       } catch (e, st) {
         if (!controller.isClosed) controller.addError(e, st);
@@ -139,15 +144,24 @@ abstract class CliProvider implements LlmProvider {
       onCancel: () {
         final p = process;
         if (p != null && !finished) {
-          p.kill();
-          Timer(timeoutKill, () {
-            if (!finished) p.kill(ProcessSignal.sigkill);
-          });
+          unawaited(
+            killProcessTree(
+              p,
+              os: os,
+              grace: timeoutKill,
+              exited: () => finished,
+            ),
+          );
         }
       },
     );
     return controller.stream;
   }
+
+  /// How one run starts on [os] (public for tests): directly, or a
+  /// Windows `.cmd`/`.bat` through cmd.exe (see [planLaunch]).
+  LaunchPlan launchPlan(List<String> args) =>
+      planLaunch(executable, args, os: os);
 
   /// Hook before the process starts (e.g. writing the system prompt file).
   Future<void> prepare(String system) async {}
@@ -169,7 +183,7 @@ abstract class CliProvider implements LlmProvider {
     try {
       for (final image in images) {
         final path =
-            '$workDir${Platform.pathSeparator}jay-image-'
+            '$workDir${os.pathSeparator}jay-image-'
             '${DateTime.now().microsecondsSinceEpoch}-${_imageCounter++}.'
             '${image.extension}';
         paths.add(path);
@@ -219,8 +233,12 @@ abstract class CliProvider implements LlmProvider {
     caseSensitive: false,
   );
 
+  /// 9009: cmd.exe's "command not found", whose text is localized.
   static bool isLaunchFailure(int exitCode, String output) =>
-      exitCode == 127 || exitCode == 126 || _launchError.hasMatch(output);
+      exitCode == 127 ||
+      exitCode == 126 ||
+      exitCode == 9009 ||
+      _launchError.hasMatch(output);
 
   /// The error for a run that exited with [exitCode]: launch problem,
   /// login problem, or a neutral failure with an excerpt of the output.
@@ -260,6 +278,7 @@ abstract class CliProvider implements LlmProvider {
 /// login and needs an API key.
 class ClaudeCliProvider extends CliProvider {
   ClaudeCliProvider({
+    super.os,
     super.executable = 'claude',
     required super.workDir,
     super.model,
@@ -286,8 +305,7 @@ class ClaudeCliProvider extends CliProvider {
   @override
   String get label => 'Claude Code CLI${model == null ? '' : ' $model'}';
 
-  String get _systemFile =>
-      '$workDir${Platform.pathSeparator}system-prompt.txt';
+  String get _systemFile => '$workDir${os.pathSeparator}system-prompt.txt';
 
   @override
   Future<void> prepare(String system) =>
@@ -403,6 +421,7 @@ class ClaudeCliProvider extends CliProvider {
 /// prompt leads the stdin text.
 class CodexCliProvider extends CliProvider {
   CodexCliProvider({
+    super.os,
     super.executable = 'codex',
     required super.workDir,
     super.model,

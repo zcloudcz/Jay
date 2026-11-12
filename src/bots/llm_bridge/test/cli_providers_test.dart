@@ -217,6 +217,31 @@ void main() {
       },
     );
 
+    test('CRLF output (Windows) becomes LF in the answer', () async {
+      final exe = await fake('codex', r"printf 'Line 1\r\nLine 2\r\n'");
+      final p = CodexCliProvider(executable: exe, workDir: work);
+      expect(await p.reply(conversation, system: 's').join(), 'Line 1\nLine 2');
+    });
+
+    test('non-UTF-8 stderr still yields the error text', () async {
+      // cmd.exe on a Czech Windows writes CP852; a strict decoder threw.
+      final exe = await fake(
+        'codex',
+        r"printf 'chyba p\375\241kaz\n' >&2; exit 2",
+      );
+      final p = CodexCliProvider(executable: exe, workDir: work);
+      await expectLater(
+        p.reply(conversation, system: 's').join(),
+        throwsA(
+          isA<LlmException>().having(
+            (e) => e.message,
+            'm',
+            allOf(contains('exit code 2'), contains('chyba p')),
+          ),
+        ),
+      );
+    });
+
     test('non-zero exit is an LlmException with a login hint', () async {
       // Real Codex 0.167 output without a login.
       final exe = await fake(
