@@ -28,6 +28,7 @@ class _RejectingHub extends FakeHubClient {
     String recipientIdentityId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) async => throw StateError('business_conversation_required');
 }
 

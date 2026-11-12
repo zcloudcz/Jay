@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 void main() {
   _groupFanOutTests();
   _callSignalTests();
+  _silentTests();
   _multiDeviceTests();
 
   test('offline send fails instead of claiming successful delivery', () async {
@@ -244,6 +245,92 @@ void _callSignalTests() {
   });
 }
 
+// Spec 2026-11-11-bot-ack-reactions N1/N4: a silent reliable send goes to the
+// `<method>Silent` twin with the same arguments; an old server without it
+// gets the plain method instead, once per connection.
+void _silentTests() {
+  test('silent sends use the Silent twins with unchanged arguments', () async {
+    final (client, transport) = await _connected();
+
+    await client.sendMessage('bob', 'c', messageId: 'm1', silent: true);
+    await client.sendGroupMessage('g', {'a': 'c'}, messageId: 'm2', silent: true);
+    await client.sendDirectFanout('bob', {'b1': 'c'}, messageId: 'm3', silent: true);
+    await client.sendGroupFanout('g', {'a1': 'c'}, messageId: 'm4', silent: true);
+    // Default: the plain methods, byte for byte as before.
+    await client.sendDirectFanout('bob', {'b1': 'c'}, messageId: 'm5');
+
+    expect(transport.invocations, [
+      ['SendReliableMessageSilent', 'bob', 'm1', 'c'],
+      ['SendReliableGroupMessageSilent', 'g', 'm2', {'a': 'c'}],
+      ['SendReliableDirectFanoutSilent', 'bob', 'm3', ['b1'], {'b1': 'c'}],
+      ['SendReliableGroupFanoutSilent', 'g', 'm4', ['a1'], {'a1': 'c'}],
+      ['SendReliableDirectFanout', 'bob', 'm5', ['b1'], {'b1': 'c'}],
+    ]);
+  });
+
+  test('an old server without Silent methods gets the plain method', () async {
+    final (client, transport) = await _connected();
+    transport.unknown.addAll({
+      'SendReliableDirectFanoutSilent',
+      'SendReliableGroupFanoutSilent',
+    });
+
+    await client.sendDirectFanout('bob', {'b1': 'c'}, messageId: 'm1', silent: true);
+    // Remembered for the connection: no second failing round trip.
+    await client.sendGroupFanout('g', {'a1': 'c'}, messageId: 'm2', silent: true);
+
+    expect(transport.invocations, [
+      ['SendReliableDirectFanoutSilent', 'bob', 'm1', ['b1'], {'b1': 'c'}],
+      ['SendReliableDirectFanout', 'bob', 'm1', ['b1'], {'b1': 'c'}],
+      ['SendReliableGroupFanout', 'g', 'm2', ['a1'], {'a1': 'c'}],
+    ]);
+  });
+
+  test('a hub error inside a Silent method is not a fallback', () async {
+    late _FailingTransport transport;
+    final client = SignalRClient(
+      baseUrl: 'http://localhost',
+      deviceId: 'device',
+      transportFactory: (_, _) => transport = _FailingTransport(),
+    );
+    addTearDown(client.dispose);
+    await client.connect();
+
+    await expectLater(
+      client.sendDirectFanout('bob', {'b1': 'c'}, messageId: 'm1', silent: true),
+      throwsA(predicate((Object e) => SignalRClient.staleRequired(e) != null)),
+    );
+    expect(transport.invocations.map((i) => i.first), [
+      'SendReliableDirectFanoutSilent',
+    ]);
+    expect(
+      SignalRClient.isUnknownHubMethod(
+        Exception("Failed to invoke 'X' due to an error on the server."),
+        'X',
+      ),
+      isTrue,
+    );
+    expect(
+      SignalRClient.isUnknownHubMethod(
+        Exception("An unexpected error occurred invoking 'X' on the server."),
+        'X',
+      ),
+      isFalse,
+    );
+  });
+}
+
+class _FailingTransport extends _FakeTransport {
+  @override
+  Future<void> invoke(String method, [List<Object> args = const []]) async {
+    invocations.add([method, ...args]);
+    throw Exception(
+      "An unexpected error occurred invoking '$method' on the server. "
+      'HubException: device_list_stale:b1,b2',
+    );
+  }
+}
+
 /// Connected client + its fake transport, for wire-contract tests.
 Future<(SignalRClient, _FakeTransport)> _connected() async {
   late _FakeTransport transport;
@@ -294,7 +381,17 @@ class _FakeTransport implements HubTransport {
   @override
   Future<void> stop() async => isConnected = false;
 
+  /// Hub methods this fake server does not have (an older server).
+  final unknown = <String>{};
+
   @override
-  Future<void> invoke(String method, [List<Object> args = const []]) async =>
-      invocations.add([method, ...args]);
+  Future<void> invoke(String method, [List<Object> args = const []]) async {
+    invocations.add([method, ...args]);
+    if (unknown.contains(method)) {
+      // What signalr_netcore surfaces for ASP.NET Core's binding failure.
+      throw Exception(
+        "Failed to invoke '$method' due to an error on the server.",
+      );
+    }
+  }
 }

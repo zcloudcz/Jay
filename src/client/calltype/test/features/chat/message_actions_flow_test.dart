@@ -68,6 +68,7 @@ class _Transport extends SignalRClient {
     String recipientDeviceId,
     String encryptedBodyBase64, {
     String? messageId,
+    bool silent = false,
   }) async {
     sent.add({recipientDeviceId: encryptedBodyBase64});
     if (fail) throw StateError('offline');
@@ -78,6 +79,7 @@ class _Transport extends SignalRClient {
     String groupId,
     Map<String, String> encryptedPayloads, {
     String? messageId,
+    bool silent = false,
   }) async {
     sent.add(Map.of(encryptedPayloads));
     sentIds.add(messageId);
@@ -95,6 +97,7 @@ class _Transport extends SignalRClient {
     String recipientIdentityId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) async {
     sent.add(Map.of(encryptedPayloads));
     sentIds.add(messageId);
@@ -106,6 +109,7 @@ class _Transport extends SignalRClient {
     String groupId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) async {
     if (refuseGroupFanout) {
       refusedGroupFanouts++;

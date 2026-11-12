@@ -300,6 +300,7 @@ class _GrowingHub extends FakeHubClient {
     String groupId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) {
     if (!_grown) {
       _grown = true;

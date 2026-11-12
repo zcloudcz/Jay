@@ -170,6 +170,8 @@ class SignalRClient {
     // Build the hub connection. The deviceId query parameter is kept for
     // server log correlation — the device identity itself is derived from
     // JWT claims on the server (MessengerHub.GetDeviceId).
+    // A reconnect may reach an upgraded server: ask again.
+    _silentUnsupported = false;
     _hubConnection = _transportFactory(
       '$_baseUrl/hub?deviceId=$_deviceId',
       authService == null
@@ -248,17 +250,70 @@ class SignalRClient {
   /// [encryptedBodyBase64] is the base64-encoded ciphertext.
   ///
   /// The server routes this to the recipient if online, or queues it
-  /// for later delivery if offline.
+  /// for later delivery if offline. [silent] (reliable sends only, i.e.
+  /// with [messageId]) asks the server not to push an offline recipient,
+  /// see [_invokeReliable].
   Future<void> sendMessage(
     String recipientDeviceId,
     String encryptedBodyBase64, {
     String? messageId,
+    bool silent = false,
   }) async {
-    await _requireConnection().invoke(
-      messageId == null ? 'SendMessage' : 'SendReliableMessage',
-      <Object>[recipientDeviceId, ?messageId, encryptedBodyBase64],
-    );
+    final connection = _requireConnection();
+    if (messageId == null) {
+      await connection.invoke('SendMessage', <Object>[
+        recipientDeviceId,
+        encryptedBodyBase64,
+      ]);
+      return;
+    }
+    await _invokeReliable(connection, 'SendReliableMessage', <Object>[
+      recipientDeviceId,
+      messageId,
+      encryptedBodyBase64,
+    ], silent: silent);
   }
+
+  /// True after this connection's server answered a `...Silent` hub method
+  /// as unknown (a server older than spec 2026-11-11-bot-ack-reactions N1):
+  /// silent sends then use the plain methods until the next connect.
+  bool _silentUnsupported = false;
+
+  /// Invokes the reliable hub [method], or its twin [method] + `Silent`
+  /// when [silent]: same validation, storage and delivery, but the server never
+  /// sends the "New message" push for it (bot acknowledgement reactions).
+  ///
+  /// WHY a fallback instead of failing: an old server has no `...Silent`
+  /// methods and rejects the call while binding it ("Failed to invoke
+  /// 'SendReliable...Silent'"), before anything is queued. Sending the same
+  /// envelopes with the same message id through the plain method then only
+  /// costs the push the old server always sent.
+  Future<void> _invokeReliable(
+    HubTransport connection,
+    String method,
+    List<Object> args, {
+    required bool silent,
+  }) async {
+    if (!silent || _silentUnsupported) {
+      await connection.invoke(method, args);
+      return;
+    }
+    try {
+      await connection.invoke('${method}Silent', args);
+    } catch (e) {
+      if (!isUnknownHubMethod(e, '${method}Silent')) rethrow;
+      _silentUnsupported = true;
+      await connection.invoke(method, args);
+    }
+  }
+
+  /// Whether [error] is the hub's answer to a call of a method it does not
+  /// have (or cannot bind): ASP.NET Core SignalR reports that as "Failed to
+  /// invoke '[method]' due to an error on the server." An exception thrown
+  /// INSIDE a hub method reads "An unexpected error occurred invoking ..."
+  /// or carries the HubException text instead, so it never matches.
+  static bool isUnknownHubMethod(Object error, String method) =>
+      error.toString().contains("Failed to invoke '$method'");
 
   /// Sends an encrypted group message to multiple devices.
   ///
@@ -272,6 +327,7 @@ class SignalRClient {
     String groupId,
     Map<String, String> encryptedPayloads, {
     String? messageId,
+    bool silent = false,
   }) async {
     final connection = _requireConnection();
     final size = encryptedPayloads.values.fold(0, (n, v) => n + v.length);
@@ -284,10 +340,15 @@ class SignalRClient {
         ? [encryptedPayloads]
         : [for (final e in encryptedPayloads.entries) {e.key: e.value}];
     for (final payloads in calls) {
-      await connection.invoke(
-        messageId == null ? 'SendGroupMessage' : 'SendReliableGroupMessage',
-        <Object>[groupId, ?messageId, payloads],
-      );
+      if (messageId == null) {
+        await connection.invoke('SendGroupMessage', <Object>[groupId, payloads]);
+      } else {
+        await _invokeReliable(connection, 'SendReliableGroupMessage', <Object>[
+          groupId,
+          messageId,
+          payloads,
+        ], silent: silent);
+      }
     }
   }
 
@@ -297,11 +358,13 @@ class SignalRClient {
     String recipientIdentityId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) => _fanout(
     'SendReliableDirectFanout',
     recipientIdentityId,
     messageId,
     encryptedPayloads,
+    silent: silent,
   );
 
   /// Multi-device group send (non-business groups only; the hub rejects it
@@ -310,19 +373,22 @@ class SignalRClient {
     String groupId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) => _fanout(
     'SendReliableGroupFanout',
     groupId,
     messageId,
     encryptedPayloads,
+    silent: silent,
   );
 
   Future<void> _fanout(
     String method,
     String target,
     String messageId,
-    Map<String, String> encryptedPayloads,
-  ) async {
+    Map<String, String> encryptedPayloads, {
+    required bool silent,
+  }) async {
     final connection = _requireConnection();
     // Every call declares the FULL device set: the hub checks completeness
     // on it, so a send that has to be split (attachment copies do not fit
@@ -333,7 +399,12 @@ class SignalRClient {
         ? [encryptedPayloads]
         : [for (final e in encryptedPayloads.entries) {e.key: e.value}];
     for (final payloads in calls) {
-      await connection.invoke(method, <Object>[target, messageId, all, payloads]);
+      await _invokeReliable(connection, method, <Object>[
+        target,
+        messageId,
+        all,
+        payloads,
+      ], silent: silent);
     }
   }
 

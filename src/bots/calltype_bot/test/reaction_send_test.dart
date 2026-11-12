@@ -61,6 +61,8 @@ void main() {
     );
     final sent = hub.calls('SendReliableDirectFanout').single;
     expect(sent[0], alice.id);
+    // Never pushed (spec 2026-11-11-bot-ack-reactions N2).
+    expect(hub.wireMethods.last, 'SendReliableDirectFanoutSilent');
     final payload = await lastPayload(alice, 'SendReliableDirectFanout');
     expect(payload['type'], reactionType);
     expect(payload['to'], alice.id);
@@ -88,6 +90,7 @@ void main() {
     await bot.sendReaction(to: groupId, targetMessageId: targetId, emoji: '❤️');
     final sent = hub.calls('SendReliableGroupFanout').single;
     expect(sent[0], groupId);
+    expect(hub.silentFlags('SendReliableGroupFanout'), [true]);
     expect((sent[3] as Map<String, String>).keys.toSet(), {alice.id, bob.id});
     final payload = await lastPayload(bob, 'SendReliableGroupFanout');
     expect(payload['type'], reactionType);
@@ -164,6 +167,78 @@ void main() {
     // No handle lookup: the message already names its conversation.
     expect(api.requests.where((r) => r.contains('handle')), isEmpty);
   });
+
+  test('reactions are silent sends, replies are not', () async {
+    final done = <String>[];
+    await bot.onMessage((m) async {
+      await m.react('👀');
+      await m.reply('hi');
+      await m.removeReaction();
+      done.add(m.id);
+    });
+    hub.deliver(await alice.messageTo(bot.deviceId, api.botBundle, 'hi'));
+    await until(() => done.isNotEmpty);
+    expect(hub.silentFlags('SendReliableDirectFanout'), [true, false, true]);
+    expect(hub.wireMethods.where((m) => m.startsWith('SendReliable')), [
+      'SendReliableDirectFanoutSilent',
+      'SendReliableDirectFanout',
+      'SendReliableDirectFanoutSilent',
+    ]);
+  });
+
+  test('business group: the per-member call is silent too', () async {
+    api.groups[groupId] = [alice.id, bob.id, bot.deviceId];
+    await bot.onMessage((_) async {});
+    hub.failures['SendReliableGroupFanout'] = [
+      () => StateError('Hub error: fanout_unsupported_in_business_group'),
+    ];
+    await bot.sendReaction(to: groupId, targetMessageId: targetId, emoji: '👍');
+    expect(hub.wireMethods.where((m) => m.startsWith('SendReliable')), [
+      'SendReliableGroupFanoutSilent',
+      'SendReliableGroupMessageSilent',
+    ]);
+  });
+
+  test(
+    'an old server without silent sends gets the plain method (N4)',
+    () async {
+      await bot.onMessage((_) async {});
+      hub.failures['SendReliableDirectFanoutSilent'] = [
+        () => StateError(
+          "Hub error: Failed to invoke 'SendReliableDirectFanoutSilent' due "
+          'to an error on the server.',
+        ),
+      ];
+      await bot.sendReaction(
+        to: 'CT-AAAA-0001',
+        targetMessageId: targetId,
+        emoji: '👍',
+      );
+      await bot.sendReaction(
+        to: 'CT-AAAA-0001',
+        targetMessageId: targetId,
+        emoji: '🎉',
+      );
+      expect(hub.wireMethods.where((m) => m.startsWith('SendReliable')), [
+        'SendReliableDirectFanoutSilent',
+        'SendReliableDirectFanout',
+        // Remembered for this connection.
+        'SendReliableDirectFanout',
+      ]);
+      // Same message id on the retry, and the user reads both in order.
+      final sent = hub.calls('SendReliableDirectFanout');
+      expect(sent[0][1], sent[1][1]);
+      await alice.readPayload(
+        bot.deviceId,
+        (sent[1][3] as Map<String, String>)[alice.id]!,
+      );
+      final last = await alice.readPayload(
+        bot.deviceId,
+        (sent[2][3] as Map<String, String>)[alice.id]!,
+      );
+      expect(ReactionPayload.decode(last['body'])!.emoji, '🎉');
+    },
+  );
 
   test('BotMessage.react in a group goes to the group', () async {
     api.groups[groupId] = [alice.id, bob.id, bot.deviceId];

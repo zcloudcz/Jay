@@ -91,6 +91,7 @@ class _Transport extends SignalRClient {
     String recipientIdentityId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) async {
     sent.add(Map.of(encryptedPayloads));
     ids.add(messageId);
@@ -102,6 +103,7 @@ class _Transport extends SignalRClient {
     String groupId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) async {
     sent.add(Map.of(encryptedPayloads));
     ids.add(messageId);

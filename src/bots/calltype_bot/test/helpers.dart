@@ -121,8 +121,14 @@ class FakeUser {
 }
 
 /// In-memory hub: records what the bot invokes, lets the test push messages.
+///
+/// A silent send (`SendReliable...Silent`, spec 2026-11-11-bot-ack-reactions)
+/// is recorded under its PLAIN method name with `silent: true`, so ratchet
+/// ordered transcripts over one method still see every message in order.
+/// [wireMethods] keeps the names as invoked.
 class FakeHub implements HubTransport {
-  final invocations = <({String method, List<Object> args})>[];
+  final invocations = <({String method, List<Object> args, bool silent})>[];
+  final wireMethods = <String>[];
 
   /// method -> errors to throw on the next calls of it, one per call. A
   /// function so a test can change the world when the hub "answers".
@@ -133,6 +139,12 @@ class FakeHub implements HubTransport {
   List<List<Object>> calls(String method) => [
     for (final i in invocations)
       if (i.method == method) i.args,
+  ];
+
+  /// Whether each call of [method] (as in [calls]) was a silent send.
+  List<bool> silentFlags(String method) => [
+    for (final i in invocations)
+      if (i.method == method) i.silent,
   ];
 
   void deliver(Map<String, dynamic> message) =>
@@ -159,10 +171,20 @@ class FakeHub implements HubTransport {
   Future<void> stop() async => _connected = false;
   @override
   Future<void> invoke(String method, [List<Object> args = const []]) async {
-    invocations.add((method: method, args: args));
+    wireMethods.add(method);
+    final silent =
+        method.startsWith('SendReliable') && method.endsWith('Silent');
+    invocations.add((
+      method: silent ? method.substring(0, method.length - 6) : method,
+      args: args,
+      silent: silent,
+    ));
     // Scripted hub errors: each entry fails ONE call of [method] (the attempt
     // is still recorded above, like a hub that received and refused it).
-    final queue = failures[method];
+    // The wire name first (an old server without the Silent twin), then the
+    // plain name, which also covers its silent twin like before the split.
+    var queue = failures[method];
+    if (queue == null || queue.isEmpty) queue = failures[invocations.last.method];
     if (queue != null && queue.isNotEmpty) throw queue.removeAt(0)();
   }
 }

@@ -33,6 +33,7 @@ class SenderTransport extends SignalRClient {
     String groupId,
     Map<String, String> encryptedPayloads, {
     String? messageId,
+    bool silent = false,
   }) async {
     envelopes.add(Map.of(encryptedPayloads));
     ids.add(messageId);

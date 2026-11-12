@@ -310,6 +310,7 @@ class FakeHubClient extends SignalRClient {
     String recipientIdentityId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) async => server.fanout(
     sender: deviceId,
     identities: {recipientIdentityId},
@@ -322,6 +323,7 @@ class FakeHubClient extends SignalRClient {
     String groupId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) async => server.fanout(
     sender: deviceId,
     identities: server.groups[groupId]!.toSet(),

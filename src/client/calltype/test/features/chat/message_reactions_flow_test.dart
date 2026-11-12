@@ -449,6 +449,7 @@ class _OfflineHub extends FakeHubClient {
     String recipientIdentityId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) async => throw StateError('offline');
 }
 
@@ -462,5 +463,6 @@ class _SpyHub extends FakeHubClient {
     String recipientIdentityId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) async => payloads.add(Map.of(encryptedPayloads));
 }

@@ -136,6 +136,10 @@ await bot.removeReaction(to: groupId, targetMessageId: id); // emoji ''
   1..64 characters. Anything else throws `ArgumentError` before sending.
 - A reaction is its own message (fresh id, `createdAt`); receivers keep the
   newest per sender, so a later reaction replaces an earlier one.
+- Every bot reaction is a silent send (`SendReliable...Silent`): stored and
+  delivered as usual, but never a push to an offline phone, and the app shows
+  no notification for a bot's reaction. An older server without silent sends
+  gets the plain method (spec `2026-11-11-bot-ack-reactions` N1-N4).
 
 ### Polls and pins
 

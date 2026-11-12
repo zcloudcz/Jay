@@ -44,6 +44,7 @@ class _CapturingHub extends FakeHubClient {
     String recipientIdentityId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) async => sent.add(encryptedPayloads);
 }
 

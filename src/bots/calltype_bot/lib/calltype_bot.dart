@@ -1892,6 +1892,11 @@ class CallTypeBot {
 
   /// A reaction is its own message on the wire (own id, own ack); receivers
   /// keep the newest one per sender by createdAt, which [_send] sets.
+  ///
+  /// Always silent (spec 2026-11-11-bot-ack-reactions N2): the server never
+  /// pushes a bot's reaction to an offline device. The generic "New message"
+  /// push cannot say what arrived, and the app shows no notification for a
+  /// bot's reaction anyway, so a push would only wake the phone for nothing.
   Future<void> _sendReactionBody(
     String conversationId,
     String body, {
@@ -1903,15 +1908,19 @@ class CallTypeBot {
     {'type': reactionType, 'body': body},
     groupId: groupId,
     groupName: groupName,
+    silent: true,
   );
 
   /// Encrypts and sends one payload; [content] holds the type-specific keys.
+  /// [silent]: stored and delivered as usual, but never pushed to an offline
+  /// device (the plain hub method on a server without silent sends).
   Future<void> _send(
     String conversationId,
     String messageId,
     Map<String, dynamic> content, {
     String? groupId,
     String? groupName,
+    bool silent = false,
   }) async {
     final payload = jsonEncode({
       'v': 1,
@@ -1953,18 +1962,21 @@ class CallTypeBot {
             groupId!,
             envelopes,
             messageId: messageId,
+            silent: silent,
           );
         } else if (groupId == null) {
           await _signalR.sendDirectFanout(
             conversationId,
             envelopes,
             messageId: messageId,
+            silent: silent,
           );
         } else {
           await _signalR.sendGroupFanout(
             groupId,
             envelopes,
             messageId: messageId,
+            silent: silent,
           );
         }
         return;

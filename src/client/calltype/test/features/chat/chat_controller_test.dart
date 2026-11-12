@@ -36,6 +36,7 @@ class Transport extends SignalRClient {
     String groupId,
     Map<String, String> encryptedPayloads, {
     String? messageId,
+    bool silent = false,
   }) async {
     envelopes.add(Map.of(encryptedPayloads));
     ids.add(messageId);
@@ -49,6 +50,7 @@ class Transport extends SignalRClient {
     String recipientDeviceId,
     String encryptedBodyBase64, {
     String? messageId,
+    bool silent = false,
   }) async {
     envelopes.add({recipientDeviceId: encryptedBodyBase64});
     ids.add(messageId);
@@ -60,6 +62,7 @@ class Transport extends SignalRClient {
     String recipientIdentityId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) async {
     envelopes.add(Map.of(encryptedPayloads));
     ids.add(messageId);
@@ -71,6 +74,7 @@ class Transport extends SignalRClient {
     String groupId,
     Map<String, String> encryptedPayloads, {
     required String messageId,
+    bool silent = false,
   }) async {
     envelopes.add(Map.of(encryptedPayloads));
     ids.add(messageId);
