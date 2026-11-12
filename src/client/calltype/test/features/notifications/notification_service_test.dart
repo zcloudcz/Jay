@@ -181,6 +181,32 @@ void main() {
       expect(h.notifier.shown, isEmpty);
     });
 
+    test('never for a bot\'s reaction (acknowledgements, spec '
+        '2026-11-11-bot-ack-reactions N3)', () async {
+      await h.service.onReaction(
+        reacted(reactor: 'botty', conversationId: 'botty', emoji: '👀'),
+      );
+      await h.service.onReaction(
+        reacted(reactor: 'botty', conversationId: 'team', emoji: '✅'),
+      );
+      expect(h.notifier.shown, isEmpty);
+    });
+
+    test('never for a replacement of the same person\'s earlier reaction; '
+        'the first one still notifies', () async {
+      await h.service.onReaction(reacted(emoji: '👍'));
+      await h.service.onReaction(
+        AppliedReaction(
+          conversationId: 'alice',
+          reactorId: 'alice',
+          emoji: '❤️',
+          target: message(senderId: 'me', body: 'Ship it?'),
+          replaced: true,
+        ),
+      );
+      expect(h.notifier.shown.single.body, 'Alice reacted 👍 to: Ship it?');
+    });
+
     test('muted, open chat or previews off follow the message rules', () async {
       h.mutes['alice'] = MuteMode.all;
       await h.service.onReaction(reacted());

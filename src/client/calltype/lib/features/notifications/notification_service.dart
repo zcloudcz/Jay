@@ -342,11 +342,16 @@ class NotificationService extends ChangeNotifier {
 
   /// A reaction the inbox applied (spec 2026-11-07-message-reactions): only
   /// someone else's reaction on MY message notifies, under the same rules as
-  /// a message (mute, open chat, previews). Removals never do.
+  /// a message (mute, open chat, previews). Removals never do, and neither
+  /// do (spec 2026-11-11-bot-ack-reactions N3) a reaction that replaces the
+  /// same person's earlier one on that message, nor any reaction of a bot:
+  /// a bot's 👀 then ✅ acknowledges every message and would double the
+  /// notifications of a bot chat.
   Future<void> onReaction(AppliedReaction reaction) async {
     final target = reaction.target;
     final self = _directory.selfIdentityId;
-    if (reaction.emoji.isEmpty || target == null || self == null) return;
+    if (reaction.emoji.isEmpty || reaction.replaced) return;
+    if (target == null || self == null) return;
     if (target.senderId.toLowerCase() != self.toLowerCase()) return;
     try {
       final conversation = await _directory.conversation(
@@ -356,6 +361,7 @@ class NotificationService extends ChangeNotifier {
           ? NotificationKind.groupMessage
           : NotificationKind.message;
       final sender = await _directory.contact(reaction.reactorId);
+      if (sender.isBot) return;
       final where = NotificationTarget(kind, reaction.conversationId);
       if (_skip(
         where,

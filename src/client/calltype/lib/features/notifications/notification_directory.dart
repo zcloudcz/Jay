@@ -12,13 +12,22 @@ class AppNotificationDirectory implements NotificationDirectory {
     required AppDatabase database,
     required DeviceService devices,
     required ChannelsController channels,
+    Future<bool> Function(String identityId)? remoteIsBot,
   }) : _db = database,
        _devices = devices,
-       _channels = channels;
+       _channels = channels,
+       _remoteIsBot = remoteIsBot;
 
   final AppDatabase _db;
   final DeviceService _devices;
   final ChannelsController _channels;
+
+  /// The server's `isBot` for an identity that is not a contact (e.g. a bot
+  /// met in a group), so its reactions stay quiet too (spec
+  /// 2026-11-11-bot-ack-reactions N3). Asked once per identity and run; a
+  /// failed lookup counts as "not a bot" and is asked again next time.
+  final Future<bool> Function(String identityId)? _remoteIsBot;
+  final _remoteBots = <String, Future<bool>>{};
 
   @override
   String? get selfIdentityId =>
@@ -44,8 +53,22 @@ class AppNotificationDirectory implements NotificationDirectory {
     )..where((c) => c.deviceId.equals(identityId))).getSingleOrNull();
     return (
       name: row?.displayName ?? row?.userHandle,
-      isBot: row?.isBot ?? false,
+      isBot: row?.isBot ?? await _remoteBot(identityId),
     );
+  }
+
+  Future<bool> _remoteBot(String identityId) async {
+    final lookup = _remoteIsBot;
+    if (lookup == null) return false;
+    final key = identityId.toLowerCase();
+    try {
+      return await (_remoteBots[key] ??= lookup(
+        identityId,
+      ).timeout(const Duration(seconds: 5)));
+    } catch (_) {
+      _remoteBots.remove(key);
+      return false;
+    }
   }
 
   @override

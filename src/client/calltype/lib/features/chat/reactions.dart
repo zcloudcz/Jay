@@ -144,6 +144,7 @@ class AppliedReaction {
     required this.reactorId,
     required this.emoji,
     required this.target,
+    this.replaced = false,
   });
 
   final String conversationId;
@@ -154,4 +155,8 @@ class AppliedReaction {
 
   /// The reacted-to message; null when it has not arrived (yet).
   final Message? target;
+
+  /// The same reactor already had a reaction row on this message (also a
+  /// removed one): this one replaces it, e.g. a bot's 👀 becoming ✅.
+  final bool replaced;
 }

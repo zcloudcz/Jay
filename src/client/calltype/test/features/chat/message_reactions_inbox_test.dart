@@ -193,6 +193,17 @@ void main() {
     expect((await reactions()).single.emoji, '🙏');
   });
 
+  test('only the first reaction of a sender on a message is new; a change '
+      'or a re-add after a removal is a replacement', () async {
+    await seed();
+    await deliver(alice, reaction('👀', createdAt: '2026-11-07T10:00:01.000Z'));
+    await deliver(alice, reaction('✅', createdAt: '2026-11-07T10:00:02.000Z'));
+    await deliver(alice, reaction('', createdAt: '2026-11-07T10:00:03.000Z'));
+    await deliver(alice, reaction('👍', createdAt: '2026-11-07T10:00:04.000Z'));
+    expect([for (final a in applied) a.replaced], [false, true, true, true]);
+    expect([for (final a in applied) a.emoji], ['👀', '✅', '', '👍']);
+  });
+
   test('two people keep one reaction each (group)', () async {
     await seed(conversationId: 'g');
     await deliver(alice, reaction('👍'), groupId: 'g');

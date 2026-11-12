@@ -256,6 +256,8 @@ void main() async {
       database: db,
       devices: devices,
       channels: channels,
+      remoteIsBot: (id) async =>
+          (await apiClient.getDeviceProfile(id))['isBot'] == true,
     ),
     currentPath: () {
       try {

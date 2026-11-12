@@ -646,6 +646,9 @@ class MessageInboxService {
       return null;
     }
     final createdAt = DateTime.tryParse(payload['createdAt'] as String? ?? '');
+    // Read before applying: only a FIRST reaction of this sender on this
+    // message may notify (spec 2026-11-11-bot-ack-reactions N3).
+    final previous = await reactionOf(_db, reaction.targetId, senderId);
     final applied = await applyReaction(
       _db,
       messageId: reaction.targetId,
@@ -660,6 +663,7 @@ class MessageInboxService {
       reactorId: senderId,
       emoji: reaction.emoji,
       target: target,
+      replaced: previous != null,
     );
   }
 
