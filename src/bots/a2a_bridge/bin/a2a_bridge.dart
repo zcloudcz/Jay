@@ -87,8 +87,17 @@ Future<void> main() async {
     pollInterval: config.pollInterval,
     log: log,
   );
-  await runJayGlue(bot, bridge: bridge, allowedIds: allowedIds, log: log);
-  log('Connected. Waiting for messages.');
+  await runJayGlue(
+    bot,
+    bridge: bridge,
+    allowedIds: allowedIds,
+    ackReactions: config.ackReactions,
+    log: log,
+  );
+  log(
+    'Connected. Waiting for messages (acknowledgement reactions: '
+    '${config.ackReactions ? 'on' : 'off'}).',
+  );
 
   // Let `docker stop` flush the DB instead of killing mid-write.
   Future<void> shutdown(ProcessSignal _) async {

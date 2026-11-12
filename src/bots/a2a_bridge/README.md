@@ -45,6 +45,7 @@ plaintext is then sent to the agent, so the path to the agent must be trusted
 | `BOT_DISPLAY_NAME` | no | card `name` | name users can `@mention` in groups |
 | `A2A_TIMEOUT_SECONDS` | no | `300` | max time per message (send + polling) |
 | `A2A_POLL_SECONDS` | no | `3` | `GetTask` polling interval while a task is working |
+| `ACK_REACTIONS` | no | `on` | `on`: 👀 on every owner message before it goes to the agent, then ✅ answered, 👍 nothing to post, ❌ an error text (timeout, unreachable, failed/rejected/canceled task); `off`: none |
 | `A2A_STATE_PATH` | no | `<BOT_STORE_PATH>.a2a.json` | conversation -> `contextId` / open `taskId` |
 
 ## What it does
@@ -70,6 +71,11 @@ plaintext is then sent to the agent, so the path to the agent must be trusted
 - **Commands:** `/reset` forgets the chat's context (new agent conversation).
   `/<skill> text` is sent as `[Skill: <skill id>] text`.
 - Long answers are split into 4000-character messages.
+- **Acknowledgement reactions** (`ACK_REACTIONS=on`, spec
+  `2026-11-11-bot-ack-reactions`): 👀 when a message is accepted, replaced
+  by ✅ / 👍 / ❌ when the turn ends. No 👀 = the bridge is down. The agent
+  cannot choose the emoji (no `[react:EMOJI]` directive here). Reactions,
+  also other bots', are acked and ignored and never start a turn.
 
 ## Run
 

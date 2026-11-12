@@ -19,6 +19,21 @@ void main() {
     expect(c.displayName, isNull);
   });
 
+  test('ACK_REACTIONS: on by default, off, typo refused', () {
+    expect(BridgeConfig.fromEnvironment(base).ackReactions, isTrue);
+    expect(
+      BridgeConfig.fromEnvironment({
+        ...base,
+        'ACK_REACTIONS': 'off',
+      }).ackReactions,
+      isFalse,
+    );
+    expect(
+      () => BridgeConfig.fromEnvironment({...base, 'ACK_REACTIONS': 'maybe'}),
+      throwsA(isA<ConfigException>()),
+    );
+  });
+
   test('overrides', () {
     final c = BridgeConfig.fromEnvironment({
       ...base,

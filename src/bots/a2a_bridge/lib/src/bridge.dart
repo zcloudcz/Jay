@@ -117,20 +117,25 @@ class A2aBridge {
   /// Answers [text] from conversation [conversationId] into [sink].
   /// [senderLabel] (a handle) is prefixed in groups so the agent knows who
   /// of several people is speaking.
-  Future<void> handle({
+  ///
+  /// Returns true when the turn ended in an error text (timeout, agent
+  /// unreachable, a failed/rejected/canceled/auth-required task) instead of
+  /// an answer: the runtime then ends with ❌ instead of ✅ (spec
+  /// 2026-11-11-bot-ack-reactions).
+  Future<bool> handle({
     required String conversationId,
     required String text,
     required ChatSink sink,
     String? senderLabel,
   }) async {
     var outgoing = text.trim();
-    if (outgoing.isEmpty) return;
+    if (outgoing.isEmpty) return false;
 
     final slash = parseSlashCommand(outgoing);
     if (slash != null && slash.command == resetCommand) {
       await state.reset(conversationId);
       await sink.reply(BridgeTexts.reset);
-      return;
+      return false;
     }
     final skill = slash == null ? null : _skills[slash.command];
     if (skill != null) {
@@ -145,7 +150,7 @@ class A2aBridge {
     final deadline = DateTime.now().add(timeout);
     final run = _Run(this, sink);
     try {
-      await _exchange(conversationId, outgoing, deadline, run);
+      return await _exchange(conversationId, outgoing, deadline, run);
     } on TimeoutException {
       log('A2A: timeout in conversation $conversationId');
       await run.deliver(BridgeTexts.timeout(timeout));
@@ -158,6 +163,7 @@ class A2aBridge {
       log('A2A: $e');
       await run.deliver(BridgeTexts.unreachable);
     }
+    return true;
   }
 
   Duration _remaining(DateTime deadline) {
@@ -166,7 +172,8 @@ class A2aBridge {
     return left;
   }
 
-  Future<void> _exchange(
+  /// True = the turn failed (see [handle]).
+  Future<bool> _exchange(
     String conversationId,
     String text,
     DateTime deadline,
@@ -211,6 +218,7 @@ class A2aBridge {
         await run.deliver(
           result.text.isEmpty ? BridgeTexts.empty : result.text,
         );
+        return false;
       case A2aTask():
         var task = result;
         while (!task.state.isSettled) {
@@ -218,7 +226,7 @@ class A2aBridge {
           await Future<void>.delayed(_min(pollInterval, _remaining(deadline)));
           task = await _poll(task.id, deadline);
         }
-        await _settle(conversationId, task, task.contextId ?? contextId, run);
+        return _settle(conversationId, task, task.contextId ?? contextId, run);
     }
   }
 
@@ -247,7 +255,8 @@ class A2aBridge {
     }
   }
 
-  Future<void> _settle(
+  /// Delivers the task's outcome; true when it is an error (see [handle]).
+  Future<bool> _settle(
     String conversationId,
     A2aTask task,
     String? contextId,
@@ -277,6 +286,12 @@ class A2aBridge {
       _ => text.isEmpty ? BridgeTexts.empty : text,
     };
     await run.deliver(answer);
+    return const {
+      TaskState.authRequired,
+      TaskState.failed,
+      TaskState.rejected,
+      TaskState.canceled,
+    }.contains(task.state);
   }
 
   /// Error reasons come from the agent and may be long stack traces; the

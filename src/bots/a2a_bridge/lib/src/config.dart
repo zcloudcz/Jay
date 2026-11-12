@@ -24,6 +24,7 @@ class BridgeConfig {
     this.displayName,
     this.timeout = const Duration(seconds: 300),
     this.pollInterval = const Duration(seconds: 3),
+    this.ackReactions = true,
   });
 
   final String apiUrl;
@@ -38,6 +39,10 @@ class BridgeConfig {
   final Duration timeout;
   final Duration pollInterval;
   final String statePath;
+
+  /// `ACK_REACTIONS` (on/off, default on): 👀 on every accepted message,
+  /// then ✅ / 👍 / ❌ (spec 2026-11-11-bot-ack-reactions).
+  final bool ackReactions;
 
   /// Reads the environment; throws [ConfigException] on anything unusable.
   ///
@@ -83,6 +88,10 @@ class BridgeConfig {
       }
     }
     final storePath = opt('BOT_STORE_PATH') ?? '/data/bot.store';
+    final ackRaw = (opt('ACK_REACTIONS') ?? 'on').toLowerCase();
+    if (!const {'on', 'off', 'true', 'false', '1', '0'}.contains(ackRaw)) {
+      throw ConfigException('ACK_REACTIONS must be on or off, got "$ackRaw".');
+    }
     return BridgeConfig(
       apiUrl: required('CALLTYPE_API_URL'),
       storePath: storePath,
@@ -94,6 +103,7 @@ class BridgeConfig {
       timeout: seconds('A2A_TIMEOUT_SECONDS', 300),
       pollInterval: seconds('A2A_POLL_SECONDS', 3),
       statePath: opt('A2A_STATE_PATH') ?? '$storePath.a2a.json',
+      ackReactions: const {'on', 'true', '1'}.contains(ackRaw),
     );
   }
 }

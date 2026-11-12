@@ -46,6 +46,7 @@ Future<void> runJayGlue(
   CallTypeBot bot, {
   required A2aBridge bridge,
   required Map<String, String> allowedIds,
+  bool ackReactions = true,
   required void Function(String) log,
 }) async {
   try {
@@ -61,17 +62,24 @@ Future<void> runJayGlue(
   Future<void> handle(BotMessage message) async {
     final owner = allowedIds[message.senderId.toLowerCase()];
     if (owner == null) return; // belt and braces; allowSender already said no
-    await bridge.handle(
+    final failed = await bridge.handle(
       conversationId: message.conversationId,
       text: message.text,
       sink: _MessageSink(message),
       // In a group several owners may talk to the same agent context.
       senderLabel: message.isGroup ? owner : null,
     );
+    if (failed) message.markFailed();
   }
 
   await bot.onMessage(
     handle,
     allowSender: (id) => allowedIds.containsKey(id.toLowerCase()),
+    // Automatic (spec 2026-11-11-bot-ack-reactions R4): the allowlist above
+    // already decided, so every message reaching [handle] gets 👀 and then
+    // ✅ / 👍 / ❌. No model directive here: A2A agents do not know it.
+    // Reactions get no handler, so they are acked and ignored (also other
+    // bots' reactions: they never start a turn).
+    ackReactions: ackReactions ? const AckReactions() : null,
   );
 }

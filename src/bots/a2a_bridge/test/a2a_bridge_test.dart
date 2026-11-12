@@ -378,16 +378,33 @@ void main() {
             ok({'task': v1Task('t', state, text: 'disk full')});
         final b = await bridge();
         final sink = FakeSink();
-        await b.handle(conversationId: 'c', text: 'x', sink: sink);
+        // Each is a failed turn: the runtime then reacts ❌ (spec
+        // 2026-11-11-bot-ack-reactions).
+        expect(
+          await b.handle(conversationId: 'c', text: 'x', sink: sink),
+          true,
+        );
         state = 'TASK_STATE_REJECTED';
-        await b.handle(conversationId: 'c', text: 'y', sink: sink);
+        expect(
+          await b.handle(conversationId: 'c', text: 'y', sink: sink),
+          true,
+        );
         state = 'TASK_STATE_CANCELED';
-        await b.handle(conversationId: 'c', text: 'z', sink: sink);
+        expect(
+          await b.handle(conversationId: 'c', text: 'z', sink: sink),
+          true,
+        );
+        state = 'TASK_STATE_COMPLETED';
+        expect(
+          await b.handle(conversationId: 'c', text: 'w', sink: sink),
+          false,
+        );
         expect(sink.events, [
           'reply:The agent failed: disk full',
           'reply:The agent rejected the request: disk full\n'
               '(Send /reset to start a new conversation.)',
           'reply:${BridgeTexts.canceled}',
+          'reply:disk full',
         ]);
       },
     );
