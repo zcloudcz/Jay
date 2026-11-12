@@ -22,6 +22,7 @@ void main() {
   late FakeProvider provider;
   late HistoryStore store;
   late FakeGenerator generator;
+  late _RecordingRunner runner;
   final logs = <String>[];
 
   setUp(() async {
@@ -44,6 +45,7 @@ void main() {
     );
     provider = FakeProvider();
     generator = FakeGenerator();
+    runner = _RecordingRunner();
     store = await HistoryStore.open(
       '${dir.path}/bot.store.llm',
       base64Decode(testStoreKey),
@@ -62,6 +64,7 @@ void main() {
         progressAfter: Duration.zero,
         imageGenerator: generator,
         mediaDir: '${dir.path}/bot.store.media',
+        actions: runner,
       ),
       allowedIds: allowed,
       // The existing tests count messages; ack_test.dart covers it on.
@@ -99,6 +102,25 @@ void main() {
       'Ahoj Martine',
     );
     expect(provider.calls.single.conversation.single.text, 'Ahoj');
+  });
+
+  test('A7: the owner in 1:1 may trigger an action', () async {
+    provider.scripts
+      ..add(() => answer(['[action: status]']))
+      ..add(() => answer(['Běží.']));
+    hub.deliver(await owner.messageTo(bot.deviceId, api.botBundle, 'stav?'));
+    await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
+    await until(() => hub.calls('SendReliableDirectFanout').isNotEmpty);
+    expect(runner.ran, ['status']);
+    expect(provider.calls.first.system, contains('Actions:'));
+    final sent = hub.calls('SendReliableDirectFanout').single;
+    expect(
+      await owner.read(
+        bot.deviceId,
+        (sent[3] as Map<String, String>)[owner.id]!,
+      ),
+      'Běží.',
+    );
   });
 
   test(
@@ -162,6 +184,22 @@ void main() {
       // The reply quotes the asker, like an answer to an owner.
       expect((payload['replyTo'] as Map)['senderId'], stranger.id);
     });
+
+    test(
+      'A7: in a group nobody triggers actions, not even the owner',
+      () async {
+        provider.scripts
+          ..add(() => answer(['[action: status] ok']))
+          ..add(() => answer(['[action: status] ok']));
+        await say(stranger, withOwner, 'status?');
+        await say(owner, withOwner, 'status?');
+        expect(runner.ran, isEmpty);
+        expect(provider.calls, hasLength(2));
+        for (final c in provider.calls) {
+          expect(c.system, isNot(contains('Actions:')));
+        }
+      },
+    );
 
     test('the same member in a group without an owner gets nothing', () async {
       await say(stranger, withoutOwner, 'hello?');
@@ -339,4 +377,17 @@ void main() {
       expect(Directory('${dir.path}/bot.store.media').listSync(), isEmpty);
     });
   });
+}
+
+/// Records action names; runs nothing.
+class _RecordingRunner extends ActionRunner {
+  _RecordingRunner() : super(parseActions('status=fake-status'));
+
+  final ran = <String>[];
+
+  @override
+  Future<ActionResult> run(String name) async {
+    ran.add(name);
+    return ActionResult(name: name, exitCode: 0, output: 'active');
+  }
 }

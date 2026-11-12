@@ -32,8 +32,12 @@ class FakeSink implements ChatSink {
   final messages = <Sent>[];
   List<String> get texts => [for (final m in messages) m.text];
 
+  /// The text each progress message was first sent with.
+  final firstTexts = <String>[];
+
   @override
   Future<ProgressHandle> progress(String text) async {
+    firstTexts.add(text);
     final s = Sent(text);
     messages.add(s);
     return _Handle(s);

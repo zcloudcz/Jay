@@ -158,6 +158,10 @@ Future<void> runJayGlue(
         await bot.send(to: groupId!, text: BridgeTexts.botLimit);
         return;
       case Answer(:final label):
+        // Spec A7: actions only for an owner's own 1:1 chat; groups and
+        // peer bots never run them.
+        final actionsAllowed =
+            groupId == null && access.ownerHandle(message.senderId) != null;
         // Accepted: 👀 before the turn (spec 2026-11-11-bot-ack-reactions).
         // Ignored messages and the bot-limit notice above get nothing.
         await message.accept();
@@ -172,6 +176,7 @@ Future<void> runJayGlue(
               text: message.text,
               sink: _MessageSink(message),
               senderLabel: label,
+              actionsAllowed: actionsAllowed,
             ),
           );
           return;
@@ -194,6 +199,7 @@ Future<void> runJayGlue(
                 sink: _MessageSink(message),
                 senderLabel: label,
                 images: [image],
+                actionsAllowed: actionsAllowed,
               ),
             );
         }

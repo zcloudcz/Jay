@@ -25,9 +25,13 @@ void main() {
     int maxEdits = 30,
     bool retryRateLimit = true,
     LlmProvider? use,
+    ActionRunner? actions,
+    int actionSteps = 3,
   }) => LlmBridge(
     provider: use ?? provider,
     retryRateLimit: retryRateLimit,
+    actions: actions,
+    actionSteps: actionSteps,
     history: store,
     displayName: 'Pepa',
     systemPrompt: 'You are Pepa.',
@@ -461,4 +465,216 @@ void main() {
     await bridge().handle(conversationId: 'c', text: 'q', sink: FakeSink());
     expect(await store.history('c'), isEmpty);
   });
+
+  group('actions (spec 2026-11-12 A2, A7)', () {
+    late _FakeRunner runner;
+    final logs = <String>[];
+
+    LlmBridge withActions({
+      int steps = 3,
+      Duration progressAfter = Duration.zero,
+    }) => LlmBridge(
+      provider: provider,
+      history: store,
+      displayName: 'Pepa',
+      systemPrompt: 'You are Pepa.',
+      timeout: const Duration(seconds: 5),
+      progressAfter: progressAfter,
+      editInterval: const Duration(milliseconds: 10),
+      actions: runner,
+      actionSteps: steps,
+      sleep: (d) async => sleeps.add(d),
+      log: logs.add,
+    );
+
+    setUp(() {
+      logs.clear();
+      runner = _FakeRunner(
+        parseActions(
+          'status=systemctl --user status hermes-gateway; '
+          'restart=systemctl --user restart hermes-gateway',
+        ),
+      );
+    });
+
+    test('one action: run, results back to the model, final answer', () async {
+      provider.scripts
+        ..add(() => answer(['Podívám se.\n[action: status]']))
+        ..add(() => answer(['Hermes běží.']));
+      final sink = FakeSink();
+      final r = await withActions().handle(
+        conversationId: 'C1',
+        text: 'jak je na tom Hermes?',
+        sink: sink,
+        actionsAllowed: true,
+      );
+      expect(r.failed, isFalse);
+      expect(runner.ran, ['status']);
+      expect(sink.texts, ['Hermes běží.']);
+      // The prompt lists the names, never the commands.
+      final system = provider.calls.first.system;
+      expect(system, contains(actionsPromptBlock(runner.all)));
+      expect(system, isNot(contains('systemctl')));
+      // Second call: the model's own request, then the results.
+      final second = provider.calls[1].conversation;
+      expect(
+        second[second.length - 2],
+        const ChatTurn.assistant('Podívám se.\n[action: status]'),
+      );
+      expect(second.last.role, 'user');
+      expect(second.last.text, startsWith('[Action results]'));
+      expect(
+        second.last.text,
+        contains('[action: status] exit code 0\nok status'),
+      );
+      // History: user turn + final answer with a note of what ran.
+      expect(await store.history('C1'), [
+        const ChatTurn.user('jak je na tom Hermes?'),
+        const ChatTurn.assistant(
+          'Hermes běží.\n[actions run: status (exit 0)]',
+        ),
+      ]);
+    });
+
+    test('two rounds, then the answer', () async {
+      provider.scripts
+        ..add(() => answer(['[action: status]']))
+        ..add(() => answer(['Visí, restartuji.\n[action: restart]']))
+        ..add(() => answer(['Restartováno.']));
+      final sink = FakeSink();
+      await withActions().handle(
+        conversationId: 'C1',
+        text: 'restartuj Hermes',
+        sink: sink,
+        actionsAllowed: true,
+      );
+      expect(runner.ran, ['status', 'restart']);
+      expect(provider.calls, hasLength(3));
+      expect(sink.texts, ['Restartováno.']);
+    });
+
+    test(
+      'max steps: further requests are not run, the text is posted',
+      () async {
+        provider.scripts
+          ..add(() => answer(['[action: status]']))
+          ..add(() => answer(['Ještě jednou.\n[action: status]']));
+        final sink = FakeSink();
+        await withActions(steps: 1).handle(
+          conversationId: 'C1',
+          text: 'q',
+          sink: sink,
+          actionsAllowed: true,
+        );
+        expect(runner.ran, ['status']);
+        expect(sink.texts, ['Ještě jednou.']);
+        expect(logs.last, contains('action limit (1 rounds) reached'));
+      },
+    );
+
+    test('max steps with nothing but a directive: a clear note', () async {
+      provider.scripts
+        ..add(() => answer(['[action: status]']))
+        ..add(() => answer(['[action: restart]']));
+      final sink = FakeSink();
+      await withActions(steps: 1).handle(
+        conversationId: 'C1',
+        text: 'q',
+        sink: sink,
+        actionsAllowed: true,
+      );
+      expect(runner.ran, ['status']);
+      expect(sink.texts, [BridgeTexts.actionLimit(1)]);
+    });
+
+    test('unknown name: nothing runs, the model hears so', () async {
+      provider.scripts
+        ..add(() => answer(['[action: rm-rf]']))
+        ..add(() => answer(['To neumím.']));
+      final sink = FakeSink();
+      await withActions().handle(
+        conversationId: 'C1',
+        text: 'smaž /tmp/x',
+        sink: sink,
+        actionsAllowed: true,
+      );
+      expect(runner.started, isEmpty);
+      expect(
+        provider.calls[1].conversation.last.text,
+        contains('[action: rm-rf] not run: no such action'),
+      );
+      expect(sink.texts, ['To neumím.']);
+    });
+
+    test('A7: in groups / for non-owners the directive is stripped, '
+        'ignored and logged; the prompt has no action block', () async {
+      provider.scripts.add(() => answer(['Hotovo.\n[action: restart]']));
+      final sink = FakeSink();
+      await withActions().handle(
+        conversationId: 'G1',
+        text: 'restartuj',
+        sink: sink,
+        senderLabel: 'CT-CCCC-0003',
+        // actionsAllowed defaults to false
+      );
+      expect(runner.started, isEmpty);
+      expect(provider.calls, hasLength(1));
+      expect(provider.calls.single.system, isNot(contains('Actions:')));
+      expect(sink.texts, ['Hotovo.']);
+      expect(logs.single, contains('ignored: only owners in 1:1 chats'));
+    });
+
+    test('progress shows "Running: <name>", never the directive', () async {
+      runner.delay = const Duration(milliseconds: 80);
+      provider.scripts
+        ..add(() => answer(['[action: restart]']))
+        ..add(() => answer(['Restartováno.']));
+      final sink = FakeSink();
+      await withActions(progressAfter: const Duration(seconds: 1)).handle(
+        conversationId: 'C1',
+        text: 'restart',
+        sink: sink,
+        actionsAllowed: true,
+      );
+      final progress = sink.messages.single;
+      expect(progress.text, 'Restartováno.');
+      expect(
+        [...progress.edits, progress.text].join('|'),
+        isNot(contains('[action:')),
+      );
+      expect(sink.firstTexts, contains('Running: restart'));
+    });
+
+    test(
+      'no LLM_ACTIONS: a directive is plain text, nothing else changes',
+      () async {
+        provider.scripts.add(() => answer(['[action: restart]']));
+        final sink = FakeSink();
+        await bridge().handle(conversationId: 'C1', text: 'q', sink: sink);
+        expect(sink.texts, ['[action: restart]']);
+        expect(
+          provider.calls.single.system,
+          'You are Pepa.\n\n$ackDirectiveHint',
+        );
+      },
+    );
+  });
+}
+
+/// Runs nothing real: records names, answers like a successful command.
+class _FakeRunner extends ActionRunner {
+  _FakeRunner(super.actions);
+
+  final ran = <String>[];
+  final started = <String>[];
+  Duration delay = Duration.zero;
+
+  @override
+  Future<ActionResult> run(String name) async {
+    ran.add(name);
+    if (!actions.containsKey(name)) return super.run(name);
+    started.add(name);
+    if (delay > Duration.zero) await Future<void>.delayed(delay);
+    return ActionResult(name: name, exitCode: 0, output: 'ok $name');
+  }
 }

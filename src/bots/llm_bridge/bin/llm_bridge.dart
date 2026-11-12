@@ -32,6 +32,16 @@ Future<void> main() async {
 
   final provider = buildProvider(config, log: log);
   log('Provider: ${provider.label}.');
+  // Names and commands only: commands carry no secrets by contract (A1).
+  final actions = config.actions.isEmpty
+      ? null
+      : ActionRunner(config.actions, timeout: config.actionTimeout);
+  if (actions != null) {
+    log(
+      'Actions (owners in 1:1 chats only, max ${config.actionSteps} rounds '
+      'per message): ${config.actions.join('; ')}.',
+    );
+  }
   final imageGenerator = buildImageGenerator(config);
   if (imageGenerator != null) log('Image generation: ${imageGenerator.label}.');
 
@@ -94,6 +104,8 @@ Future<void> main() async {
     imageGenerator: imageGenerator,
     mediaDir: config.mediaDir,
     retryRateLimit: config.fallbacks.isEmpty,
+    actions: actions,
+    actionSteps: config.actionSteps,
     log: log,
   );
   await runJayGlue(

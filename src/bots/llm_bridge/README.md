@@ -133,7 +133,10 @@ want a bot for more people or for heavy use, use an API key (`anthropic` or
 | `LLM_SYSTEM_PROMPT` | no | short friendly-assistant prompt (answers in the user's language) | system prompt |
 | `LLM_HISTORY_MESSAGES` | no | `20` | messages remembered per chat (user + assistant); `0` = none |
 | `LLM_MAX_TOKENS` | no | `8192` | output cap per answer (thinking counts on current Claude models) |
-| `LLM_TIMEOUT_SECONDS` | no | `300` | longest wait for one answer (the whole fallback chain) |
+| `LLM_TIMEOUT_SECONDS` | no | `300` | longest wait for one answer (the whole fallback chain); with actions each model call of a round gets its own |
+| `LLM_ACTIONS` | no | unset (no actions) | named commands the model may ask the bridge to run, `name=command line` pairs separated by `;`, e.g. `status=systemctl --user status hermes-gateway --no-pager; restart=systemctl --user restart hermes-gateway`. See "Rescue bot" |
+| `LLM_ACTION_STEPS` | no | `3` | action rounds per user message; after the last one the answer is posted as it is |
+| `LLM_ACTION_SECONDS` | no | `60` | time limit of one action run; the process is killed after it |
 | `PROGRESS_AFTER_SECONDS` | no | `5` | "Working on it..." after this long, then edited with the streamed text (max 30 edits); `0` = never |
 | `CLAUDE_BIN`, `CODEX_BIN` | no | `claude`, `codex` | CLI path (the setup script writes the absolute path, services have a short `PATH`) |
 | `LLM_CLI_WORKDIR` | no | `<BOT_STORE_PATH>.cli` | empty working directory of the CLI |

@@ -3,6 +3,7 @@
 library;
 
 import 'access.dart' show GroupReplies;
+import 'actions.dart' show BridgeAction, parseActions;
 import 'images.dart' show defaultImageMaxBytes, imageMaxBytesCeiling;
 
 /// A configuration error: the process exits with EX_CONFIG and this text.
@@ -119,6 +120,9 @@ class LlmConfig {
     this.cliWorkDir,
     this.fallbacks = const [],
     this.firstOutputTimeout = const Duration(seconds: 60),
+    this.actions = const [],
+    this.actionSteps = 3,
+    this.actionTimeout = const Duration(seconds: 60),
     this.greeting = true,
     this.ackReactions = true,
     this.groupReplies = GroupReplies.members,
@@ -165,6 +169,16 @@ class LlmConfig {
   /// `LLM_FIRST_OUTPUT_SECONDS`: each attempt's time to its first text
   /// piece (spec F11); zero = no limit.
   final Duration firstOutputTimeout;
+
+  /// `LLM_ACTIONS`: named commands the model may ask the bridge to run
+  /// (spec A1); empty = none.
+  final List<BridgeAction> actions;
+
+  /// `LLM_ACTION_STEPS`: action rounds per user message (spec A2).
+  final int actionSteps;
+
+  /// `LLM_ACTION_SECONDS`: one action's time limit (spec A2).
+  final Duration actionTimeout;
 
   /// The primary provider's settings ([provider], [model], ...).
   ProviderSettings get primary => ProviderSettings(
@@ -452,6 +466,9 @@ class LlmConfig {
       firstOutputTimeout: Duration(
         seconds: positive('LLM_FIRST_OUTPUT_SECONDS', 60, min: 0),
       ),
+      actions: parseActions(env['LLM_ACTIONS']),
+      actionSteps: positive('LLM_ACTION_STEPS', 3),
+      actionTimeout: Duration(seconds: positive('LLM_ACTION_SECONDS', 60)),
       greeting: const {'on', 'true', '1'}.contains(greetingRaw),
       ackReactions: const {'on', 'true', '1'}.contains(ackRaw),
       groupReplies: groupReplies,

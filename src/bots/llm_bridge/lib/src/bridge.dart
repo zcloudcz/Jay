@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:calltype_bot/calltype_bot.dart'
     show ackDirectiveHint, hideReplyDirective, parseReplyDirective;
 
+import 'actions.dart';
 import 'history_store.dart';
 import 'images.dart';
 import 'provider.dart';
@@ -105,6 +106,13 @@ abstract final class BridgeTexts {
       'Sorry, the AI provider refused the credentials ($detail). The bot '
       'owner has to fix the API key or the CLI login and restart the bot.';
   static String failed(String detail) => 'Sorry, I could not answer: $detail';
+
+  /// The progress message while an action runs (spec A2).
+  static String running(String name) => 'Running: $name';
+
+  /// The answer after the last allowed action round asked for more.
+  static String actionLimit(int steps) =>
+      '(Stopped after $steps action rounds; nothing more was run.)';
 }
 
 /// How a turn ended, for the acknowledgement reaction (spec
@@ -133,6 +141,8 @@ class LlmBridge {
     this.imageGenerator,
     this.mediaDir,
     this.retryRateLimit = true,
+    this.actions,
+    this.actionSteps = 3,
     Future<void> Function(Duration)? sleep,
     this.log = _noLog,
   }) : assert(imageGenerator == null || mediaDir != null),
@@ -170,15 +180,31 @@ class LlmBridge {
   /// F10): the chain already switched to the next provider, and a retry
   /// would run the whole chain again.
   final bool retryRateLimit;
+
+  /// Named actions (`LLM_ACTIONS`, spec A1-A3); null = none, and the
+  /// prompt, the answers and the history stay exactly as without them.
+  final ActionRunner? actions;
+
+  /// Action rounds per user message (`LLM_ACTION_STEPS`).
+  final int actionSteps;
   final Future<void> Function(Duration) _sleep;
 
   /// The system prompt of one call: the configured one, the reaction
   /// directive, plus the image tag syntax when generation is on. WHY the
   /// directive also with a custom LLM_SYSTEM_PROMPT: like the image hint,
   /// the operator's prompt would otherwise never learn it.
-  String get _system => imageGenerator == null
-      ? '$systemPrompt\n\n$ackDirectiveHint'
-      : '$systemPrompt\n\n$ackDirectiveHint\n\n${ImageTexts.generationHint}';
+  String _system({bool actionsAllowed = false}) {
+    final runner = actions;
+    return [
+      systemPrompt,
+      ackDirectiveHint,
+      if (imageGenerator != null) ImageTexts.generationHint,
+      // Only on turns that may run actions (A7): in groups the model does
+      // not learn about them, so it cannot promise one there.
+      if (actionsAllowed && runner != null) actionsPromptBlock(runner.all),
+    ].join('\n\n');
+  }
+
   final void Function(String) log;
 
   /// Answers [text] from conversation [conversationId] into [sink].
@@ -198,6 +224,7 @@ class LlmBridge {
     required ChatSink sink,
     String? senderLabel,
     List<ChatImage> images = const [],
+    bool actionsAllowed = false,
   }) async {
     var message = text.trim();
     if (message.isEmpty && images.isEmpty) return _plain;
@@ -232,8 +259,21 @@ class LlmBridge {
       ChatTurn.user(turnText, images: images),
     ];
     final run = _Run(this, sink);
+    final system = _system(actionsAllowed: actionsAllowed);
     try {
-      final raw = await _answer(conversation, run);
+      var raw = await _answer(conversation, run, system);
+      final ran = <ActionResult>[];
+      if (actions != null) {
+        raw = await _actionRounds(
+          raw,
+          conversation,
+          run,
+          system,
+          allowed: actionsAllowed,
+          ran: ran,
+          conversationId: conversationId,
+        );
+      }
       final directive = parseReplyDirective(raw);
       if (directive.invalid) {
         log('LLM: invalid reaction directive in $conversationId stripped.');
@@ -268,6 +308,9 @@ class LlmBridge {
               if (tags.text.trim().isNotEmpty)
                 for (final p in prompts) generatedPlaceholder(p),
               ...notes,
+              // The model later knows what it did in this turn.
+              if (ran.isNotEmpty)
+                '[actions run: ${ran.map((r) => '${r.name} (${r.summary})').join(', ')}]',
             ].join('\n'),
           ),
         ]);
@@ -331,10 +374,14 @@ class LlmBridge {
   /// WHY once: a rate limit right after another message is common on new
   /// API keys (low tier limits) and usually clears within seconds; a
   /// second refusal means the owner's quota really is exhausted.
-  Future<String> _answer(List<ChatTurn> conversation, _Run run) async {
+  Future<String> _answer(
+    List<ChatTurn> conversation,
+    _Run run,
+    String system,
+  ) async {
     final deadline = DateTime.now().add(timeout);
     try {
-      return await _collect(conversation, run, deadline);
+      return await _collect(conversation, run, deadline, system);
     } on LlmException catch (e) {
       if (!retryRateLimit || !e.isRateLimit || run.received) rethrow;
       final wait = e.retryAfter == null
@@ -345,7 +392,59 @@ class LlmBridge {
       if (DateTime.now().add(wait).isAfter(deadline)) rethrow;
       log('LLM: rate limited, retrying once in ${wait.inSeconds} s.');
       await _sleep(wait);
-      return _collect(conversation, run, deadline);
+      return _collect(conversation, run, deadline, system);
+    }
+  }
+
+  /// The action loop (spec A2, A7): while the answer asks for actions, run
+  /// them and ask the model again with the results, at most [actionSteps]
+  /// rounds. Returns the final answer without directives.
+  Future<String> _actionRounds(
+    String raw,
+    List<ChatTurn> conversation,
+    _Run run,
+    String system, {
+    required bool allowed,
+    required List<ActionResult> ran,
+    required String conversationId,
+  }) async {
+    final runner = actions!;
+    var answer = raw;
+    var turns = conversation;
+    for (var step = 0; ; step++) {
+      final found = extractActionDirectives(answer);
+      if (found.names.isEmpty) return answer;
+      if (!allowed) {
+        log(
+          'LLM: action directive(s) ${found.names.join(', ')} in '
+          '$conversationId ignored: only owners in 1:1 chats may run actions.',
+        );
+        return found.text;
+      }
+      if (step >= actionSteps) {
+        log(
+          'LLM: action limit ($actionSteps rounds) reached in '
+          '$conversationId; ${found.names.join(', ')} not run.',
+        );
+        return found.text.isEmpty
+            ? BridgeTexts.actionLimit(actionSteps)
+            : found.text;
+      }
+      final results = <ActionResult>[];
+      for (final name in found.names) {
+        run.status(BridgeTexts.running(name));
+        log('LLM: running action $name for $conversationId.');
+        final result = await runner.run(name);
+        log('LLM: action $name: ${result.summary}.');
+        results.add(result);
+      }
+      ran.addAll(results);
+      turns = [
+        ...turns,
+        ChatTurn.assistant(answer),
+        ChatTurn.user(actionResultsTurn(results)),
+      ];
+      answer = await _answer(turns, run, system);
     }
   }
 
@@ -353,12 +452,13 @@ class LlmBridge {
     List<ChatTurn> conversation,
     _Run run,
     DateTime deadline,
+    String system,
   ) {
     final done = Completer<String>();
     final buffer = StringBuffer();
     late final StreamSubscription<String> sub;
     sub = provider
-        .reply(conversation, system: _system)
+        .reply(conversation, system: system)
         .listen(
           (piece) {
             buffer.write(piece);
@@ -428,16 +528,34 @@ class _Run {
 
   void partial(String text) => _partial = text;
 
+  /// A status line ("Running: restart") shown until the next text; the
+  /// progress message appears at once for it (unless progress is off).
+  String? _status;
+  void status(String text) {
+    _status = text;
+    _partial = '';
+    if (_finished || bridge.progressAfter <= Duration.zero) return;
+    if (!_start) {
+      _timer?.cancel();
+      _start = true;
+      _ticker = Timer.periodic(bridge.editInterval, (_) => _tick());
+    }
+    _tick();
+  }
+
   String _progressText() {
     // Image tags and a leading reaction directive are instructions to the
     // bridge, not text for the chat.
-    final partial = hideReplyDirective(_partial);
+    // Action directives too (spec A2): the chat sees "Running: ...".
+    final partial = bridge.actions == null
+        ? hideReplyDirective(_partial)
+        : hideReplyDirective(_partial).replaceAll(actionDirectivePattern, '');
     final p =
         (bridge.imageGenerator == null
                 ? partial
                 : partial.replaceAll(RegExp(r'\[\[image:[\s\S]*?(\]\]|$)'), ''))
             .trim();
-    if (p.isEmpty) return BridgeTexts.working;
+    if (p.isEmpty) return _status ?? BridgeTexts.working;
     // The first chunk only: the rest follows as replies at the end.
     final head = p.length <= maxReplyChars - 4
         ? p
