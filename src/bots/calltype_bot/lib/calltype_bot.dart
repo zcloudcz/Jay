@@ -26,6 +26,7 @@ import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 
+import 'src/ack_reactions.dart';
 import 'src/attachment.dart';
 import 'src/encrypted_file_store.dart';
 import 'src/group_info.dart';
@@ -52,6 +53,7 @@ export 'package:calltype_core/messaging/poll.dart'
 export 'package:calltype_core/network/bot_dtos.dart' show BotCommand;
 export 'package:calltype_core/network/group_dtos.dart'
     show BotTalkMode, BotTalkSettings, MuteMode, MuteSetting;
+export 'src/ack_reactions.dart';
 export 'src/bot_talk.dart';
 export 'src/attachment.dart';
 export 'src/encrypted_file_store.dart';
@@ -255,16 +257,57 @@ class BotMessage {
   Future<BotSentMessage> reply(
     String text, {
     List<MessageButton> actions = const [],
-  }) => _bot._sendText(
-    conversationId,
-    text,
-    groupId: isGroup ? conversationId : null,
-    groupName: _groupName,
-    actions: actions,
-    replyTo: isGroup
-        ? BotReplyRef(id: id, senderId: senderId, preview: _preview(this.text))
-        : null,
-  );
+  }) async {
+    final sent = await _bot._sendText(
+      conversationId,
+      text,
+      groupId: isGroup ? conversationId : null,
+      groupName: _groupName,
+      actions: actions,
+      replyTo: isGroup
+          ? BotReplyRef(
+              id: id,
+              senderId: senderId,
+              preview: _preview(this.text),
+            )
+          : null,
+    );
+    _replied = true;
+    return sent;
+  }
+
+  /// A [reply] or [replyFile] of this turn went out (see [AckReactions]).
+  bool get replied => _replied;
+  var _replied = false;
+
+  /// The receipt reaction was sent (or tried), see [accept].
+  bool get accepted => _receipt != null;
+  Future<void>? _receipt;
+
+  /// The emoji the turn ends with, instead of the [AckReactions] default
+  /// (a model's `[react:EMOJI]`); '' removes the bot's reaction. Applied by
+  /// the runtime after the handler returns, also without [AckReactions].
+  /// An invalid value is logged and ignored. A failed turn still ends ❌.
+  String? finalReaction;
+
+  /// The turn failed although the handler returned normally (it posted its
+  /// own error text): the final reaction is [AckReactions.failed].
+  void markFailed() => _failed = true;
+  var _failed = false;
+
+  /// Puts the [AckReactions.received] reaction on this message (once). The
+  /// runtime calls it before the handler, or the handler does with
+  /// [AckReactions.manual]. No-op without acknowledgement reactions. Never
+  /// throws: a failed send is logged and the turn goes on.
+  Future<void> accept() {
+    final config = _bot._ackReactions;
+    if (config == null) return Future.value();
+    return _receipt ??= Future.sync(() => react(config.received)).catchError((
+      Object e,
+    ) {
+      _bot._log('Receipt reaction on message $id failed: $e');
+    });
+  }
 
   /// Puts [emoji] on this message, in the conversation it came from (see
   /// [CallTypeBot.sendReaction]; no handle lookup needed).
@@ -290,23 +333,27 @@ class BotMessage {
     Uint8List? waveform,
     Uint8List? thumbnail,
     bool inlineSmallImages = true,
-  }) => _bot._sendFile(
-    conversationId,
-    path,
-    kind: kind,
-    caption: caption,
-    name: name,
-    mime: mime,
-    durationMs: durationMs,
-    waveform: waveform,
-    thumbnail: thumbnail,
-    inlineSmallImages: inlineSmallImages,
-    groupId: isGroup ? conversationId : null,
-    groupName: _groupName,
-    replyTo: isGroup
-        ? BotReplyRef(id: id, senderId: senderId, preview: _preview(text))
-        : null,
-  );
+  }) async {
+    final sent = await _bot._sendFile(
+      conversationId,
+      path,
+      kind: kind,
+      caption: caption,
+      name: name,
+      mime: mime,
+      durationMs: durationMs,
+      waveform: waveform,
+      thumbnail: thumbnail,
+      inlineSmallImages: inlineSmallImages,
+      groupId: isGroup ? conversationId : null,
+      groupName: _groupName,
+      replyTo: isGroup
+          ? BotReplyRef(id: id, senderId: senderId, preview: _preview(text))
+          : null,
+    );
+    _replied = true;
+    return sent;
+  }
 }
 
 /// Characters of a sent message the bot remembers for [BotReaction.targetText].
@@ -444,6 +491,9 @@ class CallTypeBot {
   BotMessageHandler? _actionHandler;
   BotReactionHandler? _reactionHandler;
   bool _receiveFiles = false;
+
+  /// Acknowledgement reactions, see [onMessage]; null = off.
+  AckReactions? _ackReactions;
 
   /// Ids of messages this bot sent WITH buttons (lower-case). Mirrored in
   /// `backupState` as `sent-actions:<id>` so a press after a restart is still
@@ -637,13 +687,21 @@ class CallTypeBot {
   /// runtimes already delivered their fallback text. Old inline `type: file`
   /// messages reach it only with [receiveFiles] (older runtimes acked and
   /// ignored them, and a text-only bot would get an empty text).
+  ///
+  /// [ackReactions] (spec 2026-11-11-bot-ack-reactions): react 👀 on every
+  /// accepted message before its turn and replace it with the turn's final
+  /// emoji (✅ replied, 👍 nothing sent, ❌ failed). Null = off. Dropped
+  /// messages (refused senders, unaddressed group messages, control
+  /// messages, reactions) never get one.
   Future<void> onMessage(
     BotMessageHandler handler, {
     bool Function(String senderId)? allowSender,
     GroupSenderCheck? allowGroupSender,
     bool receiveFiles = false,
+    AckReactions? ackReactions,
   }) async {
     _handler = handler;
+    _ackReactions = ackReactions;
     _receiveFiles = receiveFiles;
     _allowSender = allowSender;
     _allowGroupSender = allowGroupSender;
@@ -1474,6 +1532,8 @@ class CallTypeBot {
     void sendTyping() => unawaited(
       _signalR.sendTypingIndicator(message.conversationId).catchError((_) {}),
     );
+    final ack = _ackReactions;
+    if (ack != null && !ack.manual) await message.accept();
     if (typing) sendTyping();
     final timer = typing
         ? Timer.periodic(const Duration(seconds: 4), (_) => sendTyping())
@@ -1497,6 +1557,7 @@ class CallTypeBot {
       }
       await handler(message);
     } catch (error, stack) {
+      message._failed = true;
       _log('Handler failed for message ${message.id}: $error\n$stack');
       try {
         await message.reply('Sorry, something went wrong. Please try again.');
@@ -1506,10 +1567,40 @@ class CallTypeBot {
     } finally {
       timer?.cancel();
     }
+    await _finalReaction(message);
     // Ack only now: if the process dies mid-handler the server still holds
     // the message, re-delivers it, and the seen-row turns that into a plain
     // ack instead of a second backend call.
     await _ack(message._ackSenderId, message.id);
+  }
+
+  /// Replaces the receipt with the turn's final emoji (see [AckReactions]),
+  /// or applies [BotMessage.finalReaction] alone when acknowledgements are
+  /// off or the message was never accepted. Failures are only logged.
+  Future<void> _finalReaction(BotMessage message) async {
+    final ack = _ackReactions;
+    var emoji = message.finalReaction;
+    if (emoji != null && emoji.isNotEmpty && !isValidReactionEmoji(emoji)) {
+      _log('Invalid final reaction "$emoji" for ${message.id}: ignored.');
+      emoji = null;
+    }
+    if (ack != null && message.accepted) {
+      if (message._failed) {
+        emoji = ack.failed;
+      } else {
+        emoji ??= message._replied ? ack.answered : ack.noReply;
+      }
+    }
+    if (emoji == null) return;
+    // After the receipt (which never throws): the final emoji must be the
+    // newer reaction, also with equal timestamps (arrival order).
+    await message._receipt;
+    if (ack != null && message.accepted && emoji == ack.received) return;
+    try {
+      await message.react(emoji);
+    } catch (e) {
+      _log('Final reaction on message ${message.id} failed: $e');
+    }
   }
 
   Future<void> _ack(String senderId, String messageId) async {
