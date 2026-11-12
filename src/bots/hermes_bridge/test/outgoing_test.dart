@@ -365,6 +365,7 @@ void main() {
     Future<HermesBridge> start({OutgoingMedia? out, bool media = false}) =>
         runBridge(
           bot,
+          ackReactions: false,
           allowedHandles: {'CT-AAAA-0001'},
           stream: stream,
           progress: ProgressSettings.never,

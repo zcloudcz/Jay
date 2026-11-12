@@ -123,19 +123,26 @@ void main() {
     expect(await call(), 502);
   });
 
-  test('channel outcomes: suspended 403, bot limit 429, bad target 400', () async {
-    for (final (o, status) in [
-      (SendOutcome.channelSuspended, 403),
-      (SendOutcome.rateLimited, 429),
-      (SendOutcome.badTarget, 400),
-      (SendOutcome.textTooLong, 400),
-    ]) {
-      outcome = o;
-      expect(await call(body: {'to': 'channel:CH-NEWS-0001', 'text': 'x'}), status, reason: '$o');
-    }
-    // The prefix is passed through untouched: routing is the bridge's job.
-    expect(sends.last.$1, 'channel:CH-NEWS-0001');
-  });
+  test(
+    'channel outcomes: suspended 403, bot limit 429, bad target 400',
+    () async {
+      for (final (o, status) in [
+        (SendOutcome.channelSuspended, 403),
+        (SendOutcome.rateLimited, 429),
+        (SendOutcome.badTarget, 400),
+        (SendOutcome.textTooLong, 400),
+      ]) {
+        outcome = o;
+        expect(
+          await call(body: {'to': 'channel:CH-NEWS-0001', 'text': 'x'}),
+          status,
+          reason: '$o',
+        );
+      }
+      // The prefix is passed through untouched: routing is the bridge's job.
+      expect(sends.last.$1, 'channel:CH-NEWS-0001');
+    },
+  );
 
   test(
     'passes the trimmed target and the text unchanged; never logs the key',
@@ -157,7 +164,11 @@ void main() {
 
     test('202 reacted: the callback gets (to, messageId, emoji)', () async {
       expect(
-        await react({'to': ' CT-AAAA-0001 ', 'messageId': 'm1', 'emoji': '👍🏽'}),
+        await react({
+          'to': ' CT-AAAA-0001 ',
+          'messageId': 'm1',
+          'emoji': '👍🏽',
+        }),
         (202, '{"status":"reacted"}'),
       );
       expect(reacts.single, ('CT-AAAA-0001', 'm1', '👍🏽'));
@@ -197,11 +208,10 @@ void main() {
 
     test('invalid emoji -> 400 invalid_emoji', () async {
       for (final emoji in ['ok', '👍👍', ' ']) {
-        expect(
-          await react({'to': 'CT-AAAA-0001', 'emoji': emoji}),
-          (400, '{"error":"invalid_emoji"}'),
-          reason: emoji,
-        );
+        expect(await react({'to': 'CT-AAAA-0001', 'emoji': emoji}), (
+          400,
+          '{"error":"invalid_emoji"}',
+        ), reason: emoji);
       }
       expect(reacts, isEmpty);
     });
@@ -230,7 +240,9 @@ void main() {
       addTearDown(() => plain.close(force: true));
       final request = await client.post('127.0.0.1', plain.port, '/react');
       request.headers.set('authorization', 'Bearer k');
-      request.add(utf8.encode(jsonEncode({'to': 'CT-AAAA-0001', 'emoji': '👍'})));
+      request.add(
+        utf8.encode(jsonEncode({'to': 'CT-AAAA-0001', 'emoji': '👍'})),
+      );
       final response = await request.close();
       await response.drain<void>();
       expect(response.statusCode, 404);

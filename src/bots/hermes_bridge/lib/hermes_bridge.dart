@@ -9,7 +9,6 @@ import 'src/hermes_events.dart';
 import 'src/media.dart';
 import 'src/outgoing.dart';
 import 'src/progress.dart';
-import 'src/reply_directive.dart';
 import 'src/send_endpoint.dart';
 
 // Moved to calltype_bot (bot-access A5) so llm_bridge applies the same
@@ -423,7 +422,8 @@ const silentReactionHint =
 /// owner's message: the reply directive, see [parseReplyDirective].
 const reactDirectiveHint =
     '(You may start your reply with a line [react:EMOJI] to react to this '
-    'message with one emoji; a reply of only that line sends no text.)';
+    'message with one emoji; a reply of only that line sends no text, e.g. '
+    '[react:👍] for a thank-you that needs no answer.)';
 
 /// Told to the agent once per conversation next to [reactDirectiveHint]
 /// when the bridge can send files and voice.
@@ -505,6 +505,7 @@ class HermesBridge {
     this._media,
     this._multimodal,
     this._outgoing,
+    this._ack,
   );
 
   final CallTypeBot bot;
@@ -527,6 +528,10 @@ class HermesBridge {
   /// Files and voice in replies; null = replies are text only, as before
   /// (directives then stay in the text).
   final OutgoingMedia? _outgoing;
+
+  /// Acknowledgement reactions (env `ACK_REACTIONS`, spec
+  /// 2026-11-11-bot-ack-reactions); null = off.
+  final AckReactions? _ack;
 
   /// [ReactionMode.batch]: notes per conversation, oldest first, until the
   /// owner's next message takes them along.
@@ -614,6 +619,10 @@ class HermesBridge {
       label =
           '[from ${peer?.handle ?? peer?.displayName ?? message.senderId} (bot)]';
     }
+    // Accepted (an owner, or a peer bot under the bot-talk rules): 👀 now,
+    // before the transcription and the turn; refused messages returned
+    // above without any reaction.
+    await message.accept();
     // The prefix tells the agent who is speaking (and that it is a bot).
     // Batched reactions of this conversation ride along, oldest first.
     final batched = _pendingReactions.remove(message.conversationId);
@@ -796,6 +805,9 @@ class HermesBridge {
         // A progress message already on screen cannot be taken back; it is
         // closed with a neutral mark instead of an answer.
         await progress.finish('-');
+        // A progress message counts as a reply for the runtime; the turn
+        // still said nothing.
+        message.finalReaction = _ack?.noReply;
         _log('Turn for message ${message.id}: silent, nothing sent.');
         return;
       }
@@ -807,14 +819,9 @@ class HermesBridge {
       if (directive.invalid) {
         _log('Invalid reply directive for message ${message.id}: stripped.');
       }
-      if (emoji != null) {
-        try {
-          await message.react(emoji);
-        } catch (e) {
-          // The text (if any) still goes out; a lost reaction is cosmetic.
-          _log('Reaction to message ${message.id} failed: $e');
-        }
-      }
+      // The runtime puts it on the message when the turn ends, replacing
+      // the 👀 receipt; a failed send is only logged there.
+      if (emoji != null) message.finalReaction = emoji;
       // Files and the voice directive (README "Sending files and voice
       // replies"); without outgoing media the text stays as it is.
       final outgoing = _outgoing;
@@ -939,6 +946,7 @@ class HermesBridge {
       // With a progress message on screen the apology replaces it; without
       // one the runtime sends its usual apology.
       if (await progress.finish(_apology)) {
+        message.markFailed();
         _log('Turn failed for message ${message.id}: $e');
         return;
       }
@@ -1334,6 +1342,9 @@ const channelTargetPrefix = 'channel:';
 ///
 /// [outgoing] lets replies carry files (`MEDIA:/path`, `[file:/path]`) and
 /// voice messages (TTS); without it replies stay text only.
+///
+/// [ackReactions] (env `ACK_REACTIONS`): 👀 on every accepted message, then
+/// ✅ answered, 👍 silent, ❌ failed, or the agent's `[react:EMOJI]`.
 Future<HermesBridge> runBridge(
   CallTypeBot bot, {
   required Set<String> allowedHandles,
@@ -1349,6 +1360,7 @@ Future<HermesBridge> runBridge(
   MediaProcessor? media,
   MultimodalBackend? multimodal,
   OutgoingMedia? outgoing,
+  bool ackReactions = true,
   required void Function(String) log,
 }) async {
   if (stream == null && backend == null) {
@@ -1418,6 +1430,7 @@ Future<HermesBridge> runBridge(
     media,
     multimodal,
     outgoing,
+    ackReactions ? const AckReactions(manual: true) : null,
   );
   // Before onMessage: that call connects, and queued presses arrive at once.
   bot.onAction(bridge._onAction);
@@ -1429,6 +1442,9 @@ Future<HermesBridge> runBridge(
     // Old inline `file` messages (photos up to 256 KiB) only when files are
     // handled; otherwise they stay acked and ignored as before.
     receiveFiles: media != null,
+    // Manual: the bot-talk rules in [_handle] decide, and only an accepted
+    // message gets 👀 (spec 2026-11-11-bot-ack-reactions R1, R6).
+    ackReactions: bridge._ack,
   );
   return bridge;
 }

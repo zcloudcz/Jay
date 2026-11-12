@@ -80,6 +80,7 @@ void main() {
 
   Future<HermesBridge> start(ReactionMode mode) => runBridge(
     bot,
+    ackReactions: false,
     allowedHandles: {'CT-AAAA-0001'},
     stream: stream,
     approve: (run, request, choice) async =>

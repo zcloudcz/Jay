@@ -301,6 +301,7 @@ void main() {
       ProgressSettings progress = ProgressSettings.never,
     }) => runBridge(
       bot,
+      ackReactions: false,
       allowedHandles: {'CT-AAAA-0001'},
       stream: stream,
       approve: approve,

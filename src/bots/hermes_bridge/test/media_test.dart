@@ -106,6 +106,7 @@ void main() {
   Future<HermesBridge> start({MediaProcessor? media, bool withImages = true}) =>
       runBridge(
         bot,
+        ackReactions: false,
         allowedHandles: {'CT-AAAA-0001'},
         stream: stream,
         multimodal: withImages ? multimodal : null,
@@ -443,6 +444,7 @@ void main() {
   test('an owner\'s reaction in the app wire format reaches Hermes', () async {
     await runBridge(
       bot,
+      ackReactions: false,
       allowedHandles: {'CT-AAAA-0001'},
       stream: stream,
       progress: ProgressSettings.never,

@@ -29,6 +29,9 @@ import 'package:hermes_bridge/hermes_bridge.dart';
 ///                            (default: one Hermes turn, answer not posted),
 ///                            `batch` (sent along with the next message),
 ///                            `reply` (normal turn, answer posted), `off`.
+/// - `ACK_REACTIONS`          `on` (default): 👀 on every accepted message,
+///                            then ✅ answered, 👍 silent, ❌ failed (or the
+///                            `[react:EMOJI]` below); `off`: none.
 ///
 /// Hermes may start an answer with a line `[react:EMOJI]` to react to the
 /// owner's message (`[react:]` removes it; only that line = no text), see
@@ -147,6 +150,7 @@ Future<void> main() async {
     exit(78); // EX_CONFIG
   }
 
+  final ackReactions = flag('ACK_REACTIONS', fallback: true);
   final mediaOn = flag('MEDIA_MODE', fallback: true);
   final storePath = env['BOT_STORE_PATH']?.trim() ?? '';
   final mediaDirRaw = env['MEDIA_DIR']?.trim() ?? '';
@@ -374,9 +378,13 @@ Future<void> main() async {
     multimodal: (text, images, {required conversationId}) =>
         hermes.chat(text, conversationId: conversationId, images: images),
     outgoing: outgoing,
+    ackReactions: ackReactions,
     log: log,
   );
-  log('Connected. Waiting for messages (reactions: ${reactionMode.name}).');
+  log(
+    'Connected. Waiting for messages (reactions: ${reactionMode.name}, '
+    'acknowledgement reactions: ${ackReactions ? 'on' : 'off'}).',
+  );
   if (commands.isNotEmpty) {
     try {
       await bot.setCommands(commands);

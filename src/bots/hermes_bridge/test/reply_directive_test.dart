@@ -159,8 +159,10 @@ void main() {
     Future<HermesBridge> start({
       ProgressSettings progress = ProgressSettings.never,
       ReactionMode reactions = ReactionMode.silent,
+      bool ack = false,
     }) => runBridge(
       bot,
+      ackReactions: ack,
       allowedHandles: {'CT-AAAA-0001'},
       stream: stream,
       progress: progress,
@@ -217,20 +219,21 @@ void main() {
     });
 
     test(
-      'directive + text: reacts to the answered message, posts the rest',
+      'directive + text: posts the rest, then reacts to the answered message',
       () async {
         await start();
         answers.add('[react:👍]\nDeployed.');
         final id = await say('deploy please');
         final inbox = await aliceInbox();
         expect(inbox, hasLength(2));
+        expect(inbox[0]['type'], 'text');
+        expect(inbox[0]['body'], 'Deployed.');
+        // The runtime applies the chosen emoji when the turn ends.
         expect(
-          reactionOf(inbox[0]),
+          reactionOf(inbox[1]),
           ReactionPayload(targetId: id, emoji: '👍'),
         );
-        expect(inbox[0]['to'], alice.id);
-        expect(inbox[1]['type'], 'text');
-        expect(inbox[1]['body'], 'Deployed.');
+        expect(inbox[1]['to'], alice.id);
       },
     );
 
@@ -251,8 +254,8 @@ void main() {
       answers.add('[react:]\nRemoved.');
       final id = await say('undo');
       final inbox = await aliceInbox();
-      expect(reactionOf(inbox[0]), ReactionPayload(targetId: id, emoji: ''));
-      expect(inbox[1]['body'], 'Removed.');
+      expect(inbox[0]['body'], 'Removed.');
+      expect(reactionOf(inbox[1]), ReactionPayload(targetId: id, emoji: ''));
     });
 
     test('invalid directive: stripped and logged, text still posted', () async {
@@ -273,9 +276,9 @@ void main() {
       answers.add('[react:👀]\nOn it.');
       final id = await say('check', group: groupId);
       final inbox = await aliceInbox();
-      expect(inbox[0]['groupId'], groupId);
-      expect(reactionOf(inbox[0]), ReactionPayload(targetId: id, emoji: '👀'));
-      expect(inbox[1]['body'], 'On it.');
+      expect(inbox[0]['body'], 'On it.');
+      expect(inbox[1]['groupId'], groupId);
+      expect(reactionOf(inbox[1]), ReactionPayload(targetId: id, emoji: '👀'));
     });
 
     test('directive only after a progress message: the progress message '
@@ -291,14 +294,14 @@ void main() {
       gate!.complete();
       await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
       final inbox = await aliceInbox();
-      expect(inbox.map((p) => p['type']), ['text', reactionType, 'edit']);
+      expect(inbox.map((p) => p['type']), ['text', 'edit', reactionType]);
       expect(inbox[0]['body'], startsWith('Working on it'));
+      expect(inbox[1]['editOf'], inbox[0]['id']);
+      expect(inbox[1]['body'], reactedProgressText);
       expect(
-        reactionOf(inbox[1]),
+        reactionOf(inbox[2]),
         ReactionPayload(targetId: message['messageId'] as String, emoji: '👍'),
       );
-      expect(inbox[2]['editOf'], inbox[0]['id']);
-      expect(inbox[2]['body'], reactedProgressText);
     });
 
     test('silent reaction turns never react', () async {
@@ -347,6 +350,125 @@ void main() {
         expect(inbox.single['body'], 'Glad you like it.');
       },
     );
+
+    group('acknowledgement reactions (ACK_REACTIONS=on)', () {
+      /// The inbox as `👀@id`-style reactions and texts.
+      Future<List<String>> transcript() async => [
+        for (final p in await aliceInbox())
+          if (reactionOf(p) case final r?)
+            'react:${r.targetId}:${r.emoji}'
+          else
+            '${p['type']}:${p['body']}',
+      ];
+
+      test('normal answer: 👀, the reply, ✅', () async {
+        await start(ack: true);
+        answers.add('Ahoj!');
+        final id = await say('ahoj');
+        expect(await transcript(), [
+          'react:$id:👀',
+          'text:Ahoj!',
+          'react:$id:✅',
+        ]);
+      });
+
+      test(
+        'directive only: 👀 replaced by the chosen emoji, no text',
+        () async {
+          await start(ack: true);
+          answers.add('[react: 👍]');
+          final id = await say('díky');
+          expect(await transcript(), ['react:$id:👀', 'react:$id:👍']);
+        },
+      );
+
+      test('directive + text: the chosen emoji replaces ✅', () async {
+        await start(ack: true);
+        answers.add('[react:🎉]\nHotovo.');
+        final id = await say('deploy');
+        expect(await transcript(), [
+          'react:$id:👀',
+          'text:Hotovo.',
+          'react:$id:🎉',
+        ]);
+      });
+
+      test('[SILENT]: 👍, also after a progress message', () async {
+        await start(
+          ack: true,
+          progress: const ProgressSettings(after: Duration(milliseconds: 20)),
+        );
+        gate = Completer<void>();
+        answers.add('[SILENT]');
+        final message = await alice.messageTo(
+          bot.deviceId,
+          api.botBundle,
+          'fyi',
+        );
+        hub.deliver(message);
+        await until(() => hub.calls('SendReliableDirectFanout').length == 2);
+        gate!.complete();
+        await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
+        final id = message['messageId'] as String;
+        final t = await transcript();
+        expect(t.first, 'react:$id:👀');
+        expect(t[1], startsWith('text:Working on it'));
+        expect(t.last, 'react:$id:👍');
+      });
+
+      test('failed turn: apology and ❌ (with and without progress)', () async {
+        await start(ack: true);
+        answers.add('');
+        final id = await say('x');
+        final t = await transcript();
+        expect(t.first, 'react:$id:👀');
+        expect(t[1], contains('Sorry'));
+        expect(t.last, 'react:$id:❌');
+      });
+
+      test('failure with a progress message on screen: ❌', () async {
+        await start(
+          ack: true,
+          progress: const ProgressSettings(after: Duration(milliseconds: 20)),
+        );
+        gate = Completer<void>();
+        answers.add('');
+        final message = await alice.messageTo(bot.deviceId, api.botBundle, 'x');
+        hub.deliver(message);
+        await until(() => hub.calls('SendReliableDirectFanout').length == 2);
+        gate!.complete();
+        await until(() => hub.calls('AcknowledgeMessage').isNotEmpty);
+        final id = message['messageId'] as String;
+        final t = await transcript();
+        expect(t[2], contains('Sorry'));
+        expect(t.last, 'react:$id:❌');
+      });
+
+      test('off: no receipt, the directive still reacts', () async {
+        await start();
+        answers.add('Ahoj!');
+        await say('ahoj');
+        answers.add('[react:👍]');
+        final id = await say('díky');
+        expect(await transcript(), ['text:Ahoj!', 'react:$id:👍']);
+      });
+
+      test('a stranger and unaddressed group chatter get nothing', () async {
+        await start(ack: true);
+        hub.deliver(await bob.messageTo(bot.deviceId, api.botBundle, 'hi'));
+        hub.deliver(
+          await alice.messageTo(
+            bot.deviceId,
+            api.botBundle,
+            'chatter',
+            groupId: groupId,
+          ),
+        );
+        await until(() => hub.calls('AcknowledgeMessage').length == 2);
+        expect(await aliceInbox(), isEmpty);
+        expect(prompts, isEmpty);
+      });
+    });
 
     group('reactFromLocal', () {
       test('defaults to the last message received from the owner', () async {

@@ -56,6 +56,7 @@ messages, therefore:
 | `PROGRESS_EDIT_SECONDS` | no, default `5` | min seconds between progress edits (current tool) |
 | `PROGRESS_MAX_EDITS` | no, default `30` | progress edits per turn; then it stays until the answer replaces it |
 | `BOT_COMMANDS` | no | `cmd:description;cmd2:description` published as the bot's "/" menu at start (a bad entry stops the start; an old server without the endpoint is logged and ignored) |
+| `ACK_REACTIONS` | no, default `on` | `on`: 👀 on every accepted message before the turn, then ✅ answered, 👍 silent, ❌ failed, or the agent's `[react:EMOJI]` (see "Acknowledgement reactions" below); `off`: none (the `[react:EMOJI]` directive still works) |
 | `REACTION_MODE` | no, default `silent` | what an owner's emoji reaction in Jay does: `silent` (one Hermes turn, the answer is not posted), `batch` (no turn; sent along with the owner's next message), `reply` (normal turn, the answer is posted), `off`. See "Reactions" below; an unknown value stops the start |
 | `MEDIA_MODE` | no, default `on` | `off`: received files are not processed, Hermes sees only the sender's fallback text (as before). See "Voice messages, images and files" |
 | `MEDIA_DIR` | no, default `media` next to `BOT_STORE_PATH` (`/data/media` in the image) | where received files are saved, one folder per message, mode 700 |
@@ -250,12 +251,31 @@ menu in Jay) to give quick feedback without writing. Spec:
 - `off`: ignored.
 - A reaction waits behind a turn already running in its conversation.
 
+### Acknowledgement reactions (`ACK_REACTIONS`)
+
+Spec `docs/superpowers/specs/2026-11-11-bot-ack-reactions.md`. Like Discord,
+the bot shows that it received a message:
+
+- 👀 as soon as a message is accepted (an owner, or a peer bot the group's
+  bot-talk rules let through), before the transcription and the Hermes turn.
+- When the turn ends, 👀 is replaced: ✅ an answer was posted, 👍 the turn
+  ended silently (`[SILENT]`), ❌ the turn failed (the apology is posted as
+  before), or the emoji Hermes chose with `[react:EMOJI]` (below). An answer
+  of only `[react:👍]` acknowledges without any text ("díky" -> 👍).
+- No 👀 means the bridge did not take the message: it is down, or the sender
+  is refused (strangers, unaddressed group chatter, bot talk off, the bot
+  limit including its one notice, the pause). A long turn keeps 👀 next to
+  the usual "Working on it..." message.
+- Reactions never start a turn for another bot: only owners' reactions reach
+  Hermes (`REACTION_MODE`), so two bots acknowledging each other cannot loop.
+
 ### The bot reacting: `[react:EMOJI]`
 
 Hermes can answer with a reaction instead of (or besides) text. When the
 FIRST non-blank line of its final answer is exactly `[react:EMOJI]` (spaces
 around it and any case of `react` are fine), the bridge puts EMOJI on the
-owner's message being answered and posts only the rest:
+owner's message being answered (when the turn ends, replacing the 👀 of
+`ACK_REACTIONS`) and posts only the rest:
 
 ```
 [react:👍]
