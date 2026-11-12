@@ -1,7 +1,8 @@
 # Bots acknowledge messages with a reaction (contract)
 
-Status: built on `feat/bot-ack-reactions` (`calltype_bot`, `hermes_bridge`, `llm_bridge`, `a2a_bridge`; no
-server, protocol or app change). Not released. Acceptance: `docs/acceptance/bot-ack-reactions.md`.
+Status: built on `feat/bot-ack-reactions` (`calltype_bot`, `hermes_bridge`, `llm_bridge`, `a2a_bridge`; plus
+the notification fix N1-N4: hub silent sends, `calltype_core`, app notifications; no wire payload change, no
+migration). Not released. Acceptance: `docs/acceptance/bot-ack-reactions.md`.
 
 Owner (2026-11-11): "potřeboval bych v aplikaci vidět, že Bot přijal zprávu. Discord reaguje emotikonem na
 zprávu. Chci to podobně, aby Bot vybral správného emotikona (oko, palec...) a označil zprávu při přečtení.
@@ -31,6 +32,27 @@ removes); nothing new goes over the wire.
 | R8 | Ordering | The final emoji is sent after the receipt send finished (success or failure); reactions are last-writer-wins by `createdAt`, equal timestamps by arrival, so the final emoji always replaces 👀. |
 | R9 | Button presses | A press handled by the normal message path is a message like any other (receipt + final). Approval presses in `hermes_bridge` are not accepted (no reaction). |
 
+## Notifications (N1-N4)
+
+Owner (2026-11-12): "doplnit a vydat" for the fix of the notification limit below. Every reaction is an
+encrypted message, so without it an acknowledged turn could add two app notifications ("X reacted 👀 to ...")
+and two generic "New message" pushes.
+
+| # | Topic | Decision |
+|---|---|---|
+| N1 | Server: silent sends | New hub methods `SendReliableMessageSilent`, `SendReliableGroupMessageSilent`, `SendReliableDirectFanoutSilent`, `SendReliableGroupFanoutSilent` (partial `Hubs/MessengerHub.Silent.cs`), same arguments as the plain methods. Validation, bot inbound policy, storage and live delivery are the plain method's own code (shared private core with a `silent` flag); only the push to an offline device is skipped, so mutes are not even queried. The flag is not stored: it only decides the push at send time, and no other path pushes a queued message later (replay on connect never pushes). No migration. Call ring and `incoming_call` pushes are untouched. |
+| N1a | Deviation: names, not an optional argument | The task asked for an optional `silent` argument or overload. ASP.NET Core SignalR binds hub arguments by COUNT and rejects overloads, so an extra optional parameter would break every old client calling with today's count (same reason `BusinessCallSignal` is a separate method). Twin methods keep the old ones unchanged. |
+| N2 | Clients | `calltype_core` `SignalRClient.sendMessage` (reliable only), `sendGroupMessage`, `sendDirectFanout`, `sendGroupFanout` take `silent` (default false) and call the `...Silent` twin. `calltype_bot` sends EVERY reaction silently: the 👀 receipt, the final emoji, the `[react:EMOJI]` directive, `BotMessage.react`/`removeReaction` and `CallTypeBot.sendReaction` (also the business-group per-member path). Replies and other messages stay plain. |
+| N2a | Human reactions | Unchanged, not silent: the app already notifies for a human's reaction on your own message, and a push is the only way an offline phone learns it. The app does not use `silent`. |
+| N3 | App notifications | `NotificationService.onReaction` never notifies for a bot's reaction (contact `isBot`; for a non-contact, e.g. a bot met in a group, the server profile `GET /devices/{id}/profile`, asked once per identity and run, a failed lookup counts as no bot and is asked again) and never for a reaction that replaces an earlier row of the same sender on the same message (`AppliedReaction.replaced`, read before applying). WHY also a re-add after a removal: toggling a reaction should not ring twice. Removals never notified. Human first reactions keep today's behaviour (mute, open chat, previews). |
+| N4 | Compatibility | New bot + old server: the `...Silent` call fails while binding with `Failed to invoke '<name>' due to an error on the server.` (nothing queued, pinned by `MutePushTests`); `SignalRClient` then sends the same envelopes with the same message id through the plain method and remembers it until the next connect (that only costs the push the old server always sent). Errors thrown inside a hub method read differently and are never a fallback. New server + old bot: the old methods are unchanged, behaviour as before. Old app + bot reactions: the app's own notification rule decides (it still notifies for a bot reaction); the push is gone. |
+
+Tests: `MutePushTests` (silent 1:1 and fan-out stored, delivered on connect, no push; silent group per-member
+and fan-out no push while the plain fan-out still pushes; validation unchanged; unknown method text),
+`signalr_client_test` (twin names, fallback, no fallback on a hub error), `calltype_bot`
+`reaction_send_test` (reactions silent, replies not, business path, old server fallback), app
+`notification_service_test`, `notification_directory_test`, `message_reactions_inbox_test` (replaced flag).
+
 ## Runtime API (`calltype_bot`)
 
 ```dart
@@ -53,9 +75,10 @@ const ackDirectiveHint = '...';
 
 ## Compatibility
 
-No wire change. Old apps that do not know reactions keep the reaction envelopes queued like any reaction
-(same accepted cost as in the reactions contract). Every reaction is one more envelope per recipient device:
-two per accepted message.
+No payload change; the only wire addition is the `...Silent` hub methods (N1, N4). Old apps that do not know
+reactions keep the reaction envelopes queued like any reaction (same accepted cost as in the reactions
+contract). Every reaction is one more envelope per recipient device: two per accepted message, neither of them
+pushed.
 
 ## Limits
 
@@ -63,13 +86,10 @@ two per accepted message.
 - "Answered" means a reply went through `BotMessage.reply`/`replyFile`; a bridge sending into the same chat
   by other means (`bot.send`) does not count.
 - At most once, like turns: a re-delivered message (seen-row) gets no second receipt.
-- Notifications (not changed here, follow-up): the app notifies "X reacted 👀 to: ..." for every
-  reaction on the user's own message when the chat is not open and focused, and the server sends its
-  generic "New message" push for every envelope to an offline device (it cannot tell a reaction from a
-  message). An acknowledged turn can therefore add up to two notifications (👀, final emoji) when the user
-  left the chat. The 👀 usually reaches a device that is still connected (no push). Fix candidates: the
-  app skips notifications for reactions of bot contacts, and the bots send reactions with a server-side
-  "no push" hint (needs a hub change).
+- Notifications: fixed by N1-N4. Left over: an OLD app still shows "X reacted 👀 to: ..." for a bot's
+  reaction while it runs in the background (no push needed for that); an offline device learns about a
+  bot's reaction only when it next connects, which is the point. The server trusts the sender's `silent`:
+  a sender can only make its own messages quieter, never louder.
 - App display: checked, no change needed. The inbox applies a reaction from any authenticated sender in
   the conversation (bots included) to a message of that conversation, the user's own messages included,
   last writer wins with equal timestamps applied; the chips render under incoming and outgoing bubbles.

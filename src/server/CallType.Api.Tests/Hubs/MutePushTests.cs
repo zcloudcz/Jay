@@ -222,4 +222,127 @@ public class MutePushTests : IntegrationTestBase
 
         push.Pushed.Should().BeEquivalentTo(new[] { other.Id, me.Id });
     }
+
+    // -----------------------------------------------------------------------
+    // Silent sends (spec 2026-11-11-bot-ack-reactions N1): stored and
+    // delivered like any message, never pushed.
+    // -----------------------------------------------------------------------
+
+    private async Task<List<JsonElement>> ReceiveOnConnectAsync(WebApplicationFactory<Program> factory, string token,
+        int expected)
+    {
+        var received = new System.Collections.Concurrent.ConcurrentQueue<JsonElement>();
+        var all = new TaskCompletionSource();
+        await using var hub = Hub(factory, token);
+        hub.On<JsonElement>("ReceiveMessage", e =>
+        {
+            received.Enqueue(e);
+            if (received.Count >= expected) all.TrySetResult();
+        });
+        await hub.StartAsync();
+        await all.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        return received.ToList();
+    }
+
+    [Fact]
+    public async Task Silent_direct_sends_are_stored_and_delivered_but_never_pushed()
+    {
+        var me = await DeviceAsync();
+        var bot = await DeviceAsync(isBot: true);
+        var push = NewPush();
+        await using var factory = Factory.WithWebHostBuilder(b =>
+            b.ConfigureServices(sv => sv.AddSingleton<PushNotificationService>(push)));
+
+        var single = Guid.NewGuid();
+        var fanout = Guid.NewGuid();
+        await using (var hub = Hub(factory, bot.Token))
+        {
+            await hub.StartAsync();
+            await hub.InvokeAsync("SendReliableMessageSilent", me.Id, single, Body);
+            var targets = new[] { me.Id };
+            await hub.InvokeAsync("SendReliableDirectFanoutSilent", me.Id, fanout, targets,
+                targets.ToDictionary(id => id, _ => Body));
+        }
+
+        push.Pushed.Should().BeEmpty();
+        (await QueuedCountAsync(single)).Should().Be(1);
+        (await QueuedCountAsync(fanout)).Should().Be(1);
+        var delivered = await ReceiveOnConnectAsync(factory, me.Token, 2);
+        delivered.Select(e => e.GetProperty("messageId").GetGuid()).Should().BeEquivalentTo([single, fanout]);
+        delivered.Should().OnlyContain(e => e.GetProperty("senderId").GetGuid() == bot.Id);
+    }
+
+    [Fact]
+    public async Task Silent_group_sends_are_stored_but_never_pushed_while_plain_ones_still_are()
+    {
+        var admin = await DeviceAsync();
+        var bot = await DeviceAsync(isBot: true);
+        var a = await DeviceAsync();
+        var b = await DeviceAsync();
+        var members = new[] { bot.Id, a.Id, b.Id };
+        var created = await admin.Http.PostAsJsonAsync("/groups", new { memberDeviceIds = members });
+        var group = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("groupId").GetGuid();
+        var recipients = new[] { admin.Id, a.Id, b.Id };
+        var payloads = recipients.ToDictionary(id => id, _ => Body);
+
+        var push = NewPush();
+        await using var factory = Factory.WithWebHostBuilder(sb =>
+            sb.ConfigureServices(sv => sv.AddSingleton<PushNotificationService>(push)));
+        var silentPerMember = Guid.NewGuid();
+        var silentFanout = Guid.NewGuid();
+        await using (var hub = Hub(factory, bot.Token))
+        {
+            await hub.StartAsync();
+            await hub.InvokeAsync("SendReliableGroupMessageSilent", group, silentPerMember, payloads);
+            await hub.InvokeAsync("SendReliableGroupFanoutSilent", group, silentFanout, recipients.ToList(), payloads);
+            push.Pushed.Should().BeEmpty();
+
+            // The plain methods are unchanged: every offline member is woken.
+            await hub.InvokeAsync("SendReliableGroupFanout", group, Guid.NewGuid(), recipients.ToList(), payloads);
+        }
+
+        push.Pushed.Should().BeEquivalentTo(recipients);
+        (await QueuedCountAsync(silentPerMember)).Should().Be(3);
+        (await QueuedCountAsync(silentFanout)).Should().Be(3);
+        var delivered = await ReceiveOnConnectAsync(factory, a.Token, 3);
+        delivered.Select(e => e.GetProperty("messageId").GetGuid()).Should().Contain([silentPerMember, silentFanout]);
+        delivered.Should().OnlyContain(e => e.GetProperty("groupId").GetGuid() == group);
+    }
+
+    [Fact]
+    public async Task Silent_sends_keep_the_validation_of_the_plain_methods()
+    {
+        var me = await DeviceAsync();
+        var bot = await DeviceAsync(isBot: true);
+        var stranger = await DeviceAsync();
+        var created = await me.Http.PostAsJsonAsync("/groups", new { memberDeviceIds = new[] { bot.Id } });
+        var group = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("groupId").GetGuid();
+
+        await using var hub = Hub(Factory, bot.Token);
+        await hub.StartAsync();
+        // Not a member target, and a stale device set: same errors as without "Silent".
+        await FluentActions.Awaiting(() => hub.InvokeAsync("SendReliableGroupMessageSilent", group, Guid.NewGuid(),
+                new Dictionary<Guid, string> { [stranger.Id] = Body }))
+            .Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>().WithMessage("*group members*");
+        await FluentActions.Awaiting(() => hub.InvokeAsync("SendReliableDirectFanoutSilent", me.Id, Guid.NewGuid(),
+                new List<Guid>(), new Dictionary<Guid, string>()))
+            .Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>().WithMessage("*device_list_stale*");
+    }
+
+    [Fact]
+    public async Task An_unknown_hub_method_fails_with_failed_to_invoke_so_new_clients_can_fall_back()
+    {
+        // N4: a new bot calls "...Silent" on a server without it. The client
+        // falls back to the plain method on exactly this text; nothing was
+        // queued by the failed call.
+        var me = await DeviceAsync();
+        var bot = await DeviceAsync(isBot: true);
+        await using var hub = Hub(Factory, bot.Token);
+        await hub.StartAsync();
+        var id = Guid.NewGuid();
+        await FluentActions.Awaiting(() => hub.InvokeAsync("SendReliableMessageMuted", me.Id, id, Body))
+            .Should().ThrowAsync<Microsoft.AspNetCore.SignalR.HubException>()
+            .WithMessage("Failed to invoke 'SendReliableMessageMuted'*");
+        (await QueuedCountAsync(id)).Should().Be(0);
+    }
 }

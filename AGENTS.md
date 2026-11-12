@@ -89,6 +89,8 @@ leaves the server (E2E; names would be metadata for Apple/Google). Data keys:
 `conversationId` (group id, the sender's primary device id for 1:1, channel id),
 `v=1`. Collapse per conversation: FCM `tag`/`collapse_key`, APNs
 `apns-collapse-id`/`thread-id`, Web Push `Topic` (SHA-256 of the id, 32 chars).
+A silent send (`SendReliable...Silent`, spec `2026-11-11-bot-ack-reactions` N1)
+never pushes; bots use it for their reactions.
 An `offer` call signal to an offline device sends `incoming_call` (muted only by
 a 1:1 mute in mode `all`), unless the device can RING (iOS VoIP token, or
 Android registered with `ringCalls`): then the hub keeps a pending call (offer +
@@ -243,6 +245,7 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `PUT /channels/{id}/admins/{deviceId}` | Owner appoints `admin` or `publisher` (body `{"role"}` optional); bot posts labelled `byBot`, limited by `Channels:MaxBotPostsPerDay` (429 `bot_post_limit`); suspended channel -> 403 `channel_suspended` | ✅ Done |
 | `POST /admin/session`, `/admin/*` | Operator moderation API (allowlist `Moderation:OperatorAccountIds` or `Moderation:OperatorHandles` + TOTP, token `scope=moderation` valid only on `/admin/*`): summary, report queue, case detail, decisions (+ CSV log), channel search, attachments | ✅ Done |
 | `SignalR /hub` | Message relay, typing, call signaling; call ringing for offline callees (`RequestPendingCalls`, `DeclinePendingCall(callId)`, signals `ringing` / `cancelled`) | ✅ Done |
+| `SignalR /hub` silent sends | `SendReliableMessageSilent`, `SendReliableGroupMessageSilent`, `SendReliableDirectFanoutSilent`, `SendReliableGroupFanoutSilent`: same arguments, validation, storage and delivery as the plain `SendReliable...` method, but never the "New message" push to an offline device. Separate names because SignalR binds arguments by count (an optional argument would break old clients); a new client on an old server gets `Failed to invoke '<name>'` and falls back to the plain method. Nothing stored, no migration. Bots send every reaction silently; the app does not use it. Spec `2026-11-11-bot-ack-reactions` N1 | ✅ Done |
 
 ## Conventions
 

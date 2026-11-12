@@ -93,7 +93,9 @@ then refreshes and verifies the affected lists and
 
 Hub methods (SignalR): `SendReliableDirectFanout(recipientPrimaryId,
 messageId, allDeviceIds, envelopes)` and `SendReliableGroupFanout(groupId,
-messageId, allDeviceIds, envelopes)`, `envelopes` = map deviceId -> base64
+messageId, allDeviceIds, envelopes)` (each also as `...Silent` with the same
+arguments: no push to offline devices, spec 2026-11-11-bot-ack-reactions N1),
+`envelopes` = map deviceId -> base64
 envelope. `allDeviceIds` always names the FULL device set, so a send split
 over several calls (1 MiB frame limit) cannot silently skip a device. The
 per-member calls `SendReliableMessage` / `SendReliableGroupMessage` remain

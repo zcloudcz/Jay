@@ -108,7 +108,11 @@ public partial class MessengerHub(MessageQueueService queueService, PushNotifica
     public Task SendMessage(Guid recipientDeviceId, string encryptedBodyBase64)
         => SendReliableMessage(recipientDeviceId, Guid.NewGuid(), encryptedBodyBase64);
 
-    public async Task SendReliableMessage(Guid recipientDeviceId, Guid messageId, string encryptedBodyBase64)
+    public Task SendReliableMessage(Guid recipientDeviceId, Guid messageId, string encryptedBodyBase64)
+        => SendReliableMessageCore(recipientDeviceId, messageId, encryptedBodyBase64, silent: false);
+
+    private async Task SendReliableMessageCore(Guid recipientDeviceId, Guid messageId, string encryptedBodyBase64,
+        bool silent)
     {
         var sender = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
         // P1: an organization can require that two of its enrolled devices
@@ -123,14 +127,18 @@ public partial class MessengerHub(MessageQueueService queueService, PushNotifica
             return;
         var message = await queueService.EnqueueReliableAsync(recipientDeviceId, sender, messageId,
             body, cancellationToken: Context.ConnectionAborted);
-        var silenced = await SilencedAsync([message], sender, senderPrimary, null);
-        await DeliverAsync(message, senderPrimary, push: !silenced.Contains(message.RecipientId));
+        var silenced = silent ? [] : await SilencedAsync([message], sender, senderPrimary, null);
+        await DeliverAsync(message, senderPrimary, push: !silent && !silenced.Contains(message.RecipientId));
     }
 
     public Task SendGroupMessage(Guid groupId, Dictionary<Guid, string> encryptedPayloads)
         => SendReliableGroupMessage(groupId, Guid.NewGuid(), encryptedPayloads);
 
-    public async Task SendReliableGroupMessage(Guid groupId, Guid messageId, Dictionary<Guid, string> encryptedPayloads)
+    public Task SendReliableGroupMessage(Guid groupId, Guid messageId, Dictionary<Guid, string> encryptedPayloads)
+        => SendReliableGroupMessageCore(groupId, messageId, encryptedPayloads, silent: false);
+
+    private async Task SendReliableGroupMessageCore(Guid groupId, Guid messageId,
+        Dictionary<Guid, string> encryptedPayloads, bool silent)
     {
         if (encryptedPayloads.Count > 256)
             throw new HubException("Group message exceeds maximum member count");
@@ -190,9 +198,9 @@ public partial class MessengerHub(MessageQueueService queueService, PushNotifica
                     body, groupId, Context.ConnectionAborted));
             await transaction.CommitAsync(Context.ConnectionAborted);
         }
-        var silenced = await SilencedAsync(messages, sender, senderPrimary, groupId);
+        var silenced = silent ? [] : await SilencedAsync(messages, sender, senderPrimary, groupId);
         foreach (var message in messages)
-            await DeliverAsync(message, senderPrimary, push: !silenced.Contains(message.RecipientId));
+            await DeliverAsync(message, senderPrimary, push: !silent && !silenced.Contains(message.RecipientId));
     }
 
     // -----------------------------------------------------------------------
@@ -207,8 +215,12 @@ public partial class MessengerHub(MessageQueueService queueService, PushNotifica
     // therefore withhold a device, but it cannot make a client encrypt for
     // one the client did not verify.
 
-    public async Task SendReliableDirectFanout(Guid recipientPrimaryId, Guid messageId,
+    public Task SendReliableDirectFanout(Guid recipientPrimaryId, Guid messageId,
         List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads)
+        => SendReliableDirectFanoutCore(recipientPrimaryId, messageId, allRecipients, encryptedPayloads, silent: false);
+
+    private async Task SendReliableDirectFanoutCore(Guid recipientPrimaryId, Guid messageId,
+        List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads, bool silent)
     {
         var ct = Context.ConnectionAborted;
         var sender = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
@@ -222,11 +234,16 @@ public partial class MessengerHub(MessageQueueService queueService, PushNotifica
         if (!await communicationPolicy.IsAllowedAsync(senderPrimary, recipientPrimaryId, ct))
             throw new HubException("business_conversation_required");
         var required = await deviceLists.DevicesOfAsync([recipientPrimaryId, senderPrimary], ct);
-        await FanoutAsync(sender, senderPrimary, messageId, null, required, allRecipients, encryptedPayloads, null);
+        await FanoutAsync(sender, senderPrimary, messageId, null, required, allRecipients, encryptedPayloads, null,
+            silent);
     }
 
-    public async Task SendReliableGroupFanout(Guid groupId, Guid messageId,
+    public Task SendReliableGroupFanout(Guid groupId, Guid messageId,
         List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads)
+        => SendReliableGroupFanoutCore(groupId, messageId, allRecipients, encryptedPayloads, silent: false);
+
+    private async Task SendReliableGroupFanoutCore(Guid groupId, Guid messageId,
+        List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads, bool silent)
     {
         var ct = Context.ConnectionAborted;
         var sender = GetCallerDeviceId() ?? throw new HubException("Invalid device identity");
@@ -245,11 +262,13 @@ public partial class MessengerHub(MessageQueueService queueService, PushNotifica
             if (!await communicationPolicy.IsAllowedAsync(senderPrimary, member, ct))
                 throw new HubException("business_conversation_required");
         var required = await deviceLists.DevicesOfAsync(members, ct);
-        await FanoutAsync(sender, senderPrimary, messageId, groupId, required, allRecipients, encryptedPayloads, members);
+        await FanoutAsync(sender, senderPrimary, messageId, groupId, required, allRecipients, encryptedPayloads, members,
+            silent);
     }
 
     private async Task FanoutAsync(Guid sender, Guid senderPrimary, Guid messageId, Guid? groupId, HashSet<Guid> required,
-        List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads, IReadOnlyCollection<Guid>? groupMembers)
+        List<Guid> allRecipients, Dictionary<Guid, string> encryptedPayloads, IReadOnlyCollection<Guid>? groupMembers,
+        bool silent)
     {
         required.Remove(sender);
         // Own error text: this cap counts DEVICES (companions included), so the
@@ -280,10 +299,11 @@ public partial class MessengerHub(MessageQueueService queueService, PushNotifica
         // other devices, they stay queued and arrive on connect. Pushing would
         // make the phone buzz for every message typed on the web.
         var own = await deviceLists.DevicesOfAsync([senderPrimary], Context.ConnectionAborted);
-        var silenced = await SilencedAsync(messages.Where(m => !own.Contains(m.RecipientId)), sender, senderPrimary, groupId);
+        var silenced = silent ? []
+            : await SilencedAsync(messages.Where(m => !own.Contains(m.RecipientId)), sender, senderPrimary, groupId);
         foreach (var message in messages)
             await DeliverAsync(message, senderPrimary,
-                push: !own.Contains(message.RecipientId) && !silenced.Contains(message.RecipientId));
+                push: !silent && !own.Contains(message.RecipientId) && !silenced.Contains(message.RecipientId));
     }
 
     /// <summary>
