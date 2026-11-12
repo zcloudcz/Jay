@@ -132,6 +132,7 @@ class LlmBridge {
     this.maxProgressEdits = 30,
     this.imageGenerator,
     this.mediaDir,
+    this.retryRateLimit = true,
     Future<void> Function(Duration)? sleep,
     this.log = _noLog,
   }) : assert(imageGenerator == null || mediaDir != null),
@@ -164,6 +165,11 @@ class LlmBridge {
 
   /// Where generated images are written before sending (deleted after).
   final String? mediaDir;
+
+  /// Retry once on a 429 before any text. Off with `LLM_FALLBACK` (spec
+  /// F10): the chain already switched to the next provider, and a retry
+  /// would run the whole chain again.
+  final bool retryRateLimit;
   final Future<void> Function(Duration) _sleep;
 
   /// The system prompt of one call: the configured one, the reaction
@@ -330,7 +336,7 @@ class LlmBridge {
     try {
       return await _collect(conversation, run, deadline);
     } on LlmException catch (e) {
-      if (!e.isRateLimit || run.received) rethrow;
+      if (!retryRateLimit || !e.isRateLimit || run.received) rethrow;
       final wait = e.retryAfter == null
           ? const Duration(seconds: 5)
           : (e.retryAfter! > const Duration(seconds: 30)

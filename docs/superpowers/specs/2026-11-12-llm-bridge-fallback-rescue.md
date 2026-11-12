@@ -22,12 +22,12 @@ common case; the rescue bot handles what a plain restart does not.
 | F3 | Models | `LLM_MODEL` and `LLM_EFFORT` apply to the primary only; fallbacks use their provider default (model ids differ per vendor). An `openai` fallback with a custom `OPENAI_BASE_URL` therefore fails F2 (it needs a model): accepted, documented. |
 | F4 | When to switch | On ANY error of a provider (`LlmException`, launch failure, non-zero exit, HTTP error incl. 429 and 401) **before it emitted any text**. After the first text piece no switch: the user would get two answers glued together. |
 | F5 | All failed | The error of the LAST provider is reported (existing apology text in `bridge.dart`); the message names every provider that failed, e.g. `Claude Code CLI: ...; Codex CLI: ...`. `isAuth` and 429 retry in `bridge.dart` (`_answer`) see the last provider's error only. |
-| F6 | Cancel / timeout | Cancelling the stream cancels the attempt in flight (CLI providers kill the process via their existing `onCancel`). `LLM_TIMEOUT_SECONDS` stays the budget of the WHOLE turn. Known ceiling: a primary that hangs without an error uses the whole budget and the fallback never runs. Per-attempt timeouts are out of scope until that bites. |
+| F6 | Cancel / timeout | Cancelling the stream cancels the attempt in flight (CLI providers kill the process via their existing `onCancel`). `LLM_TIMEOUT_SECONDS` stays the budget of the WHOLE turn. (The original "per-attempt timeouts out of scope" note is superseded by F11.) |
 | F7 | Label and logs | `label` = labels joined by ` -> ` (`Claude Code CLI -> Codex CLI`), shown by `/help` and the start log. Every switch logs one line: `LLM: <label> failed (<reason>), trying <next label>.` Nothing extra goes to the chat. |
 | F8 | Group replies | `GROUP_REPLIES` defaults to `owners` when ANY provider in the chain is a CLI one (subscription terms, see README), not only when the primary is. |
 | F9 | Images | Each provider receives the turn as it does today; a provider that cannot take images fails and the next one is tried. No special handling. |
 | F10 | 429 with fallbacks | With at least one fallback, a 429 switches to the next provider at once; the existing single retry in `bridge.dart` `_answer` is skipped (it would restart the whole chain). Without fallbacks: today's single retry. |
-| F11 | First-output timeout | Each attempt gets `LLM_FIRST_OUTPUT_SECONDS` (default 60) to emit its first text piece; on expiry the attempt is cancelled (CLI process killed) and counts as an error, so the next provider runs. The whole-turn `LLM_TIMEOUT_SECONDS` still applies. Without fallbacks the first-output timeout also applies (a hung CLI then fails after 60 s instead of 300 s); document it. |
+| F11 | First-output timeout | Each attempt gets `LLM_FIRST_OUTPUT_SECONDS` (default 60) to emit its first text piece; on expiry the attempt is cancelled (CLI process killed) and counts as an error, so the next provider runs. The whole-turn `LLM_TIMEOUT_SECONDS` still applies. Without fallbacks the first-output timeout also applies (a hung CLI then fails after 60 s instead of 300 s); document it. Implementation: `FirstOutputGuard` wraps every provider; `0` = no guard. Note: the CLI providers emit their whole answer when the process ends, so for them this bounds the whole run (README says to raise it for slow models). |
 | A1 | Named actions (replace R1-R5) | `LLM_ACTIONS`: `;`-separated `name=command line` pairs, e.g. on Linux `status=systemctl --user status hermes-gateway --no-pager; logs=journalctl --user -u hermes-gateway -n 200 --no-pager; restart=systemctl --user restart hermes-gateway; restart-bridge=systemctl --user restart jay-bridge`. Names `[a-z0-9-]{1,32}`, unique, max 20; the command line is split into argv by the bridge (simple quoting rules, documented, tested) and run WITHOUT a shell. Unset = no actions, behaviour identical to today. Logged at start (names and commands; no secrets in them by contract). |
 | A2 | How the model uses them | The system prompt gets one generated block listing the action NAMES (not the commands) and the directive: a line `[action: <name>]` anywhere in the answer. The bridge strips the directives, runs each named action (unknown name -> short error line back to the model, nothing runs), captures exit code + stdout/stderr (last 8 KiB, ANSI stripped; README warns not to configure commands that print secrets), and calls the model again with the results as a user turn. Max `LLM_ACTION_STEPS` rounds (default 3) per user message, then the last answer is posted. Action timeout `LLM_ACTION_SECONDS` (default 60), process killed on expiry. The progress message shows `Running: <name>`. |
 | A3 | Enforcement | Only exactly configured commands ever run; the model never passes arguments (no parameters in v1). Holds for every provider (Claude, Codex, API) because the bridge runs them. CLI providers keep NO tools (`--tools ""`, Codex `--sandbox read-only`). |
@@ -41,9 +41,11 @@ common case; the rescue bot handles what a plain restart does not.
 ## Code map
 
 - `lib/src/config.dart`: the per-provider `switch` in `fromEnvironment` becomes a helper used for the primary
-  and every fallback; `LlmConfig` gets the fallback settings list and `cliAllow`.
-- `lib/src/fallback.dart` (new): `FallbackProvider implements LlmProvider` (F4-F7).
-- `lib/src/factory.dart`: `buildProvider` wraps the chain when fallbacks are set.
+  and every fallback (`ProviderSettings`); `LlmConfig` gets `fallbacks` and `firstOutputTimeout`. (`cliAllow`
+  was a leftover of the replaced R-part and is not added.)
+- `lib/src/fallback.dart` (new): `FallbackProvider implements LlmProvider` (F4-F7), `FirstOutputGuard` (F11).
+- `lib/src/factory.dart`: `buildProvider` wraps the chain when fallbacks are set; every attempt sits in a
+  `FirstOutputGuard`. `LlmBridge.retryRateLimit` is false with fallbacks (F10).
 - `lib/src/actions.dart` (new): parsing (A1), argv splitting, OS launcher (A4), runner with timeout and output cap (A2); the action loop in `bridge.dart` (A2, A7).
 - `infra/bots/jay-new-bot.sh` / `.ps1`: `--actions`, `--rescue-hermes` presets (A5), sandbox placement (A6).
 - `README.md`: config rows for `LLM_FALLBACK`, `LLM_FIRST_OUTPUT_SECONDS`, `LLM_ACTIONS`, `LLM_ACTION_STEPS`, `LLM_ACTION_SECONDS`; section "Rescue bot" (presets per OS, prompt, security note).
@@ -51,10 +53,10 @@ common case; the rescue bot handles what a plain restart does not.
 ## Tests (`dart test` in `src/bots/llm_bridge`)
 
 - `config_test`: F1 parse; F2 unknown, duplicate, primary repeated, missing key of a fallback; F3 model only on
-  primary; F8 default; R1 parse and empty.
+  primary; F8 default; A1 parse and empty.
 - `fallback_test` (new, fake providers): error before text switches; error after text does not; all fail ->
   last error with every label (F5); cancel stops the running attempt and starts no other (F6); label (F7);
-  without fallbacks `buildProvider` returns the plain provider.
+  without fallbacks `buildProvider` returns the plain provider (inside its `FirstOutputGuard`, F11).
 - `cli_providers_test`: argv of both CLIs unchanged (regression).
 - `actions_test` (new): parse/validate, argv splitting incl. quotes, Windows `.cmd` launcher, timeout kill, output cap, unknown name, max steps, group/peer directives ignored (A7), a real fake-executable run.
 - bridge tests: action loop with a fake provider (one action, two rounds, max steps), F10, F11.

@@ -11,6 +11,9 @@ void main() {
   LlmConfig parse(Map<String, String> extra) =>
       LlmConfig.fromEnvironment({...base, ...extra});
 
+  /// The provider under the first-output guard (spec F11).
+  LlmProvider unwrap(LlmProvider p) => p is FirstOutputGuard ? p.inner : p;
+
   Matcher configError(String text) => throwsA(
     isA<ConfigException>().having((e) => e.message, 'message', contains(text)),
   );
@@ -29,7 +32,7 @@ void main() {
     expect(c.systemPrompt, contains('Jay bot'));
     expect(c.statePath, '/tmp/x/bot.store.llm');
     expect(c.greeting, isTrue);
-    expect(buildProvider(c), isA<AnthropicProvider>());
+    expect(unwrap(buildProvider(c)), isA<AnthropicProvider>());
   });
 
   test('anthropic without a key is refused with a hint', () {
@@ -66,7 +69,7 @@ void main() {
     expect(c.apiKey, isNull);
     expect(c.effort, isNull);
     expect(c.baseUrl, 'http://localhost:11434/v1');
-    final o = buildProvider(c) as OpenAiProvider;
+    final o = unwrap(buildProvider(c)) as OpenAiProvider;
     expect(o.model, 'llama3.3');
   });
 
@@ -95,13 +98,13 @@ void main() {
     expect(claude.model, isNull);
     expect(claude.cliBinary, 'claude');
     expect(claude.cliWorkDir, '/tmp/x/bot.store.cli');
-    expect(buildProvider(claude), isA<ClaudeCliProvider>());
+    expect(unwrap(buildProvider(claude)), isA<ClaudeCliProvider>());
     final codex = parse({
       'LLM_PROVIDER': 'codex-cli',
       'CODEX_BIN': '/opt/codex',
     });
     expect(codex.cliBinary, '/opt/codex');
-    expect(buildProvider(codex), isA<CodexCliProvider>());
+    expect(unwrap(buildProvider(codex)), isA<CodexCliProvider>());
   });
 
   test('missing or unknown provider names the valid ones', () {
@@ -237,5 +240,140 @@ void main() {
       () => parse({...cli, 'BOT_INBOUND': 'everyone'}),
       configError('BOT_INBOUND must be owners or open'),
     );
+  });
+
+  group('LLM_FALLBACK (spec 2026-11-12-llm-bridge-fallback-rescue)', () {
+    test('F1: unset or empty = no chain, the plain provider', () {
+      for (final env in [
+        {'LLM_PROVIDER': 'claude-cli'},
+        {'LLM_PROVIDER': 'claude-cli', 'LLM_FALLBACK': ' , '},
+      ]) {
+        final c = parse(env);
+        expect(c.fallbacks, isEmpty);
+        final p = buildProvider(c);
+        expect(p, isA<FirstOutputGuard>());
+        expect(unwrap(p), isA<ClaudeCliProvider>());
+      }
+    });
+
+    test('F1/F7: ordered chain, label joined by ->', () {
+      final c = parse({
+        'LLM_PROVIDER': 'claude-cli',
+        'LLM_FALLBACK': 'codex-cli, anthropic',
+        'ANTHROPIC_API_KEY': 'k',
+        'CODEX_BIN': '/opt/codex',
+      });
+      expect(c.fallbacks.map((f) => f.kind), [
+        LlmProviderKind.codexCli,
+        LlmProviderKind.anthropic,
+      ]);
+      expect(c.fallbacks.first.cliBinary, '/opt/codex');
+      expect(c.fallbacks.first.cliWorkDir, '/tmp/x/bot.store.cli');
+      final p = buildProvider(c) as FallbackProvider;
+      expect(p.providers.map(unwrap), [
+        isA<ClaudeCliProvider>(),
+        isA<CodexCliProvider>(),
+        isA<AnthropicProvider>(),
+      ]);
+      expect(
+        p.label,
+        'Claude Code CLI -> Codex CLI -> Anthropic claude-sonnet-5-5',
+      );
+    });
+
+    test('F2: unknown, duplicate, primary repeated', () {
+      expect(
+        () => parse({'LLM_PROVIDER': 'claude-cli', 'LLM_FALLBACK': 'gemini'}),
+        configError('LLM_FALLBACK: "gemini" is unknown'),
+      );
+      expect(
+        () => parse({
+          'LLM_PROVIDER': 'claude-cli',
+          'LLM_FALLBACK': 'codex-cli,codex-cli',
+        }),
+        configError('codex-cli is listed twice'),
+      );
+      expect(
+        () =>
+            parse({'LLM_PROVIDER': 'claude-cli', 'LLM_FALLBACK': 'Claude-CLI'}),
+        configError('already LLM_PROVIDER'),
+      );
+    });
+
+    test('F2: a fallback without its key fails at start', () {
+      expect(
+        () =>
+            parse({'LLM_PROVIDER': 'claude-cli', 'LLM_FALLBACK': 'anthropic'}),
+        configError('ANTHROPIC_API_KEY'),
+      );
+      expect(
+        () => parse({'LLM_PROVIDER': 'codex-cli', 'LLM_FALLBACK': 'openai'}),
+        configError('OPENAI_API_KEY'),
+      );
+    });
+
+    test('F3: model and effort only on the primary', () {
+      final c = parse({
+        'LLM_PROVIDER': 'claude-cli',
+        'LLM_MODEL': 'opus',
+        'LLM_EFFORT': 'high',
+        'LLM_FALLBACK': 'codex-cli,anthropic,openai',
+        'ANTHROPIC_API_KEY': 'k',
+        'OPENAI_API_KEY': 'o',
+      });
+      expect(c.model, 'opus');
+      expect(c.fallbacks[0].model, isNull);
+      expect(c.fallbacks[1].model, 'claude-sonnet-5-5');
+      expect(c.fallbacks[1].effort, 'low');
+      expect(c.fallbacks[2].model, 'gpt-6.1-sol');
+      expect(c.fallbacks[2].effort, 'low');
+    });
+
+    test('F3: openai fallback with a custom base URL is refused', () {
+      expect(
+        () => parse({
+          'LLM_PROVIDER': 'claude-cli',
+          'LLM_FALLBACK': 'openai',
+          'OPENAI_BASE_URL': 'http://localhost:11434/v1',
+        }),
+        configError('LLM_FALLBACK=openai with a custom OPENAI_BASE_URL'),
+      );
+    });
+
+    test('F8: a CLI anywhere in the chain defaults groups to owners', () {
+      final c = parse({
+        'LLM_PROVIDER': 'anthropic',
+        'ANTHROPIC_API_KEY': 'k',
+        'LLM_FALLBACK': 'codex-cli',
+      });
+      expect(c.groupReplies, GroupReplies.owners);
+      final api = parse({
+        'LLM_PROVIDER': 'anthropic',
+        'ANTHROPIC_API_KEY': 'k',
+        'LLM_FALLBACK': 'openai',
+        'OPENAI_API_KEY': 'o',
+      });
+      expect(api.groupReplies, GroupReplies.members);
+    });
+
+    test('F11: LLM_FIRST_OUTPUT_SECONDS default 60, 0 = no guard', () {
+      expect(
+        parse({'LLM_PROVIDER': 'claude-cli'}).firstOutputTimeout,
+        const Duration(seconds: 60),
+      );
+      final off = parse({
+        'LLM_PROVIDER': 'claude-cli',
+        'LLM_FIRST_OUTPUT_SECONDS': '0',
+      });
+      expect(off.firstOutputTimeout, Duration.zero);
+      expect(buildProvider(off), isA<ClaudeCliProvider>());
+      expect(
+        () => parse({
+          'LLM_PROVIDER': 'claude-cli',
+          'LLM_FIRST_OUTPUT_SECONDS': 'x',
+        }),
+        configError('LLM_FIRST_OUTPUT_SECONDS'),
+      );
+    });
   });
 }

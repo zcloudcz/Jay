@@ -73,6 +73,30 @@ abstract final class LlmDefaults {
       'images the user sends you.';
 }
 
+/// The settings of one provider of the chain (primary or fallback).
+class ProviderSettings {
+  const ProviderSettings({
+    required this.kind,
+    this.model,
+    this.apiKey,
+    this.baseUrl,
+    this.effort,
+    this.cliBinary,
+    this.cliWorkDir,
+  });
+
+  final LlmProviderKind kind;
+  final String? model;
+  final String? apiKey;
+  final String? baseUrl;
+  final String? effort;
+  final String? cliBinary;
+  final String? cliWorkDir;
+
+  bool get isCli =>
+      kind == LlmProviderKind.claudeCli || kind == LlmProviderKind.codexCli;
+}
+
 final _handlePattern = RegExp(r'^CT-[A-Z0-9]{4}-[A-Z0-9]{4}$');
 
 class LlmConfig {
@@ -93,6 +117,8 @@ class LlmConfig {
     this.progressAfter = const Duration(seconds: 5),
     this.cliBinary,
     this.cliWorkDir,
+    this.fallbacks = const [],
+    this.firstOutputTimeout = const Duration(seconds: 60),
     this.greeting = true,
     this.ackReactions = true,
     this.groupReplies = GroupReplies.members,
@@ -132,6 +158,24 @@ class LlmConfig {
 
   /// Empty working directory the CLI runs in (CLI providers).
   final String? cliWorkDir;
+
+  /// `LLM_FALLBACK`: providers tried in order after [provider] (spec F1).
+  final List<ProviderSettings> fallbacks;
+
+  /// `LLM_FIRST_OUTPUT_SECONDS`: each attempt's time to its first text
+  /// piece (spec F11); zero = no limit.
+  final Duration firstOutputTimeout;
+
+  /// The primary provider's settings ([provider], [model], ...).
+  ProviderSettings get primary => ProviderSettings(
+    kind: provider,
+    model: model,
+    apiKey: apiKey,
+    baseUrl: baseUrl,
+    effort: effort,
+    cliBinary: cliBinary,
+    cliWorkDir: cliWorkDir,
+  );
 
   /// Send the one-time "Ahoj, jsem ..." greeting to the owners.
   final bool greeting;
@@ -222,58 +266,110 @@ class LlmConfig {
         ? fallback
         : (effortRaw == 'none' || effortRaw == 'off' ? null : effortRaw);
 
-    String? model = opt('LLM_MODEL');
-    String? apiKey;
-    String? baseUrl;
-    String? effortValue;
-    String? cliBinary;
-    String? cliWorkDir;
-    switch (provider) {
-      case LlmProviderKind.anthropic:
-        apiKey = required(
-          'ANTHROPIC_API_KEY',
-          'Create one at https://platform.claude.com (API keys).',
-        );
-        baseUrl = httpUrl(
-          'ANTHROPIC_BASE_URL',
-          opt('ANTHROPIC_BASE_URL') ?? LlmDefaults.anthropicBaseUrl,
-        );
-        model ??= LlmDefaults.anthropicModel;
-        effortValue = effort(LlmDefaults.anthropicEffort);
-      case LlmProviderKind.openai:
-        baseUrl = httpUrl(
-          'OPENAI_BASE_URL',
-          opt('OPENAI_BASE_URL') ?? LlmDefaults.openaiBaseUrl,
-        );
-        final official = Uri.parse(baseUrl).host == 'api.openai.com';
-        apiKey = opt('OPENAI_API_KEY');
-        // WHY the key is optional off api.openai.com: local servers
-        // (Ollama, LM Studio) take none; OpenAI itself always needs one.
-        if (official && apiKey == null) {
-          throw const ConfigException(
-            'Missing required environment variable OPENAI_API_KEY. Create '
-            'one at https://platform.openai.com/api-keys, or set '
-            'OPENAI_BASE_URL to a compatible endpoint.',
+    // One provider's settings, the same for the primary and every fallback
+    // (spec F2): a fallback that could not start fails now, not at the
+    // first failover. Model and effort are the primary's only (F3): model
+    // ids differ per vendor, so fallbacks take their provider default.
+    ProviderSettings settingsFor(
+      LlmProviderKind kind, {
+      required bool primary,
+    }) {
+      final where = primary ? '' : ' (needed by LLM_FALLBACK=${kind.id})';
+      String? model = primary ? opt('LLM_MODEL') : null;
+      String? effortOf(String? fallback) =>
+          primary ? effort(fallback) : fallback;
+      switch (kind) {
+        case LlmProviderKind.anthropic:
+          return ProviderSettings(
+            kind: kind,
+            apiKey: required(
+              'ANTHROPIC_API_KEY',
+              'Create one at https://platform.claude.com (API keys).$where',
+            ),
+            baseUrl: httpUrl(
+              'ANTHROPIC_BASE_URL',
+              opt('ANTHROPIC_BASE_URL') ?? LlmDefaults.anthropicBaseUrl,
+            ),
+            model: model ?? LlmDefaults.anthropicModel,
+            effort: effortOf(LlmDefaults.anthropicEffort),
           );
-        }
-        if (model == null) {
-          if (!official) {
-            throw const ConfigException(
-              'LLM_MODEL is required with a custom OPENAI_BASE_URL (the '
-              'endpoint decides which models exist).',
+        case LlmProviderKind.openai:
+          final baseUrl = httpUrl(
+            'OPENAI_BASE_URL',
+            opt('OPENAI_BASE_URL') ?? LlmDefaults.openaiBaseUrl,
+          );
+          final official = Uri.parse(baseUrl).host == 'api.openai.com';
+          final apiKey = opt('OPENAI_API_KEY');
+          // WHY the key is optional off api.openai.com: local servers
+          // (Ollama, LM Studio) take none; OpenAI itself always needs one.
+          if (official && apiKey == null) {
+            throw ConfigException(
+              'Missing required environment variable OPENAI_API_KEY. Create '
+              'one at https://platform.openai.com/api-keys, or set '
+              'OPENAI_BASE_URL to a compatible endpoint.$where',
             );
           }
-          model = LlmDefaults.openaiModel;
-        }
-        // Compatible servers differ in which reasoning fields they accept;
-        // only OpenAI itself gets one by default.
-        effortValue = effort(official ? LlmDefaults.openaiEffort : null);
-      case LlmProviderKind.claudeCli:
-        cliBinary = opt('CLAUDE_BIN') ?? 'claude';
-        cliWorkDir = opt('LLM_CLI_WORKDIR') ?? '$storePath.cli';
-      case LlmProviderKind.codexCli:
-        cliBinary = opt('CODEX_BIN') ?? 'codex';
-        cliWorkDir = opt('LLM_CLI_WORKDIR') ?? '$storePath.cli';
+          if (model == null) {
+            if (!official) {
+              throw ConfigException(
+                primary
+                    ? 'LLM_MODEL is required with a custom OPENAI_BASE_URL '
+                          '(the endpoint decides which models exist).'
+                    : 'LLM_FALLBACK=openai with a custom OPENAI_BASE_URL is '
+                          'not supported: fallbacks use their provider\'s '
+                          'default model, and that endpoint has none '
+                          '(LLM_MODEL is for LLM_PROVIDER only).',
+              );
+            }
+            model = LlmDefaults.openaiModel;
+          }
+          return ProviderSettings(
+            kind: kind,
+            apiKey: apiKey,
+            baseUrl: baseUrl,
+            model: model,
+            // Compatible servers differ in which reasoning fields they
+            // accept; only OpenAI itself gets one by default.
+            effort: effortOf(official ? LlmDefaults.openaiEffort : null),
+          );
+        case LlmProviderKind.claudeCli:
+          return ProviderSettings(
+            kind: kind,
+            model: model,
+            cliBinary: opt('CLAUDE_BIN') ?? 'claude',
+            cliWorkDir: opt('LLM_CLI_WORKDIR') ?? '$storePath.cli',
+          );
+        case LlmProviderKind.codexCli:
+          return ProviderSettings(
+            kind: kind,
+            model: model,
+            cliBinary: opt('CODEX_BIN') ?? 'codex',
+            cliWorkDir: opt('LLM_CLI_WORKDIR') ?? '$storePath.cli',
+          );
+      }
+    }
+
+    final primary = settingsFor(provider, primary: true);
+    final fallbacks = <ProviderSettings>[];
+    for (final part in (env['LLM_FALLBACK'] ?? '').split(',')) {
+      final raw = part.trim();
+      if (raw.isEmpty) continue;
+      final kind =
+          LlmProviderKind.parse(raw) ??
+          (throw ConfigException(
+            'LLM_FALLBACK: "$raw" is unknown. Use provider ids like '
+            'LLM_PROVIDER: ${LlmProviderKind.values.map((k) => k.id).join(', ')}.',
+          ));
+      if (kind == provider) {
+        throw ConfigException(
+          'LLM_FALLBACK: ${kind.id} is already LLM_PROVIDER; list only the '
+          'providers to try after it.',
+        );
+      }
+      if (fallbacks.any((f) => f.kind == kind)) {
+        throw ConfigException('LLM_FALLBACK: ${kind.id} is listed twice.');
+      }
+      fallbacks.add(settingsFor(kind, primary: false));
     }
 
     final imageModel = opt('LLM_IMAGE_MODEL');
@@ -311,9 +407,8 @@ class LlmConfig {
     // personal subscription, which the vendors' terms cover for his own use
     // (README "Subscription providers"). Answering other group members is
     // an explicit opt-in there; API keys default to members (bot-access A4).
-    final cli =
-        provider == LlmProviderKind.claudeCli ||
-        provider == LlmProviderKind.codexCli;
+    // F8: any CLI provider in the chain counts, not only the primary.
+    final cli = primary.isCli || fallbacks.any((f) => f.isCli);
     final groupRepliesRaw =
         opt('GROUP_REPLIES') ?? (cli ? 'owners' : 'members');
     final groupReplies =
@@ -335,10 +430,10 @@ class LlmConfig {
       allowedHandles: parseAllowedHandles(env['ALLOWED_HANDLES']),
       displayName: displayName,
       provider: provider,
-      model: model,
-      apiKey: apiKey,
-      baseUrl: baseUrl,
-      effort: effortValue,
+      model: primary.model,
+      apiKey: primary.apiKey,
+      baseUrl: primary.baseUrl,
+      effort: primary.effort,
       maxTokens: positive('LLM_MAX_TOKENS', LlmDefaults.maxTokens, min: 16),
       historyMessages: positive(
         'LLM_HISTORY_MESSAGES',
@@ -351,8 +446,12 @@ class LlmConfig {
       progressAfter: Duration(
         seconds: positive('PROGRESS_AFTER_SECONDS', 5, min: 0),
       ),
-      cliBinary: cliBinary,
-      cliWorkDir: cliWorkDir,
+      cliBinary: primary.cliBinary,
+      cliWorkDir: primary.cliWorkDir,
+      fallbacks: fallbacks,
+      firstOutputTimeout: Duration(
+        seconds: positive('LLM_FIRST_OUTPUT_SECONDS', 60, min: 0),
+      ),
       greeting: const {'on', 'true', '1'}.contains(greetingRaw),
       ackReactions: const {'on', 'true', '1'}.contains(ackRaw),
       groupReplies: groupReplies,

@@ -30,7 +30,7 @@ Future<void> main() async {
     exit(78); // EX_CONFIG
   }
 
-  final provider = buildProvider(config);
+  final provider = buildProvider(config, log: log);
   log('Provider: ${provider.label}.');
   final imageGenerator = buildImageGenerator(config);
   if (imageGenerator != null) log('Image generation: ${imageGenerator.label}.');
@@ -93,6 +93,7 @@ Future<void> main() async {
     progressAfter: config.progressAfter,
     imageGenerator: imageGenerator,
     mediaDir: config.mediaDir,
+    retryRateLimit: config.fallbacks.isEmpty,
     log: log,
   );
   await runJayGlue(

@@ -122,7 +122,9 @@ want a bot for more people or for heavy use, use an API key (`anthropic` or
 | `ALLOWED_HANDLES` | yes | | comma-separated `CT-XXXX-XXXX` handles of the owner(s) |
 | `BOT_DISPLAY_NAME` | no | `Jay bot` | the bot's name (`@mention` in groups, greeting) |
 | `LLM_PROVIDER` | yes | | `anthropic`, `openai`, `claude-cli`, `codex-cli` |
-| `LLM_MODEL` | see table | provider default | model id or CLI alias |
+| `LLM_MODEL` | see table | provider default | model id or CLI alias (primary provider only) |
+| `LLM_FALLBACK` | no | unset (no fallback) | comma-separated provider ids tried in order when the previous one fails before it sent any text, e.g. `codex-cli`; each needs its own settings (key, `*_BIN`), checked at start. Fallbacks use their provider's default model (`LLM_MODEL`/`LLM_EFFORT` are for `LLM_PROVIDER` only), so an `openai` fallback with a custom `OPENAI_BASE_URL` is refused. With a fallback, a 429 switches at once (no retry of the chain) |
+| `LLM_FIRST_OUTPUT_SECONDS` | no | `60` | each provider attempt must send its first text within this, else it is cancelled (CLI process killed) and counts as failed, so the next fallback runs. Also without fallbacks. CLI providers send the whole answer at the end, so for them this limits the whole run: raise it for slow models. `0` = no limit |
 | `ANTHROPIC_API_KEY` | anthropic | | API key from platform.claude.com |
 | `ANTHROPIC_BASE_URL` | no | `https://api.anthropic.com` | for a gateway |
 | `OPENAI_API_KEY` | openai on api.openai.com | | API key (optional for local servers) |
@@ -131,7 +133,7 @@ want a bot for more people or for heavy use, use an API key (`anthropic` or
 | `LLM_SYSTEM_PROMPT` | no | short friendly-assistant prompt (answers in the user's language) | system prompt |
 | `LLM_HISTORY_MESSAGES` | no | `20` | messages remembered per chat (user + assistant); `0` = none |
 | `LLM_MAX_TOKENS` | no | `8192` | output cap per answer (thinking counts on current Claude models) |
-| `LLM_TIMEOUT_SECONDS` | no | `300` | longest wait for one answer |
+| `LLM_TIMEOUT_SECONDS` | no | `300` | longest wait for one answer (the whole fallback chain) |
 | `PROGRESS_AFTER_SECONDS` | no | `5` | "Working on it..." after this long, then edited with the streamed text (max 30 edits); `0` = never |
 | `CLAUDE_BIN`, `CODEX_BIN` | no | `claude`, `codex` | CLI path (the setup script writes the absolute path, services have a short `PATH`) |
 | `LLM_CLI_WORKDIR` | no | `<BOT_STORE_PATH>.cli` | empty working directory of the CLI |

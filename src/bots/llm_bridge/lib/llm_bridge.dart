@@ -10,6 +10,7 @@ export 'src/bridge.dart';
 export 'src/cli_providers.dart';
 export 'src/config.dart';
 export 'src/factory.dart';
+export 'src/fallback.dart';
 export 'src/history_store.dart';
 export 'src/http_providers.dart';
 export 'src/os_process.dart';

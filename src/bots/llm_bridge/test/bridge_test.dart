@@ -23,8 +23,11 @@ void main() {
     Duration progressAfter = Duration.zero,
     Duration editInterval = const Duration(milliseconds: 20),
     int maxEdits = 30,
+    bool retryRateLimit = true,
+    LlmProvider? use,
   }) => LlmBridge(
-    provider: provider,
+    provider: use ?? provider,
+    retryRateLimit: retryRateLimit,
     history: store,
     displayName: 'Pepa',
     systemPrompt: 'You are Pepa.',
@@ -289,6 +292,57 @@ void main() {
     expect(sleeps, [const Duration(seconds: 5)]);
     expect(sink.texts.single, contains('rate'));
   });
+
+  test('F10: with fallbacks a 429 is not retried by the bridge', () async {
+    provider.scripts.add(
+      () => Stream.error(const LlmException('A: x; B: rate', status: 429)),
+    );
+    final sink = FakeSink();
+    final r = await bridge(
+      retryRateLimit: false,
+    ).handle(conversationId: 'c', text: 'q', sink: sink);
+    expect(provider.calls, hasLength(1));
+    expect(sleeps, isEmpty);
+    expect(r.failed, isTrue);
+    expect(sink.texts.single, contains('B: rate'));
+  });
+
+  test('F11: a provider silent past the first-output limit fails the turn '
+      'long before the turn timeout', () async {
+    provider.scripts.add(() => StreamController<String>().stream);
+    final sink = FakeSink();
+    final watch = Stopwatch()..start();
+    final r = await bridge(
+      timeout: const Duration(seconds: 30),
+      use: FirstOutputGuard(provider, const Duration(milliseconds: 50)),
+    ).handle(conversationId: 'c', text: 'q', sink: sink);
+    expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+    expect(r.failed, isTrue);
+    expect(sink.texts.single, contains('Fake model sent no answer within'));
+  });
+
+  test(
+    'F5: the chain\'s failure names every provider in the apology',
+    () async {
+      final chain = FallbackProvider([
+        FirstOutputGuard(provider, const Duration(seconds: 5)),
+        FirstOutputGuard(provider, const Duration(seconds: 5)),
+      ]);
+      provider.scripts
+        ..add(() => Stream.error(const LlmException('not logged in')))
+        ..add(() => Stream.error(const LlmException('quota')));
+      final sink = FakeSink();
+      final r = await bridge(
+        use: chain,
+      ).handle(conversationId: 'c', text: 'q', sink: sink);
+      expect(r.failed, isTrue);
+      expect(
+        sink.texts.single,
+        'Sorry, I could not answer: Fake model: not logged in; Fake model: '
+        'quota',
+      );
+    },
+  );
 
   test('a huge retry-after is capped at 30 s', () async {
     provider.scripts
