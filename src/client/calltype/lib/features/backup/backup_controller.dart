@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:ui' show Locale;
 
+import 'package:calltype_core/messaging/group_topic.dart' show groupTopicType;
 import 'package:calltype_core/messaging/pin.dart' show pinType;
 import 'package:calltype_core/messaging/poll.dart';
 import 'package:calltype_core/messaging/reaction.dart' show reactionType;
@@ -13,6 +14,7 @@ import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/network/backup_api.dart';
 import 'backup_import.dart';
 import '../chat/participant_colors.dart' show participantColorKeyPrefix;
+import '../groups/group_topic_store.dart';
 import 'package:calltype_core/storage/database.dart';
 import '../../l10n/l10n.dart';
 
@@ -375,7 +377,12 @@ Future<Map<String, Object?>> buildBackupData(
       // older app's import rejects those types and would fail the whole
       // restore.
       await (db.select(db.messages)..where(
-            (m) => m.type.isNotIn([reactionType, pinType, pollVoteType]),
+            (m) => m.type.isNotIn([
+              reactionType,
+              pinType,
+              pollVoteType,
+              groupTopicType,
+            ]),
           ))
           .get(),
       await db.select(db.messageReactions).get(),
@@ -384,6 +391,9 @@ Future<Map<String, Object?>> buildBackupData(
       await (db.select(
         db.backupState,
       )..where((s) => s.key.like('$participantColorKeyPrefix%'))).get(),
+      await (db.select(
+        db.backupState,
+      )..where((s) => s.key.like('$groupTopicKeyPrefix%'))).get(),
     ),
   );
   final contacts = snapshot.$1;
@@ -486,6 +496,16 @@ Future<Map<String, Object?>> buildBackupData(
             'key': row.key.substring(participantColorKeyPrefix.length),
             'color': color,
           },
+    ],
+    // Additive (spec 2026-11-13-group-topics row 17): the topic of each
+    // kept group, so a restore or a newly linked device shows it without
+    // waiting for the next change. Older backups have no such key.
+    'groupTopics': [
+      for (final row in snapshot.$8)
+        if (row.key.substring(groupTopicKeyPrefix.length)
+            case final conversationId when kept(conversationId))
+          if (StoredGroupTopic.parse(row.value) case final topic?)
+            {'conversationId': conversationId, ...topic.toJson()},
     ],
   };
 }

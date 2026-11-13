@@ -33,6 +33,7 @@ import 'features/contacts/contacts_controller.dart';
 import 'features/devices/device_service.dart';
 import 'features/devices/history_transfer.dart';
 import 'features/devices/own_device_sender.dart';
+import 'features/groups/group_topic_service.dart';
 import 'features/media/media_service.dart';
 import 'features/media/media_store.dart';
 import 'features/mute/mute_controller.dart';
@@ -183,6 +184,26 @@ void main() async {
         devices.isOpen ? devices.directory.selfIdentityId : null,
     connected: () => signalRClient.connected,
     strings: () => lookupAppLocalizations(_appLocale()),
+  );
+
+  // Group topics (spec 2026-11-13-group-topics row 14): set from the group
+  // create screen and Group info, which have no chat controller, so the
+  // sender is app-wide like the resend above and shares its send path.
+  final groupTopics = GroupTopicService(
+    database: db,
+    apiClient: apiClient,
+    sender: () => MessageSender(
+      database: db,
+      signalRClient: signalRClient,
+      sessionManager: sessionManager,
+      apiClient: apiClient,
+      directory: devices.directory,
+      onStale: devices.reportStaleFanout,
+      onMissingOwnDevice: (d) =>
+          unawaited(devices.reportVanishedCompanions([d])),
+    ),
+    directory: () => devices.directory,
+    resend: resend,
   );
 
   // Read state between own devices (spec 2026-11-09, part 2): the open
@@ -399,6 +420,7 @@ void main() async {
         Provider.value(value: inbox),
         Provider.value(value: contactSync),
         Provider.value(value: resend),
+        Provider<GroupTopicService?>.value(value: groupTopics),
         Provider.value(value: readSync),
         Provider.value(value: chatDeletion),
         ChangeNotifierProvider.value(value: historyTransfer),

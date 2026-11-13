@@ -93,7 +93,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     });
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'Team');
+    await tester.enterText(find.byType(TextField).first, 'Team');
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pump();
     await tester.tap(find.text('Create'));

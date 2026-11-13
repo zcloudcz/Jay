@@ -447,6 +447,27 @@ void main() {
     await closeChat(tester, chat);
   });
 
+  testWidgets('group chat menu offers Group info and, outside business '
+      'groups, a new topic with these members', (tester) async {
+    // Spec 2026-11-13-group-topics rows 12 and 16.
+    final chat = await pumpChat(tester, _group);
+    await tester.tap(find.byKey(const ValueKey('chat-group-menu')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('chat-group-info')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chat-new-topic')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chat-group-header')), findsOneWidget);
+    await closeChat(tester, chat);
+  });
+
+  testWidgets('a business group has no new topic item', (tester) async {
+    final chat = await pumpChat(tester, _business);
+    await tester.tap(find.byKey(const ValueKey('chat-group-menu')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('chat-group-info')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chat-new-topic')), findsNothing);
+    await closeChat(tester, chat);
+  });
+
   testWidgets('without the deletion service the dialogs do nothing', (
     tester,
   ) async {

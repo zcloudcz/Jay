@@ -14,6 +14,7 @@ import 'package:calltype_core/network/api_client.dart';
 import '../../core/network/signalr_client.dart';
 import 'package:calltype_core/storage/database.dart';
 import '../chat/message_inbox_service.dart' show MessageProcessingQueue;
+import '../groups/group_topic_store.dart' show groupTopicKeyPrefix;
 
 /// What a companion knows about its own link (shown on the chat list).
 enum CompanionStatus {
@@ -323,6 +324,7 @@ class DeviceService extends ChangeNotifier {
                 s.key.like('sendfail:%') |
                 s.key.like('read-upto:%') |
                 s.key.like('chat-deleted:%') |
+                s.key.like('$groupTopicKeyPrefix%') |
                 s.key.equals(companionOfKey) |
                 s.key.equals(linkedPrimaryHandleKey),
           ))
@@ -365,6 +367,7 @@ class DeviceService extends ChangeNotifier {
                   s.key.like('sendfail:%') |
                   s.key.like('read-upto:%') |
                   s.key.like('chat-deleted:%') |
+                  s.key.like('$groupTopicKeyPrefix%') |
                   s.key.equals(companionOfKey) |
                   s.key.equals(linkedPrimaryHandleKey) |
                   s.key.equals(vanishedCompanionsKey),

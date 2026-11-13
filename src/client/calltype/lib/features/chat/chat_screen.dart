@@ -23,6 +23,7 @@ import 'message_input.dart';
 import 'mentions.dart';
 import 'participant_colors.dart';
 import '../contacts/rename_contact_dialog.dart';
+import '../groups/group_topic_widgets.dart' show GroupHeaderTitle;
 import 'package:flutter/services.dart';
 import 'attachment.dart';
 import 'attachment_media.dart';
@@ -1262,7 +1263,13 @@ class ChatScreen extends StatelessWidget {
     }
     return Scaffold(
       appBar: AppBar(
-        title: NameWithBotBadge(name: name, isBot: isBot),
+        title: group
+            ? GroupHeaderTitle(
+                conversationId: contactId,
+                name: name,
+                topic: controller.groupTopic,
+              )
+            : NameWithBotBadge(name: name, isBot: isBot),
         actions: [
           // A bot is a headless program with no WebRTC stack — a call could
           // only ever ring out, so the buttons are not offered at all.
@@ -1327,9 +1334,23 @@ class ChatScreen extends StatelessWidget {
               key: const ValueKey('chat-group-menu'),
               itemBuilder: (_) => [
                 PopupMenuItem(
+                  key: const ValueKey('chat-group-info'),
+                  onTap: () => context.push('/chats/$contactId/info'),
+                  child: Text(l10n.groupInfoTitle),
+                ),
+                PopupMenuItem(
                   onTap: () => context.push('/chats/$contactId/bot-talk'),
                   child: Text(l10n.botTalkTitle),
                 ),
+                // T6 (spec 2026-11-13-group-topics row 16): not in business
+                // groups, and groups are created from the primary only.
+                if (organizationName == null && !controller.isCompanion)
+                  PopupMenuItem(
+                    key: const ValueKey('chat-new-topic'),
+                    onTap: () =>
+                        context.push('/groups/create?from=$contactId'),
+                    child: Text(l10n.groupNewTopicWithMembers),
+                  ),
                 // Spec 2026-11-09-delete-chats-contacts D1/D5 (there is no
                 // separate group detail screen, so they live here).
                 if (canDelete) ...[

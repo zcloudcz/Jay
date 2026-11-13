@@ -169,6 +169,9 @@ void main() {
         'allowedBotDeviceIds': [_botA],
         'maxBotTurns': 10,
         'pauseMinutes': 0,
+        // Group topics T3/T4: always sent, kept from the server value.
+        'botsReadAll': false,
+        'replyWithoutMention': false,
       });
     });
 
@@ -272,6 +275,54 @@ void main() {
       expect(api.saves.single['allowedBotDeviceIds'], [_botB]);
       expect(api.saves.single['maxBotTurns'], 12);
       expect(find.text(l10nEn.botTalkSaved), findsOneWidget);
+    });
+
+    testWidgets('T3/T4 switches show the server value and are saved', (
+      tester,
+    ) async {
+      // Spec 2026-11-13-group-topics row 15: independent of the mode, and
+      // a save of the mode keeps the other flag as the server had it.
+      final api = await pumpScreen(
+        tester,
+        botTalk: const BotTalkSettings(replyWithoutMention: true),
+      );
+      SwitchListTile tile(String key) =>
+          tester.widget<SwitchListTile>(find.byKey(ValueKey(key)));
+      expect(find.text(l10nEn.botTalkReadAllTitle), findsOneWidget);
+      expect(find.text(l10nEn.botTalkReadAllHint), findsOneWidget);
+      expect(find.text(l10nEn.botTalkReplyWithoutMentionHint), findsOneWidget);
+      expect(tile('bot-talk-read-all').value, isFalse);
+      expect(tile('bot-talk-reply-without-mention').value, isTrue);
+
+      await tester.tap(find.byKey(const ValueKey('bot-talk-read-all')));
+      await tester.pump();
+      expect(tile('bot-talk-read-all').value, isTrue);
+      await tester.tap(find.text(l10nEn.commonSave));
+      await tester.pumpAndSettle();
+
+      expect(api.saves.single['botsReadAll'], isTrue);
+      expect(api.saves.single['replyWithoutMention'], isTrue);
+      expect(api.saves.single['mode'], 'off');
+    });
+
+    testWidgets('non-admin cannot flip the T3/T4 switches', (tester) async {
+      await pumpScreen(tester, myRole: 'member');
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.byKey(const ValueKey('bot-talk-read-all')),
+            )
+            .onChanged,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.byKey(const ValueKey('bot-talk-reply-without-mention')),
+            )
+            .onChanged,
+        isNull,
+      );
     });
 
     testWidgets('an out-of-range number shows an error and disables Save', (

@@ -80,6 +80,11 @@ class BotTalkController extends ChangeNotifier {
   String maxTurnsText = '${BotTalkSettings.defaultMaxBotTurns}';
   String pauseText = '${BotTalkSettings.defaultPauseMinutes}';
 
+  /// Group topics T3/T4 (spec 2026-11-13-group-topics row 15): independent
+  /// of [mode], saved with the same PUT.
+  bool botsReadAll = false;
+  bool replyWithoutMention = false;
+
   /// Bumped whenever the draft is replaced from the server, so the screen
   /// knows to refill its text fields (it owns the TextEditingControllers).
   int draftVersion = 0;
@@ -134,6 +139,20 @@ class BotTalkController extends ChangeNotifier {
 
   bool isSelected(String deviceId) => selected.contains(deviceId.toLowerCase());
 
+  void setBotsReadAll(bool value) {
+    if (!canEdit) return;
+    botsReadAll = value;
+    _dirty = true;
+    notifyListeners();
+  }
+
+  void setReplyWithoutMention(bool value) {
+    if (!canEdit) return;
+    replyWithoutMention = value;
+    _dirty = true;
+    notifyListeners();
+  }
+
   void setMaxTurnsText(String value) {
     maxTurnsText = value;
     _dirty = true;
@@ -169,7 +188,9 @@ class BotTalkController extends ChangeNotifier {
     try {
       final result = await _api.setGroupBotTalk(
         groupId,
-        BotTalkSettings(
+        // copyWith of the saved value: every field is set from the draft, and
+        // a field this screen does not know yet keeps the server's value.
+        saved.copyWith(
           mode: mode,
           // Only "selected" uses the list. Sending it in the other modes
           // would let a bot that has left the group meanwhile turn a harmless
@@ -183,6 +204,8 @@ class BotTalkController extends ChangeNotifier {
               : const [],
           maxBotTurns: turns,
           pauseMinutes: pause,
+          botsReadAll: botsReadAll,
+          replyWithoutMention: replyWithoutMention,
         ),
       );
       if (_disposed) return null;
@@ -220,6 +243,8 @@ class BotTalkController extends ChangeNotifier {
       ..addAll(saved.allowedBotDeviceIds.map((id) => id.toLowerCase()));
     maxTurnsText = '${saved.maxBotTurns}';
     pauseText = '${saved.pauseMinutes}';
+    botsReadAll = saved.botsReadAll;
+    replyWithoutMention = saved.replyWithoutMention;
     draftVersion++;
   }
 
