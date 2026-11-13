@@ -298,6 +298,9 @@ class FakeHubClient extends SignalRClient {
   final sentConsents = <(String, String)>[];
   final acks = <String>[];
 
+  /// Message ids sent through a `...Silent` hub method (no push offline).
+  final silentSends = <String>[];
+
   @override
   Stream<Map<String, dynamic>> get onLinkOffer => offers.stream;
   @override
@@ -311,12 +314,15 @@ class FakeHubClient extends SignalRClient {
     Map<String, String> encryptedPayloads, {
     required String messageId,
     bool silent = false,
-  }) async => server.fanout(
-    sender: deviceId,
-    identities: {recipientIdentityId},
-    messageId: messageId,
-    payloads: encryptedPayloads,
-  );
+  }) async {
+    if (silent) silentSends.add(messageId);
+    server.fanout(
+      sender: deviceId,
+      identities: {recipientIdentityId},
+      messageId: messageId,
+      payloads: encryptedPayloads,
+    );
+  }
 
   @override
   Future<void> sendGroupFanout(
@@ -324,13 +330,16 @@ class FakeHubClient extends SignalRClient {
     Map<String, String> encryptedPayloads, {
     required String messageId,
     bool silent = false,
-  }) async => server.fanout(
-    sender: deviceId,
-    identities: server.groups[groupId]!.toSet(),
-    messageId: messageId,
-    payloads: encryptedPayloads,
-    groupId: groupId,
-  );
+  }) async {
+    if (silent) silentSends.add(messageId);
+    server.fanout(
+      sender: deviceId,
+      identities: server.groups[groupId]!.toSet(),
+      messageId: messageId,
+      payloads: encryptedPayloads,
+      groupId: groupId,
+    );
+  }
 
   @override
   Future<void> acknowledgeMessage(String senderId, String messageId) async =>

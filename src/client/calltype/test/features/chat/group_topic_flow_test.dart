@@ -197,6 +197,8 @@ void main() {
       expect(conversation?.title, 'Brno trip');
       expect(conversation?.unreadCount, 0);
     }
+    // Spec row 5: never a push, so the fan-out went out silent.
+    expect(aPhone.hub.silentSends, hasLength(1));
   });
 
   test('an open chat follows the stored topic (header line)', () async {

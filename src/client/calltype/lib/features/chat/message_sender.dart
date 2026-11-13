@@ -6,6 +6,7 @@ import 'package:calltype_core/crypto/group_cipher.dart';
 import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/devices/fanout_sender.dart';
+import 'package:calltype_core/messaging/group_topic.dart' show groupTopicType;
 import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/network/organization_api.dart';
 import 'package:calltype_core/storage/database.dart';
@@ -485,8 +486,12 @@ class MessageSender {
       final envelopes = (outbox['envelopes'] as Map<String, dynamic>)
           .cast<String, String>();
       final groupId = outbox['groupId'] as String?;
+      // Spec 2026-11-13-group-topics row 5: a topic change is state, not a
+      // message, so offline members must not get a "New message" push for
+      // it (they pick it up on their next sync).
+      final silent = message.type == groupTopicType;
       if (outbox['fanout'] != null) {
-        await _sendFanout(messageId, outbox, envelopes);
+        await _sendFanout(messageId, outbox, envelopes, silent: silent);
       } else if (groupId != null) {
         // The whole fan-out in one call (see sendGroupMessage): a business
         // group rejects any call without the auditor's envelope (KB2).
@@ -494,6 +499,7 @@ class MessageSender {
           groupId,
           envelopes,
           messageId: messageId,
+          silent: silent,
         );
       } else {
         // An outbox written before multi-device (one envelope for the peer):
@@ -527,8 +533,9 @@ class MessageSender {
   Future<void> _sendFanout(
     String messageId,
     Map<String, dynamic> outbox,
-    Map<String, String> envelopes,
-  ) async {
+    Map<String, String> envelopes, {
+    bool silent = false,
+  }) async {
     final groupId = outbox['groupId'] as String?;
     final fanout = outbox['fanout'] as Map<String, dynamic>;
     final payload = fanout['payload'] as String;
@@ -544,8 +551,14 @@ class MessageSender {
                 (fanout['identityIds'] as List).single as String,
                 current,
                 messageId: messageId,
+                silent: silent,
               )
-            : _signalR.sendGroupFanout(groupId, current, messageId: messageId),
+            : _signalR.sendGroupFanout(
+                groupId,
+                current,
+                messageId: messageId,
+                silent: silent,
+              ),
         // The hub computes `required` from the CURRENT membership, but the
         // stored identityIds are from the first attempt. Without this a
         // member added before a retry stays "unverified" for good and every
