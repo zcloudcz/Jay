@@ -540,6 +540,14 @@ class HermesBridge {
   /// Conversations whose agent already got [reactDirectiveHint] in this run.
   final _hinted = <String>{};
 
+  /// What groups said between turns (spec 2026-11-13-group-topics T3),
+  /// sent in front of the next accepted turn.
+  final _groupContext = GroupContextBuffer();
+
+  /// When the agent hears the group topic (T2); set by [runBridge] on top
+  /// of the bot store.
+  late final GroupTopicAnnouncer _topics;
+
   /// Id of the last message received per owner handle (1:1) or group id
   /// (lower-case): the default target of [reactFromLocal]. In memory only.
   final _lastReceived = <String, String>{};
@@ -571,6 +579,28 @@ class HermesBridge {
   /// id and run after decryption in [_handle].
   Future<bool> _admitGroupBot(String id, String groupId) async =>
       policy.eligible(await bot.group(groupId), id) == null;
+
+  /// The groups this bridge works for (spec 2026-11-13-group-topics row
+  /// 21): an owner is a member. Only there are other members' messages
+  /// decrypted, and then only for the topic and for context.
+  Future<bool> _servesGroup(String groupId) async =>
+      policy.hasOwner(await bot.group(groupId));
+
+  /// A group message that starts no turn (runtime [CallTypeBot.onContext]):
+  /// buffered for the next turn, never answered.
+  Future<void> _onContext(BotMessage message) async =>
+      _groupContext.addMessage(message);
+
+  /// The group topic block (when due, see [GroupTopicAnnouncer]) and the
+  /// buffered group context, in front of the turn's text.
+  Future<List<String>> _groupBlocks(BotMessage message) async {
+    if (message.groupId == null) return const [];
+    final topic = await _topics.takeFor(message);
+    return [
+      if (topic != null) GroupTopicAnnouncer.block(topic),
+      ?_groupContext.take(message.conversationId),
+    ];
+  }
 
   Future<void> _handle(BotMessage message) async {
     final human = _owner(message.senderId);
@@ -604,6 +634,11 @@ class HermesBridge {
       }
       switch (policy.checkIncoming(group, message.senderId)) {
         case PeerVerdict.drop:
+          // Not a turn, but in a group that reads along still context
+          // (spec 2026-11-13-group-topics row 19).
+          if (group.botTalk.botsReadAll && policy.hasOwner(group)) {
+            _groupContext.addMessage(message);
+          }
           return;
         case PeerVerdict.notify:
           // WHY not message.reply: a group reply quotes the bot it answers,
@@ -662,6 +697,7 @@ class HermesBridge {
     await _runTurn(
       message,
       [
+        ...await _groupBlocks(message),
         ...?batched,
         if (willSpeak) voiceReplyHint,
         '$label: ${_withContext(message, text)}'
@@ -1435,10 +1471,13 @@ Future<HermesBridge> runBridge(
   // Before onMessage: that call connects, and queued presses arrive at once.
   bot.onAction(bridge._onAction);
   if (reactions != ReactionMode.off) bot.onReaction(bridge._onReaction);
+  bridge._topics = GroupTopicAnnouncer.inBotStore(bot);
+  bot.onContext(bridge._onContext);
   await bot.onMessage(
     bridge._handle,
     allowSender: bridge._allowSender,
     allowGroupSender: bridge._admitGroupBot,
+    servesGroup: bridge._servesGroup,
     // Old inline `file` messages (photos up to 256 KiB) only when files are
     // handled; otherwise they stay acked and ignored as before.
     receiveFiles: media != null,
