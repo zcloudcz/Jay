@@ -152,6 +152,43 @@ Spec `docs/superpowers/specs/2026-11-08-chat-extras.md`.
   ignored; they never reach a handler. Bots cannot create polls, vote or pin
   in v1.
 
+### Group topics, reading along, replying without a mention
+
+Spec `docs/superpowers/specs/2026-11-13-group-topics.md` (T2-T4).
+
+```dart
+bot.onContext((m) async { /* m.isContext: remember, never answer */ }); // before onMessage
+await bot.onMessage(
+  handle,
+  allowSender: ...,
+  servesGroup: (groupId) async => (await bot.group(groupId)).members.any(isOwner),
+);
+message.groupTopic;          // String?: the admins' topic of this group (null: none / cleared / 1:1)
+message.groupTopicVersion;   // int?: changes whenever the admins change it
+await bot.groupTopic(groupId); // BotGroupTopic? {topic, version, setBy}
+```
+
+- `type: group-topic` is applied only when the server's CURRENT record
+  (`GET /groups/{id}`, always re-read, never the cache) names exactly that
+  version and the authenticated sender, and the version is newer than the
+  stored one. Stored in `backupState` as `group-topic:<group id>`; the text is
+  never logged. Refusals and a failed lookup are acked and dropped (at most
+  once: the next change re-sends).
+- Reply without mention (group setting `replyWithoutMention`): a message from
+  a HUMAN member counts as addressed (`addressed`, `addressedByGroupSetting`).
+  Bots still need a mention or a reply, so bots never start talking to each
+  other through it.
+- Reading along (group setting `botsReadAll`, plus `onContext` and
+  `servesGroup`): unaddressed text and media messages, and group messages of
+  senders `allowSender`/`allowGroupSender` refused, reach `onContext` with
+  `isContext` set, in the conversation queue, then acked. No typing, no ack
+  reaction, no actions, never a turn; the bot's own messages never.
+- `servesGroup` alone already matters: a refused sender's group message is
+  then DECRYPTED (instead of acked blind) so its `group-topic` can apply (the
+  admin who sets it need not be an owner); it can never start a turn.
+- Context messages also carry `senderHandle` / `senderDisplayName` (from the
+  member list) for labels.
+
 ### Files: voice messages, images, any file
 
 Encrypted media (`type: text` + `media` object, spec 2026-11-07-encrypted-media) arrives as a normal `BotMessage`
