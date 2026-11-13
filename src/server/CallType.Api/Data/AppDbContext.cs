@@ -225,6 +225,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                   .HasDefaultValue(GroupBotTalk.DefaultPauseMinutes).HasSentinel(-1);
                 bt.Property(b => b.UpdatedBy).HasColumnName("BotTalkUpdatedBy");
                 bt.Property(b => b.UpdatedAt).HasColumnName("BotTalkUpdatedAt");
+                // Group topics T3/T4: false is the CLR default AND the DB
+                // default, so EF omitting it on insert is harmless.
+                bt.Property(b => b.BotsReadAll).HasColumnName("BotTalkBotsReadAll").HasDefaultValue(false);
+                bt.Property(b => b.ReplyWithoutMention).HasColumnName("BotTalkReplyWithoutMention").HasDefaultValue(false);
             });
             // Required: without it EF treats an owned type whose columns all
             // hold defaults as "maybe absent" and could materialize null.

@@ -41,6 +41,19 @@ public class GroupBotTalk
     /// <summary>Pause between two bot-only exchanges, in minutes (D4).</summary>
     public int PauseMinutes { get; set; } = DefaultPauseMinutes;
 
+    /// <summary>
+    /// Group topics T3 (spec 2026-11-13-group-topics row 19): member bots
+    /// read every group message as context. Off by default; the server only
+    /// stores it, the bots enforce it (they already receive every message).
+    /// </summary>
+    public bool BotsReadAll { get; set; }
+
+    /// <summary>
+    /// Group topics T4 (row 20): a human member's message counts as
+    /// addressed to every bot without an @mention. Off by default.
+    /// </summary>
+    public bool ReplyWithoutMention { get; set; }
+
     /// <summary>Admin device that last changed the setting; null = never changed.</summary>
     public Guid? UpdatedBy { get; set; }
 

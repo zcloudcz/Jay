@@ -584,6 +584,15 @@ namespace CallType.Api.Migrations
                     b.Property<Guid?>("OrganizationId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("TopicUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("TopicUpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<long?>("TopicVersion")
+                        .HasColumnType("bigint");
+
                     b.HasKey("GroupId");
 
                     b.HasIndex("OrganizationId");
@@ -994,6 +1003,12 @@ namespace CallType.Api.Migrations
                                 .HasColumnName("BotTalkAllowedBotDeviceIds")
                                 .HasDefaultValueSql("'{}'::uuid[]");
 
+                            b1.Property<bool>("BotsReadAll")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("boolean")
+                                .HasDefaultValue(false)
+                                .HasColumnName("BotTalkBotsReadAll");
+
                             b1.Property<int>("MaxBotTurns")
                                 .ValueGeneratedOnAdd()
                                 .HasColumnType("integer")
@@ -1013,6 +1028,12 @@ namespace CallType.Api.Migrations
                                 .HasColumnType("integer")
                                 .HasDefaultValue(30)
                                 .HasColumnName("BotTalkPauseMinutes");
+
+                            b1.Property<bool>("ReplyWithoutMention")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("boolean")
+                                .HasDefaultValue(false)
+                                .HasColumnName("BotTalkReplyWithoutMention");
 
                             b1.Property<DateTimeOffset?>("UpdatedAt")
                                 .HasColumnType("timestamp with time zone")

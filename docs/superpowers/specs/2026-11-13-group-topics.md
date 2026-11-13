@@ -41,14 +41,15 @@ rows 1-3 below.
 
 Migration `AddGroupTopicsAndBotReading` (additive, AppDbContext): `Groups` gets
 `TopicVersion bigint NULL`, `TopicUpdatedBy uuid NULL`, `TopicUpdatedAt timestamptz NULL`, and the
-owned `BotTalk` gets `BotsReadAll boolean NOT NULL DEFAULT false` and
-`ReplyWithoutMention boolean NOT NULL DEFAULT false` (column names follow the existing owned-type
-naming). Roles need no schema change.
+owned `BotTalk` gets `BotTalkBotsReadAll boolean NOT NULL DEFAULT false` and
+`BotTalkReplyWithoutMention boolean NOT NULL DEFAULT false` (the existing `BotTalk*` owned-type
+column naming). Roles need no schema change. Migration file
+`20261113144503_AddGroupTopicsAndBotReading`.
 
 | # | Endpoint | Contract |
 |---|---|---|
-| S1 | `PUT /groups/{id}/members/{deviceId}/role` | Body `{"role":"admin"\|"member"}`. Gate = AddMember's (`Authorize(admin: true)` on the RAW caller device): 404 unknown group, 403 non-member / non-admin / companion. 404 `not_a_member` target not in the group; 400 `invalid_role`; 409 `auditor_immutable`; 400 `bot_cannot_be_admin` (promote a bot); 409 `last_admin` (demote the only admin, also self). Same role = 200 (idempotent). 200 `{deviceId, role}`. Sends `GroupChanged`. Rate policy `api`. |
-| S2 | `PUT /groups/{id}/topic` | Body `{}` (content never goes to the server; unknown fields ignored). Admin gate as S1. 409 `business_group` for an organization group. Stores `version = max(stored + 1, now in Unix ms)`, `updatedBy = caller`, `updatedAt = now`. 200 `{version, updatedBy, updatedAt}`. Sends `GroupChanged`. Rate policy `api`. |
+| S1 | `PUT /groups/{id}/members/{deviceId}/role` | Body `{"role":"admin"\|"member"}`. Gate = AddMember's (`Authorize(admin: true)` on the RAW caller device): 404 unknown group, 403 non-member / non-admin / companion. Then, in this order: 400 `invalid_role` (anything else, also missing or upper case); 404 `not_a_member` target not in the group; 409 `auditor_immutable`; 400 `bot_cannot_be_admin` (promote a bot; keeping a bot `member` is 200); same role = 200 (idempotent); 409 `last_admin` (demote the only admin, also self). Errors are `{error: <code>, code: <code>}` like RemoveMember's `last_admin`. The check and write run under a row lock on the group (caller re-checked under the lock), so two admins demoting each other at once leave one admin. 200 `{deviceId, role}`. Sends `GroupChanged`. Rate policy `api`. |
+| S2 | `PUT /groups/{id}/topic` | Body `{}` (content never goes to the server; unknown fields ignored). Admin gate as S1. 409 `business_group` for an organization group. Stores `version = max(stored + 1, now in Unix ms)`, `updatedBy = caller`, `updatedAt = now` in one atomic `UPDATE ... RETURNING`, so concurrent admins get distinct versions and each answer names its own caller. 200 `{version, updatedBy, updatedAt}` (`updatedBy` lower-case GUID string). Sends `GroupChanged`. Rate policy `api`. |
 | S3 | `GET /groups/{id}` | Additive `topic`: `{version, updatedBy, updatedAt}` or `null` when never set. `botTalk` gets `botsReadAll` and `replyWithoutMention` (booleans). |
 | S4 | `PUT /groups/{id}/bot-talk` | Additive optional `botsReadAll`, `replyWithoutMention` (bool or omitted/null = keep the stored value, so an old app flipping the mode does not reset them). Response carries both. |
 

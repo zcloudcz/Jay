@@ -22,6 +22,8 @@ public static class GroupEndpoints
         app.MapPut("/groups/{groupId:guid}/members", AddMember).RequireAuthorization().RequireRateLimiting("api");
         app.MapDelete("/groups/{groupId:guid}/members/{deviceId:guid}", RemoveMember).RequireAuthorization().RequireRateLimiting("api");
         app.MapPut("/groups/{groupId:guid}/bot-talk", PutBotTalk).RequireAuthorization().RequireRateLimiting("api");
+        app.MapPut("/groups/{groupId:guid}/members/{deviceId:guid}/role", PutMemberRole).RequireAuthorization().RequireRateLimiting("api");
+        app.MapPut("/groups/{groupId:guid}/topic", PutTopic).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 
@@ -116,21 +118,23 @@ public static class GroupEndpoints
         var denial = await Authorize(groupId, await deviceLists.PrimaryOfAsync(caller, ct), db, false, ct);
         if (denial != null) return denial;
         var group = await db.Groups.AsNoTracking().Where(g => g.GroupId == groupId)
-            .Select(g => new { g.OrganizationId, g.BotTalk }).SingleAsync(ct);
+            .Select(g => new { g.OrganizationId, g.BotTalk, g.TopicVersion, g.TopicUpdatedBy, g.TopicUpdatedAt })
+            .SingleAsync(ct);
         var organizationId = group.OrganizationId;
         var botTalk = await BotTalkDtoAsync(groupId, group.BotTalk, db, ct);
+        var topic = TopicDto(group.TopicVersion, group.TopicUpdatedBy, group.TopicUpdatedAt);
         // Mutes are per DEVICE: a companion reading its identity's group gets
         // its own mute, not the primary's.
         var myMute = await mutes.GetAsync(caller, groupId, null, ct);
         if (organizationId is null || !businessMode.Enabled)
-            return Results.Ok(new GroupInfoDto(groupId, null, null, null, botTalk, myMute));
+            return Results.Ok(new GroupInfoDto(groupId, null, null, null, botTalk, myMute, topic));
         var auditorDeviceId = await db.GroupMembers
             .Where(m => m.GroupId == groupId && m.Role == "auditor")
             .Select(m => (Guid?)m.DeviceId).SingleOrDefaultAsync(ct);
         var auditDb = http.RequestServices.GetRequiredService<AuditDbContext>();
         var organizationName = await auditDb.Organizations.AsNoTracking()
             .Where(o => o.OrganizationId == organizationId).Select(o => o.Name).SingleOrDefaultAsync(ct);
-        return Results.Ok(new GroupInfoDto(groupId, organizationId, organizationName, auditorDeviceId, botTalk, myMute));
+        return Results.Ok(new GroupInfoDto(groupId, organizationId, organizationName, auditorDeviceId, botTalk, myMute, topic));
     }
 
     /// <summary>
@@ -151,8 +155,12 @@ public static class GroupEndpoints
                 .Select(m => m.DeviceId).ToListAsync(ct);
             allowed = allowed.Where(current.Contains).ToList();
         }
-        return new BotTalkDto(botTalk.Mode, allowed, botTalk.MaxBotTurns, botTalk.PauseMinutes, botTalk.UpdatedAt);
+        return BotTalkDto.From(botTalk, allowed);
     }
+
+    /// <summary>Null when no topic was ever recorded (the contract's "never set").</summary>
+    private static GroupTopicDto? TopicDto(long? version, Guid? updatedBy, DateTimeOffset? updatedAt) =>
+        version is { } v && updatedBy is { } by ? new GroupTopicDto(v, by, updatedAt) : null;
 
     private static IResult InvalidBotTalk(string error, string detail) => Results.Problem(
         title: "Invalid bot talk setting", detail: detail, statusCode: StatusCodes.Status400BadRequest,
@@ -203,13 +211,93 @@ public static class GroupEndpoints
         group.BotTalk.AllowedBotDeviceIds = ids;
         group.BotTalk.MaxBotTurns = request.MaxBotTurns ?? group.BotTalk.MaxBotTurns;
         group.BotTalk.PauseMinutes = request.PauseMinutes ?? group.BotTalk.PauseMinutes;
+        // Group topics T3/T4 (spec S4): omitted/null keeps the stored value,
+        // so an old app that only flips the mode cannot switch them off.
+        group.BotTalk.BotsReadAll = request.BotsReadAll ?? group.BotTalk.BotsReadAll;
+        group.BotTalk.ReplyWithoutMention = request.ReplyWithoutMention ?? group.BotTalk.ReplyWithoutMention;
         group.BotTalk.UpdatedBy = caller;
         group.BotTalk.UpdatedAt = clock.GetUtcNow();
         await db.SaveChangesAsync(ct);
 
         await NotifyGroupChangedAsync(groupId, [], db, deviceLists, hub);
-        return Results.Ok(new BotTalkDto(group.BotTalk.Mode, ids, group.BotTalk.MaxBotTurns,
-            group.BotTalk.PauseMinutes, group.BotTalk.UpdatedAt));
+        return Results.Ok(BotTalkDto.From(group.BotTalk, ids));
+    }
+
+    private static IResult Error(int status, string code) =>
+        // {error, code}: the app reads `code ?? error`, like RemoveMember's last_admin.
+        Results.Json(new { error = code, code }, statusCode: status);
+
+    /// <summary>
+    /// PUT /groups/{id}/members/{deviceId}/role (spec 2026-11-13-group-topics
+    /// S1). Same gate as AddMember (raw caller device must be an admin, so a
+    /// companion gets 403). Bots never become admins: an admin can remove
+    /// members and change bot settings, which a bot must never do on its own.
+    /// The group row is locked for the check-and-write, so two admins demoting
+    /// each other at the same time cannot leave the group without an admin.
+    /// </summary>
+    private static async Task<IResult> PutMemberRole(Guid groupId, Guid deviceId, MemberRoleRequest request,
+        ClaimsPrincipal user, AppDbContext db, DeviceListService deviceLists, IHubContext<MessengerHub> hub,
+        CancellationToken ct)
+    {
+        var denial = await Authorize(groupId, Caller(user), db, true, ct);
+        if (denial != null) return denial;
+        if (request.Role is not ("admin" or "member")) return Error(400, "invalid_role");
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM \"Groups\" WHERE \"GroupId\" = {groupId} FOR UPDATE", ct);
+        // Again under the lock: the caller may have been demoted meanwhile.
+        denial = await Authorize(groupId, Caller(user), db, true, ct);
+        if (denial != null) return denial;
+        var member = await db.GroupMembers.Include(m => m.Device)
+            .SingleOrDefaultAsync(m => m.GroupId == groupId && m.DeviceId == deviceId, ct);
+        if (member == null) return Error(404, "not_a_member");
+        // KB1: the archive member's role is a legal invariant.
+        if (member.Role == "auditor") return Error(409, "auditor_immutable");
+        if (request.Role == "admin" && member.Device.IsBot) return Error(400, "bot_cannot_be_admin");
+        if (member.Role == request.Role)
+            return Results.Ok(new MemberRoleDto(deviceId, member.Role));
+        if (member.Role == "admin"
+            && await db.GroupMembers.CountAsync(m => m.GroupId == groupId && m.Role == "admin", ct) <= 1)
+            return Error(409, "last_admin");
+        member.Role = request.Role;
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+
+        await NotifyGroupChangedAsync(groupId, [], db, deviceLists, hub);
+        return Results.Ok(new MemberRoleDto(deviceId, member.Role));
+    }
+
+    /// <summary>
+    /// PUT /groups/{id}/topic (spec S2): records a new topic VERSION; the
+    /// content never reaches the server (no group key exists, row 9). One
+    /// atomic UPDATE ... RETURNING, so concurrent admins get distinct,
+    /// strictly increasing versions and each answer names its own caller.
+    /// Unix ms as the floor keeps versions increasing even if a group row
+    /// were ever restored from an older backup.
+    /// </summary>
+    private static async Task<IResult> PutTopic(Guid groupId, ClaimsPrincipal user, AppDbContext db,
+        DeviceListService deviceLists, IHubContext<MessengerHub> hub, TimeProvider clock, CancellationToken ct)
+    {
+        var caller = Caller(user);
+        var denial = await Authorize(groupId, caller, db, true, ct);
+        if (denial != null) return denial;
+        if (await db.Groups.AnyAsync(g => g.GroupId == groupId && g.OrganizationId != null, ct))
+            return Error(409, "business_group");
+
+        var now = clock.GetUtcNow();
+        var nowMs = now.ToUnixTimeMilliseconds();
+        var record = (await db.Database.SqlQuery<GroupTopicDto>($"""
+            UPDATE "Groups"
+               SET "TopicVersion" = GREATEST(COALESCE("TopicVersion", 0) + 1, {nowMs}),
+                   "TopicUpdatedBy" = {caller},
+                   "TopicUpdatedAt" = {now}
+             WHERE "GroupId" = {groupId}
+            RETURNING "TopicVersion" AS "Version", "TopicUpdatedBy" AS "UpdatedBy", "TopicUpdatedAt" AS "UpdatedAt"
+            """).ToListAsync(ct)).Single();
+
+        await NotifyGroupChangedAsync(groupId, [], db, deviceLists, hub);
+        return Results.Ok(record);
     }
 
     /// <summary>
@@ -339,7 +427,18 @@ public record GroupMemberDto(Guid DeviceId, string Role, DateTimeOffset JoinedAt
     string UserHandle, string? DisplayName, bool IsBot);
 // BotTalk and MyMute are additive (bot conversations contract); old clients ignore them.
 public record GroupInfoDto(Guid GroupId, Guid? OrganizationId, string? OrganizationName, Guid? AuditorDeviceId,
-    BotTalkDto BotTalk, MuteDto MyMute);
+    BotTalkDto BotTalk, MuteDto MyMute, GroupTopicDto? Topic = null);
+// BotsReadAll / ReplyWithoutMention are additive (group topics S3/S4).
 public record BotTalkDto(string Mode, List<Guid> AllowedBotDeviceIds, int MaxBotTurns, int PauseMinutes,
-    DateTimeOffset? UpdatedAt);
-public record BotTalkRequest(string? Mode, Guid[]? AllowedBotDeviceIds, int? MaxBotTurns, int? PauseMinutes);
+    DateTimeOffset? UpdatedAt, bool BotsReadAll = false, bool ReplyWithoutMention = false)
+{
+    public static BotTalkDto From(GroupBotTalk s, List<Guid> allowed) => new(s.Mode, allowed, s.MaxBotTurns,
+        s.PauseMinutes, s.UpdatedAt, s.BotsReadAll, s.ReplyWithoutMention);
+}
+public record BotTalkRequest(string? Mode, Guid[]? AllowedBotDeviceIds, int? MaxBotTurns, int? PauseMinutes,
+    bool? BotsReadAll = null, bool? ReplyWithoutMention = null);
+// Group topics (spec 2026-11-13-group-topics S1-S3). The topic body is `{}`
+// and ignored: the content is E2E and never sent to the server.
+public record MemberRoleRequest(string? Role);
+public record MemberRoleDto(Guid DeviceId, string Role);
+public record GroupTopicDto(long Version, Guid UpdatedBy, DateTimeOffset? UpdatedAt);

@@ -229,7 +229,9 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `DELETE /devices/{id}/push-token` | Clear token, platform, locale, `ringCalls` AND the VoIP token (self only, idempotent), 204 | ✅ Done |
 | `PUT` / `DELETE /devices/{id}/voip-token` | iOS PushKit token for call ringing (self only, else 403): `{"token"}` 64..200 hex, stored lowercase; 400 `invalid_token`; 204. DELETE is idempotent | ✅ Done |
 | `GET /push/webpush-key` | Anonymous, `{"publicKey"}` VAPID key (base64url) for `PushManager.subscribe`; 404 when Web Push is not configured | ✅ Done |
-| `PUT /groups/{id}/bot-talk` | Bot conversation setting (admin) | ✅ Done |
+| `PUT /groups/{id}/bot-talk` | Bot conversation setting (admin); optional `botsReadAll` / `replyWithoutMention` (group topics T3/T4, omitted = kept) | ✅ Done |
+| `PUT /groups/{id}/members/{deviceId}/role` | Promote/demote admin (admin; `last_admin`, `bot_cannot_be_admin`, `auditor_immutable`, `not_a_member`, `invalid_role`), sends `GroupChanged` (spec 2026-11-13-group-topics S1) | ✅ Done |
+| `PUT /groups/{id}/topic` | Record a new topic version (admin; content stays E2E; `business_group` 409), sends `GroupChanged`; `GET /groups/{id}` returns `topic` (S2/S3) | ✅ Done |
 | `PUT /groups/{id}/mute`, `PUT /mutes/direct/{id}`, `GET /mutes` | Per-device mute (push skip) | ✅ Done |
 | `POST /backups` | Upload backup metadata | ✅ Done |
 | `GET /backups/{accountId}` | List backups | ✅ Done |
