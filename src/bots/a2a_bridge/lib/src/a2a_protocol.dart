@@ -223,22 +223,31 @@ AgentCard parseAgentCard(Map<String, dynamic> json, Uri cardUri) {
 }
 
 /// Builds the `message` object of a send request.
+///
+/// [leadingTexts] become text parts BEFORE [text] (group topic and group
+/// context, spec 2026-11-13-group-topics); [metadata] is the message's
+/// optional `metadata` object (both A2A versions have it).
 Map<String, dynamic> buildUserMessage(
   A2aVersion version, {
   required String messageId,
   required String text,
   String? contextId,
   String? taskId,
-}) => {
-  if (version == A2aVersion.v03) 'kind': 'message',
-  'messageId': messageId,
-  'role': version == A2aVersion.v1 ? 'ROLE_USER' : 'user',
-  'parts': [
-    version == A2aVersion.v1 ? {'text': text} : {'kind': 'text', 'text': text},
-  ],
-  'contextId': ?contextId,
-  'taskId': ?taskId,
-};
+  List<String> leadingTexts = const [],
+  Map<String, Object?>? metadata,
+}) {
+  Map<String, dynamic> part(String t) =>
+      version == A2aVersion.v1 ? {'text': t} : {'kind': 'text', 'text': t};
+  return {
+    if (version == A2aVersion.v03) 'kind': 'message',
+    'messageId': messageId,
+    'role': version == A2aVersion.v1 ? 'ROLE_USER' : 'user',
+    'parts': [for (final t in leadingTexts) part(t), part(text)],
+    'contextId': ?contextId,
+    'taskId': ?taskId,
+    'metadata': ?metadata,
+  };
+}
 
 /// A send result: either a direct [A2aMessage] or an [A2aTask].
 sealed class A2aResult {
