@@ -6,6 +6,7 @@ import 'package:calltype_core/devices/device_directory.dart';
 import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:calltype_core/messaging/chat_deleted.dart';
 import 'package:calltype_core/messaging/contact_sync.dart';
+import 'package:calltype_core/messaging/group_topic.dart';
 import 'package:calltype_core/messaging/history_transfer.dart';
 import 'package:calltype_core/messaging/read_state.dart';
 import 'package:drift/drift.dart';
@@ -14,6 +15,7 @@ import 'package:calltype_core/crypto/session_manager.dart';
 import 'package:calltype_core/network/api_client.dart';
 import 'package:calltype_core/storage/database.dart';
 import '../contacts/contact_sync.dart';
+import '../groups/group_topic_inbox.dart';
 import '../media/media_cleanup.dart';
 import '../media/media_message.dart';
 import '../media/media_service.dart';
@@ -281,6 +283,7 @@ class MessageInboxService {
             type != reactionType &&
             type != pinType &&
             type != pollVoteType &&
+            type != groupTopicType &&
             !ownSyncTypes.contains(type)) {
           throw const FormatException('Unsupported message type');
         }
@@ -397,7 +400,8 @@ class MessageInboxService {
             type == 'edit' ||
             type == reactionType ||
             type == pinType ||
-            type == pollVoteType) {
+            type == pollVoteType ||
+            type == groupTopicType) {
           switch (type) {
             case 'delete':
               await _applyDelete(
@@ -419,6 +423,17 @@ class MessageInboxService {
                 senderId: route.senderIdentityId,
                 conversationId: conversationId,
                 groupId: groupId,
+              );
+            case groupTopicType:
+              // Spec 2026-11-13-group-topics: checked against the server's
+              // record; a network error there throws (message stays queued).
+              await applyGroupTopic(
+                _db,
+                api: _api,
+                payload: payload,
+                groupId: groupId,
+                conversationId: conversationId,
+                senderIdentityId: route.senderIdentityId,
               );
             case pollVoteType:
               await _applyVote(

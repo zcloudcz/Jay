@@ -2,12 +2,14 @@ import 'dart:convert';
 import 'package:calltype_core/messaging/agent_payload.dart';
 import 'package:drift/drift.dart';
 import 'package:calltype_core/messaging/contact_sync.dart';
+import 'package:calltype_core/messaging/group_topic.dart' show groupTopicType;
 
 import 'package:calltype_core/storage/database.dart';
 import '../contacts/contact_sync.dart';
 import '../chat/participant_colors.dart';
 import '../chat/polls.dart';
 import '../chat/reactions.dart';
+import '../groups/group_topic_store.dart';
 
 /// Imports a backup JSON: insert-or-ignore, so rows already here stay.
 ///
@@ -92,7 +94,8 @@ Future<void> importBackup(
             m['type'] != 'edit' &&
             m['type'] != 'reaction' &&
             m['type'] != 'pin' &&
-            m['type'] != pollVoteType,
+            m['type'] != pollVoteType &&
+            m['type'] != groupTopicType,
       )
       .map((m) {
     final conversationId = requiredText(m, 'conversationId');
@@ -242,6 +245,19 @@ Future<void> importBackup(
             value: '${c['color']}',
           ),
   ];
+  // Group topics (spec 2026-11-13-group-topics row 17): only for a group
+  // conversation of this archive; a malformed entry is skipped, never a
+  // failed restore.
+  final rawTopics = input['groupTopics'];
+  final topics = <(String, StoredGroupTopic)>[
+    if (rawTopics is List)
+      for (final t in rawTopics)
+        if (t is Map &&
+            t['conversationId'] is String &&
+            conversationIds.contains(t['conversationId']))
+          if (StoredGroupTopic.fromJson(t) case final topic?)
+            (t['conversationId'] as String, topic),
+  ];
   await db.transaction(() async {
     if (mergeContacts) {
       // New contacts are inserted below like in a restore; only names of
@@ -281,5 +297,10 @@ Future<void> importBackup(
       );
       batch.insertAll(db.messages, messages, mode: InsertMode.insertOrIgnore);
     });
+    // Not insertOrIgnore: a history transfer may bring a NEWER version than
+    // this device has; the higher server version wins like in the inbox.
+    for (final (conversationId, topic) in topics) {
+      await writeGroupTopicIfNewer(db, conversationId, topic);
+    }
   });
 }

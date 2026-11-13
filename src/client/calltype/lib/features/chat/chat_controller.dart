@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' show Locale;
 
+import 'package:calltype_core/messaging/group_topic.dart' show groupTopicType;
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
@@ -26,6 +27,7 @@ import 'read_sync.dart';
 import 'resend_service.dart';
 import 'attachment.dart';
 import 'bot_commands.dart';
+import '../groups/group_topic_store.dart';
 import 'chat_message_list.dart' show JumpRequest;
 import 'pins.dart';
 import 'polls.dart';
@@ -41,7 +43,15 @@ class ForwardDraft {
 
 /// Local `messages.type` values that are outbox control messages, never
 /// chat bubbles.
-const controlTypes = ['delete', 'edit', reactionType, pinType, pollVoteType];
+const controlTypes = [
+  'delete',
+  'edit',
+  reactionType,
+  pinType,
+  pollVoteType,
+  // Spec 2026-11-13-group-topics: sent by GroupTopicService, never a bubble.
+  groupTopicType,
+];
 
 /// Handed to the chat route (`GoRouter` `extra`) by search: the chat opens
 /// scrolled to [messageId].
@@ -169,6 +179,12 @@ class ChatController extends ChangeNotifier {
             if (!_disposed) notifyListeners();
           });
     }
+    // Spec 2026-11-13-group-topics row 12: the header line follows the
+    // stored topic (a drift watch, so a topic the inbox applies shows now).
+    _topicSubscription = watchGroupTopic(_db, conversationId).listen((t) {
+      _groupTopic = t;
+      if (!_disposed) notifyListeners();
+    });
     _incoming = inbox.persistedMessages.listen((message) {
       if (message.conversationId == conversationId) _markRead();
     });
@@ -288,6 +304,11 @@ class ChatController extends ChangeNotifier {
     return null;
   }
   late StreamSubscription<List<MessagePin>> _pinSubscription;
+  late StreamSubscription<StoredGroupTopic?> _topicSubscription;
+  StoredGroupTopic? _groupTopic;
+
+  /// The topic of this group as stored here (null: none, or a 1:1 chat).
+  String get groupTopic => _groupTopic?.topic ?? '';
   late StreamSubscription<List<PollVote>> _voteSubscription;
   List<MessagePin> _pins = const [];
   Map<String, List<PollVote>> _votes = const {};
@@ -1276,6 +1297,7 @@ class ChatController extends ChangeNotifier {
     _reactionSubscription.cancel();
     _pinSubscription.cancel();
     _voteSubscription.cancel();
+    _topicSubscription.cancel();
     _incoming.cancel();
     _sendFailSubscription?.cancel();
     super.dispose();
