@@ -60,6 +60,7 @@ export 'src/ack_reactions.dart';
 export 'src/bot_talk.dart';
 export 'src/attachment.dart';
 export 'src/encrypted_file_store.dart';
+export 'src/group_context.dart';
 export 'src/inbound_policy.dart';
 export 'src/group_info.dart';
 export 'src/media_tools.dart';
@@ -1620,6 +1621,24 @@ class CallTypeBot {
 
   static String _topicKey(String groupId) =>
       'group-topic:${groupId.toLowerCase()}';
+
+  static String _bridgeStateKey(String key) => 'bridge:$key';
+
+  /// A small value a bridge keeps across restarts in the bot's local store
+  /// (e.g. which topic version it last told its backend); null when unset.
+  /// Plaintext SQLite like the rest of the runtime state (README "Storage"),
+  /// so never put message content here.
+  Future<String?> readBridgeState(String key) async => (await (_db.select(
+    _db.backupState,
+  )..where((r) => r.key.equals(_bridgeStateKey(key)))).getSingleOrNull())
+      ?.value;
+
+  /// Stores [value] under [key], see [readBridgeState].
+  Future<void> writeBridgeState(String key, String value) => _db
+      .into(_db.backupState)
+      .insertOnConflictUpdate(
+        BackupStateCompanion.insert(key: _bridgeStateKey(key), value: value),
+      );
 
   /// The stored topic of [groupId] (spec 2026-11-13-group-topics T2), or
   /// null when the bot never received a valid one. A cleared topic has an

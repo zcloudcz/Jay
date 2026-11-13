@@ -188,6 +188,12 @@ await bot.groupTopic(groupId); // BotGroupTopic? {topic, version, setBy}
   admin who sets it need not be an owner); it can never start a turn.
 - Context messages also carry `senderHandle` / `senderDisplayName` (from the
   member list) for labels.
+- Helpers for bridges whose backend keeps its own memory (Hermes, A2A):
+  `GroupContextBuffer` (per conversation, newest 50 lines / 8000 characters,
+  `[Meanwhile in the group: ...]` block) and `GroupTopicAnnouncer` (tell the
+  topic on the first turn of a run and when its version changes; last sent
+  version kept via `readBridgeState` / `writeBridgeState`, small values in the
+  local store, never message content).
 
 ### Files: voice messages, images, any file
 
