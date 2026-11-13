@@ -106,6 +106,7 @@ Future<void> main() async {
     retryRateLimit: config.fallbacks.isEmpty,
     actions: actions,
     actionSteps: config.actionSteps,
+    summaryKeep: config.historySummary ? config.historyKeep : null,
     log: log,
   );
   await runJayGlue(

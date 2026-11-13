@@ -132,7 +132,9 @@ want a bot for more people or for heavy use, use an API key (`anthropic` or
 | `OPENAI_BASE_URL` | no | `https://api.openai.com/v1` | any OpenAI-compatible endpoint |
 | `LLM_EFFORT` | no | `low` (Anthropic, api.openai.com), else unset | `output_config.effort` / `reasoning_effort`; `none` = do not send |
 | `LLM_SYSTEM_PROMPT` | no | short friendly-assistant prompt (answers in the user's language) | system prompt |
-| `LLM_HISTORY_MESSAGES` | no | `20` | messages remembered per chat (user + assistant); `0` = none |
+| `LLM_HISTORY_MESSAGES` | no | `20` | messages remembered per chat (user + assistant, plus group context lines); `0` = none |
+| `LLM_HISTORY_KEEP` | no | `10` (half of `LLM_HISTORY_MESSAGES` when that is 20 or less) | when a chat's history grows over `LLM_HISTORY_MESSAGES`, the older part is folded into one summary and these newest messages are kept; must be below `LLM_HISTORY_MESSAGES` |
+| `LLM_HISTORY_SUMMARY` | no | `on` | `on`: fold the overflowing history into a summary (max 4000 characters) written by the same provider, one extra model call each time; `off` (`0`, `false`): forget the oldest messages, as before |
 | `LLM_MAX_TOKENS` | no | `8192` | output cap per answer (thinking counts on current Claude models) |
 | `LLM_TIMEOUT_SECONDS` | no | `300` | longest wait for one answer (the whole fallback chain); with actions each model call of a round gets its own |
 | `LLM_ACTIONS` | no | unset (no actions) | named commands the model may ask the bridge to run, `name=command line` pairs separated by `;`, e.g. `status=systemctl --user status hermes-gateway --no-pager; restart=systemctl --user restart hermes-gateway`. See "Rescue bot" |
@@ -245,8 +247,21 @@ Security notes:
 - Errors: one apology message with the reason ("Sorry, I could not answer:
   ..."); a refused key says so. A 429 before any text is retried once after
   `retry-after` (max 30 s). Nothing is remembered from a failed turn.
-- `/new` forgets this chat; `/help` (and `/start` from a bot link) explains
-  the bot. Both are published as the bot's "/" menu.
+- `/new` forgets this chat (also its summary); `/help` (and `/start` from a
+  bot link) explains the bot. Both are published as the bot's "/" menu.
+- Long memory (spec `2026-11-13-group-topics` T5): when the history of a chat
+  exceeds `LLM_HISTORY_MESSAGES`, the bot asks the provider (a separate call,
+  after the answer went out) to fold everything but the newest
+  `LLM_HISTORY_KEEP` messages into one summary, kept in the encrypted store
+  and given to the model as a section of the system prompt. A failed or empty
+  summary falls back to forgetting the oldest messages.
+- Group topics (same spec): the topic the group admins set is appended to the
+  system prompt of that group's turns. With the group setting "Reply without
+  mention" a human member's message needs no @mention (the `GROUP_REPLIES`
+  rules still apply; other bots still need one). With "Bots read everything"
+  the bot reads the group's other messages (from every member, in groups with
+  an owner) into the history as context lines labelled with the sender,
+  framed as context and never as instructions; they are never answered.
 - Acknowledgement reactions (`ACK_REACTIONS=on`, spec
   `2026-11-11-bot-ack-reactions`): every message the bot takes gets 👀 before
   the model is asked; when the turn ends it becomes ✅ (answered), ❌ (the

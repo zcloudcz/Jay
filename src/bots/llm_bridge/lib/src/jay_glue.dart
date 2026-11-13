@@ -138,6 +138,25 @@ Future<void> runJayGlue(
     if (outcome.reaction != null) message.finalReaction = outcome.reaction;
   }
 
+  /// T3: a group message that starts no turn goes into the history as
+  /// context, labelled with who wrote it. A file is named, never downloaded.
+  Future<void> context(BotMessage message) async {
+    final name =
+        message.senderHandle ?? message.senderDisplayName ?? message.senderId;
+    final attachment = message.attachment;
+    final text = attachment == null
+        ? message.text
+        : [
+            '[file: ${attachment.name}]',
+            if (attachment.caption != null) attachment.caption!,
+          ].join(' ');
+    await bridge.addContext(
+      conversationId: message.conversationId,
+      senderLabel: message.senderIsBot == true ? '$name (bot)' : name,
+      text: text,
+    );
+  }
+
   Future<void> handle(BotMessage message) async {
     GroupInfo? group;
     final groupId = message.groupId;
@@ -151,6 +170,14 @@ Future<void> runJayGlue(
     }
     switch (access.decide(message.senderId, group)) {
       case Ignore():
+        // Not a turn (e.g. a bot the bot-talk rules refuse), but in a group
+        // that reads along it is still context (spec 2026-11-13-group-topics
+        // row 19).
+        if (group != null &&
+            group.botTalk.botsReadAll &&
+            access.botTalk.hasOwner(group)) {
+          await context(message);
+        }
         return;
       case BotLimitNotice():
         // Unquoted on purpose (same as hermes_bridge): a quote addresses
@@ -177,6 +204,7 @@ Future<void> runJayGlue(
               sink: _MessageSink(message),
               senderLabel: label,
               actionsAllowed: actionsAllowed,
+              groupTopic: message.groupTopic,
             ),
           );
           return;
@@ -200,6 +228,7 @@ Future<void> runJayGlue(
                 senderLabel: label,
                 images: [image],
                 actionsAllowed: actionsAllowed,
+                groupTopic: message.groupTopic,
               ),
             );
         }
@@ -209,8 +238,15 @@ Future<void> runJayGlue(
   // Reactions: no handler is set, so the runtime acknowledges and ignores
   // them (spec B2). Also other bots' reactions to this bot's
   // acknowledgements: they never start a turn, so two bots cannot loop.
+  // Before onMessage, which connects (queued messages arrive at once).
+  bot.onContext(context);
   await bot.onMessage(
     handle,
+    // The group rule of A4/A5: a group with an owner in it is one this bot
+    // works for, so it reads its topic and (with botsReadAll) its context
+    // from every member, also from senders it does not answer.
+    servesGroup: (groupId) async =>
+        access.botTalk.hasOwner(await bot.group(groupId)),
     // The app sends small photos inline (`type: file`), spec M4.
     receiveFiles: true,
     allowSender: access.allowSender,

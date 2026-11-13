@@ -63,19 +63,50 @@ class HistoryStore {
   }
 
   /// Appends [turns] and keeps only the last [cap] messages.
-  Future<void> append(String conversationId, List<ChatTurn> turns) async {
+  ///
+  /// [keepOverflow] (history summary, spec 2026-11-13-group-topics T5):
+  /// keep up to twice [cap] so the caller can fold the overflow into the
+  /// summary and then [replace] the list; the bound only matters if the
+  /// caller never does.
+  Future<void> append(
+    String conversationId,
+    List<ChatTurn> turns, {
+    bool keepOverflow = false,
+  }) async {
     if (cap == 0) return;
     final all = [...await history(conversationId), ...turns];
-    final kept = all.length <= cap ? all : all.sublist(all.length - cap);
-    await _store.write(
-      _historyKey(conversationId),
-      jsonEncode([for (final t in kept) t.toJson()]),
+    final limit = keepOverflow ? cap * 2 : cap;
+    await replace(
+      conversationId,
+      all.length <= limit ? all : all.sublist(all.length - limit),
     );
   }
 
-  /// Forgets [conversationId] (`/new`).
-  Future<void> reset(String conversationId) =>
-      _store.delete(_historyKey(conversationId));
+  /// Stores exactly [turns] as the history of [conversationId].
+  Future<void> replace(String conversationId, List<ChatTurn> turns) =>
+      _store.write(
+        _historyKey(conversationId),
+        jsonEncode([for (final t in turns) t.toJson()]),
+      );
+
+  static String _summaryKey(String conversationId) =>
+      'summary:${conversationId.toLowerCase()}';
+
+  /// The folded summary of the older part of [conversationId] (T5), or
+  /// null when there is none.
+  Future<String?> summary(String conversationId) async {
+    final raw = await _store.read(_summaryKey(conversationId));
+    return raw == null || raw.trim().isEmpty ? null : raw;
+  }
+
+  Future<void> setSummary(String conversationId, String summary) =>
+      _store.write(_summaryKey(conversationId), summary);
+
+  /// Forgets [conversationId] (`/new`): its history and its summary.
+  Future<void> reset(String conversationId) async {
+    await _store.delete(_historyKey(conversationId));
+    await _store.delete(_summaryKey(conversationId));
+  }
 
   /// Whether the one-time greeting went to [handle] already.
   Future<bool> greeted(String handle) async =>
