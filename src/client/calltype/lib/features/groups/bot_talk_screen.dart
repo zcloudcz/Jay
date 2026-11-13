@@ -158,6 +158,23 @@ class _BotTalkScreenState extends State<BotTalkScreen> {
                     : null,
               ),
           const Divider(),
+          // T3/T4 (spec 2026-11-13-group-topics row 15): how the bots treat
+          // people's messages, independent of the bot-to-bot mode above.
+          SwitchListTile(
+            key: const ValueKey('bot-talk-read-all'),
+            value: controller.botsReadAll,
+            onChanged: editable ? controller.setBotsReadAll : null,
+            title: Text(l10n.botTalkReadAllTitle),
+            subtitle: Text(l10n.botTalkReadAllHint),
+          ),
+          SwitchListTile(
+            key: const ValueKey('bot-talk-reply-without-mention'),
+            value: controller.replyWithoutMention,
+            onChanged: editable ? controller.setReplyWithoutMention : null,
+            title: Text(l10n.botTalkReplyWithoutMentionTitle),
+            subtitle: Text(l10n.botTalkReplyWithoutMentionHint),
+          ),
+          const Divider(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: TextField(

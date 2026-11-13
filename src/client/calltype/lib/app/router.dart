@@ -46,6 +46,9 @@ import '../features/devices/link_device_screen.dart';
 import '../features/devices/link_ux.dart';
 import '../features/groups/bot_talk_controller.dart';
 import '../features/groups/bot_talk_screen.dart';
+import '../features/groups/group_info_controller.dart';
+import '../features/groups/group_info_screen.dart';
+import '../features/groups/group_topic_service.dart';
 import '../features/groups/group_create_screen.dart';
 import '../features/organization/emergency/emergency_controller.dart';
 import '../features/organization/emergency/emergency_enroll_screen.dart';
@@ -250,6 +253,30 @@ final router = GoRouter(
                 );
               },
             ),
+            // Group info (spec 2026-11-13-group-topics row 12): topic,
+            // members and roles; own controller, listens to GroupChanged
+            // only while open (like bot-talk).
+            GoRoute(
+              path: 'info',
+              builder: (context, state) {
+                final id = state.pathParameters['id']!;
+                return ChangeNotifierProvider(
+                  create: (ctx) {
+                    final directory = ctx.read<DeviceService>().directory;
+                    return GroupInfoController(
+                      database: ctx.read<AppDatabase>(),
+                      apiClient: ctx.read<ApiClient>(),
+                      groupId: id,
+                      selfDeviceId: directory.selfDeviceId,
+                      selfIdentityId: directory.selfIdentityId,
+                      topics: ctx.read<GroupTopicService?>(),
+                      groupChanged: ctx.read<SignalRClient>().onGroupChanged,
+                    );
+                  },
+                  child: const GroupInfoScreen(),
+                );
+              },
+            ),
           ],
         ),
       ],
@@ -341,6 +368,10 @@ final router = GoRouter(
       builder: (context, state) => GroupCreateScreen(
         organizationId: state.uri.queryParameters['orgId'],
         organizationName: state.uri.queryParameters['orgName'],
+        // T6 (spec 2026-11-13-group-topics row 16): "New topic with these
+        // members" pre-selects the members of this group.
+        membersFromGroupId: state.uri.queryParameters['from'],
+        selfIdentityId: context.read<DeviceService>().directory.selfIdentityId,
       ),
     ),
     GoRoute(

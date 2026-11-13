@@ -2206,5 +2206,142 @@
   "chatLinkOpenFailed": "Could not open the link",
   "@chatLinkOpenFailed": {
     "description": "Snackbar when the browser or mail app could not be opened for a link in a message."
+  },
+  "groupInfoTitle": "Group info",
+  "@groupInfoTitle": {
+    "description": "Group menu item and screen title: details of a group (name, topic, members)."
+  },
+  "groupTopicLabel": "Topic",
+  "@groupTopicLabel": {
+    "description": "Section label in Group info for the group topic (a short brief of what the group is about)."
+  },
+  "groupTopicNone": "No topic yet",
+  "@groupTopicNone": {
+    "description": "Group info: shown instead of the topic when none is set."
+  },
+  "groupTopicEdit": "Edit topic",
+  "@groupTopicEdit": {
+    "description": "Group info button (admins only) and dialog title for changing the group topic."
+  },
+  "groupTopicFieldHint": "What is this group about? The bots in the group read it too.",
+  "@groupTopicFieldHint": {
+    "description": "Hint in the multiline topic field (group create screen and Edit topic dialog)."
+  },
+  "groupTopicSaved": "Topic saved and sent to the group.",
+  "@groupTopicSaved": {
+    "description": "Snackbar after the group topic was saved and delivered."
+  },
+  "groupTopicQueued": "Topic saved. Sending it to the members will be retried.",
+  "@groupTopicQueued": {
+    "description": "Snackbar: the topic was saved, but delivery to the members failed for now and is retried automatically."
+  },
+  "groupTopicErrorNotAdmin": "Only group admins can change the topic.",
+  "@groupTopicErrorNotAdmin": {
+    "description": "Error when a non-admin tries to change the group topic."
+  },
+  "groupTopicErrorUnsupported": "Group topics are not supported by the server yet.",
+  "@groupTopicErrorUnsupported": {
+    "description": "Error when the server is too old to store group topics."
+  },
+  "groupTopicErrorBusiness": "Business groups have no topic.",
+  "@groupTopicErrorBusiness": {
+    "description": "Error: topics are not available in business (organization) groups."
+  },
+  "groupTopicErrorTooLong": "The topic is too long (at most {max} characters).",
+  "@groupTopicErrorTooLong": {
+    "description": "Error when the group topic exceeds the length limit.",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "groupTopicErrorFailed": "Could not save the topic. Check your connection and try again.",
+  "@groupTopicErrorFailed": {
+    "description": "Error when saving the group topic failed (network or server)."
+  },
+  "groupMembersHeader": "Members",
+  "@groupMembersHeader": {
+    "description": "Group info: header above the member list."
+  },
+  "groupRoleAdmin": "Admin",
+  "@groupRoleAdmin": {
+    "description": "Role label of a group member who is an admin."
+  },
+  "groupRoleBot": "Bot",
+  "@groupRoleBot": {
+    "description": "Role label of a group member that is a bot."
+  },
+  "groupRoleAuditor": "Auditor",
+  "@groupRoleAuditor": {
+    "description": "Role label of the business auditor member of an organization group."
+  },
+  "groupMemberYou": "You",
+  "@groupMemberYou": {
+    "description": "Group info: label of the user's own row in the member list."
+  },
+  "groupMemberActions": "Member actions",
+  "@groupMemberActions": {
+    "description": "Tooltip of the menu button on a member row in Group info."
+  },
+  "groupMakeAdmin": "Make admin",
+  "@groupMakeAdmin": {
+    "description": "Member menu item: promote this member to group admin."
+  },
+  "groupRemoveAdmin": "Remove admin",
+  "@groupRemoveAdmin": {
+    "description": "Member menu item: demote this admin to an ordinary member."
+  },
+  "groupRoleErrorLastAdmin": "The group needs at least one admin.",
+  "@groupRoleErrorLastAdmin": {
+    "description": "Error when demoting the only admin of a group."
+  },
+  "groupRoleErrorBot": "Bots cannot be admins.",
+  "@groupRoleErrorBot": {
+    "description": "Error when trying to make a bot a group admin."
+  },
+  "groupRoleErrorNotAdmin": "Only group admins can change roles.",
+  "@groupRoleErrorNotAdmin": {
+    "description": "Error when a non-admin tries to change a member's role."
+  },
+  "groupRoleErrorUnsupported": "Changing roles is not supported by the server yet.",
+  "@groupRoleErrorUnsupported": {
+    "description": "Error when the server is too old to change member roles."
+  },
+  "groupRoleErrorFailed": "Could not change the role. Check your connection and try again.",
+  "@groupRoleErrorFailed": {
+    "description": "Error when changing a member's role failed (network or server)."
+  },
+  "groupInfoLoadFailed": "Could not load the group. Tap to try again.",
+  "@groupInfoLoadFailed": {
+    "description": "Group info: the group could not be loaded from the server; tapping retries."
+  },
+  "botTalkReadAllTitle": "Bots read everything",
+  "@botTalkReadAllTitle": {
+    "description": "Bot conversation screen switch: bots get every group message as context."
+  },
+  "botTalkReadAllHint": "Bots see every message in the group as context, not only the ones addressed to them.",
+  "@botTalkReadAllHint": {
+    "description": "One-line explanation under the 'Bots read everything' switch."
+  },
+  "botTalkReplyWithoutMentionTitle": "Reply without mention",
+  "@botTalkReplyWithoutMentionTitle": {
+    "description": "Bot conversation screen switch: bots answer people without an @mention."
+  },
+  "botTalkReplyWithoutMentionHint": "Bots answer people without an @mention. Messages from other bots still need one.",
+  "@botTalkReplyWithoutMentionHint": {
+    "description": "One-line explanation under the 'Reply without mention' switch."
+  },
+  "groupTopicCreateLabel": "Topic (optional)",
+  "@groupTopicCreateLabel": {
+    "description": "Label of the optional topic field on the new group screen."
+  },
+  "groupTopicCreateFailed": "The group was created, but its topic could not be set. You can set it in Group info.",
+  "@groupTopicCreateFailed": {
+    "description": "Snackbar when a new group was created but setting its topic failed."
+  },
+  "groupNewTopicWithMembers": "New topic with these members",
+  "@groupNewTopicWithMembers": {
+    "description": "Group menu item: create a new group (a new topic) with the same members."
   }
 }
