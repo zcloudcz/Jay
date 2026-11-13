@@ -53,6 +53,20 @@ public class Group
     /// </summary>
     public GroupBotTalk BotTalk { get; set; } = new();
 
+    /// <summary>
+    /// Topic METADATA only (spec 2026-11-13-group-topics row 6): the topic
+    /// text is E2E (a "group-topic" control message); the server records
+    /// which version an admin set so receivers can refuse a topic from a
+    /// non-admin or a stale/forged version. Server-assigned, strictly
+    /// increasing (max(stored + 1, now in Unix ms)). Null = never set.
+    /// </summary>
+    public long? TopicVersion { get; set; }
+
+    /// <summary>Admin device (= identity, companions cannot manage groups) that recorded TopicVersion.</summary>
+    public Guid? TopicUpdatedBy { get; set; }
+
+    public DateTimeOffset? TopicUpdatedAt { get; set; }
+
     // Navigation property
     public List<GroupMember> Members { get; set; } = [];
 }
