@@ -31,6 +31,8 @@ class BotTalkSettings {
     this.maxBotTurns = defaultMaxBotTurns,
     this.pauseMinutes = defaultPauseMinutes,
     this.updatedAt,
+    this.botsReadAll = false,
+    this.replyWithoutMention = false,
   });
 
   /// Server defaults (design doc "Group setting").
@@ -49,6 +51,32 @@ class BotTalkSettings {
 
   /// Null when the setting was never changed.
   final DateTime? updatedAt;
+
+  /// Group topics T3 (spec 2026-11-13-group-topics row 19): member bots get
+  /// every group message as context, not only the ones addressed to them.
+  /// Off on an old server (field missing).
+  final bool botsReadAll;
+
+  /// Group topics T4 (row 20): a human member's message counts as addressed
+  /// to every bot without an @mention. Bot messages still need one.
+  final bool replyWithoutMention;
+
+  BotTalkSettings copyWith({
+    BotTalkMode? mode,
+    List<String>? allowedBotDeviceIds,
+    int? maxBotTurns,
+    int? pauseMinutes,
+    bool? botsReadAll,
+    bool? replyWithoutMention,
+  }) => BotTalkSettings(
+    mode: mode ?? this.mode,
+    allowedBotDeviceIds: allowedBotDeviceIds ?? this.allowedBotDeviceIds,
+    maxBotTurns: maxBotTurns ?? this.maxBotTurns,
+    pauseMinutes: pauseMinutes ?? this.pauseMinutes,
+    updatedAt: updatedAt,
+    botsReadAll: botsReadAll ?? this.botsReadAll,
+    replyWithoutMention: replyWithoutMention ?? this.replyWithoutMention,
+  );
 
   /// True when [deviceId] is listed in [allowedBotDeviceIds] (case-insensitive:
   /// .NET serialises GUIDs lower-case, but a hand-written id may not be).
@@ -73,15 +101,21 @@ class BotTalkSettings {
       maxBotTurns: _int(json['maxBotTurns']) ?? defaultMaxBotTurns,
       pauseMinutes: _int(json['pauseMinutes']) ?? defaultPauseMinutes,
       updatedAt: _date(json['updatedAt']),
+      // Only a real `true` switches a bot to reading/answering more.
+      botsReadAll: json['botsReadAll'] == true,
+      replyWithoutMention: json['replyWithoutMention'] == true,
     );
   }
 
-  /// The `PUT /groups/{id}/bot-talk` body (updatedAt is server-owned).
+  /// The `PUT /groups/{id}/bot-talk` body (updatedAt is server-owned). An
+  /// old server ignores the two group-topics flags.
   Map<String, dynamic> toJson() => {
     'mode': mode.name,
     'allowedBotDeviceIds': allowedBotDeviceIds,
     'maxBotTurns': maxBotTurns,
     'pauseMinutes': pauseMinutes,
+    'botsReadAll': botsReadAll,
+    'replyWithoutMention': replyWithoutMention,
   };
 }
 
@@ -144,6 +178,46 @@ class MuteEntry {
   );
 }
 
+/// The server's record of a group's topic (spec 2026-11-13-group-topics
+/// row 6): which version an admin set, never the content (that is E2E).
+/// `topic` of `GET /groups/{id}` and the answer of `PUT /groups/{id}/topic`.
+class GroupTopicRecord {
+  const GroupTopicRecord({
+    required this.version,
+    required this.updatedBy,
+    this.updatedAt,
+  });
+
+  /// Server-assigned, strictly increasing per group.
+  final int version;
+
+  /// Device id (= identity, companions cannot manage groups) of the admin
+  /// who recorded [version], lower-cased.
+  final String updatedBy;
+  final DateTime? updatedAt;
+
+  /// True when a received `group-topic` with [version] from [senderIdentity]
+  /// is exactly this record (receiver rule 3 of the spec).
+  bool matches(int version, String senderIdentity) =>
+      this.version == version && updatedBy == senderIdentity.toLowerCase();
+
+  /// Null for a missing, non-map or incomplete record (never set, or an
+  /// old server): no topic can be accepted then.
+  static GroupTopicRecord? fromJson(Object? json) {
+    if (json is! Map) return null;
+    final version = json['version'];
+    final by = json['updatedBy'];
+    if (version is! int || version <= 0 || by is! String || by.isEmpty) {
+      return null;
+    }
+    return GroupTopicRecord(
+      version: version,
+      updatedBy: by.toLowerCase(),
+      updatedAt: _date(json['updatedAt']),
+    );
+  }
+}
+
 /// `GET /groups/{id}`. Only the fields this feature needs are typed; the
 /// rest (organization, auditor) stays in [raw] for existing callers.
 class GroupDetails {
@@ -151,12 +225,16 @@ class GroupDetails {
     required this.groupId,
     this.botTalk = BotTalkSettings.off,
     this.myMute = MuteSetting.off,
+    this.topic,
     this.raw = const {},
   });
 
   final String groupId;
   final BotTalkSettings botTalk;
   final MuteSetting myMute;
+
+  /// Null = no topic was ever recorded (or an old server).
+  final GroupTopicRecord? topic;
   final Map<String, dynamic> raw;
 
   factory GroupDetails.fromJson(String groupId, Map<String, dynamic> json) =>
@@ -164,6 +242,7 @@ class GroupDetails {
         groupId: (json['groupId'] as String?) ?? groupId,
         botTalk: BotTalkSettings.fromJson(json['botTalk']),
         myMute: MuteSetting.fromJson(json['myMute']),
+        topic: GroupTopicRecord.fromJson(json['topic']),
         raw: json,
       );
 }

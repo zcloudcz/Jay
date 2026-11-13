@@ -164,6 +164,33 @@ class ApiClient {
     return BotTalkSettings.fromJson(response.data);
   }
 
+  /// PUT /groups/{id}/topic (admin only, spec 2026-11-13-group-topics S2):
+  /// records a new topic version on the server. The content is NOT sent; the
+  /// caller sends it E2E as `group-topic` with the returned version.
+  Future<GroupTopicRecord> recordGroupTopic(String groupId) async {
+    final response = await _dio.put<Map<String, dynamic>>(
+      '/groups/$groupId/topic',
+      data: const <String, dynamic>{},
+    );
+    final record = GroupTopicRecord.fromJson(response.data);
+    if (record == null) {
+      throw const FormatException('Invalid topic record from the server');
+    }
+    return record;
+  }
+
+  /// PUT /groups/{id}/members/{deviceId}/role (admin only, spec S1):
+  /// [role] is `admin` or `member`. 409 `last_admin` when demoting the only
+  /// admin, 400 `bot_cannot_be_admin`, 409 `auditor_immutable`.
+  Future<void> setGroupMemberRole(
+    String groupId,
+    String deviceId,
+    String role,
+  ) => _dio.put<void>(
+    '/groups/$groupId/members/$deviceId/role',
+    data: {'role': role},
+  );
+
   /// PUT /groups/{id}/mute -> 204. Mutes this device's pushes for the group.
   Future<void> setGroupMute(String groupId, MuteSetting mute) =>
       _dio.put<void>('/groups/$groupId/mute', data: mute.toJson());

@@ -190,6 +190,8 @@ void main() {
         'allowedBotDeviceIds': [],
         'maxBotTurns': 9,
         'pauseMinutes': 1,
+        'botsReadAll': false,
+        'replyWithoutMention': false,
       });
       expect(stored.mode, BotTalkMode.all);
       expect(stored.updatedAt, DateTime.utc(2026, 11, 5, 10));
@@ -245,6 +247,89 @@ void main() {
       );
       final members = await api.getGroupMemberInfos('g');
       expect(members.map((m) => m.role), ['admin', 'member']);
+    });
+  });
+
+  group('group topics (spec 2026-11-13-group-topics)', () {
+    test('bot-talk flags: only a real true switches them on', () {
+      expect(BotTalkSettings.fromJson({'mode': 'off'}).botsReadAll, isFalse);
+      final on = BotTalkSettings.fromJson({
+        'mode': 'off',
+        'botsReadAll': true,
+        'replyWithoutMention': true,
+      });
+      expect((on.botsReadAll, on.replyWithoutMention), (true, true));
+      final junk = BotTalkSettings.fromJson({
+        'botsReadAll': 'true',
+        'replyWithoutMention': 1,
+      });
+      expect((junk.botsReadAll, junk.replyWithoutMention), (false, false));
+      final copy = on.copyWith(botsReadAll: false);
+      expect((copy.botsReadAll, copy.replyWithoutMention), (false, true));
+      expect(copy.toJson()['replyWithoutMention'], isTrue);
+    });
+
+    test('topic record parses, lower-cases and matches', () {
+      final record = GroupTopicRecord.fromJson({
+        'version': 1763031330123,
+        'updatedBy': 'ABC-1',
+        'updatedAt': '2026-11-13T10:00:00Z',
+      })!;
+      expect(record.updatedBy, 'abc-1');
+      expect(record.updatedAt, DateTime.utc(2026, 11, 13, 10));
+      expect(record.matches(1763031330123, 'Abc-1'), isTrue);
+      expect(record.matches(1763031330122, 'abc-1'), isFalse);
+      expect(record.matches(1763031330123, 'other'), isFalse);
+      for (final bad in <Object?>[
+        null,
+        'x',
+        {'version': 1},
+        {'updatedBy': 'a'},
+        {'version': 0, 'updatedBy': 'a'},
+        {'version': '1', 'updatedBy': 'a'},
+        {'version': 1, 'updatedBy': ''},
+      ]) {
+        expect(GroupTopicRecord.fromJson(bad), isNull, reason: '$bad');
+      }
+    });
+
+    test('getGroup reads the topic record; old server = null', () async {
+      final (api, _) = _client(
+        (_) => (
+          200,
+          {
+            'groupId': 'g1',
+            'topic': {'version': 7, 'updatedBy': 'd1', 'updatedAt': null},
+          },
+        ),
+      );
+      expect((await api.getGroup('g1')).topic?.version, 7);
+      final (old, _) = _client((_) => (200, {'groupId': 'g1'}));
+      expect((await old.getGroup('g1')).topic, isNull);
+    });
+
+    test('recordGroupTopic PUTs an empty body and parses', () async {
+      final (api, adapter) = _client(
+        (_) => (200, {'version': 9, 'updatedBy': 'D1', 'updatedAt': null}),
+      );
+      final record = await api.recordGroupTopic('g1');
+      final r = adapter.requests.single;
+      expect((r.method, r.path), ('PUT', '/groups/g1/topic'));
+      expect(r.data, isEmpty);
+      expect((record.version, record.updatedBy), (9, 'd1'));
+    });
+
+    test('recordGroupTopic refuses a malformed answer', () async {
+      final (api, _) = _client((_) => (200, {'version': 'x'}));
+      expect(api.recordGroupTopic('g1'), throwsFormatException);
+    });
+
+    test('setGroupMemberRole PUTs the role', () async {
+      final (api, adapter) = _client((_) => (200, null));
+      await api.setGroupMemberRole('g1', 'd2', 'admin');
+      final r = adapter.requests.single;
+      expect((r.method, r.path), ('PUT', '/groups/g1/members/d2/role'));
+      expect(r.data, {'role': 'admin'});
     });
   });
 }
