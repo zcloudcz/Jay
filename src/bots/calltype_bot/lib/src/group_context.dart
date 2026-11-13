@@ -133,6 +133,6 @@ class GroupTopicAnnouncer {
 
   /// The prompt block for [topic] (see [take]).
   static String block(String topic) => topic.isEmpty
-      ? '[Group topic: cleared by the group admins]'
-      : '[Group topic (set by the group admins): $topic]';
+      ? '[Group topic cleared by the group admins]'
+      : '[Group topic: $topic]';
 }

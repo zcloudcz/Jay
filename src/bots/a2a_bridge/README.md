@@ -86,8 +86,8 @@ plaintext is then sent to the agent, so the path to the agent must be trusted
 Spec `docs/superpowers/specs/2026-11-13-group-topics.md` (T2-T4), group
 settings changed by the group admins in the app:
 
-- Topic: a leading text part `[Group topic (set by the group admins): ...]`
-  (or `[Group topic: cleared by the group admins]`) on the first turn of a group
+- Topic: a leading text part `[Group topic: ...]`
+  (or `[Group topic cleared by the group admins]`) on the first turn of a group
   conversation in a bridge run and whenever the admins changed it; every group
   turn with a topic also carries message `metadata.jayGroupTopic` (the text).
   `/reset` makes the new agent context hear it again.

@@ -224,8 +224,8 @@ class A2aBridge {
     }
     if (last != version) await state.setTopicVersion(conversationId, version);
     return text.isEmpty
-        ? '[Group topic: cleared by the group admins]'
-        : '[Group topic (set by the group admins): $text]';
+        ? '[Group topic cleared by the group admins]'
+        : '[Group topic: $text]';
   }
 
   /// True = the turn failed (see [handle]).

@@ -61,7 +61,7 @@ void main() {
         await turn('two', 'Brno', 5);
         await turn('three', 'Prague', 6);
         expect(texts(server.calls[0]), [
-          '[Group topic (set by the group admins): Brno]',
+          '[Group topic: Brno]',
           '[from CT-AAAA-0001] one',
         ]);
         expect(server.calls[0].message['metadata'], {'jayGroupTopic': 'Brno'});
@@ -206,7 +206,7 @@ void main() {
           ),
         );
         expect(texts(server.calls.single), [
-          '[Group topic (set by the group admins): Brno trip]',
+          '[Group topic: Brno trip]',
           '[Meanwhile in the group:\n- CT-BBBB-0002: I bring the tent]',
           '[from CT-AAAA-0001] @${bot.handle} plan?',
         ]);

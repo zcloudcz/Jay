@@ -213,8 +213,8 @@ here.
 
 - Topic: the first turn of a group conversation in a bridge run, and every turn
   after the admins changed the topic, starts with
-  `[Group topic (set by the group admins): ...]` (or
-  `[Group topic: cleared by the group admins]`). The last version told to
+  `[Group topic: ...]` (or
+  `[Group topic cleared by the group admins]`). The last version told to
   Hermes is kept in the bot store.
 - "Bots read everything": group messages that start no turn (not addressed,
   other members, bots the bot-talk rules refuse) are buffered in memory per

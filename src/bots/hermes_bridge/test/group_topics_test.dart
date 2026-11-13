@@ -113,19 +113,9 @@ void main() {
     await topic(bob, 'Plan the Prague trip.', 6);
     await say(alice, '@${bot.handle} three');
     expect(prompts, hasLength(3));
-    expect(
-      prompts[0],
-      startsWith(
-        '[Group topic (set by the group admins): Plan the Brno trip.]\n',
-      ),
-    );
+    expect(prompts[0], startsWith('[Group topic: Plan the Brno trip.]\n'));
     expect(prompts[1], isNot(contains('Group topic')));
-    expect(
-      prompts[2],
-      startsWith(
-        '[Group topic (set by the group admins): Plan the Prague trip.]',
-      ),
-    );
+    expect(prompts[2], startsWith('[Group topic: Plan the Prague trip.]'));
 
     // A restart: the first turn of the new run tells it once more.
     await bot.close();
