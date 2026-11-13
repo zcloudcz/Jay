@@ -294,7 +294,7 @@ void main() {
     });
   });
 
-  group('pin and poll-vote (spec 2026-11-08-chat-extras)', () {
+  group('pin, poll-vote (spec 2026-11-08-chat-extras) and group-topic', () {
     Future<Map<String, dynamic>> deliverControl(String type, String body) async =>
         alice.messageTo(
           'archiver',
@@ -307,6 +307,8 @@ void main() {
     for (final (type, body) in [
       ('pin', '{"targetId":"m1","pinned":true}'),
       ('poll-vote', '{"pollId":"p1","options":[0,2]}'),
+      ('group-topic', '{"topic":"Q4 audit","version":1763031330123}'),
+      ('group-topic', '{"topic":"","version":2}'),
     ]) {
       test('a valid $type is archived as text metadata', () async {
         final data = await deliverControl(type, body);
@@ -326,6 +328,9 @@ void main() {
     for (final (type, body) in [
       ('pin', '{"targetId":"m1"}'),
       ('poll-vote', '{"pollId":"p1","options":[42]}'),
+      ('group-topic', '{"topic":"x","version":0}'),
+      ('group-topic', '{"topic":1,"version":5}'),
+      ('group-topic', 'not json'),
     ]) {
       test('a malformed $type is rejected, not emitted', () async {
         final data = await deliverControl(type, body);

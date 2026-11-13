@@ -66,6 +66,9 @@ abstract final class LlmDefaults {
   static const maxTokens = 8192;
   static const historyMessages = 20;
 
+  /// Messages kept next to the summary once the history overflows (T5).
+  static const historyKeep = 10;
+
   static String systemPrompt(String name) =>
       'You are $name, a friendly personal assistant inside the Jay '
       'messenger. Answer in the language the user writes in (often Czech). '
@@ -114,6 +117,8 @@ class LlmConfig {
     this.effort,
     this.maxTokens = LlmDefaults.maxTokens,
     this.historyMessages = LlmDefaults.historyMessages,
+    this.historyKeep = LlmDefaults.historyKeep,
+    this.historySummary = true,
     this.timeout = const Duration(seconds: 300),
     this.progressAfter = const Duration(seconds: 5),
     this.cliBinary,
@@ -150,6 +155,15 @@ class LlmConfig {
   final String? effort;
   final int maxTokens;
   final int historyMessages;
+
+  /// `LLM_HISTORY_KEEP`: newest messages kept when the older part of the
+  /// history is folded into the summary (spec 2026-11-13-group-topics T5);
+  /// always below [historyMessages].
+  final int historyKeep;
+
+  /// `LLM_HISTORY_SUMMARY`: fold overflowing history into a summary by the
+  /// same provider instead of forgetting it. Off without history.
+  final bool historySummary;
   final String systemPrompt;
   final Duration timeout;
 
@@ -430,6 +444,34 @@ class LlmConfig {
         (throw ConfigException(
           'GROUP_REPLIES must be members or owners, got "$groupRepliesRaw".',
         ));
+    final historyMessages = positive(
+      'LLM_HISTORY_MESSAGES',
+      LlmDefaults.historyMessages,
+      min: 0,
+    );
+    // WHY the default follows a small LLM_HISTORY_MESSAGES: a config from
+    // before T5 with e.g. 8 messages must still start; only an explicit
+    // LLM_HISTORY_KEEP is held to the rule.
+    final historyKeep = positive(
+      'LLM_HISTORY_KEEP',
+      historyMessages > LlmDefaults.historyKeep
+          ? LlmDefaults.historyKeep
+          : historyMessages ~/ 2,
+      min: 0,
+    );
+    if (historyMessages > 0 && historyKeep >= historyMessages) {
+      throw ConfigException(
+        'LLM_HISTORY_KEEP must be below LLM_HISTORY_MESSAGES '
+        '($historyMessages), got $historyKeep.',
+      );
+    }
+    final summaryRaw = (opt('LLM_HISTORY_SUMMARY') ?? 'on').toLowerCase();
+    if (!const {'on', 'off', 'true', 'false', '1', '0'}.contains(summaryRaw)) {
+      throw ConfigException(
+        'LLM_HISTORY_SUMMARY must be on or off, got "$summaryRaw".',
+      );
+    }
+
     final inbound = opt('BOT_INBOUND');
     if (inbound != null &&
         !const {'open', 'owners'}.contains(inbound.toLowerCase())) {
@@ -449,11 +491,10 @@ class LlmConfig {
       baseUrl: primary.baseUrl,
       effort: primary.effort,
       maxTokens: positive('LLM_MAX_TOKENS', LlmDefaults.maxTokens, min: 16),
-      historyMessages: positive(
-        'LLM_HISTORY_MESSAGES',
-        LlmDefaults.historyMessages,
-        min: 0,
-      ),
+      historyMessages: historyMessages,
+      historyKeep: historyKeep,
+      historySummary:
+          historyMessages > 0 && const {'on', 'true', '1'}.contains(summaryRaw),
       systemPrompt:
           opt('LLM_SYSTEM_PROMPT') ?? LlmDefaults.systemPrompt(displayName),
       timeout: Duration(seconds: positive('LLM_TIMEOUT_SECONDS', 300)),

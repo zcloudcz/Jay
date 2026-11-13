@@ -59,6 +59,10 @@ Future<void> runJayGlue(
     log('Publishing bot commands failed: $e');
   }
 
+  // Group context (spec 2026-11-13-group-topics T3): what the group said
+  // between two owner turns, in memory.
+  final context = GroupContextBuffer();
+
   Future<void> handle(BotMessage message) async {
     final owner = allowedIds[message.senderId.toLowerCase()];
     if (owner == null) return; // belt and braces; allowSender already said no
@@ -68,13 +72,26 @@ Future<void> runJayGlue(
       sink: _MessageSink(message),
       // In a group several owners may talk to the same agent context.
       senderLabel: message.isGroup ? owner : null,
+      groupTopic: message.groupTopic,
+      groupTopicVersion: message.groupTopicVersion,
+      groupContext: message.isGroup
+          ? context.take(message.conversationId)
+          : null,
     );
     if (failed) message.markFailed();
   }
 
+  // Before onMessage, which connects.
+  bot.onContext((message) async => context.addMessage(message));
   await bot.onMessage(
     handle,
     allowSender: (id) => allowedIds.containsKey(id.toLowerCase()),
+    // The groups this bridge works for: an owner is a member. Only there
+    // are other members' messages decrypted, for the topic and as context;
+    // they never start a turn.
+    servesGroup: (groupId) async => (await bot.group(
+      groupId,
+    )).members.any((m) => allowedIds.containsKey(m.deviceId.toLowerCase())),
     // Automatic (spec 2026-11-11-bot-ack-reactions R4): the allowlist above
     // already decided, so every message reaching [handle] gets 👀 and then
     // ✅ / 👍 / ❌. No model directive here: A2A agents do not know it.

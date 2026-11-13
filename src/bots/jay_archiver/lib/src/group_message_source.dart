@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:calltype_core/messaging/group_topic.dart';
 import 'package:calltype_core/messaging/pin.dart';
 import 'package:calltype_core/messaging/poll.dart';
 import 'package:calltype_core/messaging/reaction.dart';
@@ -153,7 +154,8 @@ class SignalGroupMessageSource implements GroupMessageSource {
       // "text"/"file" are the app's own wire types (message_inbox_service.dart);
       // "call-event" (H1) is a client-generated report of a finished/missed
       // call; "reaction" is an emoji reaction (spec 2026-11-07), "pin" and
-      // "poll-vote" are chat extras (spec 2026-11-08); those three are
+      // "poll-vote" are chat extras (spec 2026-11-08) and "group-topic" is a
+      // group's topic (spec 2026-11-13-group-topics); those four are
       // archived as text metadata below. A poll itself is `text`. Anything
       // else is an unsupported message this archiver version cannot hash
       // meaningfully.
@@ -162,7 +164,8 @@ class SignalGroupMessageSource implements GroupMessageSource {
           type != 'call-event' &&
           type != 'reaction' &&
           type != pinType &&
-          type != pollVoteType) {
+          type != pollVoteType &&
+          type != groupTopicType) {
         throw FormatException('Unsupported message type "$type"');
       }
 
@@ -208,6 +211,12 @@ class SignalGroupMessageSource implements GroupMessageSource {
       }
       if (type == pollVoteType && PollVotePayload.decode(body) == null) {
         throw const FormatException('poll-vote body is invalid');
+      }
+      // Topics are refused for business groups by the server and the app
+      // (spec 2026-11-13-group-topics row 11, K01); a modified client's one
+      // is still archived, metadata only, like a pin.
+      if (type == groupTopicType && GroupTopicPayload.decode(body) == null) {
+        throw const FormatException('group-topic body is invalid');
       }
 
       final int sizeBytes;

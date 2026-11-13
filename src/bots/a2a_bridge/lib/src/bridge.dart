@@ -110,6 +110,9 @@ class A2aBridge {
   final int maxProgressEdits;
   final void Function(String) log;
 
+  /// Conversation id (lower-case) -> topic version told in this run (T2).
+  final _topicSent = <String, int>{};
+
   /// Published as the bot's "/" menu.
   late final List<A2aCommand> commands;
   late final Map<String, A2aSkill> _skills;
@@ -122,17 +125,29 @@ class A2aBridge {
   /// unreachable, a failed/rejected/canceled/auth-required task) instead of
   /// an answer: the runtime then ends with ❌ instead of ✅ (spec
   /// 2026-11-11-bot-ack-reactions).
+  ///
+  /// Group topics (spec 2026-11-13-group-topics): [groupTopic] /
+  /// [groupTopicVersion] are the group's stored topic. It goes as a leading
+  /// text part on the first turn of a conversation in this bridge run and
+  /// whenever its version changes (the last told version is kept in the
+  /// state store), and as metadata `jayGroupTopic` on every group turn that
+  /// has one. [groupContext] (`[Meanwhile in the group: ...]`) is a leading
+  /// text part too.
   Future<bool> handle({
     required String conversationId,
     required String text,
     required ChatSink sink,
     String? senderLabel,
+    String? groupTopic,
+    int? groupTopicVersion,
+    String? groupContext,
   }) async {
     var outgoing = text.trim();
     if (outgoing.isEmpty) return false;
 
     final slash = parseSlashCommand(outgoing);
     if (slash != null && slash.command == resetCommand) {
+      _topicSent.remove(conversationId.toLowerCase());
       await state.reset(conversationId);
       await sink.reply(BridgeTexts.reset);
       return false;
@@ -146,11 +161,27 @@ class A2aBridge {
           : '[Skill: ${skill.id}] ${slash.args}';
     }
     if (senderLabel != null) outgoing = '[from $senderLabel] $outgoing';
+    final topicPart = await _topicPart(
+      conversationId,
+      groupTopic,
+      groupTopicVersion,
+    );
+    final leading = [?topicPart, ?groupContext];
+    final metadata = groupTopic == null || groupTopic.isEmpty
+        ? null
+        : <String, Object?>{'jayGroupTopic': groupTopic};
 
     final deadline = DateTime.now().add(timeout);
     final run = _Run(this, sink);
     try {
-      return await _exchange(conversationId, outgoing, deadline, run);
+      return await _exchange(
+        conversationId,
+        outgoing,
+        deadline,
+        run,
+        leading: leading,
+        metadata: metadata,
+      );
     } on TimeoutException {
       log('A2A: timeout in conversation $conversationId');
       await run.deliver(BridgeTexts.timeout(timeout));
@@ -172,13 +203,40 @@ class A2aBridge {
     return left;
   }
 
+  /// The topic part for this turn (see [handle]), or null. Same rule as
+  /// calltype_bot's GroupTopicAnnouncer (this file stays runtime-free):
+  /// first turn of the run, or a changed version; a clear only when the
+  /// agent heard a topic before.
+  Future<String?> _topicPart(
+    String conversationId,
+    String? topic,
+    int? version,
+  ) async {
+    if (version == null) return null;
+    final key = conversationId.toLowerCase();
+    final inRun = _topicSent[key];
+    if (inRun == version) return null;
+    final last = inRun ?? state.topicVersion(conversationId);
+    final text = topic ?? '';
+    _topicSent[key] = version;
+    if (inRun == null && text.isEmpty && (last == null || last == version)) {
+      return null;
+    }
+    if (last != version) await state.setTopicVersion(conversationId, version);
+    return text.isEmpty
+        ? '[Group topic cleared by the group admins]'
+        : '[Group topic: $text]';
+  }
+
   /// True = the turn failed (see [handle]).
   Future<bool> _exchange(
     String conversationId,
     String text,
     DateTime deadline,
-    _Run run,
-  ) async {
+    _Run run, {
+    List<String> leading = const [],
+    Map<String, Object?>? metadata,
+  }) async {
     final before = state.get(conversationId);
     A2aResult result;
     try {
@@ -186,6 +244,8 @@ class A2aBridge {
         text,
         contextId: before.contextId,
         taskId: before.taskId,
+        leadingTexts: leading,
+        metadata: metadata,
         timeout: _remaining(deadline),
       );
     } on A2aException catch (e) {
@@ -203,6 +263,8 @@ class A2aBridge {
       result = await client.sendMessage(
         text,
         contextId: before.contextId,
+        leadingTexts: leading,
+        metadata: metadata,
         timeout: _remaining(deadline),
       );
     }

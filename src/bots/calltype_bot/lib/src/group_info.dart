@@ -31,6 +31,7 @@ class GroupInfo {
     required this.groupId,
     this.botTalk = BotTalkSettings.off,
     this.myMute = MuteSetting.off,
+    this.topic,
     required List<GroupMember> members,
   }) : members = List.unmodifiable(members),
        _byId = {for (final m in members) m.deviceId.toLowerCase(): m};
@@ -38,6 +39,11 @@ class GroupInfo {
   final String groupId;
   final BotTalkSettings botTalk;
   final MuteSetting myMute;
+
+  /// The server's record of the group topic (version + who set it, never
+  /// the text: that arrives E2E as `group-topic`); null = never set or an
+  /// old server. Spec 2026-11-13-group-topics row 6.
+  final GroupTopicRecord? topic;
   final List<GroupMember> members;
   final Map<String, GroupMember> _byId;
 

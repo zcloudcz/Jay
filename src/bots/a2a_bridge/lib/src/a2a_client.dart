@@ -167,6 +167,8 @@ class A2aClient {
     String text, {
     String? contextId,
     String? taskId,
+    List<String> leadingTexts = const [],
+    Map<String, Object?>? metadata,
     required Duration timeout,
   }) async {
     final messageId = _uuidV4();
@@ -178,6 +180,8 @@ class A2aClient {
             text: text,
             contextId: contextId,
             taskId: taskId,
+            leadingTexts: leadingTexts,
+            metadata: metadata,
           ),
           // v1.0: an interface with a tenant requires it echoed in params.
           if (v == A2aVersion.v1 && _tenant != null) 'tenant': _tenant,

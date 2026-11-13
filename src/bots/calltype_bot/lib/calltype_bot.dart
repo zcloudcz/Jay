@@ -13,6 +13,7 @@ import 'package:calltype_core/devices/fanout_sender.dart';
 import 'package:calltype_core/media/media_info.dart';
 import 'package:calltype_core/network/media_api.dart';
 import 'package:calltype_core/messaging/agent_payload.dart';
+import 'package:calltype_core/messaging/group_topic.dart';
 import 'package:calltype_core/messaging/poll.dart';
 import 'package:calltype_core/messaging/reaction.dart';
 import 'package:calltype_core/network/api_client.dart';
@@ -47,16 +48,19 @@ export 'package:calltype_core/messaging/reaction.dart'
         maxReactionTargetLength,
         quickReactions,
         reactionType;
+export 'package:calltype_core/messaging/group_topic.dart'
+    show GroupTopicPayload, groupTopicType, maxGroupTopicLength;
 export 'package:calltype_core/messaging/pin.dart' show pinType;
 export 'package:calltype_core/messaging/poll.dart'
     show PollPayload, pollKey, pollVoteType;
 export 'package:calltype_core/network/bot_dtos.dart' show BotCommand;
 export 'package:calltype_core/network/group_dtos.dart'
-    show BotTalkMode, BotTalkSettings, MuteMode, MuteSetting;
+    show BotTalkMode, BotTalkSettings, GroupTopicRecord, MuteMode, MuteSetting;
 export 'src/ack_reactions.dart';
 export 'src/bot_talk.dart';
 export 'src/attachment.dart';
 export 'src/encrypted_file_store.dart';
+export 'src/group_context.dart';
 export 'src/inbound_policy.dart';
 export 'src/group_info.dart';
 export 'src/media_tools.dart';
@@ -72,6 +76,36 @@ typedef BotReactionHandler = Future<void> Function(BotReaction reaction);
 /// the server says the message belongs to group [groupId]. See [CallTypeBot.onMessage].
 typedef GroupSenderCheck =
     Future<bool> Function(String senderId, String groupId);
+
+/// Receives a group message as CONTEXT (spec 2026-11-13-group-topics row
+/// 19), see [CallTypeBot.onContext]. Never a turn: the handler must not
+/// reply, react or run anything because of it.
+typedef BotContextHandler = Future<void> Function(BotMessage message);
+
+/// Whether the bridge serves group [groupId] (its own rule, e.g. an owner
+/// of the bot is a member). See `servesGroup` in [CallTypeBot.onMessage].
+typedef GroupServesCheck = Future<bool> Function(String groupId);
+
+/// A group topic as the bot stored it (spec 2026-11-13-group-topics,
+/// receiver rules): validated against the server's record, newest version
+/// wins. [topic] is '' when the admins cleared it.
+class BotGroupTopic {
+  const BotGroupTopic({
+    required this.topic,
+    required this.version,
+    required this.setBy,
+  });
+
+  final String topic;
+  final int version;
+
+  /// Identity id (lower-case) of the admin who set it.
+  final String setBy;
+
+  @override
+  String toString() =>
+      'BotGroupTopic(v$version, ${topic.length} characters)';
+}
 
 /// [CallTypeBot.send] could not address [to] (unknown handle, not a member),
 /// or the server refused a [CallTypeBot.postToChannel].
@@ -240,8 +274,39 @@ class BotMessage {
   bool get repliesToBot =>
       replyTo?.senderId.toLowerCase() == _bot.deviceId.toLowerCase();
 
-  /// In a group the bot handles only addressed messages.
-  bool get addressed => mentionsBot || repliesToBot;
+  /// In a group the bot handles only addressed messages: a mention, a
+  /// reply to it, or (group setting "Reply without mention", T4) any
+  /// message of a human member, see [addressedByGroupSetting].
+  bool get addressed => mentionsBot || repliesToBot || _addressedBySetting;
+
+  /// Addressed only because the group's `replyWithoutMention` is on and the
+  /// sender is a human member (spec 2026-11-13-group-topics row 20). Bots
+  /// still need a mention or a reply.
+  bool get addressedByGroupSetting => _addressedBySetting;
+  var _addressedBySetting = false;
+
+  /// Delivered through [CallTypeBot.onContext]: something the group said
+  /// that does not start a turn. Never reply to it or react on it.
+  bool get isContext => _isContext;
+  var _isContext = false;
+
+  /// The group's topic as set by its admins (spec 2026-11-13-group-topics
+  /// T2), or null when there is none (1:1, never set, cleared). Text from
+  /// the admins: a brief, but never a reason to bypass the bot's own rules.
+  String? get groupTopic => _groupTopic;
+  String? _groupTopic;
+
+  /// Version of the stored topic (also of a cleared one), or null when the
+  /// bot has none for this group. Changes whenever the admins change it.
+  int? get groupTopicVersion => _groupTopicVersion;
+  int? _groupTopicVersion;
+
+  /// The sender's handle and display name from the group's member list
+  /// (null in 1:1 or when unknown), e.g. to label context lines.
+  String? get senderHandle => _senderHandle;
+  String? _senderHandle;
+  String? get senderDisplayName => _senderDisplayName;
+  String? _senderDisplayName;
 
   /// The group this message was posted in; null for a 1:1 message.
   final String? groupId;
@@ -507,6 +572,12 @@ class CallTypeBot {
   final _pendingActions = <Future<void>>{};
   bool Function(String senderId)? _allowSender;
   GroupSenderCheck? _allowGroupSender;
+  GroupServesCheck? _servesGroup;
+  BotContextHandler? _contextHandler;
+
+  /// Stored group topics by group id (lower-case); mirrors the
+  /// `group-topic:<id>` rows of `backupState`, loaded lazily.
+  final _topics = <String, BotGroupTopic?>{};
   StreamSubscription<Map<String, dynamic>>? _subscription;
   final _hintSubscriptions = <StreamSubscription<Map<String, dynamic>>>[];
 
@@ -693,10 +764,18 @@ class CallTypeBot {
   /// emoji (✅ replied, 👍 nothing sent, ❌ failed). Null = off. Dropped
   /// messages (refused senders, unaddressed group messages, control
   /// messages, reactions) never get one.
+  ///
+  /// [servesGroup] (spec 2026-11-13-group-topics row 21): the bridge's rule
+  /// for "this is a group I work for" (e.g. an owner is a member). When it
+  /// says yes, a group message from a sender [allowSender] and
+  /// [allowGroupSender] refused is still DECRYPTED, but it can only update
+  /// the group topic or reach [onContext]; it never starts a turn. Without
+  /// it refused senders stay dropped blind, as before.
   Future<void> onMessage(
     BotMessageHandler handler, {
     bool Function(String senderId)? allowSender,
     GroupSenderCheck? allowGroupSender,
+    GroupServesCheck? servesGroup,
     bool receiveFiles = false,
     AckReactions? ackReactions,
   }) async {
@@ -705,6 +784,7 @@ class CallTypeBot {
     _receiveFiles = receiveFiles;
     _allowSender = allowSender;
     _allowGroupSender = allowGroupSender;
+    _servesGroup = servesGroup;
     if (_subscription == null) {
       _subscription = _signalR.onMessage.listen(_enqueue);
       _hintSubscriptions.addAll([
@@ -811,6 +891,19 @@ class CallTypeBot {
   /// [BotReaction.targetText] can say what the reaction was about.
   void onReaction(BotReactionHandler handler) => _reactionHandler = handler;
 
+  /// Handles group messages that do not start a turn (spec
+  /// 2026-11-13-group-topics row 19, "Bots read everything"). Set it
+  /// BEFORE [onMessage]. Only when the group's `botsReadAll` is on and the
+  /// `servesGroup` callback of [onMessage] says yes: unaddressed text and
+  /// media messages, and group messages of senders the admission checks
+  /// refused, arrive here with [BotMessage.isContext] set.
+  ///
+  /// Runs in the conversation's queue, without typing indicator, ack
+  /// reaction, actions or buttons, and is acknowledged after the handler
+  /// (a failing handler is only logged). Messages of this bot never come
+  /// here. Without a handler such messages are acknowledged and dropped.
+  void onContext(BotContextHandler handler) => _contextHandler = handler;
+
   /// Publishes the "/" commands the app suggests for this bot (replaces the
   /// whole list; empty = clear).
   Future<void> setCommands(List<BotCommand> commands) async {
@@ -869,6 +962,7 @@ class CallTypeBot {
       groupId: groupId,
       botTalk: details.botTalk,
       myMute: details.myMute,
+      topic: details.topic,
       members: [
         for (final m in members)
           GroupMember(
@@ -1193,7 +1287,23 @@ class CallTypeBot {
         allowed = false; // fail closed: cannot verify = do not admit
       }
     }
-    if (!allowed) {
+    // Refused for turns, but maybe still worth reading (spec
+    // 2026-11-13-group-topics row 21): in a group the bridge serves, the
+    // message may set the topic (the admin need not be an owner) or be
+    // context. Never for the bot itself.
+    var contextOnly = false;
+    final serves = _servesGroup;
+    if (!allowed &&
+        groupId != null &&
+        serves != null &&
+        identity != deviceId.toLowerCase()) {
+      try {
+        contextOnly = await serves(groupId);
+      } catch (e) {
+        contextOnly = false; // fail closed, like allowGroupSender
+      }
+    }
+    if (!allowed && !contextOnly) {
       await _ack(senderId, messageId);
       return;
     }
@@ -1285,6 +1395,22 @@ class CallTypeBot {
     }
     final payload = result.payload;
     final route = result.route;
+    if (payload['type'] == groupTopicType) {
+      _receiveTopic(
+        payload,
+        route: route,
+        messageId: messageId,
+        ackSenderId: senderId,
+        groupId: groupId,
+      );
+      return;
+    }
+    // A refused sender's reaction or inline file is never context.
+    if (contextOnly &&
+        (payload['type'] == reactionType || payload['type'] == 'file')) {
+      await _ack(senderId, messageId);
+      return;
+    }
     if (payload['type'] == reactionType) {
       await _receiveReaction(
         payload,
@@ -1345,11 +1471,23 @@ class CallTypeBot {
           : null,
       attachment: attachment,
     );
+    if (contextOnly) {
+      // A refused sender: context at most, never a turn (even when it
+      // mentions the bot).
+      _queue(
+        message.conversationId,
+        () => _contextOrDrop(message, alreadyServed: true),
+      );
+      return;
+    }
     // In groups the bot speaks only when addressed: mentioned, or replied
-    // to (which a button press always is). Everything else is acknowledged
-    // and ignored.
+    // to (which a button press always is). The rest may still be addressed
+    // by the group's "Reply without mention" or become context; both need
+    // the group's settings, so that is decided in the conversation queue
+    // (a REST lookup there delays only this conversation). Without either
+    // it is acknowledged and ignored, as before.
     if (groupId != null && !message.addressed) {
-      await _ack(senderId, messageId);
+      _queue(message.conversationId, () => _unaddressed(message));
       return;
     }
     if (groupId != null && groupName != null && groupName.isNotEmpty) {
@@ -1372,15 +1510,220 @@ class CallTypeBot {
       return;
     }
 
-    final tail = _conversations[message.conversationId] ?? Future.value();
+    _queue(message.conversationId, () => _handle(message, _handler!));
+  }
+
+  /// Appends [task] to the handler queue of [conversationId].
+  void _queue(String conversationId, Future<void> Function() task) {
+    final tail = _conversations[conversationId] ?? Future.value();
     late final Future<void> next;
-    next = tail.then((_) => _handle(message, _handler!)).whenComplete(() {
+    next = tail.then((_) => task()).whenComplete(() {
       // Drop finished chains so the map does not grow with every peer ever.
-      if (_conversations[message.conversationId] == next) {
-        _conversations.remove(message.conversationId);
+      if (_conversations[conversationId] == next) {
+        _conversations.remove(conversationId);
       }
     });
-    _conversations[message.conversationId] = next;
+    _conversations[conversationId] = next;
+  }
+
+  /// The group's info with a sender the cached list does not know yet
+  /// re-read once; null when it cannot be read.
+  Future<GroupInfo?> _groupWith(String groupId, String senderId) async {
+    try {
+      var info = await group(groupId);
+      if (!info.isMember(senderId)) {
+        // A sender the cached list does not know joined after we cached.
+        invalidateGroups(groupId);
+        info = await group(groupId);
+      }
+      return info;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Fills the group fields of [message] (sender profile, stored topic).
+  Future<void> _decorate(BotMessage message, GroupInfo? info) async {
+    final groupId = message.groupId;
+    if (groupId == null) return;
+    final member = info?.member(message.senderId);
+    message._senderIsBot = member?.isBot;
+    message._senderHandle = member?.handle;
+    message._senderDisplayName = member?.displayName;
+    final topic = await groupTopic(groupId);
+    message._groupTopic = topic == null || topic.topic.isEmpty
+        ? null
+        : topic.topic;
+    message._groupTopicVersion = topic?.version;
+  }
+
+  /// An unaddressed group message of an admitted sender: a turn when the
+  /// group's `replyWithoutMention` is on and the sender is a HUMAN member
+  /// (T4; a bot sender still needs a mention, so bots never start talking
+  /// to each other through it), else context or dropped.
+  Future<void> _unaddressed(BotMessage message) async {
+    final info = await _groupWith(message.groupId!, message.senderId);
+    final member = info?.member(message.senderId);
+    if (info != null &&
+        info.botTalk.replyWithoutMention &&
+        member != null &&
+        !member.isBot &&
+        message.senderId.toLowerCase() != deviceId.toLowerCase()) {
+      message._addressedBySetting = true;
+      final name = message._groupName;
+      if (name != null && name.isNotEmpty) {
+        _groupNames[message.groupId!.toLowerCase()] = name;
+      }
+      await _handle(message, _handler!);
+      return;
+    }
+    await _contextOrDrop(message, info: info);
+  }
+
+  /// Hands [message] to [onContext] when the group reads along
+  /// (`botsReadAll`) and the bridge serves it, then acknowledges it.
+  Future<void> _contextOrDrop(
+    BotMessage message, {
+    GroupInfo? info,
+    bool alreadyServed = false,
+  }) async {
+    try {
+      final handler = _contextHandler;
+      final serves = _servesGroup;
+      final groupId = message.groupId;
+      if (handler == null ||
+          serves == null ||
+          groupId == null ||
+          message.action != null ||
+          message.senderId.toLowerCase() == deviceId.toLowerCase()) {
+        return;
+      }
+      info ??= await _groupWith(groupId, message.senderId);
+      if (info == null || !info.botTalk.botsReadAll) return;
+      if (!alreadyServed) {
+        try {
+          if (!await serves(groupId)) return;
+        } catch (_) {
+          return;
+        }
+      }
+      message._isContext = true;
+      await _decorate(message, info);
+      try {
+        await handler(message);
+      } catch (error, stack) {
+        _log('Context handler failed for message ${message.id}: $error\n$stack');
+      }
+    } finally {
+      await _ack(message._ackSenderId, message.id);
+    }
+  }
+
+  static String _topicKey(String groupId) =>
+      'group-topic:${groupId.toLowerCase()}';
+
+  static String _bridgeStateKey(String key) => 'bridge:$key';
+
+  /// A small value a bridge keeps across restarts in the bot's local store
+  /// (e.g. which topic version it last told its backend); null when unset.
+  /// Plaintext SQLite like the rest of the runtime state (README "Storage"),
+  /// so never put message content here.
+  Future<String?> readBridgeState(String key) async => (await (_db.select(
+    _db.backupState,
+  )..where((r) => r.key.equals(_bridgeStateKey(key)))).getSingleOrNull())
+      ?.value;
+
+  /// Stores [value] under [key], see [readBridgeState].
+  Future<void> writeBridgeState(String key, String value) => _db
+      .into(_db.backupState)
+      .insertOnConflictUpdate(
+        BackupStateCompanion.insert(key: _bridgeStateKey(key), value: value),
+      );
+
+  /// The stored topic of [groupId] (spec 2026-11-13-group-topics T2), or
+  /// null when the bot never received a valid one. A cleared topic has an
+  /// empty [BotGroupTopic.topic].
+  Future<BotGroupTopic?> groupTopic(String groupId) async {
+    final key = groupId.toLowerCase();
+    if (_topics.containsKey(key)) return _topics[key];
+    BotGroupTopic? topic;
+    final row = await (_db.select(
+      _db.backupState,
+    )..where((r) => r.key.equals(_topicKey(key)))).getSingleOrNull();
+    if (row != null) {
+      try {
+        final json = jsonDecode(row.value) as Map<String, dynamic>;
+        topic = BotGroupTopic(
+          topic: json['topic'] as String,
+          version: json['version'] as int,
+          setBy: json['setBy'] as String,
+        );
+      } catch (_) {
+        topic = null; // a damaged row counts as none; the next change heals it
+      }
+    }
+    return _topics[key] = topic;
+  }
+
+  /// A decrypted `group-topic` (spec "Wire shapes", receiver rules 1-5):
+  /// in the group's queue, so a message right after it already sees it.
+  /// Every refusal is acknowledged and dropped; a network error too, since
+  /// bots handle a message at most once (the next change re-sends).
+  /// WHY the text never reaches the log: it is the group's content.
+  void _receiveTopic(
+    Map<String, dynamic> payload, {
+    required InboundRoute route,
+    required String messageId,
+    required String ackSenderId,
+    required String? groupId,
+  }) {
+    final decoded = GroupTopicPayload.decode(payload['body']);
+    if (groupId == null || decoded == null) {
+      unawaited(_ack(ackSenderId, messageId));
+      return;
+    }
+    _queue(route.conversationId, () async {
+      try {
+        // Never the cache: the record must be the server's current one.
+        invalidateGroups(groupId);
+        final GroupInfo info;
+        try {
+          info = await group(groupId);
+        } catch (e) {
+          _log('Group topic $messageId for $groupId not verified: $e');
+          return;
+        }
+        final record = info.topic;
+        if (record == null ||
+            !record.matches(decoded.version, route.senderIdentityId)) {
+          _log('Group topic $messageId for $groupId refused: not recorded.');
+          return;
+        }
+        final stored = await groupTopic(groupId);
+        if (stored != null && decoded.version <= stored.version) return;
+        final topic = BotGroupTopic(
+          topic: decoded.topic,
+          version: decoded.version,
+          setBy: route.senderIdentityId.toLowerCase(),
+        );
+        await _db
+            .into(_db.backupState)
+            .insertOnConflictUpdate(
+              BackupStateCompanion.insert(
+                key: _topicKey(groupId),
+                value: jsonEncode({
+                  'topic': topic.topic,
+                  'version': topic.version,
+                  'setBy': topic.setBy,
+                }),
+              ),
+            );
+        _topics[groupId.toLowerCase()] = topic;
+        _log('Group topic of $groupId is now version ${topic.version}.');
+      } finally {
+        await _ack(ackSenderId, messageId);
+      }
+    });
   }
 
   /// A decrypted `type: reaction`: to the handler (see [onReaction]) or
@@ -1542,18 +1885,9 @@ class CallTypeBot {
       final groupId = message.groupId;
       if (groupId != null) {
         // Outside the crypto queue on purpose: a slow REST call here only
-        // delays this conversation.
-        try {
-          var info = await group(groupId);
-          if (!info.isMember(message.senderId)) {
-            // A sender the cached list does not know joined after we cached.
-            invalidateGroups(groupId);
-            info = await group(groupId);
-          }
-          message._senderIsBot = info.member(message.senderId)?.isBot;
-        } catch (_) {
-          // Unknown stays null; the handler decides how to treat that.
-        }
+        // delays this conversation. Unknown stays null; the handler decides
+        // how to treat that.
+        await _decorate(message, await _groupWith(groupId, message.senderId));
       }
       await handler(message);
     } catch (error, stack) {

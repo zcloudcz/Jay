@@ -14,6 +14,10 @@ messages, therefore:
   answers **nobody** and logs how to allow yourself.
 - Messages from other senders are acknowledged and dropped **before decryption**:
   no Hermes call, no reply, no typing indicator.
+  Exception: in a group with one of your `ALLOWED_HANDLES` as member, other
+  members' messages are decrypted so the group topic and (with "Bots read
+  everything") group context reach Hermes; they never start a turn, see
+  "Group topics".
 - Handles are resolved to device ids **once at startup** — restart after changing
   the list, or after an allowed user reinstalls Jay (new device id).
 - In a group, only allowed members can trigger the bot (by `@Hermes` / `@<handle>`),
@@ -200,6 +204,26 @@ the bridges. A bot answers another bot in group G only if all hold:
 - Group settings are cached and re-read on the server's group-changed hint (and at
   the latest after 5 minutes).
 - Add to Hermes' instructions: "To ask the other agent, mention it as @<its handle>."
+
+## Group topics
+
+Spec `docs/superpowers/specs/2026-11-13-group-topics.md` (T2-T4). All three
+are group settings changed by the group admins in the app; nothing to configure
+here.
+
+- Topic: the first turn of a group conversation in a bridge run, and every turn
+  after the admins changed the topic, starts with
+  `[Group topic: ...]` (or
+  `[Group topic cleared by the group admins]`). The last version told to
+  Hermes is kept in the bot store.
+- "Bots read everything": group messages that start no turn (not addressed,
+  other members, bots the bot-talk rules refuse) are buffered in memory per
+  group (newest 50 lines / 8000 characters) and go to Hermes in front of the
+  next turn as `[Meanwhile in the group:\n- CT-XXXX-XXXX: ...]`, then the buffer
+  is cleared. Never answered, no reaction, no tools. A restart loses an
+  unsent buffer.
+- "Reply without mention": a message from an `ALLOWED_HANDLES` member needs no
+  `@` mention in that group. Bots still need one (and the bot-talk rules).
 
 ## Replies, progress, approvals
 

@@ -39,10 +39,15 @@ class ConversationState {
 /// middle of a plain overwrite would leave a truncated file, and every
 /// conversation would silently lose its agent context.
 class StateStore {
-  StateStore._(this.path, this._data);
+  StateStore._(this.path, this._data, this._topics);
 
   final String path;
   final Map<String, ConversationState> _data;
+
+  /// Conversation id -> the group topic version the agent was last told
+  /// (spec 2026-11-13-group-topics T2). Separate from [ConversationState]
+  /// so every existing write of the task state keeps it untouched.
+  final Map<String, int> _topics;
 
   /// Writes are chained so two conversations finishing at once cannot
   /// interleave their temp-file writes.
@@ -56,6 +61,7 @@ class StateStore {
   }) async {
     final file = File(path);
     final data = <String, ConversationState>{};
+    final topics = <String, int>{};
     if (await file.exists()) {
       try {
         final json = jsonDecode(await file.readAsString());
@@ -66,6 +72,14 @@ class StateStore {
             if (key is String && !state.isEmpty) data[key] = state;
           });
         }
+        // Additive key: a file of an older bridge has none, which only
+        // means the topic is told once more.
+        final sent = json is Map ? json['topics'] : null;
+        if (sent is Map) {
+          sent.forEach((key, value) {
+            if (key is String && value is int) topics[key] = value;
+          });
+        }
       } on FormatException catch (e) {
         log(
           'A2A state $path is corrupt ($e); starting empty, old file kept as .corrupt.',
@@ -73,7 +87,7 @@ class StateStore {
         await file.rename('$path.corrupt');
       }
     }
-    return StateStore._(path, data);
+    return StateStore._(path, data, topics);
   }
 
   static void _noLog(String _) {}
@@ -90,15 +104,27 @@ class StateStore {
     return _persist();
   }
 
-  /// Forgets [conversationId] (the `/reset` command).
-  Future<void> reset(String conversationId) =>
-      set(conversationId, const ConversationState());
+  /// Forgets [conversationId] (the `/reset` command), also which topic
+  /// the agent heard: a new agent context has to hear it again.
+  Future<void> reset(String conversationId) {
+    _topics.remove(_key(conversationId));
+    return set(conversationId, const ConversationState());
+  }
+
+  /// The group topic version last told to the agent in [conversationId].
+  int? topicVersion(String conversationId) => _topics[_key(conversationId)];
+
+  Future<void> setTopicVersion(String conversationId, int version) {
+    _topics[_key(conversationId)] = version;
+    return _persist();
+  }
 
   Future<void> _persist() {
     // Snapshot NOW so the chained write stores this call's view.
     final snapshot = jsonEncode({
       'version': 1,
       'conversations': {for (final e in _data.entries) e.key: e.value.toJson()},
+      if (_topics.isNotEmpty) 'topics': Map.of(_topics),
     });
     final next = _writes.then((_) async {
       final tmp = File('$path.tmp');

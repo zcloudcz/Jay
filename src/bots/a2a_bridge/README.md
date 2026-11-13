@@ -15,7 +15,10 @@ plaintext is then sent to the agent, so the path to the agent must be trusted
   (exit 78). Only those owners can talk to the agent.
 - Messages from anyone else are acknowledged and dropped **before decryption**:
   no agent call, no reply, no typing indicator. Other bots are never answered
-  (no bot-to-bot talk through this bridge).
+  (no bot-to-bot talk through this bridge). Exception: in a group with an owner
+  as member, other members' (and bots') messages are decrypted so the group
+  topic and, with "Bots read everything", group context reach the agent; they
+  never start a turn (see "Group topics").
 - In a group, an owner addresses the bot by `@mention` or by replying to it; the
   agent's answer is visible to **every** member of that group. The agent sees
   `[from CT-XXXX-XXXX]` in front of group messages so it knows who is speaking.
@@ -27,7 +30,8 @@ plaintext is then sent to the agent, so the path to the agent must be trusted
   `[file: name] <url>` note, inline bytes are never decoded, data parts become
   JSON text. Responses over 4 MiB are refused.
 - `A2A_STATE_PATH` holds only conversation ids -> A2A `contextId` / open
-  `taskId`, no message content. Delete it to make the agent forget all chats.
+  `taskId` and the last group topic version told to the agent, no message
+  content. Delete it to make the agent forget all chats.
 - The bot's SQLite session DB is plaintext on disk (see
   `../calltype_bot/README.md`), so the host must be trusted.
 
@@ -76,6 +80,22 @@ plaintext is then sent to the agent, so the path to the agent must be trusted
   by ✅ / 👍 / ❌ when the turn ends. No 👀 = the bridge is down. The agent
   cannot choose the emoji (no `[react:EMOJI]` directive here). Reactions,
   also other bots', are acked and ignored and never start a turn.
+
+## Group topics
+
+Spec `docs/superpowers/specs/2026-11-13-group-topics.md` (T2-T4), group
+settings changed by the group admins in the app:
+
+- Topic: a leading text part `[Group topic: ...]`
+  (or `[Group topic cleared by the group admins]`) on the first turn of a group
+  conversation in a bridge run and whenever the admins changed it; every group
+  turn with a topic also carries message `metadata.jayGroupTopic` (the text).
+  `/reset` makes the new agent context hear it again.
+- "Bots read everything": group messages that start no turn are buffered in
+  memory (newest 50 lines / 8000 characters) and sent as a leading text part
+  `[Meanwhile in the group:\n- CT-XXXX-XXXX: ...]` with the next owner turn.
+  A restart loses an unsent buffer.
+- "Reply without mention": an owner's group message needs no `@` mention.
 
 ## Run
 
