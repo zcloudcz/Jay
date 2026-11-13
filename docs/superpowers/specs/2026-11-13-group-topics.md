@@ -1,6 +1,6 @@
 # Group topics: a topic per group, admins, bots that read along (contract)
 
-Status: spec on `feat/group-topics` (from `origin/master` 0a74190). Not released.
+Status: built on `feat/group-topics` (from `origin/master` 0a74190; server, app and bots merged). Not released. Manual checks: `docs/acceptance/group-topics.md`.
 
 A group becomes a focused conversation: it has a topic (a short brief, also a prompt for the
 bots), the group admins manage it, and the bots of the group can use it, read the whole
