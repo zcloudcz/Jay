@@ -35,6 +35,10 @@ namespace CallType.Api.Tests.Audit;
 
 public class AuditRoleMutationTests : IntegrationTestBase
 {
+    // Applies infra/postgres/audit-roles.sql, which creates cluster-wide
+    // roles and targets the database calltype_audit by name.
+    protected override bool UseDedicatedPostgres => true;
+
     private const string AppPassword = "test-only-mutation-app-password";
 
     private static readonly string IdentityKey = Convert.ToBase64String([0x01, 0x02, 0x03]);

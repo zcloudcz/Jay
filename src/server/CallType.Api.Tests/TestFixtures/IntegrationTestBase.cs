@@ -1,13 +1,15 @@
 // ---------------------------------------------------------------------------
 // IntegrationTestBase.cs — Shared test infrastructure for integration tests
 // ---------------------------------------------------------------------------
-// Spins up a real PostgreSQL container and an Azurite container (Azure Blob
-// Storage emulator) via Testcontainers so every test class runs against
-// genuine services — no in-memory fakes that silently diverge from production.
+// Runs every test against a real PostgreSQL and an Azurite (Azure Blob
+// Storage emulator) via Testcontainers, no in-memory fakes that silently
+// diverge from production.
 //
-// Implements IAsyncLifetime so xUnit manages the container lifecycle:
-//   InitializeAsync  -> start containers, build WebApplicationFactory, apply schema
-//   DisposeAsync     -> tear down containers and factory
+// Implements IAsyncLifetime, which xUnit 2 runs per TEST:
+//   InitializeAsync  -> fresh databases for this test, WebApplicationFactory
+//   DisposeAsync     -> dispose the factory, drop this test's databases
+// The containers themselves are shared by the whole run (SharedContainers),
+// except for tests that set UseDedicatedPostgres.
 //
 // Test classes inherit this and get Factory + Client ready to use.
 // Provides RegisterAndAuthenticateAsync() so tests that hit protected
@@ -24,7 +26,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using Testcontainers.Azurite;
 using Testcontainers.PostgreSql;
 using CallType.Api.Data;
 using CallType.Api.Services;
@@ -34,17 +35,19 @@ namespace CallType.Api.Tests.TestFixtures;
 
 public abstract class IntegrationTestBase : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder("postgres:17-alpine")
-        .Build();
+    /// <summary>
+    /// Set to true in a test class that changes cluster-wide Postgres state,
+    /// such as the roles in infra/postgres/audit-roles.sql. Roles are global
+    /// to a Postgres cluster, and the script targets the database name
+    /// calltype_audit, so such tests get their own container with the audit
+    /// database under exactly that name, as every test had before the
+    /// containers were shared.
+    /// </summary>
+    protected virtual bool UseDedicatedPostgres => false;
 
-    // Azurite emulates Azure Blob Storage locally. Backup upload/download tests
-    // exercise real blob I/O instead of mocking the BlobServiceClient.
-    // skipApiVersionCheck is required because Azure.Storage.Blobs SDK v12.28+
-    // uses API version 2026-04-06 which the latest Azurite image doesn't yet
-    // recognize. The flag tells Azurite to accept any API version.
-    private readonly AzuriteContainer _azurite = new AzuriteBuilder("mcr.microsoft.com/azure-storage/azurite:latest")
-        .WithCommand("--skipApiVersionCheck")
-        .Build();
+    private PostgreSqlContainer? _dedicatedPostgres;
+    private string _postgresConnectionString = null!;
+    private string _azuriteConnectionString = null!;
 
     /// <summary>
     /// The fully configured test server. Use it to resolve services
@@ -58,10 +61,9 @@ public abstract class IntegrationTestBase : IAsyncLifetime
     protected HttpClient Client { get; private set; } = null!;
 
     /// <summary>
-    /// Connection string for the Audit (business mode) database — a second,
-    /// physically separate database on the same Testcontainers Postgres
-    /// instance, mirroring production's separate-DB-separate-credentials
-    /// rule (KB3) without paying for a second container per test class.
+    /// Connection string for the Audit (business mode) database, a second,
+    /// physically separate database on the same Postgres instance, mirroring
+    /// production's separate-DB-separate-credentials rule (KB3).
     /// Exposed so tests can open their own connection (e.g. to apply
     /// infra/postgres/audit-roles.sql and verify the restricted app role).
     /// </summary>
@@ -72,34 +74,27 @@ public abstract class IntegrationTestBase : IAsyncLifetime
     private static readonly string DefaultIdentityKey = Convert.ToBase64String([0x01, 0x02, 0x03]);
     private static readonly string DefaultSignedPreKey = Convert.ToBase64String([0x04, 0x05, 0x06]);
 
-    /// <summary>
-    /// The container's connection string with generous timeouts. WHY: every
-    /// test starts its own Postgres + Azurite (IAsyncLifetime runs per test),
-    /// and on the hosted CI runner several of them start at once. A container
-    /// that reports ready could then take longer than Npgsql's default 15 s to
-    /// accept or answer a connection, which failed whole tests in their setup
-    /// (deploy run 42294418106: "Timeout during reading attempt" in
-    /// CreateAuditDatabaseAsync). Only the timeouts change, never a result.
-    /// </summary>
-    private string PostgresConnectionString =>
-        new NpgsqlConnectionStringBuilder(_postgres.GetConnectionString())
-        {
-            Timeout = 60,
-            CommandTimeout = 120,
-        }.ConnectionString;
-
     public async Task InitializeAsync()
     {
-        // Start both containers in parallel — they are independent services.
-        await Task.WhenAll(
-            _postgres.StartAsync(),
-            _azurite.StartAsync());
+        _azuriteConnectionString = await SharedContainers.AzuriteConnectionStringAsync();
 
-        // Business mode's Audit database lives alongside the Delivery one in
-        // the same Postgres instance, under its own database name — see
-        // CreateAuditDatabaseAsync for why a second CREATE DATABASE is enough
-        // here instead of a second Testcontainer.
-        AuditConnectionString = await CreateAuditDatabaseAsync();
+        if (UseDedicatedPostgres)
+        {
+            _dedicatedPostgres = SharedContainers.BuildPostgres();
+            await _dedicatedPostgres.StartAsync();
+            _postgresConnectionString = SharedContainers.ConnectionString(_dedicatedPostgres);
+            // Business mode's Audit database lives alongside the Delivery one
+            // in the same Postgres instance, under its own database name.
+            await SharedContainers.ExecuteWithRetryAsync(_postgresConnectionString,
+                "CREATE DATABASE calltype_audit;", PostgresErrorCodes.DuplicateDatabase);
+            AuditConnectionString = SharedContainers.ConnectionString(_dedicatedPostgres, "calltype_audit");
+        }
+        else
+        {
+            // Copies of the schema templates: same schema as EnsureCreated,
+            // empty, and private to this test.
+            (_postgresConnectionString, AuditConnectionString) = await SharedContainers.CreateTestDatabasesAsync();
+        }
 
         Factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
@@ -116,12 +111,12 @@ public abstract class IntegrationTestBase : IAsyncLifetime
                         ["Jwt:Secret"] = "test-jwt-secret-at-least-32-characters-long!!",
                         ["Jwt:Issuer"] = "CallType.Api.Tests",
                         // Azurite connection string for blob storage tests.
-                        ["ConnectionStrings:BlobStorage"] = _azurite.GetConnectionString(),
+                        ["ConnectionStrings:BlobStorage"] = _azuriteConnectionString,
                         // Presence of this key is what turns Business mode on
-                        // (BusinessModeOptions) — Program.cs reads it directly,
+                        // (BusinessModeOptions); Program.cs reads it directly,
                         // so no ConfigureServices override is needed for AuditDbContext.
                         ["ConnectionStrings:Audit"] = AuditConnectionString,
-                        // 32 zero bytes, base64 — MfaEncryptionService just needs 32 raw
+                        // 32 zero bytes, base64; MfaEncryptionService just needs 32 raw
                         // bytes; this is a test fixture, not a production key.
                         ["Mfa:EncryptionKey"] = Convert.ToBase64String(new byte[32]),
                         // P1: OrgCommunicationPolicy's per-device-pair cache would
@@ -134,7 +129,7 @@ public abstract class IntegrationTestBase : IAsyncLifetime
                 builder.ConfigureServices(services =>
                 {
                     // Remove the application's DbContext registration so we
-                    // can replace it with one pointing at the container.
+                    // can replace it with one pointing at the test database.
                     var descriptor = services.SingleOrDefault(
                         d => d.ServiceType == typeof(DbContextOptions<AppDbContext>));
 
@@ -142,7 +137,7 @@ public abstract class IntegrationTestBase : IAsyncLifetime
                         services.Remove(descriptor);
 
                     services.AddDbContext<AppDbContext>(options =>
-                        options.UseNpgsql(PostgresConnectionString));
+                        options.UseNpgsql(_postgresConnectionString));
 
                     // Replace the BlobServiceClient singleton with one pointing
                     // at the Azurite container instead of real Azure.
@@ -153,61 +148,22 @@ public abstract class IntegrationTestBase : IAsyncLifetime
                         services.Remove(blobDescriptor);
 
                     services.AddSingleton(_ =>
-                        new BlobServiceClient(_azurite.GetConnectionString()));
+                        new BlobServiceClient(_azuriteConnectionString));
                 });
             });
 
         Client = Factory.CreateClient();
 
-        // Apply the schema to the fresh databases. EnsureCreatedAsync is
-        // sufficient here — we don't need migration history tracking in tests.
-        using var scope = Factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.EnsureCreatedAsync();
-        var auditDb = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
-        await auditDb.Database.EnsureCreatedAsync();
-    }
-
-    /// <summary>
-    /// Creates a second database ("calltype_audit") on the same Testcontainers
-    /// Postgres instance and returns a connection string for it. A second
-    /// CREATE DATABASE is enough to prove separation-of-databases at the
-    /// application level (KB3) without the cost of a second Postgres
-    /// container per test class; the separation-of-CREDENTIALS half of KB3 is
-    /// what BusinessModeIntegrationTests verifies by applying
-    /// infra/postgres/audit-roles.sql against this same database.
-    /// </summary>
-    private async Task<string> CreateAuditDatabaseAsync()
-    {
-        var mainConnectionString = PostgresConnectionString;
-
-        // Retried: this is the first connection to a container that has just
-        // started, the one that timed out on a loaded CI runner (see
-        // PostgresConnectionString). A CREATE that reached the server before
-        // the client gave up shows up as 42P04 on the retry and is success.
-        for (var attempt = 1; ; attempt++)
+        if (UseDedicatedPostgres)
         {
-            try
-            {
-                await using var conn = new NpgsqlConnection(mainConnectionString);
-                await conn.OpenAsync();
-                await using var cmd = new NpgsqlCommand("CREATE DATABASE calltype_audit;", conn);
-                await cmd.ExecuteNonQueryAsync();
-                break;
-            }
-            catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.DuplicateDatabase && attempt > 1)
-            {
-                break;
-            }
-            catch (Exception e) when (attempt < 5 && e is NpgsqlException or TimeoutException)
-            {
-                NpgsqlConnection.ClearAllPools();
-                await Task.Delay(TimeSpan.FromSeconds(2 * attempt));
-            }
+            // Apply the schema to the fresh databases. EnsureCreatedAsync is
+            // sufficient here; we don't need migration history tracking in tests.
+            using var scope = Factory.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.EnsureCreatedAsync();
+            var auditDb = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
+            await auditDb.Database.EnsureCreatedAsync();
         }
-
-        var auditBuilder = new NpgsqlConnectionStringBuilder(mainConnectionString) { Database = "calltype_audit" };
-        return auditBuilder.ConnectionString;
     }
 
     /// <summary>
@@ -331,11 +287,13 @@ public abstract class IntegrationTestBase : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
-        Client.Dispose();
-        await Factory.DisposeAsync();
-        // Tear down both containers in parallel.
-        await Task.WhenAll(
-            _postgres.DisposeAsync().AsTask(),
-            _azurite.DisposeAsync().AsTask());
+        Client?.Dispose();
+        if (Factory is not null)
+            await Factory.DisposeAsync();
+
+        if (_dedicatedPostgres is not null)
+            await _dedicatedPostgres.DisposeAsync();
+        else if (_postgresConnectionString is not null)
+            await SharedContainers.DropTestDatabasesAsync(_postgresConnectionString, AuditConnectionString);
     }
 }

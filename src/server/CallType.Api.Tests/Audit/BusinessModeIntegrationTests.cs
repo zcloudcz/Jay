@@ -23,6 +23,10 @@ namespace CallType.Api.Tests.Audit;
 
 public class BusinessModeIntegrationTests : IntegrationTestBase
 {
+    // Applies infra/postgres/audit-roles.sql, which creates cluster-wide
+    // roles and targets the database calltype_audit by name.
+    protected override bool UseDedicatedPostgres => true;
+
     [Fact]
     public async Task Api_starts_with_both_delivery_and_audit_databases_configured()
     {
