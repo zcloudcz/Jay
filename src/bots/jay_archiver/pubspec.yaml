@@ -12,13 +12,13 @@ dependencies:
   calltype_bot:
     path: ../calltype_bot
   dio: ^5.9.2
-  crypto: ^3.0.7
-  drift: ^2.33.0
+  crypto: ^3.0.8
+  drift: ^2.35.4
 
 dev_dependencies:
   # Live bot conversations E2E (test/e2e/bot_talk_e2e_test.dart) runs the
   # real bridge rules against the local API.
   hermes_bridge:
     path: ../hermes_bridge
-  test: ^1.25.0
+  test: ^1.33.0
   lints: ^6.0.0
