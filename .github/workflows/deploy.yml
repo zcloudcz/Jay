@@ -339,6 +339,7 @@ jobs:
           grep -q '"/admin/\*"' build/web/staticwebapp.config.json
           test -f build/web/legal/channels-cs.html
           test -f build/web/legal/channels-en.html
+          test -f build/web/.well-known/security.txt
           # "New bot" one-liners (spec 2026-11-09-bot-factory): web/bots/
           # links to infra/bots/; the build must hold the real scripts, not
           # a dangling link, and they must stay out of the SPA fallback.
@@ -392,6 +393,9 @@ jobs:
             src/client/calltype/build-manifest.json
           if-no-files-found: error
           retention-days: 90
+          # upload-artifact v4.4+ drops dot paths by default, which silently
+          # removed web/.well-known/security.txt from the deployed site.
+          include-hidden-files: true
 
   deploy-api:
     needs: build-api
