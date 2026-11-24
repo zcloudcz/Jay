@@ -1063,4 +1063,57 @@ public class ChannelModerationTests : IntegrationTestBase
         summaryAfter.GetProperty("openReports").GetInt32().Should().Be(0);
         summaryAfter.GetProperty("oldestOpenAt").ValueKind.Should().Be(JsonValueKind.Null);
     }
+
+    // -----------------------------------------------------------------------
+    // User reports (spec 2026-11-14-go-live S8): operator queue
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Operator_lists_user_reports_without_the_reporter_and_resolves_them()
+    {
+        var op = await StartWithOperatorAsync();
+        var reporter = await NewDeviceAsync();
+        var reported = await NewDeviceAsync(displayName: "Troll");
+
+        var filed = await SendAsync(reporter, HttpMethod.Post, $"/users/{reported.DeviceId}/report", new
+        {
+            category = "terms",
+            reason = "keeps insulting me",
+            contactEmail = "me@example.com",
+            messages = new[] { new { messageId = "m1", sentAt = DateTimeOffset.UtcNow, text = "you idiot" } }
+        });
+        filed.StatusCode.Should().Be(HttpStatusCode.OK, await filed.Content.ReadAsStringAsync());
+        var reportId = (await JsonAsync(filed)).GetProperty("reportId").GetInt64();
+
+        // A device token is not an operator token.
+        (await SendAsync(reporter, HttpMethod.Get, "/admin/user-reports")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var list = await AdminAsync(op, HttpMethod.Get, "/admin/user-reports");
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        var raw = await list.Content.ReadAsStringAsync();
+        raw.Should().NotContain(reporter.DeviceId.ToString(), "the operator never learns who reported (D8)");
+        var item = (await JsonAsync(list)).GetProperty("items").EnumerateArray().Single();
+        item.GetProperty("reportId").GetInt64().Should().Be(reportId);
+        item.GetProperty("reportedDeviceId").GetGuid().Should().Be(reported.DeviceId);
+        item.GetProperty("reportedHandle").GetString().Should().Be(reported.Handle);
+        item.GetProperty("reportedDisplayName").GetString().Should().Be("Troll");
+        item.GetProperty("reportedExists").GetBoolean().Should().BeTrue();
+        item.GetProperty("messages")[0].GetProperty("text").GetString().Should().Be("you idiot");
+        item.GetProperty("contactEmail").GetString().Should().Be("me@example.com");
+        item.GetProperty("reportsAgainstSameUser").GetInt32().Should().Be(1);
+
+        (await AdminAsync(op, HttpMethod.Put, $"/admin/user-reports/{reportId}/status", new { status = "bogus" }))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await AdminAsync(op, HttpMethod.Put, "/admin/user-reports/999999/status", new { status = "dismissed" }))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await AdminAsync(op, HttpMethod.Put, $"/admin/user-reports/{reportId}/status", new { status = "actioned" }))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await JsonAsync(await AdminAsync(op, HttpMethod.Get, "/admin/user-reports")))
+            .GetProperty("items").GetArrayLength().Should().Be(0, "the default filter is open reports");
+        var all = (await JsonAsync(await AdminAsync(op, HttpMethod.Get, "/admin/user-reports?status=actioned")))
+            .GetProperty("items").EnumerateArray().Single();
+        all.GetProperty("status").GetString().Should().Be("actioned");
+        all.GetProperty("resolvedAt").ValueKind.Should().Be(JsonValueKind.String);
+    }
 }

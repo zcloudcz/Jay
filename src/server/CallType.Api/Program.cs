@@ -55,6 +55,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<MessageQueueService>();
 builder.Services.AddScoped<DeviceListService>();
 builder.Services.AddScoped<BotInboundPolicy>();
+builder.Services.AddScoped<UserBlockService>();
 builder.Services.AddScoped<ConversationMuteService>();
 
 // PushNotificationService is a singleton — it is stateless (reads config once)
@@ -460,6 +461,7 @@ app.MapOrganizationEndpoints();
 app.MapAuditArchiveEndpoints();
 app.MapEmergencyEndpoints();
 app.MapPrivacyEndpoints(); // N09: GDPR account/device deletion + export
+app.MapUserSafetyEndpoints(); // go-live: block and report users
 
 // Map the SignalR hub at /hub. The hub is protected by [Authorize] — clients
 // must pass access_token as a query parameter during the WebSocket upgrade.

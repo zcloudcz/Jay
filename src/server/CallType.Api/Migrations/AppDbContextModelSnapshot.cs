@@ -786,6 +786,98 @@ namespace CallType.Api.Migrations
                     b.ToTable("QueuedMessages");
                 });
 
+            modelBuilder.Entity("CallType.Api.Models.UserBlock", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid>("BlockedPrimaryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BlockerPrimaryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BlockedPrimaryId");
+
+                    b.HasIndex("BlockerPrimaryId", "BlockedPrimaryId")
+                        .IsUnique();
+
+                    b.ToTable("UserBlocks");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.UserReport", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("ContactEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EvidenceJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("GoodFaith")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid?>("GroupId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("ReportedHandle")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("ReportedPrimaryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ReporterDeviceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReportedPrimaryId");
+
+                    b.HasIndex("ReporterDeviceId", "CreatedAt");
+
+                    b.HasIndex("Status", "CreatedAt");
+
+                    b.ToTable("UserReports");
+                });
+
             modelBuilder.Entity("CallType.Api.Models.AccountDevice", b =>
                 {
                     b.HasOne("CallType.Api.Models.Account", "Account")
@@ -1094,6 +1186,21 @@ namespace CallType.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Device");
+                });
+
+            modelBuilder.Entity("CallType.Api.Models.UserBlock", b =>
+                {
+                    b.HasOne("CallType.Api.Models.Device", null)
+                        .WithMany()
+                        .HasForeignKey("BlockedPrimaryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CallType.Api.Models.Device", null)
+                        .WithMany()
+                        .HasForeignKey("BlockerPrimaryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CallType.Api.Models.Account", b =>

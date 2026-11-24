@@ -44,6 +44,7 @@ public static class PrivacyEndpoints
         app.MapDelete("/devices/{deviceId:guid}", DeleteDevice).RequireAuthorization().RequireRateLimiting("auth");
         app.MapDelete("/accounts/{accountId:guid}", DeleteAccount).RequireAuthorization().RequireRateLimiting("auth");
         app.MapGet("/accounts/{accountId:guid}/export", ExportAccount).RequireAuthorization().RequireRateLimiting("api");
+        app.MapGet("/devices/{deviceId:guid}/export", ExportDevice).RequireAuthorization().RequireRateLimiting("api");
         return app;
     }
 
@@ -51,7 +52,7 @@ public static class PrivacyEndpoints
     // DELETE /devices/{deviceId}
     // -----------------------------------------------------------------------
     private static async Task<IResult> DeleteDevice(
-        Guid deviceId, ClaimsPrincipal user, AppDbContext db, BlobServiceClient blobService,
+        Guid deviceId, bool? includeCompanions, ClaimsPrincipal user, AppDbContext db, BlobServiceClient blobService,
         ILoggerFactory loggerFactory, BusinessModeOptions businessMode, HttpContext http, CancellationToken ct)
     {
         // Only the device itself can delete itself — there is no "account admin
@@ -63,15 +64,29 @@ public static class PrivacyEndpoints
         // Already gone (or never existed) — deleting is idempotent per the brief.
         if (device is null) return Results.NotFound();
 
+        // Go-live S9 / D10: "delete my account" in the app deletes the whole
+        // identity, so a PRIMARY may take the companions of its own list
+        // along. The list is the one this primary itself uploaded; a companion
+        // asking for this gets only itself (it cannot delete its primary).
+        // Opt-in by query parameter, so old clients keep today's behaviour.
+        var deviceIds = new List<Guid> { deviceId };
+        if (includeCompanions == true)
+            deviceIds.AddRange(await db.DeviceListMembers
+                .Where(m => m.PrimaryDeviceId == deviceId)
+                .Select(m => m.DeviceId)
+                .ToListAsync(ct));
+
         // A device that is the silent auditor of a business organization must
         // not disappear — every KB1 group in that organization would lose its
         // only archive path with no way to notice. Refuse and let the org
         // owner reassign the auditor first (no such flow exists yet either,
         // which is exactly why this device cannot be removed out from under it).
+        // Checked for every device of the call BEFORE anything is deleted.
         if (businessMode.Enabled)
         {
             var auditDb = http.RequestServices.GetRequiredService<AuditDbContext>();
-            var isAuditor = await auditDb.Organizations.AnyAsync(o => o.AuditorDeviceId == deviceId, ct);
+            var isAuditor = await auditDb.Organizations.AnyAsync(
+                o => o.AuditorDeviceId != null && deviceIds.Contains(o.AuditorDeviceId.Value), ct);
             if (isAuditor)
                 return Results.Conflict(new { error = "Device is the auditor of an organization.", code = "device_is_auditor" });
 
@@ -84,46 +99,60 @@ public static class PrivacyEndpoints
 
         // Media ids are needed for the post-commit blob deletion below.
         var mediaIds = await db.MediaUploads
-            .Where(m => m.UploaderDeviceId == deviceId)
+            .Where(m => deviceIds.Contains(m.UploaderDeviceId))
             .Select(m => m.Id)
             .ToListAsync(ct);
 
+        var ids = new NpgsqlParameter("@ids", deviceIds.ToArray());
         await using var tx = await db.Database.BeginTransactionAsync(ct);
 
         // Channel.FollowerCount is denormalized (see the WARNING comment on
         // ChannelFollower in AppDbContext.OnModelCreating) — a plain cascade
         // delete of ChannelFollower rows would leave it too high. Decrement it
         // with one set-based UPDATE (not a per-row loop) BEFORE the cascade
-        // removes the ChannelFollower rows it joins against.
+        // removes the ChannelFollower rows it joins against. One row per
+        // (channel, device), so a channel followed by two deleted devices
+        // drops by two: the UPDATE ... FROM aggregates per channel.
         await db.Database.ExecuteSqlRawAsync(
             """
-            UPDATE "Channels" c SET "FollowerCount" = c."FollowerCount" - 1
-            FROM "ChannelFollowers" f
-            WHERE f."ChannelId" = c."ChannelId" AND f."DeviceId" = @deviceId
+            UPDATE "Channels" c SET "FollowerCount" = c."FollowerCount" - f.n
+            FROM (SELECT "ChannelId", COUNT(*)::int AS n FROM "ChannelFollowers"
+                  WHERE "DeviceId" = ANY(@ids) GROUP BY "ChannelId") f
+            WHERE f."ChannelId" = c."ChannelId"
             """,
-            [new NpgsqlParameter("@deviceId", deviceId)], ct);
+            [ids], ct);
 
         // QueuedMessage has no FK to Device (RecipientId/SenderId are plain
         // columns — messages must outlive an unrelated device's deletion) so
         // it is not cascaded and must be cleared explicitly in both directions.
         await db.Database.ExecuteSqlRawAsync(
-            """DELETE FROM "QueuedMessages" WHERE "RecipientId" = @deviceId OR "SenderId" = @deviceId""",
-            [new NpgsqlParameter("@deviceId", deviceId)], ct);
+            """DELETE FROM "QueuedMessages" WHERE "RecipientId" = ANY(@ids) OR "SenderId" = ANY(@ids)""",
+            [new NpgsqlParameter("@ids", deviceIds.ToArray())], ct);
+
+        // Go-live S10: reports this device filed stay as moderation records,
+        // but the contact e-mail it gave is the one piece that still points
+        // at the person, so it goes with the device.
+        await db.ChannelReports.Where(r => deviceIds.Contains(r.ReporterDeviceId) && r.ContactEmail != null)
+            .ExecuteUpdateAsync(u => u.SetProperty(r => r.ContactEmail, (string?)null), ct);
+        await db.UserReports.Where(r => deviceIds.Contains(r.ReporterDeviceId) && r.ContactEmail != null)
+            .ExecuteUpdateAsync(u => u.SetProperty(r => r.ContactEmail, (string?)null), ct);
 
         // Deleting the Device row cascades (DB-level ON DELETE CASCADE, see
         // AppDbContext): OneTimePreKeys, AccountDevices, GroupMembers,
-        // ChannelFollowers, ChannelReactions, ChannelPollVotes, ChannelAdmins.
+        // ChannelFollowers, ChannelReactions, ChannelPollVotes, ChannelAdmins,
+        // ConversationMutes, DeviceLists/Members and UserBlocks (both sides).
+        // The push and VoIP tokens are columns of the Device row itself.
         // Groups the device CREATED (Group.CreatedBy) and channels OWNED
         // through its account are untouched — CreatedBy is informational-only
         // (not a FK) and channel ownership comes from OwnerAccountId, not the
         // device, so both survive the device's deletion by design.
         await db.Database.ExecuteSqlRawAsync(
-            """DELETE FROM "Devices" WHERE "DeviceId" = @deviceId""",
-            [new NpgsqlParameter("@deviceId", deviceId)], ct);
+            """DELETE FROM "Devices" WHERE "DeviceId" = ANY(@ids)""",
+            [new NpgsqlParameter("@ids", deviceIds.ToArray())], ct);
 
         // MediaUploads has no FK to Device (rows must be deleted together with
         // their blobs, a cascade cannot do that), so it is cleared explicitly.
-        await db.MediaUploads.Where(m => m.UploaderDeviceId == deviceId).ExecuteDeleteAsync(ct);
+        await db.MediaUploads.Where(m => deviceIds.Contains(m.UploaderDeviceId)).ExecuteDeleteAsync(ct);
 
         await tx.CommitAsync(ct);
 
@@ -303,17 +332,95 @@ public static class PrivacyEndpoints
             .Select(b => new { id = b.Id, blobPath = b.BlobPath, sizeBytes = b.SizeBytes, status = b.Status.ToString(), createdAt = b.CreatedAt })
             .ToListAsync(ct);
 
-        // Encrypted media uploaded by the linked devices: metadata only (the
+        var ownedChannels = await db.Channels
+            .Where(c => c.OwnerAccountId == accountId)
+            .Select(c => new { channelId = c.ChannelId, handle = c.Handle, name = c.Name, createdAt = c.CreatedAt, deletedAt = c.DeletedAt })
+            .ToListAsync(ct);
+
+        object? organizations = null;
+        if (businessMode.Enabled)
+        {
+            var auditDb = http.RequestServices.GetRequiredService<AuditDbContext>();
+            var memberships = await auditDb.OrgMembers.AsNoTracking()
+                .Where(m => m.AccountId == accountId)
+                .Select(m => new { organizationId = m.OrganizationId, role = m.Role.ToString(), addedAt = m.AddedAt, removedAt = m.RemovedAt })
+                .ToListAsync(ct);
+            var enrollments = await auditDb.OrgEnrollments.AsNoTracking()
+                .Where(e => e.AccountId == accountId)
+                .Select(e => new { organizationId = e.OrganizationId, deviceId = e.DeviceId, enrolledAt = e.EnrolledAt, revokedAt = e.RevokedAt })
+                .ToListAsync(ct);
+            organizations = new { memberships, enrollments };
+        }
+
+        var scope = await DeviceScopeAsync(deviceIds, db, ct);
+        // A dictionary keeps the key order of the previous anonymous object;
+        // the go-live keys (groups, mutes, blocks, userReportsFiled) are additive.
+        var export = new Dictionary<string, object?>
+        {
+            ["account"] = new { accountId = account.AccountId, email = account.Email, createdAt = account.CreatedAt },
+            ["devices"] = devices,
+            ["backups"] = backups,
+            ["media"] = scope["media"],
+            ["channelsOwned"] = ownedChannels,
+        };
+        foreach (var (key, value) in scope)
+            if (key != "media") export[key] = value;
+        export["organizations"] = organizations;
+        return Results.Ok(export);
+    }
+
+    // -----------------------------------------------------------------------
+    // GET /devices/{deviceId}/export (go-live S11)
+    // -----------------------------------------------------------------------
+    // The access right (GDPR Art. 15) is not reserved for registered users:
+    // an anonymous device is a data subject too, so it gets the same
+    // device-scope data as the account export, without account and backups.
+    private static async Task<IResult> ExportDevice(
+        Guid deviceId, ClaimsPrincipal user, AppDbContext db, CancellationToken ct)
+    {
+        if (AccountEndpoints.CallerDeviceId(user) != deviceId) return Results.Forbid();
+        var device = await db.Devices.AsNoTracking()
+            .Where(d => d.DeviceId == deviceId)
+            .Select(d => new
+            {
+                deviceId = d.DeviceId,
+                userHandle = d.UserHandle,
+                displayName = d.DisplayName,
+                createdAt = d.CreatedAt,
+                lastSeenAt = d.LastSeenAt,
+                isBot = d.IsBot,
+                hasPushToken = d.PushToken != null,
+                pushPlatform = d.PushPlatform,
+                pushLocale = d.PushLocale,
+                hasVoipPushToken = d.VoipPushToken != null
+            })
+            .FirstOrDefaultAsync(ct);
+        if (device is null) return Results.NotFound();
+
+        var linkedAccounts = await db.AccountDevices.AsNoTracking()
+            .Where(ad => ad.DeviceId == deviceId)
+            .Select(ad => new { accountId = ad.AccountId, linkedAt = ad.LinkedAt })
+            .ToListAsync(ct);
+
+        var export = new Dictionary<string, object?> { ["device"] = device, ["linkedAccounts"] = linkedAccounts };
+        foreach (var (key, value) in await DeviceScopeAsync([deviceId], db, ct))
+            export[key] = value;
+        return Results.Ok(export);
+    }
+
+    /// <summary>
+    /// What the server holds about a set of devices, shared by both exports.
+    /// Message bodies are never included (see the queuedMessages note).
+    /// </summary>
+    private static async Task<Dictionary<string, object?>> DeviceScopeAsync(
+        List<Guid> deviceIds, AppDbContext db, CancellationToken ct)
+    {
+        // Encrypted media uploaded by the devices: metadata only (the
         // server has no key; the content is ciphertext and short-lived).
         var media = await db.MediaUploads
             .Where(m => deviceIds.Contains(m.UploaderDeviceId))
             .OrderBy(m => m.CreatedAt)
             .Select(m => new { id = m.Id, sizeBytes = m.SizeBytes, status = m.Status, createdAt = m.CreatedAt, expiresAt = m.ExpiresAt })
-            .ToListAsync(ct);
-
-        var ownedChannels = await db.Channels
-            .Where(c => c.OwnerAccountId == accountId)
-            .Select(c => new { channelId = c.ChannelId, handle = c.Handle, name = c.Name, createdAt = c.CreatedAt, deletedAt = c.DeletedAt })
             .ToListAsync(ct);
 
         var administeredChannels = await db.ChannelAdmins
@@ -326,7 +433,7 @@ public static class PrivacyEndpoints
             .Select(f => new { channelId = f.ChannelId })
             .ToListAsync(ct);
 
-        // Reports filed BY the account's own devices — reporter identity is
+        // Reports filed BY the subject's own devices: reporter identity is
         // otherwise never exposed by the API, but it is the subject's own data
         // here (GDPR export scope), so it is the one place ReporterDeviceId leaks.
         var reportsFiled = await db.ChannelReports
@@ -360,40 +467,60 @@ public static class PrivacyEndpoints
             .Select(g => new { deviceId = g.Key, queuedMessageCount = g.Count() })
             .ToListAsync(ct);
 
-        object? organizations = null;
-        if (businessMode.Enabled)
-        {
-            var auditDb = http.RequestServices.GetRequiredService<AuditDbContext>();
-            var memberships = await auditDb.OrgMembers.AsNoTracking()
-                .Where(m => m.AccountId == accountId)
-                .Select(m => new { organizationId = m.OrganizationId, role = m.Role.ToString(), addedAt = m.AddedAt, removedAt = m.RemovedAt })
-                .ToListAsync(ct);
-            var enrollments = await auditDb.OrgEnrollments.AsNoTracking()
-                .Where(e => e.AccountId == accountId)
-                .Select(e => new { organizationId = e.OrganizationId, deviceId = e.DeviceId, enrolledAt = e.EnrolledAt, revokedAt = e.RevokedAt })
-                .ToListAsync(ct);
-            organizations = new { memberships, enrollments };
-        }
+        // Go-live S11. Group names are encrypted (the server cannot read
+        // them), so a membership is the group id, role and join time.
+        var groups = await db.GroupMembers.AsNoTracking()
+            .Where(m => deviceIds.Contains(m.DeviceId))
+            .Select(m => new { groupId = m.GroupId, deviceId = m.DeviceId, role = m.Role, joinedAt = m.JoinedAt })
+            .ToListAsync(ct);
 
-        return Results.Ok(new
+        var mutes = await db.ConversationMutes.AsNoTracking()
+            .Where(m => deviceIds.Contains(m.DeviceId))
+            .Select(m => new { deviceId = m.DeviceId, groupId = m.GroupId, peerPrimaryDeviceId = m.PeerPrimaryDeviceId, mode = m.Mode, until = m.Until })
+            .ToListAsync(ct);
+
+        // Blocks are per identity: a companion's blocks are its primary's.
+        var primaries = (await db.DeviceListMembers.AsNoTracking()
+                .Where(m => deviceIds.Contains(m.DeviceId))
+                .Select(m => m.PrimaryDeviceId)
+                .ToListAsync(ct))
+            .Concat(deviceIds).Distinct().ToList();
+        var blocks = await db.UserBlocks.AsNoTracking()
+            .Where(b => primaries.Contains(b.BlockerPrimaryId))
+            .Select(b => new { blockedDeviceId = b.BlockedPrimaryId, createdAt = b.CreatedAt })
+            .ToListAsync(ct);
+
+        // The subject's own reports, including the evidence they chose to send.
+        var userReports = await db.UserReports.AsNoTracking()
+            .Where(r => deviceIds.Contains(r.ReporterDeviceId))
+            .OrderBy(r => r.CreatedAt)
+            .ToListAsync(ct);
+
+        return new Dictionary<string, object?>
         {
-            account = new { accountId = account.AccountId, email = account.Email, createdAt = account.CreatedAt },
-            devices,
-            backups,
             // Status lower-case like the media API ("uploading"/"completed"/"deleted").
-            media = media.Select(m => new { m.id, m.sizeBytes, status = m.status.ToString().ToLowerInvariant(), m.createdAt, m.expiresAt }),
-            channelsOwned = ownedChannels,
-            channelsAdministered = administeredChannels,
-            channelsFollowed = follows,
-            channelReportsFiled = reportsFiled,
-            deviceLists = deviceLists.Select(l => new { l.primaryDeviceId, l.version, payload = Convert.ToBase64String(l.payload), l.updatedAt }),
-            queuedMessages = new
+            ["media"] = media.Select(m => new { m.id, m.sizeBytes, status = m.status.ToString().ToLowerInvariant(), m.createdAt, m.expiresAt }).ToList(),
+            ["channelsAdministered"] = administeredChannels,
+            ["channelsFollowed"] = follows,
+            ["channelReportsFiled"] = reportsFiled,
+            ["deviceLists"] = deviceLists.Select(l => new { l.primaryDeviceId, l.version, payload = Convert.ToBase64String(l.payload), l.updatedAt }).ToList(),
+            ["queuedMessages"] = new
             {
-                note = "Counts only — message bodies are opaque, end-to-end encrypted and also belong to the sender/recipient peer, so they are never included in an export.",
+                note = "Counts only: message bodies are opaque, end-to-end encrypted and also belong to the sender/recipient peer, so they are never included in an export.",
                 perDevice = queuedCounts
             },
-            organizations
-        });
+            ["groups"] = groups,
+            ["mutes"] = mutes,
+            ["blocks"] = blocks,
+            ["userReportsFiled"] = userReports.Select(r => new
+            {
+                reportId = r.Id, reportedDeviceId = r.ReportedPrimaryId, reportedHandle = r.ReportedHandle,
+                groupId = r.GroupId, category = r.Category, reason = r.Reason,
+                messages = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(r.EvidenceJson),
+                contactEmail = r.ContactEmail, goodFaith = r.GoodFaith, status = r.Status,
+                createdAt = r.CreatedAt, resolvedAt = r.ResolvedAt
+            }).ToList()
+        };
     }
 }
 

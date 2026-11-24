@@ -54,6 +54,10 @@ public static class ModerationEndpoints
         group.MapPost("/decisions", CreateDecision);
         group.MapGet("/decisions", ListDecisions);
         group.MapGet("/channels", SearchChannels);
+        // User reports (spec 2026-11-14-go-live S8): handlers live with the
+        // user-facing routes in UserSafetyEndpoints, the operator filter here.
+        group.MapGet("/user-reports", UserSafetyEndpoints.AdminListUserReports);
+        group.MapPut("/user-reports/{id:long}/status", UserSafetyEndpoints.AdminSetUserReportStatus);
         return app;
     }
 

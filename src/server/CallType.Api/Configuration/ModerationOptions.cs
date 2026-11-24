@@ -39,4 +39,14 @@ public class ModerationOptions
 
     /// <summary>Lifetime of an operator token in minutes (no refresh: TOTP again). 30 default.</summary>
     public int SessionMinutes { get; set; } = 30;
+
+    /// <summary>User reports one identity may file per 24 h (go-live S7). 10 default.</summary>
+    public int MaxUserReportsPerDay { get; set; } = 10;
+
+    /// <summary>
+    /// Days a user report (with its message evidence) is kept before
+    /// MessageCleanupService deletes it (go-live D9). 180 default; stated in
+    /// the privacy policy, so change both together.
+    /// </summary>
+    public int UserReportRetentionDays { get; set; } = 180;
 }

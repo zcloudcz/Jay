@@ -39,7 +39,7 @@ namespace CallType.Api.Hubs;
 public partial class MessengerHub(MessageQueueService queueService, PushNotificationService pushService, AppDbContext db,
     AuditorLivenessService auditorLiveness, OrgCommunicationPolicy communicationPolicy, IMemoryCache cache,
     DeviceListService deviceLists, ConversationMuteService mutes, PendingCallStore pendingCalls,
-    BotInboundPolicy botPolicy) : Hub
+    BotInboundPolicy botPolicy, UserBlockService userBlocks) : Hub
 {
     // Maps DeviceId -> ConnectionId for all currently connected devices.
     // Static because SignalR creates a new Hub instance per invocation,
@@ -125,6 +125,9 @@ public partial class MessengerHub(MessageQueueService queueService, PushNotifica
         // Bot inbound policy: not stored, not delivered, same ack (no oracle).
         if (await BotBlockedAsync(senderPrimary, [recipientDeviceId], null) is { Count: > 0 })
             return;
+        // User block (go-live D2): same silent drop, same ack.
+        if (await UserBlockedAsync(senderPrimary, [recipientDeviceId]) is { Count: > 0 })
+            return;
         var message = await queueService.EnqueueReliableAsync(recipientDeviceId, sender, messageId,
             body, cancellationToken: Context.ConnectionAborted);
         var silenced = silent ? [] : await SilencedAsync([message], sender, senderPrimary, null);
@@ -190,6 +193,11 @@ public partial class MessengerHub(MessageQueueService queueService, PushNotifica
         // After all validation, so a dropped bot copy never hides an error.
         foreach (var blocked in await BotBlockedAsync(senderPrimary, decoded.Keys, members))
             decoded.Remove(blocked);
+        // User blocks (go-live D2), except the business auditor's copy: a
+        // block must never cut the archive (KB2), whoever set it.
+        var auditor = membership.SingleOrDefault(m => m.Role == "auditor")?.DeviceId;
+        foreach (var blocked in await UserBlockedAsync(senderPrimary, decoded.Keys))
+            if (blocked != auditor) decoded.Remove(blocked);
         var messages = new List<QueuedMessage>();
         await using (var transaction = await db.Database.BeginTransactionAsync(Context.ConnectionAborted))
         {
@@ -286,6 +294,10 @@ public partial class MessengerHub(MessageQueueService queueService, PushNotifica
         // Completeness was checked on the declared set above, so a client
         // still encrypts for the bot (no oracle) and the copy is dropped here.
         foreach (var blocked in await BotBlockedAsync(senderPrimary, decoded.Keys, groupMembers))
+            decoded.Remove(blocked);
+        // User blocks (go-live D2): also after the completeness check, so a
+        // sender cannot tell a blocker's devices from anybody else's.
+        foreach (var blocked in await UserBlockedAsync(senderPrimary, decoded.Keys))
             decoded.Remove(blocked);
         var messages = new List<QueuedMessage>();
         await using (var transaction = await db.Database.BeginTransactionAsync(Context.ConnectionAborted))
@@ -422,7 +434,9 @@ public partial class MessengerHub(MessageQueueService queueService, PushNotifica
         {
             members.Add(target);
         }
-        foreach (var recipient in members.Where(id => id != senderDeviceId.Value))
+        var senderPrimaryForTyping = await deviceLists.PrimaryOfAsync(senderDeviceId.Value, Context.ConnectionAborted);
+        var blockedTyping = await UserBlockedAsync(senderPrimaryForTyping, members);
+        foreach (var recipient in members.Where(id => id != senderDeviceId.Value && !blockedTyping.Contains(id)))
             if (OnlineDevices.TryGetValue(recipient, out var connectionId))
                 await Clients.Client(connectionId).SendAsync("TypingIndicator", new
                 {
@@ -472,6 +486,10 @@ public partial class MessengerHub(MessageQueueService queueService, PushNotifica
     {
         var senderDeviceId = GetCallerDeviceId();
         if (senderDeviceId is null) return;
+
+        // Go-live D2: a blocked caller's signals (any type) go nowhere, no
+        // error, so the caller cannot tell a block from an unanswered call.
+        if (await CallBlockedAsync(senderDeviceId.Value, targetDeviceId)) return;
 
         // P1: only the anonymous path (businessGroupId == null) is subject to
         // RequireBusinessConversations, and only on the offer — answer/ICE/

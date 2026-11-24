@@ -455,4 +455,167 @@ public class PrivacyEndpointsTests : IntegrationTestBase
         done.TryGetProperty("expiresAt", out _).Should().BeTrue();
         media.Single(m => m.GetProperty("id").GetGuid() == uploading).GetProperty("status").GetString().Should().Be("uploading");
     }
+
+    // ------------------------------------------------------------------
+    // Go-live (spec 2026-11-14-go-live S9-S11)
+    // ------------------------------------------------------------------
+
+    private async Task LinkAsync(Guid primary, params Guid[] companions)
+    {
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.DeviceLists.Add(new DeviceList
+        {
+            PrimaryDeviceId = primary, Version = 1, Payload = [1], Signature = new byte[64],
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Members = companions.Select(c => new DeviceListMember { DeviceId = c, PrimaryDeviceId = primary }).ToList()
+        });
+        await db.SaveChangesAsync();
+    }
+
+    private async Task<bool> DeviceExistsAsync(Guid id)
+    {
+        using var scope = Factory.Services.CreateScope();
+        return await scope.ServiceProvider.GetRequiredService<AppDbContext>().Devices.AnyAsync(d => d.DeviceId == id);
+    }
+
+    [Fact]
+    public async Task Delete_primary_with_includeCompanions_deletes_its_companions_too()
+    {
+        var phone = await NewDeviceAsync();
+        var web = await NewDeviceAsync();
+        var laptop = await NewDeviceAsync();
+        var stranger = await NewDeviceAsync();
+        await LinkAsync(phone.DeviceId, web.DeviceId, laptop.DeviceId);
+
+        (await phone.Http.DeleteAsync($"/devices/{phone.DeviceId}?includeCompanions=true"))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        (await DeviceExistsAsync(phone.DeviceId)).Should().BeFalse();
+        (await DeviceExistsAsync(web.DeviceId)).Should().BeFalse();
+        (await DeviceExistsAsync(laptop.DeviceId)).Should().BeFalse();
+        (await DeviceExistsAsync(stranger.DeviceId)).Should().BeTrue();
+        using var scope = Factory.Services.CreateScope();
+        (await scope.ServiceProvider.GetRequiredService<AppDbContext>().DeviceLists.AnyAsync(l => l.PrimaryDeviceId == phone.DeviceId))
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Delete_without_the_parameter_or_from_a_companion_deletes_only_the_caller()
+    {
+        var phone = await NewDeviceAsync();
+        var web = await NewDeviceAsync();
+        var laptop = await NewDeviceAsync();
+        await LinkAsync(phone.DeviceId, web.DeviceId, laptop.DeviceId);
+
+        // A companion cannot take its primary (or siblings) along.
+        (await web.Http.DeleteAsync($"/devices/{web.DeviceId}?includeCompanions=true"))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await DeviceExistsAsync(web.DeviceId)).Should().BeFalse();
+        (await DeviceExistsAsync(phone.DeviceId)).Should().BeTrue();
+        (await DeviceExistsAsync(laptop.DeviceId)).Should().BeTrue();
+
+        // Old clients (no parameter): the primary goes, the companion stays.
+        (await phone.Http.DeleteAsync($"/devices/{phone.DeviceId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await DeviceExistsAsync(laptop.DeviceId)).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Delete_with_companions_refused_when_a_companion_is_an_auditor()
+    {
+        var phone = await NewDeviceAsync();
+        var auditor = await NewDeviceAsync();
+        await LinkAsync(phone.DeviceId, auditor.DeviceId);
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var auditDb = scope.ServiceProvider.GetRequiredService<AuditDbContext>();
+            var org = Organization.Create(Guid.NewGuid(), "Acme", Guid.NewGuid(), DateTimeOffset.UtcNow);
+            org.AuditorDeviceId = auditor.DeviceId;
+            auditDb.Organizations.Add(org);
+            await auditDb.SaveChangesAsync();
+        }
+
+        var response = await phone.Http.DeleteAsync($"/devices/{phone.DeviceId}?includeCompanions=true");
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await DeviceExistsAsync(phone.DeviceId)).Should().BeTrue("nothing is deleted before the check");
+    }
+
+    [Fact]
+    public async Task Delete_device_removes_its_blocks_and_the_contact_email_of_its_reports()
+    {
+        var me = await NewDeviceAsync();
+        var troll = await NewDeviceAsync();
+        var fan = await NewDeviceAsync();
+        (await me.Http.PutAsync($"/blocks/{troll.DeviceId}", null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await fan.Http.PutAsync($"/blocks/{me.DeviceId}", null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var report = await me.Http.PostAsJsonAsync($"/users/{troll.DeviceId}/report",
+            new { reason = "spam", contactEmail = "me@example.com" });
+        report.StatusCode.Should().Be(HttpStatusCode.OK);
+        var reportId = (await report.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("reportId").GetInt64();
+
+        (await me.Http.DeleteAsync($"/devices/{me.DeviceId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var scope = Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.UserBlocks.AnyAsync(b => b.BlockerPrimaryId == me.DeviceId || b.BlockedPrimaryId == me.DeviceId))
+            .Should().BeFalse("both directions cascade with the device");
+        var kept = await db.UserReports.SingleAsync(r => r.Id == reportId);
+        kept.ContactEmail.Should().BeNull("the report stays as a record, the way to reach the person goes");
+        kept.Reason.Should().Be("spam");
+    }
+
+    [Fact]
+    public async Task Device_export_is_self_only_and_holds_the_device_scope()
+    {
+        var me = await NewDeviceAsync();
+        var other = await NewDeviceAsync();
+        var groupId = Guid.NewGuid();
+        using (var scope = Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Groups.Add(new Group { GroupId = groupId, CreatedBy = me.DeviceId, CreatedAt = DateTimeOffset.UtcNow });
+            db.GroupMembers.Add(new GroupMember { GroupId = groupId, DeviceId = me.DeviceId, Role = "admin", JoinedAt = DateTimeOffset.UtcNow });
+            db.Devices.Single(d => d.DeviceId == me.DeviceId).PushToken = "secret-token-value";
+            await db.SaveChangesAsync();
+        }
+        (await me.Http.PutAsync($"/blocks/{other.DeviceId}", null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await me.Http.PostAsJsonAsync($"/users/{other.DeviceId}/report",
+            new { reason = "spam", messages = new[] { new { text = "buy now" } } })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await other.Http.GetAsync($"/devices/{me.DeviceId}/export")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var response = await me.Http.GetAsync($"/devices/{me.DeviceId}/export");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var raw = await response.Content.ReadAsStringAsync();
+        raw.Should().NotContain("secret-token-value");
+        var json = JsonDocument.Parse(raw).RootElement;
+        json.GetProperty("device").GetProperty("deviceId").GetGuid().Should().Be(me.DeviceId);
+        json.GetProperty("device").GetProperty("hasPushToken").GetBoolean().Should().BeTrue();
+        json.GetProperty("linkedAccounts").GetArrayLength().Should().Be(0);
+        json.GetProperty("groups")[0].GetProperty("groupId").GetGuid().Should().Be(groupId);
+        json.GetProperty("blocks")[0].GetProperty("blockedDeviceId").GetGuid().Should().Be(other.DeviceId);
+        json.GetProperty("userReportsFiled")[0].GetProperty("messages")[0].GetProperty("text").GetString().Should().Be("buy now");
+        foreach (var key in new[] { "media", "mutes", "channelsFollowed", "channelReportsFiled", "deviceLists", "queuedMessages" })
+            json.TryGetProperty(key, out _).Should().BeTrue(key);
+
+        (await me.Http.DeleteAsync($"/devices/{me.DeviceId}")).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await me.Http.GetAsync($"/devices/{me.DeviceId}/export")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Account_export_adds_groups_mutes_blocks_and_user_reports()
+    {
+        var device = await NewDeviceAsync();
+        var accountId = await RegisterAccountAsync(device);
+        var other = await NewDeviceAsync();
+        (await device.Http.PutAsync($"/blocks/{other.DeviceId}", null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var export = await device.Http.GetFromJsonAsync<JsonElement>($"/accounts/{accountId}/export");
+
+        export.GetProperty("blocks")[0].GetProperty("blockedDeviceId").GetGuid().Should().Be(other.DeviceId);
+        foreach (var key in new[] { "account", "devices", "backups", "media", "channelsOwned", "channelsAdministered",
+                     "channelsFollowed", "channelReportsFiled", "deviceLists", "queuedMessages", "groups", "mutes",
+                     "userReportsFiled", "organizations" })
+            export.TryGetProperty(key, out _).Should().BeTrue(key);
+    }
 }

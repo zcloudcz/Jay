@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 using Microsoft.EntityFrameworkCore;
+using CallType.Api.Configuration;
 using CallType.Api.Data;
 
 namespace CallType.Api.Services;
@@ -67,5 +68,28 @@ public class MessageCleanupService(
         {
             logger.LogInformation("Cleaned up {Count} expired message(s)", deletedCount);
         }
+
+        // Same hourly pass: report retention is counted in days. Bound from
+        // IConfiguration on every run instead of IOptions<ModerationOptions>:
+        // resolving that singleton here, at startup, would freeze the operator
+        // allowlist before tests (and a config reload) can set it.
+        var moderation = new ModerationOptions();
+        scope.ServiceProvider.GetRequiredService<IConfiguration>().GetSection(ModerationOptions.SectionName).Bind(moderation);
+        var retention = moderation.UserReportRetentionDays;
+        var reports = await DeleteExpiredUserReportsAsync(db, retention, DateTimeOffset.UtcNow, ct);
+        if (reports > 0)
+            logger.LogInformation("Deleted {Count} user report(s) past retention", reports);
+    }
+
+    /// <summary>
+    /// Go-live D9: user reports carry message text the reporter chose to
+    /// disclose, so they are not kept forever. Public and static so the
+    /// integration test runs exactly this query.
+    /// </summary>
+    public static Task<int> DeleteExpiredUserReportsAsync(
+        AppDbContext db, int retentionDays, DateTimeOffset now, CancellationToken ct)
+    {
+        var cutoff = now.AddDays(-Math.Max(1, retentionDays));
+        return db.UserReports.Where(r => r.CreatedAt < cutoff).ExecuteDeleteAsync(ct);
     }
 }

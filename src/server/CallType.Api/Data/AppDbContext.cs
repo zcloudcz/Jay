@@ -43,6 +43,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ChannelPollVote> ChannelPollVotes => Set<ChannelPollVote>();
     public DbSet<ChannelReport> ChannelReports => Set<ChannelReport>();
     public DbSet<ModerationDecision> ModerationDecisions => Set<ModerationDecision>();
+    public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
+    public DbSet<UserReport> UserReports => Set<UserReport>();
     public DbSet<AccountMfa> AccountMfas => Set<AccountMfa>();
     public DbSet<AccountMfaBackupCode> AccountMfaBackupCodes => Set<AccountMfaBackupCode>();
 
@@ -502,6 +504,38 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                   .WithMany()
                   .HasForeignKey(d => d.ChannelId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // -----------------------------------------------------------------
+        // UserBlock / UserReport (spec 2026-11-14-go-live S1, S6)
+        // -----------------------------------------------------------------
+        modelBuilder.Entity<UserBlock>(entity =>
+        {
+            entity.HasKey(b => b.Id);
+            entity.Property(b => b.Id).ValueGeneratedOnAdd();
+            entity.HasIndex(b => new { b.BlockerPrimaryId, b.BlockedPrimaryId }).IsUnique();
+            // The send hot path asks "who blocked this sender?" first; almost
+            // always the answer is nobody, one index seek.
+            entity.HasIndex(b => b.BlockedPrimaryId);
+            // DB-level cascades (like ConversationMute): devices are deleted
+            // with raw SQL, and a deleted identity must take its blocks along.
+            entity.HasOne<Device>().WithMany().HasForeignKey(b => b.BlockerPrimaryId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Device>().WithMany().HasForeignKey(b => b.BlockedPrimaryId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserReport>(entity =>
+        {
+            entity.HasKey(r => r.Id);
+            entity.Property(r => r.Id).ValueGeneratedOnAdd();
+            entity.Property(r => r.ReportedHandle).HasMaxLength(32);
+            entity.Property(r => r.Category).HasMaxLength(10);
+            entity.Property(r => r.Reason).HasMaxLength(1000);
+            entity.Property(r => r.ContactEmail).HasMaxLength(254);
+            entity.Property(r => r.Status).HasMaxLength(10);
+            // Operator queue (status, newest first) and the reporter's daily budget.
+            entity.HasIndex(r => new { r.Status, r.CreatedAt });
+            entity.HasIndex(r => new { r.ReporterDeviceId, r.CreatedAt });
+            entity.HasIndex(r => r.ReportedPrimaryId);
         });
     }
 }

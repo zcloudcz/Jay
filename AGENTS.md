@@ -151,6 +151,8 @@ TOTP MFA must be enabled for the account first (app: Settings -> Account).
 | `Moderation:OperatorAccountIds` | Array of account GUIDs (`Moderation__OperatorAccountIds__0=...`) |
 | `Moderation:OperatorHandles` | Array of device handles, case-insensitive (`Moderation__OperatorHandles__0=CT-77NN-3FMS`); the account the device is linked to is the operator |
 | `Moderation:SessionMinutes` | Operator token lifetime, default 30 (no refresh) |
+| `Moderation:MaxUserReportsPerDay` | User reports one identity may file per 24 h, default 10 |
+| `Moderation:UserReportRetentionDays` | Days a user report (with its message evidence) is kept, default 180 (stated in the privacy policy) |
 
 ### Encrypted media (`/media/*`)
 
@@ -203,6 +205,8 @@ dotnet ef database update --project src/server/CallType.Api
 | `ChannelAdmin` | Delegated members, `Role` `admin` or `publisher` (publish + delete own posts only) | Composite(ChannelId, DeviceId) |
 | `ChannelReport` | Abuse report (`Category`, optional `ContactEmail`, `GoodFaith`, `Status` open/dismissed/actioned, `DecisionId`); reporter never exposed | `Id` (auto), index(Status, CreatedAt) |
 | `ModerationDecision` | Append-only operator decision = statement of reasons | `Id` (auto), index(ChannelId, CreatedAt) |
+| `UserBlock` | Identity blocks identity (both primary device ids, FK cascade); the hub drops the blocked identity's copies, call signals and typing to every device of the blocker | `Id` (auto), unique(BlockerPrimaryId, BlockedPrimaryId), index(BlockedPrimaryId) |
+| `UserReport` | Report against a user (`Category`, `Reason`, `EvidenceJson` = message texts the reporter's app attached, optional `ContactEmail`, `Status`); reporter never exposed; deleted after `Moderation:UserReportRetentionDays` | `Id` (auto), index(Status, CreatedAt), index(ReporterDeviceId, CreatedAt) |
 
 All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content.
 
@@ -246,6 +250,10 @@ All timestamps are `DateTimeOffset` (UTC). Server never stores plaintext content
 | `GET /channels/reports/mine`, `GET /channels/{id}/moderation` | Reporter outcome / statements of reasons for owner, admin, publisher | ✅ Done |
 | `PUT /channels/{id}/admins/{deviceId}` | Owner appoints `admin` or `publisher` (body `{"role"}` optional); bot posts labelled `byBot`, limited by `Channels:MaxBotPostsPerDay` (429 `bot_post_limit`); suspended channel -> 403 `channel_suspended` | ✅ Done |
 | `POST /admin/session`, `/admin/*` | Operator moderation API (allowlist `Moderation:OperatorAccountIds` or `Moderation:OperatorHandles` + TOTP, token `scope=moderation` valid only on `/admin/*`): summary, report queue, case detail, decisions (+ CSV log), channel search, attachments | ✅ Done |
+| `PUT` / `DELETE /blocks/{deviceId}`, `GET /blocks` | Block a user's identity (400 `cannot_block_self` / `block_limit`, 404 `unknown_device`; blocking deletes their undelivered queued messages to you; the hub then drops their messages, calls and typing to all your devices without telling them); list `{"blocks":[{deviceId,userHandle,displayName,isBot,createdAt}]}`. Spec `2026-11-14-go-live` | ✅ Done |
+| `POST /users/{deviceId}/report` | Report a user `{category,reason,contactEmail?,goodFaith?,groupId?,messages?:[{messageId?,sentAt?,text}]}` (max 20 texts of 4000 chars), 200 `{reportId,createdAt}`; 429 `report_limit_reached` per identity per day | ✅ Done |
+| `GET /admin/user-reports`, `PUT /admin/user-reports/{id}/status` | Operator queue of user reports (never the reporter), resolve as `dismissed`/`actioned` | ✅ Done |
+| `DELETE /devices/{id}[?includeCompanions=true]`, `GET /devices/{id}/export` | Delete this device (a primary may take its companions along; reports it filed lose their contact e-mail); device-scope GDPR export for anonymous devices (`GET /accounts/{id}/export` also lists groups, mutes, blocks, user reports) | ✅ Done |
 | `SignalR /hub` | Message relay, typing, call signaling; call ringing for offline callees (`RequestPendingCalls`, `DeclinePendingCall(callId)`, signals `ringing` / `cancelled`) | ✅ Done |
 | `SignalR /hub` silent sends | `SendReliableMessageSilent`, `SendReliableGroupMessageSilent`, `SendReliableDirectFanoutSilent`, `SendReliableGroupFanoutSilent`: same arguments, validation, storage and delivery as the plain `SendReliable...` method, but never the "New message" push to an offline device. Separate names because SignalR binds arguments by count (an optional argument would break old clients); a new client on an old server gets `Failed to invoke '<name>'` and falls back to the plain method. Nothing stored, no migration. Bots send every reaction silently; the app does not use it. Spec `2026-11-11-bot-ack-reactions` N1 | ✅ Done |
 
