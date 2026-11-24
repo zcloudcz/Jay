@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jay: Privacy policy</title>
+<style>
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;line-height:1.55;color:#1c1b1f;background:#fffbfe}
+h1{font-size:1.6rem} h2{font-size:1.2rem;margin-top:2rem} code{background:#eee;padding:0 .25rem;border-radius:3px}
+li{margin:.35rem 0} nav{font-size:.9rem;margin-bottom:1rem} table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{border:1px solid #ccc;padding:.35rem .5rem;text-align:left;vertical-align:top}
+footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #ccc;font-size:.85rem;color:#555}
+@media (prefers-color-scheme: dark){body{color:#e6e1e5;background:#1c1b1f} code{background:#333} th,td{border-color:#555} footer{color:#aaa;border-color:#555}}
+</style>
+</head>
+<body>
+<nav><a href="privacy-cs.html" hreflang="cs">Česky</a></nav>
+<h1>Jay: Privacy policy</h1>
+<p>Version 1, effective 2026-11-14.</p>
+<p>Jay is an end-to-end encrypted messenger. We built it so that we know as little about you as possible: you do not need a phone number or an e-mail address, and we cannot read your messages, calls, group names or files. This policy says exactly what the service does store, why, for how long, and who helps us run it.</p>
+<h2>1. Controller</h2>
+<p>Martin Zahálka, sole trader, company ID (IČO) 07783809, Havlíčkova 1550/54, 680 01 Boskovice, Czech Republic. Contact for every privacy question: <a href="mailto:info@zcloud.cz">info@zcloud.cz</a>.</p>
+<h2>2. What we store, why and for how long</h2>
+<table>
+<tr><th>Data</th><th>Purpose and legal basis</th><th>Retention</th></tr>
+<tr><td>Device identity: random device ID, your handle (<code>CT-XXXX-XXXX</code>), public encryption keys, one-time pre-keys, the list of your linked devices, a display name and bot command menu if you publish one</td><td>Delivering messages to the right device and setting up encryption. Performance of the contract (Art. 6(1)(b) GDPR).</td><td>Until you delete the account or the device. A one-time pre-key is deleted when someone uses it.</td></tr>
+<tr><td>Encrypted message envelopes (we cannot read them) and the sender and recipient device IDs</td><td>Store-and-forward delivery when the recipient is offline. Art. 6(1)(b).</td><td>Deleted as soon as they are delivered, at the latest after 30 days.</td></tr>
+<tr><td>Encrypted media files (photos, videos, documents)</td><td>Delivery of attachments. Art. 6(1)(b).</td><td>Deleted 72 hours after the upload completes; unfinished uploads after 24 hours.</td></tr>
+<tr><td>Groups: group ID, member device IDs and roles, encrypted group name and topic</td><td>Delivering group messages. Art. 6(1)(b).</td><td>Until the group or your membership ends.</td></tr>
+<tr><td>Optional account: e-mail address, a derived password hash (Argon2id), two-factor authentication secret if enabled</td><td>Cloud backup and multi-device recovery, only if you register. Art. 6(1)(b).</td><td>Until you delete the account.</td></tr>
+<tr><td>Encrypted backups (only registered accounts that turn backup on)</td><td>Restoring your data. Encrypted with a key derived from your backup passphrase; we cannot open them. Art. 6(1)(b).</td><td>At most 3 backups per account; until you delete them or the account.</td></tr>
+<tr><td>Push tokens (Firebase, Apple, browser push subscription) and the app language</td><td>Telling an offline device that something new has arrived. The notification is generic ("New message"), without sender or text. Art. 6(1)(b).</td><td>Until you sign out of push, delete the device, or the push service reports the token as invalid.</td></tr>
+<tr><td>Settings you make on the server: muted conversations, blocked people</td><td>Muting push notifications, stopping messages and calls from people you blocked. Art. 6(1)(b).</td><td>Until you change them or delete the account.</td></tr>
+<tr><td>Public channels: channel profile, posts, followers, admins</td><td>Channels are public and not end-to-end encrypted. Art. 6(1)(b).</td><td>Posts are deleted after 90 days; the channel until its owner deletes it.</td></tr>
+<tr><td>Reports of people and channels: category, reason, optional contact e-mail, and the message texts the reporter chose to attach</td><td>Moderation and legal obligations (Art. 6(1)(c) and (f), Regulation (EU) 2022/2065). The reported person never learns who reported them.</td><td>User reports are deleted after 180 days. Moderation decisions about channels are kept as a record.</td></tr>
+<tr><td>IP address and technical connection data</td><td>Security and abuse prevention (rate limits). Legitimate interest, Art. 6(1)(f).</td><td>The application does not write IP addresses to its database; it keeps them only in memory for the rate limit window (minutes). Our hosting and relay providers may process them in their own network logs.</td></tr>
+</table>
+<p>We do not use advertising, tracking or analytics SDKs, and we do not sell or share data for advertising.</p>
+<h2>3. What we never have</h2>
+<ul>
+<li>The content of your messages, calls, files, group names and backups. They are encrypted on your device with keys that never leave it (Signal protocol: X3DH and Double Ratchet).</li>
+<li>Your address book. Contacts are added by QR code or invite link only.</li>
+</ul>
+<h2>4. Processors</h2>
+<ul>
+<li><strong>Microsoft Azure</strong> (Microsoft Ireland Operations Ltd.), region West Europe: the API server, encrypted file and backup storage, and the web app.</li>
+<li><strong>Hostinger</strong>: the virtual server running the PostgreSQL database.</li>
+<li><strong>Cloudflare</strong>: TURN relay for calls when a direct connection is not possible. Calls stay end-to-end encrypted (DTLS-SRTP); the relay sees IP addresses and data volume only.</li>
+<li><strong>Google Firebase Cloud Messaging</strong> (Android) and <strong>Apple Push Notification service</strong> (iOS): delivery of content-free notifications.</li>
+<li>The push service of your browser (for example Mozilla, Google, Apple or Microsoft) if you allow notifications in the web app.</li>
+</ul>
+<p>Some of these providers may process data outside the EU (for example in the USA). Such transfers rely on the EU-US Data Privacy Framework or the European Commission's standard contractual clauses.</p>
+<h2>5. Your rights</h2>
+<p>Under the GDPR you have the right of access, rectification, erasure, restriction, data portability and objection, and the right to lodge a complaint with the Czech supervisory authority, the Office for Personal Data Protection (<a href="https://uoou.gov.cz">uoou.gov.cz</a>).</p>
+<ul>
+<li><strong>Access and portability:</strong> in the app, Settings &gt; Privacy &gt; Export my data downloads everything the server holds about you as JSON.</li>
+<li><strong>Erasure:</strong> Settings &gt; Account &gt; Delete account, or see <a href="delete-account-en.html">Delete account</a> for other ways.</li>
+<li>For anything else write to <a href="mailto:info@zcloud.cz">info@zcloud.cz</a> with your handle. We answer within one month.</li>
+</ul>
+<h2>6. Children</h2>
+<p>Jay is not directed at children under 15. If you are younger, do not use it without your parent or guardian's consent.</p>
+<h2>7. Security</h2>
+<p>Besides end-to-end encryption, transport is protected by TLS, passwords are hashed with Argon2id, and the local database on your device is encrypted. Known limits of the encryption are described honestly in the app. Security issues: <a href="https://jay.zcloud.cz/.well-known/security.txt">security.txt</a>.</p>
+<h2>8. Changes</h2>
+<p>We announce significant changes to this policy in the app at least 14 days in advance. The version and date are at the top of this page.</p>
+<footer id="operator">Operator: Martin Zahálka, sole trader (OSVČ), company ID (IČO) 07783809, Havlíčkova 1550/54, 680 01 Boskovice, Czech Republic. Contact: <a href="mailto:info@zcloud.cz">info@zcloud.cz</a>.<br><a href="privacy-en.html">Privacy policy</a> · <a href="terms-en.html">Terms of use</a> · <a href="delete-account-en.html">Delete account</a> · <a href="support-en.html">Support</a> · <a href="channels-en.html">Channel rules</a></footer>
+</body>
+</html>

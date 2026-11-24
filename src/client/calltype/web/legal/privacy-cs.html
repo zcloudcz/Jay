@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jay: Zásady ochrany osobních údajů</title>
+<style>
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;line-height:1.55;color:#1c1b1f;background:#fffbfe}
+h1{font-size:1.6rem} h2{font-size:1.2rem;margin-top:2rem} code{background:#eee;padding:0 .25rem;border-radius:3px}
+li{margin:.35rem 0} nav{font-size:.9rem;margin-bottom:1rem} table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{border:1px solid #ccc;padding:.35rem .5rem;text-align:left;vertical-align:top}
+footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #ccc;font-size:.85rem;color:#555}
+@media (prefers-color-scheme: dark){body{color:#e6e1e5;background:#1c1b1f} code{background:#333} th,td{border-color:#555} footer{color:#aaa;border-color:#555}}
+</style>
+</head>
+<body>
+<nav><a href="privacy-en.html" hreflang="en">English</a></nav>
+<h1>Jay: Zásady ochrany osobních údajů</h1>
+<p>Verze 1, účinná od 2026-11-14.</p>
+<p>Jay je komunikátor s koncovým šifrováním. Navrhli jsme ho tak, abychom o vás věděli co nejméně: nepotřebujete telefonní číslo ani e-mail a vaše zprávy, hovory, názvy skupin ani soubory přečíst nemůžeme. Tyto zásady přesně říkají, co služba ukládá, proč, jak dlouho a kdo nám s provozem pomáhá.</p>
+<h2>1. Správce</h2>
+<p>Martin Zahálka, OSVČ, IČO 07783809, Havlíčkova 1550/54, 680 01 Boskovice, Česká republika. Kontakt pro všechny dotazy k osobním údajům: <a href="mailto:info@zcloud.cz">info@zcloud.cz</a>.</p>
+<h2>2. Co ukládáme, proč a jak dlouho</h2>
+<table>
+<tr><th>Údaje</th><th>Účel a právní základ</th><th>Doba uložení</th></tr>
+<tr><td>Identita zařízení: náhodné ID zařízení, váš identifikátor (<code>CT-XXXX-XXXX</code>), veřejné šifrovací klíče, jednorázové předklíče, seznam vašich propojených zařízení, zobrazované jméno a nabídka příkazů bota, pokud je zveřejníte</td><td>Doručení zpráv správnému zařízení a navázání šifrování. Plnění smlouvy (čl. 6 odst. 1 písm. b) GDPR).</td><td>Do smazání účtu nebo zařízení. Jednorázový předklíč se smaže, jakmile ho někdo použije.</td></tr>
+<tr><td>Zašifrované obálky zpráv (nemůžeme je přečíst) a ID zařízení odesílatele a příjemce</td><td>Doručení, když je příjemce offline. Čl. 6 odst. 1 písm. b).</td><td>Smažou se hned po doručení, nejpozději po 30 dnech.</td></tr>
+<tr><td>Zašifrované soubory (fotky, videa, dokumenty)</td><td>Doručení příloh. Čl. 6 odst. 1 písm. b).</td><td>Smažou se 72 hodin po dokončení nahrání, nedokončená nahrávání po 24 hodinách.</td></tr>
+<tr><td>Skupiny: ID skupiny, ID zařízení členů a jejich role, zašifrovaný název a téma skupiny</td><td>Doručení skupinových zpráv. Čl. 6 odst. 1 písm. b).</td><td>Do zániku skupiny nebo vašeho členství.</td></tr>
+<tr><td>Nepovinný účet: e-mail, odvozený otisk hesla (Argon2id), tajemství dvoufázového ověření, pokud ho zapnete</td><td>Záloha v cloudu a obnova na dalších zařízeních, jen pokud se zaregistrujete. Čl. 6 odst. 1 písm. b).</td><td>Do smazání účtu.</td></tr>
+<tr><td>Zašifrované zálohy (jen registrované účty se zapnutou zálohou)</td><td>Obnova vašich dat. Šifrují se klíčem odvozeným z vaší záložní fráze, otevřít je nemůžeme. Čl. 6 odst. 1 písm. b).</td><td>Nejvýše 3 zálohy na účet; do jejich smazání nebo smazání účtu.</td></tr>
+<tr><td>Tokeny pro notifikace (Firebase, Apple, odběr v prohlížeči) a jazyk aplikace</td><td>Upozornění offline zařízení, že něco přišlo. Upozornění je obecné („Nová zpráva“), bez odesílatele i textu. Čl. 6 odst. 1 písm. b).</td><td>Do odhlášení notifikací, smazání zařízení nebo do chvíle, kdy služba token označí za neplatný.</td></tr>
+<tr><td>Nastavení na serveru: ztlumené konverzace, blokované osoby</td><td>Ztlumení notifikací, zastavení zpráv a hovorů od blokovaných osob. Čl. 6 odst. 1 písm. b).</td><td>Do změny nebo smazání účtu.</td></tr>
+<tr><td>Veřejné kanály: profil kanálu, příspěvky, sledující, správci</td><td>Kanály jsou veřejné a nejsou koncově šifrované. Čl. 6 odst. 1 písm. b).</td><td>Příspěvky se mažou po 90 dnech, kanál až ho vlastník smaže.</td></tr>
+<tr><td>Nahlášení osob a kanálů: kategorie, důvod, nepovinný kontaktní e-mail a texty zpráv, které nahlašující sám připojil</td><td>Moderace a zákonné povinnosti (čl. 6 odst. 1 písm. c) a f), nařízení (EU) 2022/2065). Nahlášená osoba se nikdy nedozví, kdo ji nahlásil.</td><td>Nahlášení osob se mažou po 180 dnech. Rozhodnutí o kanálech uchováváme jako záznam.</td></tr>
+<tr><td>IP adresa a technické údaje o spojení</td><td>Bezpečnost a ochrana před zneužitím (limity požadavků). Oprávněný zájem, čl. 6 odst. 1 písm. f).</td><td>Aplikace IP adresy do databáze nezapisuje, drží je jen v paměti po dobu okna limitu (minuty). Poskytovatelé hostingu a přenosu je mohou zpracovávat ve svých síťových záznamech.</td></tr>
+</table>
+<p>Nepoužíváme reklamu, sledovací ani analytické nástroje a data neprodáváme ani nesdílíme pro reklamu.</p>
+<h2>3. Co nikdy nemáme</h2>
+<ul>
+<li>Obsah vašich zpráv, hovorů, souborů, názvů skupin a záloh. Šifruje se na vašem zařízení klíči, které ho nikdy neopustí (protokol Signal: X3DH a Double Ratchet).</li>
+<li>Váš adresář. Kontakty se přidávají jen QR kódem nebo pozvánkou.</li>
+</ul>
+<h2>4. Zpracovatelé</h2>
+<ul>
+<li><strong>Microsoft Azure</strong> (Microsoft Ireland Operations Ltd.), region Západní Evropa: API server, úložiště zašifrovaných souborů a záloh a webová aplikace.</li>
+<li><strong>Hostinger</strong>: virtuální server s databází PostgreSQL.</li>
+<li><strong>Cloudflare</strong>: přenosový server TURN pro hovory, když přímé spojení není možné. Hovory zůstávají koncově šifrované (DTLS-SRTP), server vidí jen IP adresy a objem dat.</li>
+<li><strong>Google Firebase Cloud Messaging</strong> (Android) a <strong>Apple Push Notification service</strong> (iOS): doručení upozornění bez obsahu.</li>
+<li>Notifikační služba vašeho prohlížeče (např. Mozilla, Google, Apple nebo Microsoft), pokud ve webové aplikaci povolíte upozornění.</li>
+</ul>
+<p>Někteří z těchto poskytovatelů mohou zpracovávat data i mimo EU (např. v USA). Takový přenos se opírá o rámec EU-USA pro ochranu osobních údajů nebo o standardní smluvní doložky Evropské komise.</p>
+<h2>5. Vaše práva</h2>
+<p>Podle GDPR máte právo na přístup, opravu, výmaz, omezení zpracování, přenositelnost a právo vznést námitku, a také právo podat stížnost u Úřadu pro ochranu osobních údajů (<a href="https://uoou.gov.cz">uoou.gov.cz</a>).</p>
+<ul>
+<li><strong>Přístup a přenositelnost:</strong> v aplikaci Nastavení &gt; Soukromí &gt; Exportovat moje data stáhne vše, co o vás server má, ve formátu JSON.</li>
+<li><strong>Výmaz:</strong> Nastavení &gt; Účet &gt; Smazat účet, další možnosti viz <a href="delete-account-cs.html">Smazání účtu</a>.</li>
+<li>S čímkoli dalším pište na <a href="mailto:info@zcloud.cz">info@zcloud.cz</a> a uveďte svůj identifikátor. Odpovíme do jednoho měsíce.</li>
+</ul>
+<h2>6. Děti</h2>
+<p>Jay není určen dětem mladším 15 let. Pokud je vám méně, nepoužívejte ho bez souhlasu rodiče nebo zákonného zástupce.</p>
+<h2>7. Zabezpečení</h2>
+<p>Kromě koncového šifrování chrání přenos TLS, hesla se ukládají jako otisk Argon2id a místní databáze ve vašem zařízení je šifrovaná. Známá omezení šifrování aplikace otevřeně popisuje. Bezpečnostní chyby: <a href="https://jay.zcloud.cz/.well-known/security.txt">security.txt</a>.</p>
+<h2>8. Změny</h2>
+<p>Podstatné změny těchto zásad oznámíme v aplikaci nejméně 14 dní předem. Verze a datum jsou nahoře na stránce.</p>
+<footer id="operator">Provozovatel: Martin Zahálka, OSVČ, IČO 07783809, Havlíčkova 1550/54, 680 01 Boskovice, Česká republika. Kontakt: <a href="mailto:info@zcloud.cz">info@zcloud.cz</a>.<br><a href="privacy-cs.html">Ochrana osobních údajů</a> · <a href="terms-cs.html">Podmínky užívání</a> · <a href="delete-account-cs.html">Smazání účtu</a> · <a href="support-cs.html">Podpora</a> · <a href="channels-cs.html">Pravidla kanálů</a></footer>
+</body>
+</html>

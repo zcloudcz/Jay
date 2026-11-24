@@ -30,15 +30,44 @@
         "Cache-Control": "no-cache",
         "X-Content-Type-Options": "nosniff"
       }
+    },
+    {
+      "route": "/.well-known/security.txt",
+      "headers": {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache"
+      }
+    },
+    {
+      "route": "/legal/*",
+      "headers": {
+        "Cache-Control": "no-cache",
+        "X-Content-Type-Options": "nosniff"
+      }
     }
   ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/admin", "/admin/*", "/legal/*", "/bots/*", "/assets/*", "/icons/*", "/canvaskit/*", "/*.js", "/*.wasm", "/*.json", "/*.png", "/*.ico"]
+    "exclude": [
+      "/admin",
+      "/admin/*",
+      "/legal/*",
+      "/.well-known/*",
+      "/bots/*",
+      "/assets/*",
+      "/icons/*",
+      "/canvaskit/*",
+      "/*.js",
+      "/*.wasm",
+      "/*.json",
+      "/*.png",
+      "/*.ico"
+    ]
   },
   "mimeTypes": {
     ".wasm": "application/wasm",
     ".sh": "text/plain; charset=utf-8",
-    ".ps1": "text/plain; charset=utf-8"
+    ".ps1": "text/plain; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8"
   }
 }
