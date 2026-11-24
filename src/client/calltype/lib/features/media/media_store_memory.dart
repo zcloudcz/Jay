@@ -87,6 +87,12 @@ class MemoryMediaStore implements MediaStore {
   }
 
   @override
+  Future<void> deleteAll() async {
+    _files.clear();
+    _parts.clear();
+  }
+
+  @override
   Future<void> deleteFolder(String folder) async {
     _files.removeWhere((key, _) => key.startsWith('$folder/'));
     _parts.removeWhere((key, _) => key.startsWith('$folder/'));

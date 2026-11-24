@@ -11,6 +11,7 @@ import '../devices/device_service.dart';
 import '../devices/link_controllers.dart';
 import '../devices/link_device_screen.dart';
 import '../devices/link_ux.dart';
+import '../privacy/legal_links.dart';
 import 'onboarding_controller.dart';
 
 /// First-run screen that registers the device with the server and shows
@@ -136,6 +137,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       icon: const Icon(Icons.rocket_launch_rounded),
                       label: Text(l10n.onboardingGetStarted),
                     ),
+                    // Spec 2026-11-14-go-live A6: the terms before the
+                    // identity is created.
+                    const SizedBox(height: 16),
+                    const LegalConsentLine(),
                   ],
                 ],
               ],
@@ -195,6 +200,8 @@ class _LinkFirstContent extends StatelessWidget {
             onPressed: controller.startStandalone,
             child: Text(l10n.linkFirstStandalone, textAlign: TextAlign.center),
           ),
+          const SizedBox(height: 16),
+          const LegalConsentLine(),
         ],
       ),
     );

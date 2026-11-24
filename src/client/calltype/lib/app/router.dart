@@ -58,7 +58,9 @@ import '../features/organization/organization_screen.dart';
 import '../features/onboarding/onboarding_controller.dart';
 import '../features/onboarding/onboarding_screen.dart';
 import '../features/notifications/notifications_screen.dart';
+import '../features/settings/account_deletion.dart';
 import '../features/settings/account_screen.dart';
+import '../features/privacy/privacy_screen.dart';
 import '../features/settings/app_lock_settings_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/settings/identity_screen.dart';
@@ -445,6 +447,24 @@ final router = GoRouter(
             // AccountScreen reads ApiClient from the provider tree.
             return const AccountScreen();
           },
+          routes: [
+            // Spec 2026-11-14-go-live A1; also the target the web deletion
+            // page links to (jay.zcloud.cz/settings/account/delete).
+            GoRoute(
+              path: 'delete',
+              builder: (context, state) => const DeleteAccountScreen(),
+            ),
+          ],
+        ),
+        GoRoute(
+          path: 'privacy',
+          builder: (context, state) => const PrivacyScreen(),
+          routes: [
+            GoRoute(
+              path: 'blocked',
+              builder: (context, state) => const BlockedUsersScreen(),
+            ),
+          ],
         ),
         GoRoute(
           path: 'organization',

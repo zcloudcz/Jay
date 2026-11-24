@@ -36,6 +36,7 @@ import 'package:calltype_core/storage/database.dart';
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
+import '../privacy/chat_safety.dart';
 import '../media/media_bubble.dart';
 import '../media/media_device.dart';
 import '../media/media_message.dart';
@@ -895,6 +896,14 @@ class ChatScreen extends StatelessWidget {
             contacts,
           ),
         ),
+      // Spec 2026-11-14-go-live A7: report / block the sender.
+      if (!mine && !business)
+        ...messageSafetyActions(
+          context,
+          message: message,
+          senderName: _authorLabel(context, controller, message.senderId, contacts),
+          group: group,
+        ),
       delete,
     ];
   }
@@ -1400,6 +1409,8 @@ class ChatScreen extends StatelessWidget {
                     onTap: () => _deleteContact(context, contact, name),
                     child: Text(l10n.contactDelete),
                   ),
+                // Spec 2026-11-14-go-live A7.
+                ...directChatSafetyItems(context, peerId: contactId, name: name),
               ],
             ),
         ],
@@ -1412,6 +1423,7 @@ class ChatScreen extends StatelessWidget {
               child: Text(l10n.chatOffline),
             ),
           if (isBot) _BotNotice(contactId: contactId),
+          if (!group) BlockedChatBanner(peerId: contactId, name: name),
           // Business mode (Jay, KB1): permanent, non-dismissable — see
           // BusinessBanner's doc for why there is no close action.
           if (organizationName != null) ...[

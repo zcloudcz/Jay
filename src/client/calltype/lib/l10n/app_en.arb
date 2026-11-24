@@ -312,7 +312,7 @@
     "description": "Diagnostics switch; TURN is a technical term, do not translate it."
   },
   "settingsForceRelaySubtitle": "Next calls use the relay only. Slower; resets on restart.",
-  "settingsVersion": "Jay {version} beta",
+  "settingsVersion": "Jay {version}",
   "@settingsVersion": {
     "placeholders": {
       "version": {
@@ -2343,5 +2343,226 @@
   "groupNewTopicWithMembers": "New topic with these members",
   "@groupNewTopicWithMembers": {
     "description": "Group menu item: create a new group (a new topic) with the same members."
+  },
+  "settingsPrivacy": "Privacy",
+  "@settingsPrivacy": {
+    "description": "Settings row and screen title: privacy (data export, blocked people)."
+  },
+  "settingsPrivacySubtitle": "Export my data, blocked people",
+  "@settingsPrivacySubtitle": {
+    "description": "Subtitle of the Privacy settings row."
+  },
+  "settingsAbout": "About",
+  "@settingsAbout": {
+    "description": "Section header in Settings above the legal and support links."
+  },
+  "legalPrivacyPolicy": "Privacy policy",
+  "@legalPrivacyPolicy": {
+    "description": "Link to the privacy policy web page."
+  },
+  "legalTerms": "Terms of use",
+  "@legalTerms": {
+    "description": "Link to the terms of use web page."
+  },
+  "legalSupport": "Support",
+  "@legalSupport": {
+    "description": "Link to the support and contact web page."
+  },
+  "legalConsent": "By continuing you agree to the Terms of use and the Privacy policy.",
+  "@legalConsent": {
+    "description": "Line under the start and register buttons; the two links follow it as buttons."
+  },
+  "privacyExportTitle": "Export my data",
+  "@privacyExportTitle": {
+    "description": "Privacy screen row: export the data the server holds."
+  },
+  "privacyExportBody": "Saves everything the Jay server holds about you as a JSON file. Your messages are end-to-end encrypted and are not stored on the server, so they are not in the export; they exist only on your devices.",
+  "@privacyExportBody": {
+    "description": "Explains what the export contains and why messages are not in it."
+  },
+  "privacyExportDone": "Your data was exported.",
+  "@privacyExportDone": {
+    "description": "Snackbar after the export file was saved or shared."
+  },
+  "privacyExportFailed": "Export failed. Check your connection and try again.",
+  "@privacyExportFailed": {
+    "description": "Snackbar when the export failed."
+  },
+  "privacyBlockedUsers": "Blocked people",
+  "@privacyBlockedUsers": {
+    "description": "Privacy screen row and screen title: blocked people."
+  },
+  "privacyBlockedUsersSubtitle": "People who cannot message or call you",
+  "@privacyBlockedUsersSubtitle": {
+    "description": "Subtitle of the Blocked people row."
+  },
+  "blockedUsersEmpty": "You have not blocked anyone.",
+  "@blockedUsersEmpty": {
+    "description": "Empty state of the Blocked people screen."
+  },
+  "userBlock": "Block",
+  "@userBlock": {
+    "description": "Menu item and button: block a person."
+  },
+  "userUnblock": "Unblock",
+  "@userUnblock": {
+    "description": "Menu item and button: lift a block."
+  },
+  "userBlockConfirmTitle": "Block {name}?",
+  "@userBlockConfirmTitle": {
+    "description": "Title of the block confirmation dialog.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "userBlockConfirmBody": "{name} can no longer send you messages or call you, also not in groups. They are not told. Their chat is hidden from your list. You can unblock them in Settings > Privacy > Blocked people.",
+  "@userBlockConfirmBody": {
+    "description": "Body of the block confirmation dialog.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "userBlocked": "{name} is blocked.",
+  "@userBlocked": {
+    "description": "Snackbar after a person was blocked.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "userUnblocked": "{name} is unblocked.",
+  "@userUnblocked": {
+    "description": "Snackbar after a block was lifted.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "userBlockFailed": "Could not change the block. Check your connection and try again.",
+  "@userBlockFailed": {
+    "description": "Snackbar when blocking or unblocking failed."
+  },
+  "userBlockedBanner": "You blocked this person. You do not receive their messages or calls.",
+  "@userBlockedBanner": {
+    "description": "Banner on top of a blocked person's 1:1 chat."
+  },
+  "userReport": "Report",
+  "@userReport": {
+    "description": "Menu item: report a person to the operator."
+  },
+  "userReportTitle": "Report {name}",
+  "@userReportTitle": {
+    "description": "Title of the report dialog for a person.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "userReportCategoryTerms": "Harassment or breaks the terms",
+  "@userReportCategoryTerms": {
+    "description": "Report category for a person: harassment or other breach of the terms."
+  },
+  "userReportReasonHelper": "The person will not learn who reported them.",
+  "@userReportReasonHelper": {
+    "description": "Helper under the reason field of a person report."
+  },
+  "userReportAttach": "Attach the text of the messages ({count})",
+  "@userReportAttach": {
+    "description": "Checkbox in the report dialog: send the decrypted texts of the listed messages along.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "userReportAttachHelp": "Jay cannot read your chats. If you attach them, the text of these messages is sent to the operator readable, only for this report.",
+  "@userReportAttachHelp": {
+    "description": "Explains that attached message texts leave end-to-end encryption."
+  },
+  "userReportReceipt": "Report no. {number} received.",
+  "@userReportReceipt": {
+    "description": "Snackbar after a person report was accepted, with its number.",
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
+  "userReportLimit": "You sent too many reports today. Try again tomorrow.",
+  "@userReportLimit": {
+    "description": "Snackbar when the daily report limit is reached."
+  },
+  "userReportFailed": "The report could not be sent. Check your connection and try again.",
+  "@userReportFailed": {
+    "description": "Snackbar when a person report could not be sent."
+  },
+  "deleteAccountTitle": "Delete account",
+  "@deleteAccountTitle": {
+    "description": "Title of the account deletion row and screen."
+  },
+  "deleteAccountSubtitle": "Permanently delete your identity and data",
+  "@deleteAccountSubtitle": {
+    "description": "Subtitle of the Delete account row."
+  },
+  "deleteAccountBody": "This permanently deletes:\n• your identity {handle} and its keys, nobody can reach you under it again\n• your contacts, chats and group memberships, on this device and on the server\n• messages still waiting for you on the server\n• your account e-mail and encrypted cloud backups, if you registered\n• your other linked devices\nThis cannot be undone. People you wrote to keep the messages they already received.",
+  "@deleteAccountBody": {
+    "description": "What account deletion removes; {handle} is the user's own handle.",
+    "placeholders": {
+      "handle": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteAccountCompanionNote": "This device is linked to your phone. Here only this device is deleted; to delete everything, delete the account on the phone.",
+  "@deleteAccountCompanionNote": {
+    "description": "Shown on a linked companion device on the delete screen."
+  },
+  "deleteAccountConfirmLabel": "Type {handle} to confirm",
+  "@deleteAccountConfirmLabel": {
+    "description": "Label of the field where the user types their own handle to confirm.",
+    "placeholders": {
+      "handle": {
+        "type": "String"
+      }
+    }
+  },
+  "deleteAccountPassphraseLabel": "Account passphrase",
+  "@deleteAccountPassphraseLabel": {
+    "description": "Passphrase field on the delete screen (registered accounts)."
+  },
+  "deleteAccountContinue": "Continue",
+  "@deleteAccountContinue": {
+    "description": "First button on the delete screen, leads to the confirmation step."
+  },
+  "deleteAccountConfirm": "Delete everything",
+  "@deleteAccountConfirm": {
+    "description": "Final irreversible delete button."
+  },
+  "deleteAccountUnlockReason": "Confirm that you want to delete your account",
+  "@deleteAccountUnlockReason": {
+    "description": "Reason shown by the system biometric prompt before account deletion."
+  },
+  "deleteAccountWrongPassphrase": "Wrong passphrase. Nothing was deleted.",
+  "@deleteAccountWrongPassphrase": {
+    "description": "Error: wrong passphrase on account deletion."
+  },
+  "deleteAccountOwnsOrganization": "You own an organization. Hand it over or delete it first. Nothing was deleted.",
+  "@deleteAccountOwnsOrganization": {
+    "description": "Error: the account owns a business organization."
+  },
+  "deleteAccountAuditor": "This device archives an organization. Ask its owner to replace it first. Nothing was deleted.",
+  "@deleteAccountAuditor": {
+    "description": "Error: the device is the archive (auditor) of an organization."
+  },
+  "deleteAccountFailed": "Deletion failed. Check your connection and try again. Nothing was deleted on this device.",
+  "@deleteAccountFailed": {
+    "description": "Error: deletion failed (network or server)."
   }
 }

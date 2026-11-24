@@ -5,6 +5,9 @@ import 'package:provider/provider.dart';
 import '../../l10n/l10n.dart';
 import '../../shared/widgets/avatar.dart';
 import '../../shared/widgets/bot_badge.dart';
+import '../privacy/block_controller.dart';
+import '../privacy/chat_safety.dart';
+import '../privacy/user_safety_actions.dart';
 import 'group_info_controller.dart';
 import 'group_topic_widgets.dart';
 
@@ -159,6 +162,16 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
     ];
     final makeAdmin = controller.canMakeAdmin(member);
     final removeAdmin = controller.canRemoveAdmin(member);
+    // Spec 2026-11-14-go-live A7: report / block another member; not in
+    // business groups (the organization handles conduct there) and never
+    // the auditor.
+    final blocks = context.watch<BlockController?>();
+    final safety =
+        blocks != null &&
+        !self &&
+        !controller.business &&
+        member.role != 'auditor';
+    final blocked = safety && blocks.isBlocked(member.deviceId);
     final subtitle = [
       if (member.userHandle != null && member.userHandle != name)
         member.userHandle!,
@@ -169,28 +182,70 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
       leading: LetterAvatar(name: name),
       title: NameWithBotBadge(name: name, isBot: member.isBot),
       subtitle: subtitle.isEmpty ? null : Text(subtitle),
-      trailing: makeAdmin || removeAdmin
-          ? PopupMenuButton<bool>(
+      trailing: makeAdmin || removeAdmin || safety
+          ? PopupMenuButton<_MemberAction>(
               key: ValueKey('group-member-menu-${member.deviceId}'),
               tooltip: l10n.groupMemberActions,
               enabled: !controller.busy,
-              onSelected: (admin) => _setRole(controller, member, admin),
+              onSelected: (action) => switch (action) {
+                _MemberAction.makeAdmin => _setRole(controller, member, true),
+                _MemberAction.removeAdmin => _setRole(
+                  controller,
+                  member,
+                  false,
+                ),
+                _MemberAction.report => reportPersonFromMenu(
+                  context,
+                  personId: member.deviceId,
+                  name: name,
+                  conversationId: controller.groupId,
+                  groupId: controller.groupId,
+                ),
+                _MemberAction.block => confirmAndBlockUser(
+                  context,
+                  id: member.deviceId,
+                  name: name,
+                ),
+                _MemberAction.unblock => unblockUser(
+                  context,
+                  id: member.deviceId,
+                  name: name,
+                ),
+              },
               itemBuilder: (_) => [
                 if (makeAdmin)
                   PopupMenuItem(
                     key: const ValueKey('group-make-admin'),
-                    value: true,
+                    value: _MemberAction.makeAdmin,
                     child: Text(l10n.groupMakeAdmin),
                   ),
                 if (removeAdmin)
                   PopupMenuItem(
                     key: const ValueKey('group-remove-admin'),
-                    value: false,
+                    value: _MemberAction.removeAdmin,
                     child: Text(l10n.groupRemoveAdmin),
                   ),
+                if (safety) ...[
+                  PopupMenuItem(
+                    key: const ValueKey('group-report-member'),
+                    value: _MemberAction.report,
+                    child: Text(l10n.userReport),
+                  ),
+                  PopupMenuItem(
+                    key: ValueKey(
+                      blocked ? 'group-unblock-member' : 'group-block-member',
+                    ),
+                    value: blocked
+                        ? _MemberAction.unblock
+                        : _MemberAction.block,
+                    child: Text(blocked ? l10n.userUnblock : l10n.userBlock),
+                  ),
+                ],
               ],
             )
           : null,
     );
   }
 }
+
+enum _MemberAction { makeAdmin, removeAdmin, report, block, unblock }

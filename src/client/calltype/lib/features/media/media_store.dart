@@ -73,6 +73,10 @@ abstract class MediaStore {
   Future<MediaPartWriter> openPart(String folder, String name);
   Future<void> renameFolder(String from, String to);
   Future<void> deleteFolder(String folder);
+
+  /// Deletes every stored file (account deletion, spec 2026-11-14-go-live
+  /// D12): nothing decrypted may outlive the identity it belonged to.
+  Future<void> deleteAll();
 }
 
 /// The picked file is over the platform cap.

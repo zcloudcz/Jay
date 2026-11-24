@@ -37,6 +37,8 @@ import 'features/groups/group_topic_service.dart';
 import 'features/media/media_service.dart';
 import 'features/media/media_store.dart';
 import 'features/mute/mute_controller.dart';
+import 'features/privacy/block_controller.dart';
+import 'features/settings/account_deletion.dart';
 import 'features/notifications/notification_directory.dart';
 import 'features/notifications/notification_platform.dart';
 import 'features/notifications/notification_service.dart';
@@ -252,6 +254,10 @@ void main() async {
   // Conversation mutes (spec D6) live on the server per device; this is
   // only the cache behind the list icons and the Chats badge.
   final mutes = MuteController(apiClient: apiClient);
+  // Blocked people (spec 2026-11-14-go-live D5): the server enforces the
+  // block, this is the cache that hides their chats, refreshed on connect.
+  final blocks = BlockController(database: db, apiClient: apiClient);
+  await blocks.load();
 
   // Calls that ring while the app is closed (call ringing spec, section 2):
   // CallKit + PushKit on iOS, the full-screen call notification on Android.
@@ -392,6 +398,7 @@ void main() async {
       // right after onboarding), and after an outage the chat list may have
       // loaded while GET /mutes failed; one cheap re-read per transition.
       unawaited(mutes.load().catchError((Object _) {}));
+      unawaited(blocks.refresh());
       // First connect after onboarding = the moment for the one automatic
       // permission prompt (mobile); every connect re-registers the push
       // token, which also retries a registration that failed offline.
@@ -399,6 +406,27 @@ void main() async {
     }
     wasConnected = connected;
   });
+
+  // Delete account (spec 2026-11-14-go-live D12): after the server deleted
+  // the identity, this empties the app in-process and starts onboarding
+  // again. Order: stop the network first so nothing writes while the
+  // tables are emptied; the database key stays (the file is reused).
+  final accountDeletion = AccountDeletionService(
+    api: apiClient,
+    storage: secureStorage,
+    isCompanion: () => devices.isCompanion,
+    wipeLocal: () async {
+      await signalRClient.disconnect();
+      authService.clearToken();
+      await wipeDatabase(db);
+      await devices.close();
+      await MediaService.instance.deleteAllLocal();
+      await secureStorage.deleteAllExceptDbKey();
+      blocks.clear();
+      await channels.load();
+      router.go('/onboarding');
+    },
+  );
 
   await sessionManager.finalizePreKeyCleanup();
   if (deviceId.isNotEmpty) {
@@ -454,6 +482,8 @@ void main() async {
         ),
         ChangeNotifierProvider.value(value: channels),
         ChangeNotifierProvider.value(value: mutes),
+        ChangeNotifierProvider.value(value: blocks),
+        Provider.value(value: accountDeletion),
         ChangeNotifierProvider.value(value: notifications),
         // Group participant colors (spec 2026-11-09-participant-colors):
         // app-wide so every open chat repaints when a choice changes.

@@ -381,6 +381,20 @@ class DeviceService extends ChangeNotifier {
     _setStatus(CompanionStatus.ok);
   }
 
+  /// Account deletion (spec 2026-11-14-go-live D12): forgets the deleted
+  /// identity so the onboarding route can [open] a new one in the same app
+  /// process. The database rows are wiped by the caller.
+  Future<void> close() async {
+    await _changes?.cancel();
+    await _hints?.cancel();
+    _changes = null;
+    _hints = null;
+    _directory = null;
+    _pendingPrimary = null;
+    _vanished = {};
+    _setStatus(CompanionStatus.ok);
+  }
+
   Future<KnownDeviceList?> _ownList() =>
       (_db.select(_db.knownDeviceLists)
             ..where((l) => l.primaryDeviceId.equals(directory.selfDeviceId)))

@@ -14,6 +14,7 @@ import '../../l10n/l10n.dart';
 import '../devices/device_service.dart';
 import '../devices/link_ux.dart';
 import '../organization/mfa_section.dart';
+import '../privacy/legal_links.dart';
 
 /// Account registration and login screen.
 ///
@@ -211,6 +212,11 @@ class _AccountScreenState extends State<AccountScreen> {
                             : l10n.accountLoginTitle,
                       ),
               ),
+              // Spec 2026-11-14-go-live A6: registering accepts the terms.
+              if (_isRegister) ...[
+                const SizedBox(height: 8),
+                const LegalConsentLine(),
+              ],
               const SizedBox(height: 16),
 
               // -- Mode toggle -----------------------------------------------
@@ -297,6 +303,27 @@ class _AccountScreenState extends State<AccountScreen> {
                   ),
                 ),
               ],
+
+              // -- Delete account (spec 2026-11-14-go-live A1) ---------------
+              // For every device, anonymous ones too: Apple 5.1.1(v) and the
+              // Google User Data policy count an anonymous identity as an
+              // account.
+              const SizedBox(height: 32),
+              const Divider(),
+              ListTile(
+                key: const ValueKey('account-delete'),
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  Icons.delete_forever_rounded,
+                  color: colorScheme.error,
+                ),
+                title: Text(
+                  l10n.deleteAccountTitle,
+                  style: TextStyle(color: colorScheme.error),
+                ),
+                subtitle: Text(l10n.deleteAccountSubtitle),
+                onTap: () => context.push('/settings/account/delete'),
+              ),
             ],
           ),
         ),

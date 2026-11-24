@@ -505,6 +505,19 @@ class MediaService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Account deletion (spec 2026-11-14-go-live D12): stops every transfer
+  /// and removes every local file.
+  Future<void> deleteAllLocal() async {
+    for (final token in [..._uploadTokens.values, ..._downloadTokens.values]) {
+      token.cancel();
+    }
+    _local.clear();
+    try {
+      await store.deleteAll();
+    } catch (_) {}
+    notifyListeners();
+  }
+
   Future<String?> pathOf(MediaInfo info) => store.pathOf(info.id, info.name);
   Future<Uint8List?> bytesOf(MediaInfo info) =>
       store.readBytes(info.id, info.name);

@@ -19,6 +19,7 @@ import '../mute/mute_controller.dart';
 import '../mute/mute_dialog.dart' show muteIcon;
 import '../notifications/notifications_screen.dart';
 import '../organization/business_banner.dart';
+import '../privacy/block_controller.dart';
 import 'chat_list_controller.dart';
 
 /// Live conversations from the device database, including offline history.
@@ -82,7 +83,14 @@ class _ChatListScreenState extends State<ChatListScreen> {
     final contacts = contactsController.contacts;
     final network = context.watch<SignalRClient>();
     final devices = context.watch<DeviceService>();
-    final rows = controller.conversations;
+    // Spec 2026-11-14-go-live A8: a blocked person's 1:1 chat is hidden
+    // (Settings > Privacy > Blocked people brings it back). Optional so
+    // screens pumped without it still build.
+    final blocks = context.watch<BlockController?>();
+    final rows = [
+      for (final c in controller.conversations)
+        if (c.type != 'direct' || !(blocks?.isBlocked(c.id) ?? false)) c,
+    ];
     // Optional so screens pumped without it (older tests) still build.
     final mutes = context.watch<MuteController?>();
     final canDelete = context.watch<ChatDeletionService?>() != null;

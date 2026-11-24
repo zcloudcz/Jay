@@ -133,6 +133,12 @@ class IoMediaStore implements MediaStore {
     final dir = Directory('${(await _base).path}/$folder');
     if (await dir.exists()) await dir.delete(recursive: true);
   }
+
+  @override
+  Future<void> deleteAll() async {
+    final dir = await _base;
+    if (await dir.exists()) await dir.delete(recursive: true);
+  }
 }
 
 class _IoReader implements MediaReader {

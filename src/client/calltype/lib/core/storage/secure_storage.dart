@@ -66,6 +66,17 @@ class SecureStorage extends SecretStore {
 
   Future<String?> getAccountId() => _storage.read(key: 'ct_account_id');
 
+  /// Account deletion (spec 2026-11-14-go-live D12): removes every key
+  /// (identity keys, device secret, account id, PIN, preferences) except the
+  /// database key. That one stays because the encrypted database file is
+  /// still open and is reused, emptied, by the next onboarding.
+  Future<void> deleteAllExceptDbKey() async {
+    final all = await _storage.readAll();
+    for (final key in all.keys.toList()) {
+      if (key != _keyDbKey) await _storage.delete(key: key);
+    }
+  }
+
   Future<void> setAccountId(String id) =>
       _storage.write(key: 'ct_account_id', value: id);
 

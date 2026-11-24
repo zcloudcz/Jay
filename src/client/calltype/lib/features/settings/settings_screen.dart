@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/network/webrtc_manager.dart';
 import '../../l10n/l10n.dart';
 import '../devices/devices_screen.dart' show LinkWebTile;
+import '../privacy/legal_links.dart';
 
 /// Main settings screen with navigation to sub-settings.
 ///
@@ -58,6 +59,15 @@ class SettingsScreen extends StatelessWidget {
             title: l10n.settingsAccount,
             subtitle: l10n.settingsAccountSubtitle,
             onTap: () => context.push('/settings/account'),
+          ),
+
+          // -- Privacy (spec 2026-11-14-go-live A4) ---------------------------
+          _SettingsTile(
+            icon: Icons.privacy_tip_rounded,
+            iconColor: colorScheme.primary,
+            title: l10n.settingsPrivacy,
+            subtitle: l10n.settingsPrivacySubtitle,
+            onTap: () => context.push('/settings/privacy'),
           ),
 
           // -- Data section ---------------------------------------------------
@@ -131,6 +141,19 @@ class SettingsScreen extends StatelessWidget {
           const Divider(indent: 16, endIndent: 16),
 
           // -- About section --------------------------------------------------
+          // Spec 2026-11-14-go-live A5: the legal pages and support.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Text(
+              l10n.settingsAbout,
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: colorScheme.primary,
+              ),
+            ),
+          ),
+          const LegalPageTile(page: LegalPage.privacy),
+          const LegalPageTile(page: LegalPage.terms),
+          const LegalPageTile(page: LegalPage.support),
           // Version is hardcoded here to match pubspec.yaml. In production,
           // use package_info_plus to read the version dynamically.
           Padding(
