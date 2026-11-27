@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jay: Bot guide</title>
+<meta name="description" content="A detailed guide to creating your own Jay bot with Claude, ChatGPT or a Hermes agent on Linux, macOS and Windows.">
+<style>
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;max-width:820px;margin:2rem auto;padding:0 1rem;line-height:1.6;color:#1c1b1f;background:#fffbfe}
+h1{font-size:1.7rem} h2{font-size:1.3rem;margin-top:2.5rem;padding-top:.5rem;border-top:1px solid #ddd} h3{font-size:1.08rem;margin-top:1.6rem}
+code{background:#eee;padding:0 .25rem;border-radius:3px;font-size:.92em;overflow-wrap:anywhere}
+pre{background:#1f2428;color:#e6edf3;padding:.8rem 1rem;border-radius:6px;overflow-x:auto;font-size:.86rem;line-height:1.45}
+pre code{background:none;padding:0;color:inherit;overflow-wrap:normal}
+li{margin:.35rem 0} nav{font-size:.9rem;margin-bottom:1rem}
+table{border-collapse:collapse;width:100%;font-size:.92rem;display:block;overflow-x:auto}
+th,td{border:1px solid #ccc;padding:.35rem .5rem;text-align:left;vertical-align:top}
+.toc{background:#f3eff4;border-radius:8px;padding:.6rem 1.2rem}.toc ol{padding-left:1.2rem;margin:.4rem 0}
+.note{background:#e8f4f6;border-left:4px solid #006874;padding:.5rem .9rem;border-radius:4px;margin:1rem 0}
+.warn{background:#fdecea;border-left:4px solid #b3261e;padding:.5rem .9rem;border-radius:4px;margin:1rem 0}
+figure{margin:1.2rem 0;text-align:center} figure img{max-width:min(100%,360px);height:auto;border:1px solid #ccc;border-radius:12px}
+figcaption{font-size:.85rem;color:#555;margin-top:.3rem}
+.shots{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center}.shots figure{flex:1 1 260px;margin:.5rem 0}
+footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #ccc;font-size:.85rem;color:#555}
+@media (prefers-color-scheme: dark){body{color:#e6e1e5;background:#1c1b1f} code{background:#333} th,td{border-color:#555} h2{border-color:#444} .toc{background:#2b2930} .note{background:#1e3337} .warn{background:#3a1f1d} figcaption,footer{color:#aaa} footer{border-color:#555}}
+</style>
+</head>
+<body>
+<nav><a href="bots-cs.html" hreflang="cs">Česky</a> · <a href="../legal/support-en.html">Support</a></nav>
+<h1>Jay: Your own bot, step by step</h1>
+<p>Version 1, 2026-11-27. This guide matches the setup scripts <code>new-bot.sh</code> and <code>new-bot.ps1</code> and the Jay app as of that date. No programming needed: all you need is the Jay app and a computer that stays on.</p>
+
+<div class="toc">
+<strong>Contents</strong>
+<ol>
+<li><a href="#what-is-a-bot">What a bot is in Jay</a></li>
+<li><a href="#provider">Who answers: choosing a provider</a></li>
+<li><a href="#prepare">What to prepare first</a></li>
+<li><a href="#app">Creating the bot in the app</a></li>
+<li><a href="#run">Running it on your computer (Linux, macOS, Windows, Docker)</a></li>
+<li><a href="#check">Checking that the bot runs</a></li>
+<li><a href="#first-message">First message and contacts</a></li>
+<li><a href="#groups">The bot in a group</a></li>
+<li><a href="#more-options">More options: model, prompt, fallback models, reactions</a></li>
+<li><a href="#actions">Actions and the rescue bot</a></li>
+<li><a href="#hermes">Hermes on Linux</a></li>
+<li><a href="#manage">Updating, removing, logs</a></li>
+<li><a href="#troubleshooting">Troubleshooting</a></li>
+<li><a href="#security">Security</a></li>
+<li><a href="#options">All script options</a></li>
+</ol>
+</div>
+
+<h2 id="what-is-a-bot">1. What a bot is in Jay</h2>
+<p>A bot is an ordinary Jay contact that is answered by a program on <strong>your</strong> computer instead of a person, for example Claude, ChatGPT or the Hermes agent. It carries a BOT label in your chat list.</p>
+<ul>
+<li><strong>Why it runs on your machine:</strong> Jay messages are end-to-end encrypted. The bot's encryption keys are created on the computer that runs it and never leave it. The Jay server never sees them, so it cannot "host" the bot for you. The app only prepares one setup command.</li>
+<li><strong>Where messages go:</strong> they are encrypted between you and the bot program. The bot decrypts them and sends the conversation text to the provider you chose (Anthropic, OpenAI, your own CLI or Hermes) and nowhere else.</li>
+<li><strong>The bot runs only while that computer runs.</strong> Pick a computer or server that stays on.</li>
+</ul>
+<h3>What a bot can do</h3>
+<ul>
+<li><strong>Chat with memory:</strong> it remembers the last 20 messages of every chat and folds older parts into one summary. <code>/new</code> starts the conversation over, <code>/help</code> describes the bot. Both are in the chat's "/" menu.</li>
+<li><strong>Images:</strong> the bot reads an image you send (JPEG, PNG, GIF, WebP up to 5 MB) together with its caption. In a group the image needs a caption with an @mention of the bot, or must be a reply to the bot.</li>
+<li><strong>Voice messages, videos and other files:</strong> an ordinary bot (Claude, ChatGPT) does not read them and answers briefly with what it can read. The Hermes agent can transcribe voice messages, save files and send files and voice replies itself (see <a href="#hermes">Hermes on Linux</a>).</li>
+<li><strong>Creating images:</strong> only with an OpenAI API key and the <code>LLM_IMAGE_MODEL</code> setting added by hand (see <a href="#settings-file">settings in the file</a>). Claude and both CLIs cannot create images.</li>
+<li><strong>Reactions:</strong> every message the bot takes gets 👀 at once. When the bot is done, it becomes ✅ (answered), ❌ (error) or an emoji the model chose (say 👍 for "thanks"). No 👀 means the bot did not take the message (see <a href="#troubleshooting">Troubleshooting</a>).</li>
+<li><strong>Progress:</strong> when an answer takes longer than 5 seconds, the bot posts "Working on it..." and keeps editing it with the answer text.</li>
+<li><strong>Groups and group topics:</strong> the bot answers in groups you are in and follows the group's topic and settings (see <a href="#groups">The bot in a group</a>).</li>
+</ul>
+
+<h2 id="provider">2. Who answers: choosing a provider</h2>
+<p>In the app you pick one of five choices under "What answers". The command turns it into the <code>--provider</code> option.</p>
+<table>
+<tr><th>In the app</th><th><code>--provider</code></th><th>What you need</th><th>Pros</th><th>Cons</th></tr>
+<tr><td>Claude (Anthropic API key)</td><td><code>anthropic</code></td><td>An API key from <a href="https://platform.claude.com">platform.claude.com</a> (API keys)</td><td>The most robust path, nothing else to install, works in Docker too, answers are streamed. Default model <code>claude-sonnet-5-5</code>.</td><td>You pay for every answer from your API account (also for questions of group members).</td></tr>
+<tr><td>ChatGPT or compatible (OpenAI API key)</td><td><code>openai</code></td><td>An API key from <a href="https://platform.openai.com/api-keys">platform.openai.com/api-keys</a>, or another OpenAI-compatible server (Azure OpenAI, OpenRouter, Ollama, LM Studio)</td><td>Default model <code>gpt-6.1-sol</code>. With <code>--base-url</code> it runs on your own model, for example Ollama on the same computer without a key. The only provider that can create images.</td><td>Pay per use like the Claude API. A server other than api.openai.com needs <code>--model</code>.</td></tr>
+<tr><td>My Claude subscription (Claude Code)</td><td><code>claude-cli</code></td><td>Claude Code installed and signed in on that computer</td><td>No API keys, uses your Claude subscription.</td><td>Personal use only (Anthropic's terms), uses your plan's limits, does not work in Docker, the answer arrives all at once.</td></tr>
+<tr><td>My ChatGPT subscription (Codex)</td><td><code>codex-cli</code></td><td>The Codex CLI installed and signed in (<code>codex login</code>)</td><td>No API keys, uses your ChatGPT subscription.</td><td>Same limits as Claude Code.</td></tr>
+<tr><td>Hermes agent</td><td><code>hermes</code></td><td>A running Hermes Agent with its API server on that computer</td><td>A full agent with tools, voice, files and command approvals.</td><td>Hermes must be installed; answers only you. Details in <a href="#hermes">Hermes on Linux</a>.</td></tr>
+</table>
+<div class="note"><strong>Subscriptions and terms:</strong> Jay never asks for, stores or forwards a Claude.ai or ChatGPT login. You install the vendor's official program on your computer yourself and sign in through the vendor's own flow. The bot then only runs that program for <strong>your own</strong> messages. That is why a subscription bot answers only you in groups by default. If you want a bot for more people or for heavy use, use an API key.</div>
+<p><strong>Cost:</strong> Jay charges nothing for bots. API keys are billed by the provider per use; pick cheaper models with <code>--model claude-haiku-5-5</code> or <code>--model gpt-6-luna</code>. A subscription uses your plan's limits. With Hermes you pay for the models Hermes is configured with.</p>
+
+<h2 id="prepare">3. What to prepare first</h2>
+<h3>The computer</h3>
+<ul>
+<li><strong>Linux</strong> (x64 or arm64) with systemd: the bot runs as a user service. The <code>bubblewrap</code> package is recommended to isolate the bot from the rest of your home folder (<code>sudo apt install bubblewrap</code>).</li>
+<li><strong>macOS</strong> on Apple Silicon (M1 and later). Intel Macs have no native bundle: use <code>--docker</code>.</li>
+<li><strong>Windows 10 or 11</strong> (x64), Windows PowerShell 5.1 or PowerShell 7, no admin rights needed.</li>
+<li><strong>Docker</strong> on any machine, for API keys and Hermes only.</li>
+<li>Linux and macOS need <code>curl</code> (or <code>wget</code>) and <code>unzip</code> (or <code>bsdtar</code> or <code>python3</code>).</li>
+</ul>
+<h3 id="cli-login">Signing in to Claude Code or Codex (subscriptions only)</h3>
+<p>Do this <strong>before</strong> you run the command, on the same computer and as the same user the bot will run as.</p>
+<p><strong>Claude Code</strong> (vendor guide: <a href="https://code.claude.com/docs/en/setup">code.claude.com/docs/en/setup</a>):</p>
+<pre><code># Linux and macOS: the official installer
+curl -fsSL https://claude.ai/install.sh | bash
+# run it once and sign in with your Claude account
+claude
+# check the sign-in
+claude auth status</code></pre>
+<p><strong>Codex CLI</strong> (vendor guide: <a href="https://developers.openai.com/codex/cli">developers.openai.com/codex/cli</a>):</p>
+<pre><code># for example with npm (needs Node.js)
+npm install -g @openai/codex
+# sign in with your ChatGPT account
+codex login
+# check the sign-in
+codex login status</code></pre>
+<p>The setup script then finds the program on your <code>PATH</code>, checks that it starts the way the service will start it (including Node.js for programs installed with npm) and warns you when you are not signed in.</p>
+<h3>API key (Claude API, OpenAI API and Hermes only)</h3>
+<p>Have the key ready, but <strong>never put it into the Jay app or into the command</strong>. The setup script asks for it with a hidden prompt on the bot's computer.</p>
+
+<h2 id="app">4. Creating the bot in the app</h2>
+<p>The steps are the same on a phone, a computer and in the web app. A computer is the most convenient, because you can paste the command straight into a terminal.</p>
+<ol>
+<li>Open <strong>Settings</strong> (the gear at the top right) and tap <strong>Bots</strong> ("Create your own AI bot").</li>
+<li>On the <strong>Bots</strong> screen tap <strong>New bot</strong> ("One command for your computer"). The robot icon on the <strong>Contacts</strong> screen, where <strong>New chat</strong> leads, opens the same wizard.</li>
+<li><strong>Bot name:</strong> up to 40 characters, at least one letter A-Z or a digit. It is shown in Jay and people @mention the bot by it in groups. The folder and service name are made from it too (lower case without accents: "My assistant" gives <code>my-assistant</code>).</li>
+<li><strong>What answers:</strong> pick a provider as described in <a href="#provider">chapter 2</a>.</li>
+<li><strong>Where it runs:</strong> Linux, macOS, Windows or Docker. The app preselects the system you are using it on (Linux on a phone). With Docker the subscription choices are disabled: "Subscriptions need the program signed in on the computer itself, so Docker offers API keys and Hermes only."</li>
+<li>Tap <strong>Show command</strong>.</li>
+<li>On the "Run this on the computer for the bot" screen tap <strong>Copy command</strong> ("Command copied"). Below the command are numbered steps and who can reach the bot.</li>
+</ol>
+<div class="shots">
+<figure><img src="img/en-settings.webp" width="600" height="975" alt="Jay Settings screen with the Bots entry, Create your own AI bot" loading="lazy"><figcaption>Settings &gt; Bots</figcaption></figure>
+<figure><img src="img/en-bots.webp" width="600" height="375" alt="Bots screen with an explanation and the New bot button" loading="lazy"><figcaption>Bots &gt; New bot</figcaption></figure>
+<figure><img src="img/en-newbot1.webp" width="600" height="877" alt="New bot form: Bot name My assistant, What answers My Claude subscription, Where it runs Linux, Show command button" loading="lazy"><figcaption>Name, provider, system</figcaption></figure>
+<figure><img src="img/en-command.webp" width="600" height="1012" alt="Generated Linux command for Claude Code with the Copy command button and steps; the owner handle is blurred" loading="lazy"><figcaption>Command for Linux and macOS (Claude subscription)</figcaption></figure>
+<figure><img src="img/en-command-win.webp" width="600" height="997" alt="Generated Windows PowerShell command for an Anthropic API key with three steps; the owner handle is blurred" loading="lazy"><figcaption>Command for Windows (Claude API key)</figcaption></figure>
+</div>
+<p>The command holds no secret: only the bot name, your handle (<code>--owner</code>, filled in by the app; on a linked device it is your phone's handle), the provider and the Jay server address (<code>--api</code>). Your own handle <code>CT-XXXX-XXXX</code> is under <strong>Settings &gt; My identity</strong>.</p>
+
+<h2 id="run">5. Running it on your computer</h2>
+<h3 id="linux">Linux and macOS</h3>
+<p>Open a terminal, paste the copied command and press Enter. It looks like this (with your handle instead of <code>CT-XXXX-XXXX</code>):</p>
+<pre><code>curl -fsSL https://jay.zcloud.cz/bots/new-bot.sh | bash -s -- --name 'My assistant' --owner 'CT-XXXX-XXXX' --provider anthropic --api 'https://calltype-beta-zahy.azurewebsites.net'</code></pre>
+<p>You can append more options at the end, for example <code>--model claude-haiku-5-5</code> (see <a href="#options">all options</a>). Do not redirect anything into <code>bash -s --</code>: <code>bash -s</code> reads the script itself from its input.</p>
+<p><strong>What the script does and asks:</strong></p>
+<ol>
+<li>It checks the options, the system and the CPU.</li>
+<li>For a subscription it finds <code>claude</code> or <code>codex</code> and checks that it starts the way the service starts it (it prints "Checked: ... starts with the bot service PATH"). When you are not signed in it prints a warning.</li>
+<li>For an API key it asks with a hidden prompt, for example <code>ANTHROPIC_API_KEY (https://platform.claude.com &gt; API keys):</code>. The key is not shown while you type. Instead you can set it beforehand in the environment variable <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> or <code>HERMES_API_KEY</code>. For a local OpenAI-compatible server (<code>--base-url</code>) just press Enter if it needs no key.</li>
+<li>It creates the bot's store key (32 random bytes, never printed).</li>
+<li>It downloads the bot bundle from GitHub and checks it against <code>SHA256SUMS</code>. A damaged bundle is refused and nothing is changed.</li>
+<li>It writes the settings, installs the service, starts it and waits until the bot is connected. At the end it prints:</li>
+</ol>
+<pre><code>Bot 'My assistant' is running.
+  Handle: CT-XXXX-XXXX
+  Invite: ct://...
+Check Jay: the bot just wrote to you (first start only). Reply to it to start chatting.
+Update: run the same command again. Remove: add --remove.</code></pre>
+<p><strong>Where things are stored</strong> (one folder per bot, <code>&lt;name&gt;</code> is the folder name made from the bot name):</p>
+<table>
+<tr><th>Path</th><th>Contents</th></tr>
+<tr><td><code>~/.jay-bots/&lt;name&gt;/app/</code></td><td>the bot program (llm_bridge, or hermes_bridge for Hermes)</td></tr>
+<tr><td><code>~/.jay-bots/&lt;name&gt;/bot.env</code></td><td>settings and secrets (API key, store key), mode 600: only your user can read it</td></tr>
+<tr><td><code>~/.jay-bots/&lt;name&gt;/data/</code></td><td>the bot's identity, sessions and encrypted chat history</td></tr>
+<tr><td><code>~/.jay-bots/&lt;name&gt;/run.sh</code></td><td>the launcher that loads the settings and writes output to <code>bot.log</code></td></tr>
+<tr><td><code>~/.jay-bots/&lt;name&gt;/bot.log</code></td><td>the bot's log (over 5 MB one old copy is moved to <code>bot.log.1</code>)</td></tr>
+<tr><td><code>~/.jay-bots/&lt;name&gt;/sandbox.sh</code></td><td>Linux with bubblewrap only: the bot's isolated environment</td></tr>
+</table>
+<p><strong>Service on Linux:</strong> the systemd user unit <code>jay-bot-&lt;name&gt;</code> (file <code>~/.config/systemd/user/jay-bot-&lt;name&gt;.service</code>). After a crash it restarts within 10 seconds, except on a settings error (exit code 78), which a restart cannot fix. Without "linger" the script prints:</p>
+<pre><code>Note: the bot stops when you log out. To keep it running (also after a reboot without login), run once:
+  sudo loginctl enable-linger &lt;user&gt;</code></pre>
+<p>Run that command once, otherwise the bot runs only while you are logged in. Without a user systemd (for example WSL1) the script starts the bot in the background and warns that it will not start again after a reboot.</p>
+<p><strong>Isolation (sandbox) on Linux:</strong> with bubblewrap installed, the bot sees an empty home folder: only its own folder (read and write), the system (read-only) and, for a subscription, the CLI with its login (<code>~/.claude</code> and <code>~/.claude.json</code>, or <code>~/.codex</code>). The script reports it with an "Isolation: ..." line. Without bubblewrap it prints "Note: bubblewrap (bwrap) is not available, so the bot runs without a sandbox."</p>
+<p><strong>Service on macOS:</strong> the LaunchAgent <code>cz.zcloud.jay-bot-&lt;name&gt;</code> (file <code>~/Library/LaunchAgents/cz.zcloud.jay-bot-&lt;name&gt;.plist</code>); it starts at login and again after a failure. macOS has no sandbox in this setup.</p>
+
+<h3 id="windows">Windows (PowerShell)</h3>
+<p>Open PowerShell (Start, type "PowerShell"), paste the command and press Enter. No admin rights are needed.</p>
+<pre><code>&amp; ([scriptblock]::Create((irm https://jay.zcloud.cz/bots/new-bot.ps1))) -Name 'My assistant' -Owner 'CT-XXXX-XXXX' -Provider anthropic -Api 'https://calltype-beta-zahy.azurewebsites.net'</code></pre>
+<p>It works like on Linux: a hidden prompt for the API key, download and check of the bundle, start and the bot's handle. Differences:</p>
+<ul>
+<li>The bot folder is <code>%USERPROFILE%\.jay-bots\&lt;name&gt;\</code>, the settings are in <code>bot.env.json</code> (only your user has access), the launcher is <code>run.ps1</code>, the logs are <code>bot.log</code> and <code>bot.err.log</code> (overwritten on every start).</li>
+<li>The bot runs as the Scheduled Task <strong>Jay bot &lt;name&gt;</strong>, which starts when you log on. After a crash the bot starts again within 10 seconds, except on a settings error (exit code 78).</li>
+<li>Windows has no sandbox in this setup.</li>
+<li>Options start with a dash and a capital letter: <code>-Model</code>, <code>-Fallback</code>, <code>-Remove</code> (see <a href="#options">all options</a>).</li>
+</ul>
+
+<h3 id="docker">Docker</h3>
+<p>On a machine with Docker pick "Docker" in the app; the command then ends with <code>--docker</code>. The script pulls <code>ghcr.io/zcloudcz/jay-llm-bridge:latest</code> (for Hermes <code>ghcr.io/zcloudcz/jay-hermes-bridge:latest</code>) and starts the container <code>jay-bot-&lt;name&gt;</code> with automatic restart and the volume <code>jay-bot-&lt;name&gt;</code> for the identity. Subscriptions (Claude Code, Codex) and actions do not work in Docker. Log: <code>docker logs jay-bot-&lt;name&gt;</code>.</p>
+
+<h2 id="check">6. Checking that the bot runs</h2>
+<ul>
+<li>Within a minute the bot writes to you in Jay (first start only, not for Hermes, see the <a href="#first-message">next chapter</a>).</li>
+<li>Linux: <code>systemctl --user status jay-bot-&lt;name&gt;</code> should show <code>active (running)</code>.</li>
+<li>macOS: <code>launchctl print gui/$(id -u)/cz.zcloud.jay-bot-&lt;name&gt;</code>.</li>
+<li>Windows: <code>Get-ScheduledTask -TaskName 'Jay bot &lt;name&gt;'</code> should be in state <code>Running</code>.</li>
+<li>Log: <code>tail -f ~/.jay-bots/&lt;name&gt;/bot.log</code> (Windows: <code>Get-Content -Wait $env:USERPROFILE\.jay-bots\&lt;name&gt;\bot.log</code>). After the start it has the line <code>Bot CT-XXXX-XXXX starting, invite: ct://...</code> and <code>Connected.</code></li>
+<li>Subscription: <code>... --check-only</code> at the end of the setup command (Linux and macOS) only checks that the CLI starts the way the service starts it and changes nothing.</li>
+<li>Sandbox on Linux: <code>~/.jay-bots/&lt;name&gt;/sandbox.sh /bin/sh -c 'ls -a ~'</code> should show an almost empty folder.</li>
+</ul>
+
+<h2 id="first-message">7. First message and contacts</h2>
+<ol>
+<li>After its first start the bot sends you "Ahoj, jsem &lt;name&gt;. Napiš mi." with "Hi, I am &lt;name&gt;. Write to me." below it. The chat with the bot appears in your chat list.</li>
+<li>Reply to it. That adds the bot to your contacts and you can chat.</li>
+<li>A bot without a greeting (Hermes, or when the greeting did not arrive): add it yourself. In the chat list tap <strong>Add contact</strong> and put the bot's handle <code>CT-XXXX-XXXX</code> or the <code>ct://...</code> invite printed by the script into the <strong>Handle or invite</strong> field.</li>
+<li>Write anything. The bot adds 👀, shows typing for a moment and answers.</li>
+</ol>
+<p>The bot answers only the owners listed in <code>--owner</code>. To let someone else use it in a 1:1 chat, add their handle, <code>--owner CT-AAAA-AAAA,CT-BBBB-BBBB</code>, and run the command again. Every owner then uses your key or subscription.</p>
+
+<h2 id="groups">8. The bot in a group</h2>
+<p>Add the bot to a group like any contact when you create the group (<strong>New group</strong>). The rules:</p>
+<ul>
+<li><strong>Owner rule:</strong> the bot answers only in groups where one of its owners is a member. In a group without an owner it stays silent, and the server does not even deliver that group's messages to it.</li>
+<li><strong>Addressing:</strong> the bot answers messages that @mention it (by bot name or handle) or that reply to one of its messages. The answer quotes the asker and is visible to <strong>every member</strong> of the group.</li>
+<li><strong>Who can address the bot:</strong> always you (the owners). Other group members only for an API-key bot (default <code>--group-replies members</code>); you pay for their questions. A subscription bot (Claude Code, Codex) answers only owners unless you add <code>--group-replies members</code> to the command. Hermes answers only owners.</li>
+<li>A group has <strong>one shared history</strong>, which the bot sees with every sender labelled.</li>
+</ul>
+<h3 id="bot-conversation">Group setting "Bot conversation"</h3>
+<p>In the group chat open the menu (three dots) and choose <strong>Bot conversation</strong>. Only group admins can change it.</p>
+<ul>
+<li><strong>Off</strong> (default): "Bots answer only people."</li>
+<li><strong>All bots</strong> or <strong>Selected bots</strong>: bots may answer each other (they address each other by @handle). Limited by <strong>Max bot messages in a row</strong> (1 to 50) and <strong>Pause between bot exchanges (minutes)</strong>. At the limit the bot posts "Bot limit reached, waiting for a human." and waits for a person to mention it. For Hermes the bot's owner must be a group admin.</li>
+<li><strong>Bots read everything</strong>: "Bots see every message in the group as context, not only the ones addressed to them." The bot does not answer those messages, it only knows about them.</li>
+<li><strong>Reply without mention</strong>: "Bots answer people without an @mention. Messages from other bots still need one." The rules on who may address the bot still apply.</li>
+</ul>
+<p>Both of the last two are off by default.</p>
+<h3 id="topic">Group topic</h3>
+<p>The topic is a short brief for the group (up to 4000 characters) that bots read too: a Claude or ChatGPT bot gets it as part of its instructions, Hermes as a <code>[Group topic: ...]</code> block. Set it when you create the group in the <strong>Topic (optional)</strong> field, or later in the group menu under <strong>Group info</strong> &gt; <strong>Edit topic</strong> (admins only). <strong>New topic with these members</strong> creates a new group with the same members and bots: that is how you get several topics with the same bot.</p>
+
+<h2 id="more-options">9. More options: model, prompt, fallback models, reactions</h2>
+<p>Append options to the end of the setup command and run it again. The bot's identity (handle, contacts, history) stays. Optional settings you gave before are remembered on later runs until you give them again.</p>
+<ul>
+<li><strong>Model:</strong> <code>--model claude-haiku-5-5</code> (Windows <code>-Model</code>). For a subscription, an alias the CLI knows.</li>
+<li><strong>Instructions (system prompt):</strong> <code>--prompt 'You are a brief assistant for our family.'</code>. Without it the bot is a friendly assistant that answers in the user's language.</li>
+<li><strong>Another OpenAI-compatible server:</strong> <code>--provider openai --base-url http://localhost:11434/v1 --model &lt;model&gt;</code> (Ollama on the same computer). More examples: <code>https://openrouter.ai/api/v1</code>, <code>https://&lt;resource&gt;.openai.azure.com/openai/v1</code>.</li>
+<li><strong>Who is answered in groups:</strong> <code>--group-replies members</code> or <code>owners</code>.</li>
+<li><strong>Fallback models:</strong> <code>--fallback codex-cli</code> (Windows <code>-Fallback codex-cli</code>). When the main provider fails before it sent any text (signed out, out of quota, 429, crashed, or silent for 60 seconds), the next one in the list answers. Separate several with commas (<code>anthropic</code>, <code>openai</code>, <code>claude-cli</code>, <code>codex-cli</code>); each fallback needs its own key or signed-in CLI, and the script checks it like the main one. Fallbacks use their provider's default model. <code>--fallback none</code> removes them. The script prints "Provider chain: claude-cli -&gt; codex-cli ...".</li>
+</ul>
+<h3 id="settings-file">Settings in the file (reactions, greeting, time limits)</h3>
+<p>Some settings have no script option. Change them in <code>~/.jay-bots/&lt;name&gt;/bot.env</code> (lines <code>KEY='value'</code>) and restart the bot (<a href="#manage">chapter 12</a>). On Windows it is <code>bot.env.json</code>.</p>
+<table>
+<tr><th>Setting</th><th>Default</th><th>Meaning</th></tr>
+<tr><td><code>ACK_REACTIONS</code></td><td><code>on</code></td><td><code>off</code> turns the automatic reactions 👀, ✅, ❌ off</td></tr>
+<tr><td><code>BOT_GREETING</code></td><td><code>on</code></td><td><code>off</code> = no first message to the owners</td></tr>
+<tr><td><code>LLM_HISTORY_MESSAGES</code></td><td><code>20</code></td><td>how many messages the bot remembers per chat</td></tr>
+<tr><td><code>LLM_FIRST_OUTPUT_SECONDS</code></td><td><code>60</code></td><td>time for the provider's first text; for a CLI this limits the whole answer, raise it for slow models (<code>0</code> = no limit)</td></tr>
+<tr><td><code>LLM_TIMEOUT_SECONDS</code></td><td><code>300</code></td><td>longest wait for one answer</td></tr>
+<tr><td><code>PROGRESS_AFTER_SECONDS</code></td><td><code>5</code></td><td>seconds before "Working on it..." appears (<code>0</code> = never)</td></tr>
+<tr><td><code>LLM_IMAGE_MODEL</code></td><td>unset</td><td><code>openai</code> only: image generation model, e.g. <code>gpt-image-1</code></td></tr>
+</table>
+<div class="warn">Running the setup command again (an update) rewrites the settings file and drops the lines from this table that you added by hand. Add them again after an update.</div>
+
+<h2 id="actions">10. Actions and the rescue bot</h2>
+<p>A Claude or ChatGPT bot never runs anything on your computer itself: the CLIs run without tools. You can, however, allow <strong>named actions</strong>, exact commands you configure. The model only asks for an action with a line <code>[action: name]</code>; the bot program runs it, without a shell and without any argument from the model, and gives the result (exit code and the last 8 KiB of output) back to the model. While it runs, the progress message says "Running: name".</p>
+<pre><code>--actions 'status=systemctl --user status hermes-gateway --no-pager; restart=systemctl --user restart hermes-gateway'</code></pre>
+<ul>
+<li>Format: <code>name=command</code>, separated by semicolons. Names are <code>a-z</code>, <code>0-9</code>, <code>-</code> only (max 32 characters, max 20 actions). <code>'...'</code> is literal, nothing is expanded (<code>$HOME</code>, <code>*</code>, <code>&amp;&amp;</code>, <code>|</code> are plain text).</li>
+<li>Only an owner in their own 1:1 chat can trigger actions. In groups and from other bots the request is dropped.</li>
+<li>At most 3 action rounds per message, each action at most 60 seconds.</li>
+<li><code>--actions none</code> removes them. Actions cannot be used with <code>--docker</code> or with Hermes.</li>
+<li>On Linux, with actions only the CLI runs in the sandbox (<code>cli-claude.sh</code>, <code>cli-codex.sh</code>), not the whole bot, because actions must reach the service manager.</li>
+</ul>
+<h3 id="rescue-bot">The rescue bot (--rescue-hermes)</h3>
+<p><code>--rescue-hermes &lt;service&gt;</code> makes a rescue bot with ready-made <code>status</code>, <code>restart</code> and <code>logs</code> actions and forces answers to owners only. It is a second contact that still reaches the computer when your main agent hangs. Presets per system:</p>
+<table>
+<tr><th>System</th><th>status</th><th>restart</th><th>logs</th></tr>
+<tr><td>Linux (systemd user unit)</td><td><code>systemctl --user status &lt;name&gt; --no-pager</code></td><td><code>systemctl --user restart &lt;name&gt;</code></td><td><code>journalctl --user -u &lt;name&gt; -n 200 --no-pager</code>, with <code>--log-file</code> <code>tail -n 200 &lt;file&gt;</code></td></tr>
+<tr><td>macOS (launchd label)</td><td><code>launchctl print gui/&lt;uid&gt;/&lt;name&gt;</code></td><td><code>launchctl kickstart -k gui/&lt;uid&gt;/&lt;name&gt;</code></td><td>only with <code>--log-file</code></td></tr>
+<tr><td>Windows, Scheduled Task (<code>-RescueKind task</code>, default)</td><td><code>schtasks.exe /query</code></td><td><code>schtasks.exe /end</code> and <code>/run</code></td><td>only with <code>-LogFile</code></td></tr>
+<tr><td>Windows, service (<code>-RescueKind service</code>)</td><td><code>sc.exe query</code></td><td><code>Restart-Service</code> (may need admin rights)</td><td>only with <code>-LogFile</code></td></tr>
+</table>
+<p>A recommended rescue bot for Hermes on Linux (Codex answers when Claude is down or out of quota) is in <a href="#hermes-rescue">Hermes on Linux</a>.</p>
+
+<h2 id="hermes">11. Hermes on Linux</h2>
+<p><a href="https://hermes-agent.nousresearch.com/docs">Hermes Agent</a> is an agent with tools, a terminal, memory and scheduled jobs. The <code>hermes_bridge</code> connects it to Jay: Hermes becomes a contact you write to like anyone else. The bridge and Hermes must run on the same trusted computer, because the bridge hands the decrypted text to Hermes.</p>
+<div class="warn">Hermes has a terminal and tools. That is why the bridge answers <strong>only the owners</strong> (<code>--owner</code>) and nobody else, not even group members.</div>
+<h3>Step 1: Install Hermes</h3>
+<pre><code>curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+hermes            # first start and model setup</code></pre>
+<p>Details are in the <a href="https://hermes-agent.nousresearch.com/docs/getting-started/installation">Hermes documentation</a>.</p>
+<h3>Step 2: Turn on the Hermes API server</h3>
+<p>Add two lines to <code>~/.hermes/.env</code>. Generate the key, for example with <code>openssl rand -hex 32</code>, and never paste it into a chat:</p>
+<pre><code>API_SERVER_ENABLED=true
+API_SERVER_KEY=&lt;long random key&gt;</code></pre>
+<p>The API server listens on <code>127.0.0.1:8642</code> only. Keep it that way.</p>
+<h3>Step 3: Run Hermes as a service</h3>
+<pre><code>hermes gateway install      # systemd user service hermes-gateway
+hermes gateway restart      # after changing ~/.hermes/.env
+systemctl --user status hermes-gateway</code></pre>
+<p>To keep Hermes and the bot running without a login, run <code>sudo loginctl enable-linger $(id -un)</code> once.</p>
+<h3>Step 4: Create the bot in Jay</h3>
+<p>In the app go to <strong>Settings &gt; Bots &gt; New bot</strong>, "What answers": <strong>Hermes agent</strong>, "Where it runs": <strong>Linux</strong>. Run the command on the Hermes computer:</p>
+<pre><code>curl -fsSL https://jay.zcloud.cz/bots/new-bot.sh | bash -s -- --name 'Hermes' --owner 'CT-XXXX-XXXX' --provider hermes --api 'https://calltype-beta-zahy.azurewebsites.net'</code></pre>
+<p>The script asks with a hidden prompt for <code>HERMES_API_KEY (Hermes' API_SERVER_KEY)</code>: paste the key from step 2. When Hermes is not at the default address, add <code>--hermes-url http://127.0.0.1:&lt;port&gt;</code>. The bridge runs as the service <code>jay-bot-hermes</code> in <code>~/.jay-bots/hermes/</code>.</p>
+<h3>Step 5: Add the bot to your contacts</h3>
+<p>A Hermes bot sends no greeting. The script prints "Open Jay and add the bot by its handle (or paste the invite).": in Jay tap <strong>Add contact</strong> and paste the printed handle or <code>ct://...</code> invite.</p>
+<h3>How chats map to Hermes sessions</h3>
+<ul>
+<li>Every chat has its own Hermes session <code>calltype-&lt;id&gt;</code>: for a 1:1 chat <code>&lt;id&gt;</code> is the other person's identity, for a group the group id. Hermes keeps the conversation memory; the bridge keeps no state.</li>
+<li>A group shares one session; every message is prefixed <code>[from CT-XXXX-XXXX]: </code>, so Hermes knows who is speaking.</li>
+<li>Hermes gets the group topic as <code>[Group topic: ...]</code> at the start of a conversation and after every change. With the group's "Bots read everything" it gets a <code>[Meanwhile in the group: ...]</code> block with what was written in the meantime, in front of the next addressed message (in memory, at most 50 lines, lost on a restart).</li>
+<li>A reply reaches Hermes as <code>[Replying to: "..."]</code>; an owner's reaction to a bot message as a line <code>[reaction 👍 to your message: "..."]</code>.</li>
+<li>When Hermes wants to run a command that needs approval, a message with the buttons "Approve once", "Approve for session" and "Deny" appears. Only an owner may press them.</li>
+<li>Long tasks: after 8 seconds "Working on it..." appears with the tool in use.</li>
+</ul>
+<h3>Optional Hermes bridge features</h3>
+<p>Add lines to <code>~/.jay-bots/hermes/bot.env</code> and restart with <code>systemctl --user restart jay-bot-hermes</code> (after an update through the script, add them again):</p>
+<table>
+<tr><th>Setting</th><th>For</th></tr>
+<tr><td><code>STT_ELEVENLABS_API_KEY</code></td><td>transcribing voice messages (ElevenLabs); without it Hermes gets only a note and the file path</td></tr>
+<tr><td><code>ELEVENLABS_VOICE_ID</code>, <code>TTS_ELEVENLABS_API_KEY</code>, <code>VOICE_REPLY_MODE</code></td><td>voice replies (<code>auto</code>: to a voice message or on request, <code>always</code>, <code>off</code>)</td></tr>
+<tr><td><code>REACTION_MODE</code></td><td>what your reaction to a bot message does: <code>silent</code> (default), <code>batch</code>, <code>reply</code>, <code>off</code></td></tr>
+<tr><td><code>HERMES_ASK_TIMEOUT_SECONDS</code></td><td>longest wait or silence during an answer (default 300)</td></tr>
+<tr><td><code>BRIDGE_SEND_KEY</code>, <code>BRIDGE_PORT</code></td><td>turn on the local <code>POST http://127.0.0.1:8650/send</code>, so Hermes (for example from a scheduled job) can write to you, to a group, or to a channel where the bot is a publisher</td></tr>
+</table>
+<p>Received files are saved in <code>~/.jay-bots/hermes/data/media/</code> (deleted after 7 days) and Hermes gets their path. Images up to 5 MB go to Hermes directly. Note: inside the bubblewrap sandbox the bridge does not see <code>~/.hermes</code>, so it may not be able to send files Hermes created there (a refused file is reported with "Soubor se nepodařilo poslat"). This combination has not been tested by hand yet.</p>
+<h3 id="hermes-rescue">A rescue bot for Hermes</h3>
+<p>When Hermes hangs, nothing in Jay can restart it. A second contact, the rescue bot, runs independently of Hermes on your Claude Code subscription with Codex as fallback:</p>
+<pre><code>curl -fsSL https://jay.zcloud.cz/bots/new-bot.sh | bash -s -- \
+  --name 'Hermes rescue' --owner 'CT-XXXX-XXXX' --provider claude-cli \
+  --fallback codex-cli --rescue-hermes hermes-gateway \
+  --prompt 'You are the rescue agent of Hermes on this machine. Check status and logs first, restart only when Hermes does not answer, report what you found and did.'</code></pre>
+<p>The script checks both CLIs inside the sandbox and prints the actions <code>status</code>, <code>restart</code>, <code>logs</code>. Then write to it in a 1:1 chat, for example "how is Hermes doing?" or "restart Hermes". The model asks for an action, the bot runs it and reports the result. Nothing outside these three commands can run.</p>
+
+<h2 id="manage">12. Updating, removing, logs</h2>
+<h3>Updating</h3>
+<p>Run the same setup command again. It downloads the new bundle, checks it, and only then stops the old bot and starts the new one. The handle, contacts, history, store key and API key stay; it does not ask for the key again. The same way you change the provider or options.</p>
+<h3>Restarting</h3>
+<pre><code># Linux
+systemctl --user restart jay-bot-&lt;name&gt;
+# macOS
+launchctl kickstart -k gui/$(id -u)/cz.zcloud.jay-bot-&lt;name&gt;
+# Windows (PowerShell)
+Stop-ScheduledTask -TaskName 'Jay bot &lt;name&gt;'
+Get-Process | Where-Object { $_.Path -like "$env:USERPROFILE\.jay-bots\&lt;name&gt;\app\*" } | Stop-Process -Force
+Start-ScheduledTask -TaskName 'Jay bot &lt;name&gt;'</code></pre>
+<h3>Removing</h3>
+<p>Add <code>--remove</code> (Windows <code>-Remove</code>) to the end of the setup command. The script stops and deletes the service and asks: "Also delete its identity and chat history (...)? The handle stops working for good. [y/N]".</p>
+<ul>
+<li><strong>n</strong> (default): the identity stays in the bot folder, and the same command without <code>--remove</code> brings the same bot back.</li>
+<li><strong>y</strong>: the identity and history are deleted too; the bot's handle stops working for good. <code>--remove --yes</code> does that without asking.</li>
+</ul>
+<h3>Logs</h3>
+<table>
+<tr><th>System</th><th>Where</th></tr>
+<tr><td>Linux</td><td><code>~/.jay-bots/&lt;name&gt;/bot.log</code>; service starts, crashes and restarts: <code>systemctl --user status jay-bot-&lt;name&gt;</code> and <code>journalctl --user -u jay-bot-&lt;name&gt;</code></td></tr>
+<tr><td>macOS</td><td><code>~/.jay-bots/&lt;name&gt;/bot.log</code></td></tr>
+<tr><td>Windows</td><td><code>%USERPROFILE%\.jay-bots\&lt;name&gt;\bot.log</code> and <code>bot.err.log</code></td></tr>
+<tr><td>Docker</td><td><code>docker logs jay-bot-&lt;name&gt;</code></td></tr>
+</table>
+<p>API keys are never written to the log. Among other things the log shows a switch to a fallback model (<code>LLM: Claude Code CLI failed (...), trying Codex CLI.</code>) and the configured actions.</p>
+
+<h2 id="troubleshooting">13. Troubleshooting</h2>
+<table>
+<tr><th>Symptom</th><th>Cause and fix</th></tr>
+<tr><td>No 👀 on your message</td><td>The bot did not take the message: it is not running (check the service and <code>bot.log</code>), or it ignores the message because you are not an owner, no owner is in the group, the message does not address the bot, or the bot conversation limit is used up.</td></tr>
+<tr><td>The bot answers "The ... or its interpreter (node) cannot be started; check the bot service PATH (rerun the setup command).", the log shows exit 127 or <code>env: 'node': No such file or directory</code></td><td>The service cannot find the Node.js an npm-installed CLI needs. Run the setup command again: the script finds the interpreter and writes it into the service PATH. If the script stops with "... is a script that runs 'node' ..., but 'node' is not on your PATH", install Node.js so that <code>node</code> works in your terminal.</td></tr>
+<tr><td>The bot apologizes and tells you to sign in, or the script warns "says you are not signed in"</td><td>The CLI is not signed in or the login expired. Run <code>claude</code> and sign in (check with <code>claude auth status</code>) or <code>codex login</code> (check with <code>codex login status</code>), as the same user as the bot. Then send the message again.</td></tr>
+<tr><td>Apology "refused the credentials (HTTP 401 ...)"</td><td>Invalid API key. Run the command again with the new key in the environment variable (<code>ANTHROPIC_API_KEY=... </code>), or fix the line in <code>bot.env</code> and restart.</td></tr>
+<tr><td>Error 429</td><td>The provider limits requests or your quota is used up. Without a fallback the bot waits once (at most 30 s) and retries, then apologizes. With a fallback it switches to the next provider at once. Fix: wait, raise the limit with the provider, or use <code>--fallback</code>.</td></tr>
+<tr><td>Subscription answers fail after a minute, or "Sorry, I could not answer" on long questions</td><td>For a CLI, <code>LLM_FIRST_OUTPUT_SECONDS</code> (60 s) limits the whole answer and <code>LLM_TIMEOUT_SECONDS</code> (300 s) the whole wait. Raise them in <code>bot.env</code> for slow models and restart. For Hermes it is <code>HERMES_ASK_TIMEOUT_SECONDS</code>.</td></tr>
+<tr><td>The script ends with "the bot did not start (log: ...)"</td><td>Read the end of <code>bot.log</code>. Exit code 78 is a settings error (the service is not restarted), 69 means the Jay server is unreachable.</td></tr>
+<tr><td>The bot stops answering after you log out (Linux)</td><td>Run <code>sudo loginctl enable-linger $(id -un)</code> once.</td></tr>
+<tr><td>"Intel Macs have no native bundle yet: use --docker"</td><td>On an Intel Mac use Docker and an API key.</td></tr>
+<tr><td>"checksum mismatch ... nothing was changed"</td><td>The downloaded bundle is damaged. Run the command again; the running bot was not touched.</td></tr>
+<tr><td>No greeting from the bot</td><td>Normal for Hermes: add it by handle. Elsewhere a failed greeting is retried on the next start; you can add the bot by hand.</td></tr>
+<tr><td>The bot ignores other bots in a group</td><td>Check the group's "Bot conversation", that an owner is a member (for Hermes an admin), and that the message limit is not used up or the pause is not running.</td></tr>
+</table>
+
+<h2 id="security">14. Security</h2>
+<ul>
+<li><strong>Who can reach the bot:</strong> the owners in <code>--owner</code>; members of a group with an owner, only with <code>--group-replies members</code> and only when they address the bot; other bots only in groups where "Bot conversation" allows it. Messages from anyone else are dropped before decryption: no model call, no answer.</li>
+<li><strong>Server filter:</strong> at start the bot publishes its rules, and the server does not even store 1:1 messages from strangers or messages of groups without an owner (<code>BOT_INBOUND=owners</code>, the default).</li>
+<li><strong>Answers in groups</strong> are visible to all group members.</li>
+<li><strong>Keys:</strong> you type the API key only into a hidden prompt on the bot's computer, never into Jay or into the command (so it stays out of the shell history). Only your user can read <code>bot.env</code>. The bot never writes keys to the log or into a chat.</li>
+<li><strong>Never put secrets into actions:</strong> action names and commands are printed at setup and logged. Do not configure actions that print secrets (<code>env</code>, <code>cat ~/.hermes/.env</code>): the model reads their output.</li>
+<li><strong>Higher Codex permissions do not help:</strong> with actions the CLI needs no permissions; the bot program enforces the list of allowed commands.</li>
+<li><strong>A subscription bot for other people:</strong> on Linux it runs in the bubblewrap sandbox. macOS and Windows have no sandbox; if group members use a CLI bot there, run it under a separate OS user, or keep <code>--group-replies owners</code>.</li>
+<li><strong>The bot's computer must be trusted:</strong> the bot's local session database is not encrypted. The chat history is encrypted with the store key in <code>data/bot.store.llm</code>; delete that file to make the bot forget every chat.</li>
+</ul>
+
+<h2 id="options">15. All script options</h2>
+<table>
+<tr><th>Linux, macOS (<code>new-bot.sh</code>)</th><th>Windows (<code>new-bot.ps1</code>)</th><th>Meaning</th></tr>
+<tr><td><code>--name NAME</code></td><td><code>-Name</code></td><td>bot name (required), up to 40 characters</td></tr>
+<tr><td><code>--owner CT-...[,CT-...]</code></td><td><code>-Owner</code></td><td>owner handles (required)</td></tr>
+<tr><td><code>--provider P</code></td><td><code>-Provider</code></td><td><code>anthropic</code> (default), <code>openai</code>, <code>claude-cli</code>, <code>codex-cli</code>, <code>hermes</code></td></tr>
+<tr><td><code>--api URL</code></td><td><code>-Api</code></td><td>Jay server (filled in by the app)</td></tr>
+<tr><td><code>--model ID</code></td><td><code>-Model</code></td><td>model id or CLI alias</td></tr>
+<tr><td><code>--prompt TEXT</code></td><td><code>-Prompt</code></td><td>system prompt (one line with <code>--docker</code>)</td></tr>
+<tr><td><code>--base-url URL</code></td><td><code>-BaseUrl</code></td><td><code>openai</code> only: an OpenAI-compatible server; needs <code>--model</code></td></tr>
+<tr><td><code>--hermes-url URL</code></td><td><code>-HermesUrl</code></td><td><code>hermes</code> only: API server address (default <code>http://127.0.0.1:8642</code>)</td></tr>
+<tr><td><code>--fallback IDS</code></td><td><code>-Fallback</code></td><td>fallback providers in order, <code>none</code> removes them; not for <code>hermes</code></td></tr>
+<tr><td><code>--group-replies members|owners</code></td><td><code>-GroupReplies</code></td><td>who besides you is answered in a group; not for <code>hermes</code></td></tr>
+<tr><td><code>--actions 'a=command; b=command'</code></td><td><code>-Actions</code></td><td>named actions, <code>none</code> removes them</td></tr>
+<tr><td><code>--rescue-hermes NAME</code></td><td><code>-RescueHermes</code></td><td>rescue bot for the service, task or label NAME</td></tr>
+<tr><td>(none)</td><td><code>-RescueKind task|service</code></td><td>Windows: Scheduled Task (default) or service</td></tr>
+<tr><td><code>--log-file PATH</code></td><td><code>-LogFile</code></td><td>with a rescue bot: the file for the <code>logs</code> action</td></tr>
+<tr><td><code>--docker</code></td><td>(none)</td><td>run in Docker instead of a native service</td></tr>
+<tr><td><code>--remove</code></td><td><code>-Remove</code></td><td>stop and remove the bot (asks before deleting the identity)</td></tr>
+<tr><td><code>--yes</code></td><td><code>-Yes</code></td><td>with <code>--remove</code>: delete the identity without asking</td></tr>
+<tr><td><code>--dry-run</code></td><td><code>-DryRun</code></td><td>only print what would be done</td></tr>
+<tr><td><code>--check-only</code></td><td>(none)</td><td>only check that the CLIs (fallbacks too) start like in the service</td></tr>
+<tr><td><code>-h</code>, <code>--help</code></td><td>(none)</td><td>help</td></tr>
+</table>
+<p>Environment variables: <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>HERMES_API_KEY</code> (the key without a prompt), <code>CLAUDE_BIN</code>, <code>CODEX_BIN</code> (a CLI other than the one on your <code>PATH</code>).</p>
+<p>Source code and detailed technical docs: <a href="https://github.com/zcloudcz/Jay/tree/master/infra/bots">infra/bots</a>, <a href="https://github.com/zcloudcz/Jay/blob/master/src/bots/llm_bridge/README.md">llm_bridge</a>, <a href="https://github.com/zcloudcz/Jay/blob/master/src/bots/hermes_bridge/README.md">hermes_bridge</a>. Help: <a href="../legal/support-en.html">Support</a>.</p>
+
+<footer id="operator">Operator: Martin Zahálka, sole trader (OSVČ), company ID (IČO) 07783809, Havlíčkova 1550/54, 680 01 Boskovice, Czech Republic. Contact: <a href="mailto:info@zcloud.cz">info@zcloud.cz</a>.<br><a href="../legal/privacy-en.html">Privacy policy</a> · <a href="../legal/terms-en.html">Terms of use</a> · <a href="../legal/support-en.html">Support</a> · <a href="bots-en.html">Bot guide</a></footer>
+</body>
+</html>

@@ -80,4 +80,77 @@ void main() {
       }
     }
   });
+
+  // The bot guide (web/help/): linked from the support pages, so it must be
+  // served as itself (not the Flutter index.html) and its images too.
+  test('/help/* is excluded from the SPA fallback', () {
+    expect(exclude, contains('/help/*'));
+  });
+
+  for (final lang in ['cs', 'en']) {
+    final name = 'bots-$lang.html';
+    test('help/$name exists, links its twin and the support page', () {
+      final file = File('web/help/$name');
+      expect(file.existsSync(), isTrue, reason: 'linked from support-$lang');
+      final html = file.readAsStringSync();
+      expect(html, contains('<html lang="$lang">'));
+      expect(html, contains('href="bots-${lang == 'cs' ? 'en' : 'cs'}.html"'));
+      expect(html, contains('<footer id="operator">'));
+      expect(
+        File('web/legal/support-$lang.html').readAsStringSync(),
+        contains('href="../help/$name"'),
+      );
+      // Every screenshot has an alt text.
+      for (final m in RegExp(r'<img [^>]*>').allMatches(html)) {
+        expect(m.group(0), matches(RegExp(r'alt="[^"]{10,}"')));
+      }
+    });
+  }
+
+  // Relative links, images and #anchors of every static page resolve, so a
+  // renamed heading or a missing screenshot fails here and not for a reader.
+  test('static pages have no broken internal links or anchors', () {
+    final pages = [
+      ...Directory('web/legal').listSync(),
+      ...Directory('web/help').listSync(),
+    ].whereType<File>().where((f) => f.path.endsWith('.html'));
+    final ids = <String, Set<String>>{};
+    Set<String> idsOf(File f) => ids.putIfAbsent(
+      f.absolute.path,
+      () => RegExp(
+        r'id="([^"]+)"',
+      ).allMatches(f.readAsStringSync()).map((m) => m.group(1)!).toSet(),
+    );
+    for (final page in pages) {
+      final html = page.readAsStringSync();
+      expect(html, isNot(contains('\u2014')), reason: '${page.path}: em dash');
+      final refs = RegExp(
+        r'(?:href|src)="([^"]+)"',
+      ).allMatches(html).map((m) => m.group(1)!);
+      for (final ref in refs) {
+        if (ref.contains(':')) continue; // https:, mailto:
+        final parts = ref.split('#');
+        final target = parts[0].isEmpty
+            ? page
+            : File('${page.parent.path}/${parts[0]}');
+        expect(target.existsSync(), isTrue, reason: '${page.path} -> $ref');
+        if (parts.length > 1) {
+          expect(
+            idsOf(target),
+            contains(parts[1]),
+            reason: '${page.path} -> $ref',
+          );
+        }
+      }
+    }
+  });
+
+  test('bot guide images stay small', () {
+    final total = Directory('web/help')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => !f.path.endsWith('.html'))
+        .fold<int>(0, (sum, f) => sum + f.lengthSync());
+    expect(total, lessThan(2 * 1024 * 1024));
+  });
 }

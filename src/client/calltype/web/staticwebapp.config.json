@@ -39,6 +39,13 @@
       }
     },
     {
+      "route": "/help/*",
+      "headers": {
+        "Cache-Control": "no-cache",
+        "X-Content-Type-Options": "nosniff"
+      }
+    },
+    {
       "route": "/legal/*",
       "headers": {
         "Cache-Control": "no-cache",
@@ -52,6 +59,7 @@
       "/admin",
       "/admin/*",
       "/legal/*",
+      "/help/*",
       "/.well-known/*",
       "/bots/*",
       "/assets/*",
@@ -66,6 +74,7 @@
   },
   "mimeTypes": {
     ".wasm": "application/wasm",
+    ".webp": "image/webp",
     ".sh": "text/plain; charset=utf-8",
     ".ps1": "text/plain; charset=utf-8",
     ".txt": "text/plain; charset=utf-8"

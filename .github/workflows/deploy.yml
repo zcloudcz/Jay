@@ -339,6 +339,13 @@ jobs:
           grep -q '"/admin/\*"' build/web/staticwebapp.config.json
           test -f build/web/legal/channels-cs.html
           test -f build/web/legal/channels-en.html
+          # Bot guide (web/help/, linked from the support pages): pages and
+          # screenshots, kept out of the SPA fallback like /legal/*.
+          test -f build/web/help/bots-cs.html
+          test -f build/web/help/bots-en.html
+          test -f build/web/help/img/cs-command.webp
+          test -f build/web/help/img/en-command.webp
+          grep -q '"/help/\*"' build/web/staticwebapp.config.json
           test -f build/web/.well-known/security.txt
           # "New bot" one-liners (spec 2026-11-09-bot-factory): web/bots/
           # links to infra/bots/; the build must hold the real scripts, not

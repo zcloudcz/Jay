@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jay: Návod na boty</title>
+<meta name="description" content="Podrobný návod, jak si v Jay založit vlastního bota s Claude, ChatGPT nebo agentem Hermes na Linuxu, macOS a Windows.">
+<style>
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;max-width:820px;margin:2rem auto;padding:0 1rem;line-height:1.6;color:#1c1b1f;background:#fffbfe}
+h1{font-size:1.7rem} h2{font-size:1.3rem;margin-top:2.5rem;padding-top:.5rem;border-top:1px solid #ddd} h3{font-size:1.08rem;margin-top:1.6rem}
+code{background:#eee;padding:0 .25rem;border-radius:3px;font-size:.92em;overflow-wrap:anywhere}
+pre{background:#1f2428;color:#e6edf3;padding:.8rem 1rem;border-radius:6px;overflow-x:auto;font-size:.86rem;line-height:1.45}
+pre code{background:none;padding:0;color:inherit;overflow-wrap:normal}
+li{margin:.35rem 0} nav{font-size:.9rem;margin-bottom:1rem}
+table{border-collapse:collapse;width:100%;font-size:.92rem;display:block;overflow-x:auto}
+th,td{border:1px solid #ccc;padding:.35rem .5rem;text-align:left;vertical-align:top}
+.toc{background:#f3eff4;border-radius:8px;padding:.6rem 1.2rem}.toc ol{padding-left:1.2rem;margin:.4rem 0}
+.note{background:#e8f4f6;border-left:4px solid #006874;padding:.5rem .9rem;border-radius:4px;margin:1rem 0}
+.warn{background:#fdecea;border-left:4px solid #b3261e;padding:.5rem .9rem;border-radius:4px;margin:1rem 0}
+figure{margin:1.2rem 0;text-align:center} figure img{max-width:min(100%,360px);height:auto;border:1px solid #ccc;border-radius:12px}
+figcaption{font-size:.85rem;color:#555;margin-top:.3rem}
+.shots{display:flex;flex-wrap:wrap;gap:1rem;justify-content:center}.shots figure{flex:1 1 260px;margin:.5rem 0}
+footer{margin-top:3rem;padding-top:1rem;border-top:1px solid #ccc;font-size:.85rem;color:#555}
+@media (prefers-color-scheme: dark){body{color:#e6e1e5;background:#1c1b1f} code{background:#333} th,td{border-color:#555} h2{border-color:#444} .toc{background:#2b2930} .note{background:#1e3337} .warn{background:#3a1f1d} figcaption,footer{color:#aaa} footer{border-color:#555}}
+</style>
+</head>
+<body>
+<nav><a href="bots-en.html" hreflang="en">English</a> · <a href="../legal/support-cs.html">Podpora</a></nav>
+<h1>Jay: Návod na vlastního bota</h1>
+<p>Verze 1, 2026-11-27. Návod odpovídá instalačním skriptům <code>new-bot.sh</code> a <code>new-bot.ps1</code> a aplikaci Jay z tohoto data. Nepotřebujete programovat: stačí aplikace Jay a počítač, který zůstává zapnutý.</p>
+
+<div class="toc">
+<strong>Obsah</strong>
+<ol>
+<li><a href="#co-je-bot">Co je bot v Jay</a></li>
+<li><a href="#poskytovatel">Kdo bude odpovídat: výběr poskytovatele</a></li>
+<li><a href="#priprava">Co připravit předem</a></li>
+<li><a href="#aplikace">Vytvoření bota v aplikaci</a></li>
+<li><a href="#spusteni">Spuštění na počítači (Linux, macOS, Windows, Docker)</a></li>
+<li><a href="#overeni">Ověření, že bot běží</a></li>
+<li><a href="#prvni-zprava">První zpráva a kontakty</a></li>
+<li><a href="#skupiny">Bot ve skupině</a></li>
+<li><a href="#dalsi-volby">Další volby: model, prompt, záložní modely, reakce</a></li>
+<li><a href="#akce">Akce a záchranný bot</a></li>
+<li><a href="#hermes">Hermes na Linuxu</a></li>
+<li><a href="#sprava">Aktualizace, odstranění, logy</a></li>
+<li><a href="#problemy">Řešení problémů</a></li>
+<li><a href="#bezpecnost">Bezpečnost</a></li>
+<li><a href="#volby">Přehled všech voleb skriptu</a></li>
+</ol>
+</div>
+
+<h2 id="co-je-bot">1. Co je bot v Jay</h2>
+<p>Bot je obyčejný kontakt v Jay, za kterým místo člověka odpovídá program na <strong>vašem</strong> počítači, například Claude, ChatGPT nebo agent Hermes. V seznamu chatů má označení BOT.</p>
+<ul>
+<li><strong>Proč běží u vás:</strong> zprávy v Jay jsou koncově šifrované. Šifrovací klíče bota vzniknou na počítači, kde bot běží, a nikdy ho neopustí. Server Jay je nevidí, a proto bota nemůže „hostovat“ za vás. Aplikace jen připraví jeden instalační příkaz.</li>
+<li><strong>Kam jdou zprávy:</strong> mezi vámi a programem bota jsou šifrované. Bot je pak rozšifruje a text konverzace pošle zvolenému poskytovateli (Anthropic, OpenAI, vaše CLI nebo Hermes) a nikam jinam.</li>
+<li><strong>Bot běží, jen když běží ten počítač.</strong> Vyberte proto počítač nebo server, který zůstává zapnutý.</li>
+</ul>
+<h3>Co bot umí</h3>
+<ul>
+<li><strong>Chat s pamětí:</strong> pamatuje si posledních 20 zpráv každého chatu, starší části shrne do jednoho souhrnu. Příkaz <code>/new</code> začne konverzaci znovu, <code>/help</code> bota popíše. Oba jsou v nabídce „/“ v chatu.</li>
+<li><strong>Obrázky:</strong> bot přečte poslaný obrázek (JPEG, PNG, GIF, WebP do 5 MB) i s popiskem. Ve skupině musí mít obrázek popisek s @zmínkou bota, nebo být odpovědí na bota.</li>
+<li><strong>Hlasové zprávy, videa a jiné soubory:</strong> běžný bot (Claude, ChatGPT) je nečte a odpoví krátce, co umí přečíst. Agent Hermes umí hlasové zprávy přepsat, soubory uložit a sám posílat soubory i hlasové odpovědi (viz <a href="#hermes">Hermes na Linuxu</a>).</li>
+<li><strong>Vytváření obrázků:</strong> jen s API klíčem OpenAI a ručně zapnutým nastavením <code>LLM_IMAGE_MODEL</code> (viz <a href="#nastaveni">nastavení v souboru</a>). Claude a obě CLI obrázky vytvářet neumí.</li>
+<li><strong>Reakce:</strong> na každou zprávu, kterou bot přijme, dá hned 👀. Po odpovědi ji vymění za ✅ (odpověděl), ❌ (chyba) nebo za emoji, které zvolil model (třeba 👍 na „díky“). Když 👀 nepřijde, bot zprávu nepřevzal (viz <a href="#problemy">Řešení problémů</a>).</li>
+<li><strong>Průběh:</strong> když odpověď trvá déle než 5 sekund, bot pošle zprávu „Working on it...“ a průběžně ji přepisuje textem odpovědi.</li>
+<li><strong>Skupiny a témata skupin:</strong> bot odpovídá ve skupinách, kde jste vy, a řídí se tématem skupiny a jejími nastaveními (viz <a href="#skupiny">Bot ve skupině</a>).</li>
+</ul>
+
+<h2 id="poskytovatel">2. Kdo bude odpovídat: výběr poskytovatele</h2>
+<p>V aplikaci vybíráte v části „Kdo odpovídá“ jednu z pěti možností. V příkazu se z ní stane volba <code>--provider</code>.</p>
+<table>
+<tr><th>V aplikaci</th><th><code>--provider</code></th><th>Co potřebujete</th><th>Výhody</th><th>Nevýhody</th></tr>
+<tr><td>Claude (API klíč Anthropic)</td><td><code>anthropic</code></td><td>API klíč z <a href="https://platform.claude.com">platform.claude.com</a> (API keys)</td><td>Nejspolehlivější cesta, nic dalšího se neinstaluje, funguje i v Dockeru, odpovědi se streamují. Výchozí model <code>claude-sonnet-5-5</code>.</td><td>Platíte za každou odpověď ze svého API účtu (i za dotazy členů skupin).</td></tr>
+<tr><td>ChatGPT nebo kompatibilní (API klíč OpenAI)</td><td><code>openai</code></td><td>API klíč z <a href="https://platform.openai.com/api-keys">platform.openai.com/api-keys</a>, nebo jiný server kompatibilní s OpenAI (Azure OpenAI, OpenRouter, Ollama, LM Studio)</td><td>Výchozí model <code>gpt-6.1-sol</code>. S volbou <code>--base-url</code> poběží i na vlastním modelu, třeba Ollama na stejném počítači bez klíče. Jediný poskytovatel, který umí vytvářet obrázky.</td><td>Platba za použití jako u Claude API. Jiný server než api.openai.com potřebuje <code>--model</code>.</td></tr>
+<tr><td>Moje předplatné Claude (Claude Code)</td><td><code>claude-cli</code></td><td>Nainstalovaný a přihlášený Claude Code na tom počítači</td><td>Žádné API klíče, použije vaše předplatné Claude.</td><td>Jen pro osobní použití (podmínky Anthropic), čerpá limity vašeho plánu, nefunguje v Dockeru, odpověď přijde celá najednou.</td></tr>
+<tr><td>Moje předplatné ChatGPT (Codex)</td><td><code>codex-cli</code></td><td>Nainstalovaný a přihlášený Codex CLI (<code>codex login</code>)</td><td>Žádné API klíče, použije vaše předplatné ChatGPT.</td><td>Stejná omezení jako u Claude Code.</td></tr>
+<tr><td>Agent Hermes</td><td><code>hermes</code></td><td>Běžící Hermes Agent se zapnutým API serverem na tom počítači</td><td>Plnohodnotný agent s nástroji, hlasem, soubory a schvalováním příkazů.</td><td>Nutno nainstalovat Hermes, odpovídá jen vám. Podrobně v kapitole <a href="#hermes">Hermes na Linuxu</a>.</td></tr>
+</table>
+<div class="note"><strong>Předplatné a podmínky:</strong> Jay nikdy nežádá, neukládá ani nepřeposílá přihlášení k Claude.ai nebo ChatGPT. Vy sami nainstalujete oficiální program výrobce na svůj počítač a přihlásíte se jeho vlastním postupem. Bot pak tento program jen spouští pro <strong>vaše vlastní</strong> zprávy. Proto bot s předplatným ve skupinách ve výchozím stavu odpovídá jen vám. Chcete-li bota pro více lidí nebo pro velký provoz, použijte API klíč.</div>
+<p><strong>Cena:</strong> Jay za boty nic neúčtuje. API klíče platíte poskytovateli podle spotřeby; levnější modely zvolíte volbou <code>--model claude-haiku-5-5</code> nebo <code>--model gpt-6-luna</code>. Předplatné čerpá limity vašeho plánu. U Hermes platíte modely, které má Hermes nastavené.</p>
+
+<h2 id="priprava">3. Co připravit předem</h2>
+<h3>Počítač</h3>
+<ul>
+<li><strong>Linux</strong> (x64 nebo arm64) se systemd: bot poběží jako uživatelská služba. Doporučený je balíček <code>bubblewrap</code> pro oddělení bota od zbytku domovské složky (<code>sudo apt install bubblewrap</code>).</li>
+<li><strong>macOS</strong> na Apple Silicon (M1 a novější). Mac s procesorem Intel nativní balíček nemá: použijte <code>--docker</code>.</li>
+<li><strong>Windows 10 nebo 11</strong> (x64), Windows PowerShell 5.1 nebo PowerShell 7, bez administrátorských práv.</li>
+<li><strong>Docker</strong> na libovolném stroji, jen pro API klíče a Hermes.</li>
+<li>Na Linuxu a macOS musí být k dispozici <code>curl</code> (nebo <code>wget</code>) a <code>unzip</code> (nebo <code>bsdtar</code> nebo <code>python3</code>).</li>
+</ul>
+<h3 id="prihlaseni-cli">Přihlášení Claude Code nebo Codex (jen pro předplatné)</h3>
+<p>Udělejte to <strong>před</strong> spuštěním příkazu, na stejném počítači a pod stejným uživatelem, pod kterým poběží bot.</p>
+<p><strong>Claude Code</strong> (návod výrobce: <a href="https://code.claude.com/docs/en/setup">code.claude.com/docs/en/setup</a>):</p>
+<pre><code># Linux a macOS: oficiální instalátor
+curl -fsSL https://claude.ai/install.sh | bash
+# jednou spustit a přihlásit se svým účtem Claude
+claude
+# kontrola přihlášení
+claude auth status</code></pre>
+<p><strong>Codex CLI</strong> (návod výrobce: <a href="https://developers.openai.com/codex/cli">developers.openai.com/codex/cli</a>):</p>
+<pre><code># například přes npm (potřebuje Node.js)
+npm install -g @openai/codex
+# přihlášení účtem ChatGPT
+codex login
+# kontrola přihlášení
+codex login status</code></pre>
+<p>Instalační skript bota pak sám najde program na vaší cestě <code>PATH</code>, ověří, že se spustí i v prostředí služby (včetně Node.js u programů z npm), a když nejste přihlášení, vypíše varování.</p>
+<h3>API klíč (jen pro Claude API, OpenAI API a Hermes)</h3>
+<p>Klíč mějte po ruce, ale <strong>nikam ho nevkládejte do aplikace Jay ani do příkazu</strong>. Instalační skript se na něj zeptá skrytým vstupem přímo na počítači bota.</p>
+
+<h2 id="aplikace">4. Vytvoření bota v aplikaci</h2>
+<p>Postup je stejný v telefonu, na počítači i ve webové aplikaci. Na počítači je to nejpohodlnější, protože příkaz rovnou zkopírujete do terminálu.</p>
+<ol>
+<li>Otevřete <strong>Nastavení</strong> (ozubené kolo vpravo nahoře) a klepněte na <strong>Boti</strong> („Vytvořte si vlastního AI bota“).</li>
+<li>Na obrazovce <strong>Boti</strong> klepněte na <strong>Nový bot</strong> („Jeden příkaz pro váš počítač“). Stejného průvodce otevře i ikona robota na obrazovce <strong>Kontakty</strong>, kam vede tlačítko <strong>Nový chat</strong>.</li>
+<li><strong>Jméno bota:</strong> až 40 znaků, alespoň jedno písmeno A-Z nebo číslice. Jméno se zobrazí v Jay a ve skupinách se jím bot @zmiňuje. Z jména vznikne i název složky a služby (malá písmena bez diakritiky: „Můj asistent“ dá <code>muj-asistent</code>).</li>
+<li><strong>Kdo odpovídá:</strong> vyberte poskytovatele podle <a href="#poskytovatel">kapitoly 2</a>.</li>
+<li><strong>Kde poběží:</strong> Linux, macOS, Windows nebo Docker. Aplikace předvybere systém, na kterém ji právě používáte (v telefonu Linux). U Dockeru nejsou volby s předplatným dostupné: „Předplatné potřebuje program přihlášený přímo na počítači, proto Docker nabízí jen API klíče a Hermes.“</li>
+<li>Klepněte na <strong>Zobrazit příkaz</strong>.</li>
+<li>Na obrazovce „Spusťte na počítači pro bota“ klepněte na <strong>Zkopírovat příkaz</strong> („Příkaz zkopírován“). Pod příkazem jsou očíslované kroky a informace, kdo může bota oslovit.</li>
+</ol>
+<div class="shots">
+<figure><img src="img/cs-settings.webp" width="600" height="975" alt="Obrazovka Nastavení v Jay s položkou Boti, Vytvořte si vlastního AI bota" loading="lazy"><figcaption>Nastavení &gt; Boti</figcaption></figure>
+<figure><img src="img/cs-bots.webp" width="600" height="375" alt="Obrazovka Boti s vysvětlením a tlačítkem Nový bot" loading="lazy"><figcaption>Boti &gt; Nový bot</figcaption></figure>
+<figure><img src="img/cs-newbot1.webp" width="600" height="877" alt="Formulář Nový bot: Jméno bota Můj asistent, Kdo odpovídá Moje předplatné Claude, Kde poběží Linux, tlačítko Zobrazit příkaz" loading="lazy"><figcaption>Jméno, poskytovatel, systém</figcaption></figure>
+<figure><img src="img/cs-command.webp" width="600" height="1045" alt="Vygenerovaný příkaz pro Linux s Claude Code, tlačítko Zkopírovat příkaz a kroky; identifikátor vlastníka je rozmazaný" loading="lazy"><figcaption>Příkaz pro Linux a macOS (předplatné Claude)</figcaption></figure>
+<figure><img src="img/cs-command-win.webp" width="600" height="997" alt="Vygenerovaný příkaz pro Windows PowerShell s API klíčem Anthropic a třemi kroky; identifikátor vlastníka je rozmazaný" loading="lazy"><figcaption>Příkaz pro Windows (API klíč Claude)</figcaption></figure>
+</div>
+<p>Příkaz neobsahuje žádné tajemství: jen jméno bota, váš identifikátor (<code>--owner</code>, doplní ho aplikace sama; na propojeném zařízení je to identifikátor vašeho telefonu), poskytovatele a adresu serveru Jay (<code>--api</code>). Svůj identifikátor <code>CT-XXXX-XXXX</code> najdete v <strong>Nastavení &gt; Moje identita</strong>.</p>
+
+<h2 id="spusteni">5. Spuštění na počítači</h2>
+<h3 id="linux">Linux a macOS</h3>
+<p>Otevřete terminál, vložte zkopírovaný příkaz a stiskněte Enter. Vypadá takto (s vaším identifikátorem místo <code>CT-XXXX-XXXX</code>):</p>
+<pre><code>curl -fsSL https://jay.zcloud.cz/bots/new-bot.sh | bash -s -- --name 'Můj asistent' --owner 'CT-XXXX-XXXX' --provider anthropic --api 'https://calltype-beta-zahy.azurewebsites.net'</code></pre>
+<p>Na konec řádku můžete připsat další volby, třeba <code>--model claude-haiku-5-5</code> (viz <a href="#volby">přehled voleb</a>). Za <code>bash -s --</code> nic nepřesměrovávejte: <code>bash -s</code> čte samotný skript ze vstupu.</p>
+<p><strong>Co skript udělá a na co se zeptá:</strong></p>
+<ol>
+<li>Zkontroluje volby, systém a procesor.</li>
+<li>U předplatného najde <code>claude</code> nebo <code>codex</code> a ověří, že se spustí stejně jako ve službě (vypíše „Checked: ... starts with the bot service PATH“). Když nejste přihlášení, vypíše varování.</li>
+<li>U API klíčů se zeptá skrytým vstupem, například <code>ANTHROPIC_API_KEY (https://platform.claude.com &gt; API keys):</code>. Klíč se nezobrazuje ani při psaní. Místo toho ho můžete předem nastavit v proměnné prostředí <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> nebo <code>HERMES_API_KEY</code>. U lokálního serveru OpenAI (<code>--base-url</code>) stačí Enter, pokud klíč nepotřebuje.</li>
+<li>Vytvoří šifrovací klíč úložiště bota (32 náhodných bajtů, nikdy se nevypíše).</li>
+<li>Stáhne balíček bota z GitHubu a ověří jeho kontrolní součet (<code>SHA256SUMS</code>). Poškozený balík odmítne a nic nezmění.</li>
+<li>Zapíše nastavení, nainstaluje službu, spustí ji a počká, až se bot připojí. Na konci vypíše:</li>
+</ol>
+<pre><code>Bot 'Můj asistent' is running.
+  Handle: CT-XXXX-XXXX
+  Invite: ct://...
+Check Jay: the bot just wrote to you (first start only). Reply to it to start chatting.
+Update: run the same command again. Remove: add --remove.</code></pre>
+<p><strong>Kam se co uloží</strong> (pro každého bota zvlášť, <code>&lt;jméno&gt;</code> je název složky z jména bota):</p>
+<table>
+<tr><th>Cesta</th><th>Obsah</th></tr>
+<tr><td><code>~/.jay-bots/&lt;jméno&gt;/app/</code></td><td>program bota (llm_bridge, u Hermes hermes_bridge)</td></tr>
+<tr><td><code>~/.jay-bots/&lt;jméno&gt;/bot.env</code></td><td>nastavení a tajemství (API klíč, klíč úložiště), práva 600: čte jen váš uživatel</td></tr>
+<tr><td><code>~/.jay-bots/&lt;jméno&gt;/data/</code></td><td>identita bota, relace a šifrovaná historie chatů</td></tr>
+<tr><td><code>~/.jay-bots/&lt;jméno&gt;/run.sh</code></td><td>spouštěč, který načte nastavení a zapisuje výstup do <code>bot.log</code></td></tr>
+<tr><td><code>~/.jay-bots/&lt;jméno&gt;/bot.log</code></td><td>log bota (nad 5 MB se jedna stará kopie přesune do <code>bot.log.1</code>)</td></tr>
+<tr><td><code>~/.jay-bots/&lt;jméno&gt;/sandbox.sh</code></td><td>jen Linux s bubblewrap: oddělené prostředí bota</td></tr>
+</table>
+<p><strong>Služba na Linuxu:</strong> uživatelská jednotka systemd <code>jay-bot-&lt;jméno&gt;</code> (soubor <code>~/.config/systemd/user/jay-bot-&lt;jméno&gt;.service</code>). Po pádu se za 10 sekund restartuje, kromě chyby nastavení (kód 78), kterou restart nespraví. Pokud nemáte zapnutý „linger“, skript vypíše:</p>
+<pre><code>Note: the bot stops when you log out. To keep it running (also after a reboot without login), run once:
+  sudo loginctl enable-linger &lt;uživatel&gt;</code></pre>
+<p>Spusťte ten příkaz jednou, jinak bot poběží jen během vašeho přihlášení. Bez uživatelského systemd (například WSL1) skript spustí bota na pozadí a upozorní, že po restartu počítače znovu nenaběhne.</p>
+<p><strong>Oddělení (sandbox) na Linuxu:</strong> s nainstalovaným bubblewrap běží bot v prostředí, kde vidí prázdnou domovskou složku: jen svou složku (čtení i zápis), systém (jen čtení) a u předplatného program CLI s jeho přihlášením (<code>~/.claude</code> a <code>~/.claude.json</code>, nebo <code>~/.codex</code>). Skript to oznámí řádkem „Isolation: ...“. Bez bubblewrap vypíše „Note: bubblewrap (bwrap) is not available, so the bot runs without a sandbox.“</p>
+<p><strong>Služba na macOS:</strong> LaunchAgent <code>cz.zcloud.jay-bot-&lt;jméno&gt;</code> (soubor <code>~/Library/LaunchAgents/cz.zcloud.jay-bot-&lt;jméno&gt;.plist</code>), spouští se po přihlášení a po chybě znovu. macOS sandbox v této instalaci nemá.</p>
+
+<h3 id="windows">Windows (PowerShell)</h3>
+<p>Otevřete PowerShell (Start, napište „PowerShell“), vložte příkaz a stiskněte Enter. Administrátorská práva nejsou potřeba.</p>
+<pre><code>&amp; ([scriptblock]::Create((irm https://jay.zcloud.cz/bots/new-bot.ps1))) -Name 'Můj asistent' -Owner 'CT-XXXX-XXXX' -Provider anthropic -Api 'https://calltype-beta-zahy.azurewebsites.net'</code></pre>
+<p>Průběh je stejný jako na Linuxu: skrytý dotaz na API klíč, stažení a kontrola balíčku, spuštění a výpis identifikátoru bota. Rozdíly:</p>
+<ul>
+<li>Složka bota je <code>%USERPROFILE%\.jay-bots\&lt;jméno&gt;\</code>, nastavení je v <code>bot.env.json</code> (přístup má jen váš uživatel), spouštěč <code>run.ps1</code>, logy <code>bot.log</code> a <code>bot.err.log</code> (přepisují se při každém startu).</li>
+<li>Bot běží jako naplánovaná úloha <strong>Jay bot &lt;jméno&gt;</strong>, která startuje po vašem přihlášení. Po pádu se bot za 10 sekund spustí znovu, kromě chyby nastavení (kód 78).</li>
+<li>Windows sandbox v této instalaci nemá.</li>
+<li>Volby se píšou s pomlčkou a velkým písmenem: <code>-Model</code>, <code>-Fallback</code>, <code>-Remove</code> (viz <a href="#volby">přehled</a>).</li>
+</ul>
+
+<h3 id="docker">Docker</h3>
+<p>Na stroji s Dockerem zvolte v aplikaci „Docker“; příkaz pak končí volbou <code>--docker</code>. Skript stáhne image <code>ghcr.io/zcloudcz/jay-llm-bridge:latest</code> (u Hermes <code>ghcr.io/zcloudcz/jay-hermes-bridge:latest</code>) a spustí kontejner <code>jay-bot-&lt;jméno&gt;</code> s automatickým restartem a svazkem <code>jay-bot-&lt;jméno&gt;</code> pro identitu. Předplatné (Claude Code, Codex) a akce v Dockeru nefungují. Log: <code>docker logs jay-bot-&lt;jméno&gt;</code>.</p>
+
+<h2 id="overeni">6. Ověření, že bot běží</h2>
+<ul>
+<li>Do minuty vám bot napíše do Jay (jen při prvním startu, u Hermes ne, viz <a href="#prvni-zprava">další kapitola</a>).</li>
+<li>Linux: <code>systemctl --user status jay-bot-&lt;jméno&gt;</code> má ukázat <code>active (running)</code>.</li>
+<li>macOS: <code>launchctl print gui/$(id -u)/cz.zcloud.jay-bot-&lt;jméno&gt;</code>.</li>
+<li>Windows: <code>Get-ScheduledTask -TaskName 'Jay bot &lt;jméno&gt;'</code> má stav <code>Running</code>.</li>
+<li>Log: <code>tail -f ~/.jay-bots/&lt;jméno&gt;/bot.log</code> (Windows: <code>Get-Content -Wait $env:USERPROFILE\.jay-bots\&lt;jméno&gt;\bot.log</code>). Po startu v něm je řádek <code>Bot CT-XXXX-XXXX starting, invite: ct://...</code> a <code>Connected.</code></li>
+<li>Předplatné: <code>... --check-only</code> na konci instalačního příkazu (Linux a macOS) jen ověří, že se CLI spustí stejně jako ve službě, a nic nezmění.</li>
+<li>Sandbox na Linuxu: <code>~/.jay-bots/&lt;jméno&gt;/sandbox.sh /bin/sh -c 'ls -a ~'</code> má ukázat skoro prázdnou složku.</li>
+</ul>
+
+<h2 id="prvni-zprava">7. První zpráva a kontakty</h2>
+<ol>
+<li>Po prvním startu vám bot pošle zprávu „Ahoj, jsem &lt;jméno&gt;. Napiš mi.“ (a pod ní anglicky). Chat s botem se objeví v seznamu chatů.</li>
+<li>Odpovězte mu. Tím se bot přidá do vašich kontaktů a můžete si psát.</li>
+<li>Bot bez pozdravu (Hermes, nebo když pozdrav nedorazil): přidejte ho ručně. Na seznamu chatů klepněte na <strong>Přidat kontakt</strong>, do pole <strong>Identifikátor nebo pozvánka</strong> vložte identifikátor bota <code>CT-XXXX-XXXX</code> nebo pozvánku <code>ct://...</code>, kterou vypsal skript.</li>
+<li>Napište cokoli. Bot dá 👀, chvíli „píše...“ a odpoví.</li>
+</ol>
+<p>Bot odpovídá jen vlastníkům uvedeným v <code>--owner</code>. Když chcete, aby ho v chatu 1:1 mohl používat i někdo další, přidejte jeho identifikátor: <code>--owner CT-AAAA-AAAA,CT-BBBB-BBBB</code> a spusťte příkaz znovu. Každý vlastník pak platí z vašeho klíče nebo předplatného.</p>
+
+<h2 id="skupiny">8. Bot ve skupině</h2>
+<p>Bota přidáte do skupiny jako jakýkoli kontakt při zakládání skupiny (<strong>Nová skupina</strong>). Pravidla:</p>
+<ul>
+<li><strong>Pravidlo vlastníka:</strong> bot odpovídá jen ve skupinách, kde je členem některý z jeho vlastníků. Ve skupině bez vlastníka mlčí a server mu její zprávy ani nedoručí.</li>
+<li><strong>Oslovení:</strong> bot odpovídá na zprávy, které ho @zmiňují (jménem bota nebo identifikátorem), nebo které odpovídají na jeho zprávu. Odpověď cituje tazatele a vidí ji <strong>každý člen</strong> skupiny.</li>
+<li><strong>Kdo smí bota oslovit:</strong> vždy vy (vlastníci). Ostatní členové skupiny jen u bota s API klíčem (výchozí <code>--group-replies members</code>); jejich dotazy platíte vy. Bot s předplatným (Claude Code, Codex) odpovídá jen vlastníkům, pokud do příkazu nepřidáte <code>--group-replies members</code>. Hermes odpovídá jen vlastníkům.</li>
+<li>Skupina má <strong>jednu společnou historii</strong>, kterou bot vidí s označením odesílatele.</li>
+</ul>
+<h3 id="konverzace-botu">Nastavení skupiny „Konverzace botů“</h3>
+<p>V chatu skupiny otevřete nabídku (tři tečky) a zvolte <strong>Konverzace botů</strong>. Měnit ho mohou jen správci skupiny.</p>
+<ul>
+<li><strong>Vypnuto</strong> (výchozí): „Boti odpovídají jen lidem.“</li>
+<li><strong>Všichni boti</strong> nebo <strong>Vybraní boti</strong>: boti si smějí odpovídat navzájem (oslovují se @identifikátorem). Omezují to <strong>Max. zpráv botů za sebou</strong> (1 až 50) a <strong>Pauza mezi rozhovory botů (minuty)</strong>. Po limitu bot napíše „Bot limit reached, waiting for a human.“ a čeká, až ho zmíní člověk. U Hermes musí být vlastník bota ve skupině správcem.</li>
+<li><strong>Boti čtou vše</strong>: „Boti vidí každou zprávu ve skupině jako kontext, nejen ty, které jsou určené jim.“ Na tyto zprávy bot neodpovídá, jen o nich ví.</li>
+<li><strong>Odpovídat bez zmínky</strong>: „Boti odpovídají lidem i bez @zmínky. Zprávy od jiných botů ji stále potřebují.“ Pravidla, kdo smí bota oslovit, platí dál.</li>
+</ul>
+<p>Obě poslední volby jsou ve výchozím stavu vypnuté.</p>
+<h3 id="tema">Téma skupiny</h3>
+<p>Téma je krátké zadání skupiny (až 4000 znaků), které čtou i boti: bot s Claude nebo ChatGPT ho dostane jako součást instrukcí, Hermes jako blok <code>[Group topic: ...]</code>. Nastavíte ho při zakládání skupiny v poli <strong>Téma (nepovinné)</strong>, nebo později v nabídce skupiny <strong>Informace o skupině</strong> &gt; <strong>Upravit téma</strong> (jen správci). Volba <strong>Nové téma se stejnými členy</strong> založí novou skupinu se stejnými členy i boty: tak můžete mít víc témat se stejným botem.</p>
+
+<h2 id="dalsi-volby">9. Další volby: model, prompt, záložní modely, reakce</h2>
+<p>Volby připíšete na konec instalačního příkazu a spustíte ho znovu. Identita bota (identifikátor, kontakty, historie) zůstane. Dříve zadané volitelné volby se při dalším spuštění pamatují, dokud je nezadáte znovu.</p>
+<ul>
+<li><strong>Model:</strong> <code>--model claude-haiku-5-5</code> (Windows <code>-Model</code>). U předplatného alias, který zná CLI.</li>
+<li><strong>Instrukce (systémový prompt):</strong> <code>--prompt 'Jsi stručný asistent pro naši rodinu. Odpovídej česky.'</code>. Bez něj je bot přátelský asistent, který odpovídá jazykem uživatele.</li>
+<li><strong>Jiný server OpenAI:</strong> <code>--provider openai --base-url http://localhost:11434/v1 --model &lt;model&gt;</code> (Ollama na stejném počítači). Další příklady: <code>https://openrouter.ai/api/v1</code>, <code>https://&lt;resource&gt;.openai.azure.com/openai/v1</code>.</li>
+<li><strong>Kdo odpovídá ve skupinách:</strong> <code>--group-replies members</code> nebo <code>owners</code>.</li>
+<li><strong>Záložní modely:</strong> <code>--fallback codex-cli</code> (Windows <code>-Fallback codex-cli</code>). Když hlavní poskytovatel selže dřív, než pošle první text (není přihlášený, vyčerpaný limit, chyba 429, spadne nebo 60 sekund mlčí), odpoví další v pořadí. Seznam oddělujete čárkou (<code>anthropic</code>, <code>openai</code>, <code>claude-cli</code>, <code>codex-cli</code>); každý záložní poskytovatel potřebuje vlastní klíč nebo přihlášené CLI a skript ho ověří stejně jako hlavního. Záložní používají výchozí model svého poskytovatele. <code>--fallback none</code> je odebere. Skript vypíše „Provider chain: claude-cli -&gt; codex-cli ...“.</li>
+</ul>
+<h3 id="nastaveni">Nastavení v souboru (reakce, pozdrav, časové limity)</h3>
+<p>Některá nastavení skript nemá jako volbu. Upravíte je v <code>~/.jay-bots/&lt;jméno&gt;/bot.env</code> (řádky <code>KLÍČ='hodnota'</code>) a pak bota restartujete (<a href="#sprava">kapitola 12</a>). Ve Windows je to <code>bot.env.json</code>.</p>
+<table>
+<tr><th>Nastavení</th><th>Výchozí</th><th>Význam</th></tr>
+<tr><td><code>ACK_REACTIONS</code></td><td><code>on</code></td><td><code>off</code> vypne automatické reakce 👀, ✅, ❌</td></tr>
+<tr><td><code>BOT_GREETING</code></td><td><code>on</code></td><td><code>off</code> = bez první zprávy vlastníkům</td></tr>
+<tr><td><code>LLM_HISTORY_MESSAGES</code></td><td><code>20</code></td><td>kolik zpráv si bot pamatuje v každém chatu</td></tr>
+<tr><td><code>LLM_FIRST_OUTPUT_SECONDS</code></td><td><code>60</code></td><td>do kdy musí poskytovatel poslat první text; u CLI to omezuje celou odpověď, pro pomalé modely zvyšte (<code>0</code> = bez limitu)</td></tr>
+<tr><td><code>LLM_TIMEOUT_SECONDS</code></td><td><code>300</code></td><td>nejdelší čekání na jednu odpověď</td></tr>
+<tr><td><code>PROGRESS_AFTER_SECONDS</code></td><td><code>5</code></td><td>po kolika sekundách se objeví „Working on it...“ (<code>0</code> = nikdy)</td></tr>
+<tr><td><code>LLM_IMAGE_MODEL</code></td><td>nenastaveno</td><td>jen <code>openai</code>: model pro vytváření obrázků, např. <code>gpt-image-1</code></td></tr>
+</table>
+<div class="warn">Nové spuštění instalačního příkazu (aktualizace) zapíše soubor nastavení znovu a ručně přidané řádky z této tabulky smaže. Po aktualizaci je přidejte znovu.</div>
+
+<h2 id="akce">10. Akce a záchranný bot</h2>
+<p>Bot s Claude nebo ChatGPT sám nic na počítači nespouští: CLI běží bez nástrojů. Můžete mu ale povolit <strong>pojmenované akce</strong>, tedy přesně zadané příkazy. Model si o akci jen řekne řádkem <code>[action: název]</code>; spustí ji program bota, bez shellu a bez jakéhokoli argumentu od modelu, a výsledek (kód a posledních 8 KiB výstupu) vrátí modelu. Během běhu ukazuje zprávu průběhu „Running: název“.</p>
+<pre><code>--actions 'status=systemctl --user status hermes-gateway --no-pager; restart=systemctl --user restart hermes-gateway'</code></pre>
+<ul>
+<li>Formát: <code>název=příkaz</code>, oddělené středníkem. Názvy jen <code>a-z</code>, <code>0-9</code>, <code>-</code> (nejvýš 32 znaků, nejvýš 20 akcí). <code>'...'</code> se bere doslova, nic se nerozbaluje (<code>$HOME</code>, <code>*</code>, <code>&amp;&amp;</code>, <code>|</code> jsou obyčejný text).</li>
+<li>Akce spustí jen vlastník ve vlastním chatu 1:1. Ve skupinách a od jiných botů se požadavek zahodí.</li>
+<li>Nejvýš 3 kola akcí na jednu zprávu, každá akce nejvýš 60 sekund.</li>
+<li><code>--actions none</code> akce odebere. Akce nejdou s <code>--docker</code> ani s Hermes.</li>
+<li>Na Linuxu je s akcemi v sandboxu jen CLI (<code>cli-claude.sh</code>, <code>cli-codex.sh</code>), ne celý bot, protože akce musí dosáhnout na správce služeb.</li>
+</ul>
+<h3 id="zachranny-bot">Záchranný bot (--rescue-hermes)</h3>
+<p>Volba <code>--rescue-hermes &lt;služba&gt;</code> vyrobí záchranného bota s hotovými akcemi <code>status</code>, <code>restart</code> a <code>logs</code> a vynutí odpovědi jen vlastníkům. Hodí se jako druhý kontakt, přes který se dostanete k počítači, když hlavní agent nereaguje. Předvolby podle systému:</p>
+<table>
+<tr><th>Systém</th><th>status</th><th>restart</th><th>logs</th></tr>
+<tr><td>Linux (uživatelská služba systemd)</td><td><code>systemctl --user status &lt;název&gt; --no-pager</code></td><td><code>systemctl --user restart &lt;název&gt;</code></td><td><code>journalctl --user -u &lt;název&gt; -n 200 --no-pager</code>, s <code>--log-file</code> <code>tail -n 200 &lt;soubor&gt;</code></td></tr>
+<tr><td>macOS (launchd label)</td><td><code>launchctl print gui/&lt;uid&gt;/&lt;název&gt;</code></td><td><code>launchctl kickstart -k gui/&lt;uid&gt;/&lt;název&gt;</code></td><td>jen s <code>--log-file</code></td></tr>
+<tr><td>Windows, naplánovaná úloha (<code>-RescueKind task</code>, výchozí)</td><td><code>schtasks.exe /query</code></td><td><code>schtasks.exe /end</code> a <code>/run</code></td><td>jen s <code>-LogFile</code></td></tr>
+<tr><td>Windows, služba (<code>-RescueKind service</code>)</td><td><code>sc.exe query</code></td><td><code>Restart-Service</code> (může potřebovat práva správce)</td><td>jen s <code>-LogFile</code></td></tr>
+</table>
+<p>Doporučený záchranný bot pro Hermes na Linuxu (Codex odpoví, když Claude nejede nebo vyčerpal limit), příklad je v kapitole <a href="#hermes-zachrana">Hermes na Linuxu</a>.</p>
+
+<h2 id="hermes">11. Hermes na Linuxu</h2>
+<p><a href="https://hermes-agent.nousresearch.com/docs">Hermes Agent</a> je agent s nástroji, terminálem, pamětí a plánovanými úlohami. Do Jay ho připojí most <code>hermes_bridge</code>: Hermes se stane kontaktem, kterému píšete jako komukoli jinému. Most i Hermes musí běžet na stejném důvěryhodném počítači, protože most předává Hermesu rozšifrovaný text.</p>
+<div class="warn">Hermes má terminál a nástroje. Proto most odpovídá <strong>jen vlastníkům</strong> (<code>--owner</code>) a nikomu jinému, ani členům skupin.</div>
+<h3>Krok 1: Nainstalujte Hermes</h3>
+<pre><code>curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
+hermes            # první spuštění a nastavení modelu</code></pre>
+<p>Podrobnosti jsou v <a href="https://hermes-agent.nousresearch.com/docs/getting-started/installation">dokumentaci Hermes</a>.</p>
+<h3>Krok 2: Zapněte API server Hermes</h3>
+<p>Do <code>~/.hermes/.env</code> přidejte dva řádky. Klíč si vygenerujte, třeba <code>openssl rand -hex 32</code>, a nikam ho nevkládejte do chatu:</p>
+<pre><code>API_SERVER_ENABLED=true
+API_SERVER_KEY=&lt;dlouhý náhodný klíč&gt;</code></pre>
+<p>API server poslouchá jen na <code>127.0.0.1:8642</code>. Nechte ho tak.</p>
+<h3>Krok 3: Spusťte Hermes jako službu</h3>
+<pre><code>hermes gateway install      # uživatelská služba systemd hermes-gateway
+hermes gateway restart      # po změně ~/.hermes/.env
+systemctl --user status hermes-gateway</code></pre>
+<p>Aby Hermes i bot běžely i bez přihlášení, spusťte jednou <code>sudo loginctl enable-linger $(id -un)</code>.</p>
+<h3>Krok 4: Vytvořte bota v Jay</h3>
+<p>V aplikaci <strong>Nastavení &gt; Boti &gt; Nový bot</strong>, „Kdo odpovídá“: <strong>Agent Hermes</strong>, „Kde poběží“: <strong>Linux</strong>. Příkaz spusťte na počítači s Hermes:</p>
+<pre><code>curl -fsSL https://jay.zcloud.cz/bots/new-bot.sh | bash -s -- --name 'Hermes' --owner 'CT-XXXX-XXXX' --provider hermes --api 'https://calltype-beta-zahy.azurewebsites.net'</code></pre>
+<p>Skript se skrytým vstupem zeptá na <code>HERMES_API_KEY (Hermes' API_SERVER_KEY)</code>: vložte klíč z kroku 2. Když Hermes neběží na výchozí adrese, přidejte <code>--hermes-url http://127.0.0.1:&lt;port&gt;</code>. Most poběží jako služba <code>jay-bot-hermes</code> ve složce <code>~/.jay-bots/hermes/</code>.</p>
+<h3>Krok 5: Přidejte bota do kontaktů</h3>
+<p>Hermes bot neposílá úvodní pozdrav. Skript vypíše „Open Jay and add the bot by its handle (or paste the invite).“: v Jay klepněte na <strong>Přidat kontakt</strong> a vložte vypsaný identifikátor nebo pozvánku <code>ct://...</code>.</p>
+<h3>Jak se chaty mapují na relace Hermes</h3>
+<ul>
+<li>Každý chat má v Hermes vlastní relaci <code>calltype-&lt;id&gt;</code>: u chatu 1:1 je <code>&lt;id&gt;</code> identita protějšku, u skupiny id skupiny. Paměť konverzace drží Hermes, most je bez stavu.</li>
+<li>Ve skupině sdílí všichni jednu relaci; každá zpráva má předponu <code>[from CT-XXXX-XXXX]: </code>, takže Hermes ví, kdo mluví.</li>
+<li>Téma skupiny dostane Hermes jako <code>[Group topic: ...]</code> na začátku konverzace a po každé změně. S volbou skupiny „Boti čtou vše“ dostane před další oslovenou zprávou blok <code>[Meanwhile in the group: ...]</code> s tím, co se mezitím psalo (v paměti, nejvýš 50 řádků, restart ho ztratí).</li>
+<li>Odpověď na zprávu přijde jako <code>[Replying to: "..."]</code>, reakce vlastníka na zprávu bota jako řádek <code>[reaction 👍 to your message: "..."]</code>.</li>
+<li>Když Hermes chce spustit příkaz, který potřebuje schválení, přijde zpráva s tlačítky „Approve once“, „Approve for session“ a „Deny“. Stisknout je smí jen vlastník.</li>
+<li>Dlouhé úlohy: po 8 sekundách se objeví „Working on it...“ s právě používaným nástrojem.</li>
+</ul>
+<h3>Volitelné funkce Hermes mostu</h3>
+<p>Doplníte je řádky v <code>~/.jay-bots/hermes/bot.env</code> a restartem <code>systemctl --user restart jay-bot-hermes</code> (po aktualizaci skriptem je přidejte znovu):</p>
+<table>
+<tr><th>Nastavení</th><th>K čemu</th></tr>
+<tr><td><code>STT_ELEVENLABS_API_KEY</code></td><td>přepis hlasových zpráv (ElevenLabs); bez něj Hermes dostane jen poznámku a cestu k souboru</td></tr>
+<tr><td><code>ELEVENLABS_VOICE_ID</code>, <code>TTS_ELEVENLABS_API_KEY</code>, <code>VOICE_REPLY_MODE</code></td><td>hlasové odpovědi (<code>auto</code>: na hlasovku nebo na požádání, <code>always</code>, <code>off</code>)</td></tr>
+<tr><td><code>REACTION_MODE</code></td><td>co udělá vaše reakce na zprávu bota: <code>silent</code> (výchozí), <code>batch</code>, <code>reply</code>, <code>off</code></td></tr>
+<tr><td><code>HERMES_ASK_TIMEOUT_SECONDS</code></td><td>nejdelší čekání nebo ticho při odpovědi (výchozí 300)</td></tr>
+<tr><td><code>BRIDGE_SEND_KEY</code>, <code>BRIDGE_PORT</code></td><td>zapne lokální <code>POST http://127.0.0.1:8650/send</code>, kterým Hermes (např. z plánované úlohy) může sám napsat vám, do skupiny nebo do kanálu, kde je bot publikujícím</td></tr>
+</table>
+<p>Přijaté soubory most ukládá do <code>~/.jay-bots/hermes/data/media/</code> (smaže je po 7 dnech) a Hermes dostane jejich cestu. Obrázky do 5 MB posílá Hermesu přímo. Pozor: v sandboxu bubblewrap most nevidí <code>~/.hermes</code>, takže soubory, které Hermes vytvoří tam, odeslat nemusí (odmítnutý soubor ohlásí zprávou „Soubor se nepodařilo poslat“). Tuto kombinaci jsme zatím ručně nezkoušeli.</p>
+<h3 id="hermes-zachrana">Záchranný bot pro Hermes</h3>
+<p>Když Hermes visí, nikdo v Jay ho nerestartuje. Druhý kontakt, záchranný bot, běží nezávisle na Hermes na vašem předplatném Claude Code, se záložním Codexem:</p>
+<pre><code>curl -fsSL https://jay.zcloud.cz/bots/new-bot.sh | bash -s -- \
+  --name 'Hermes rescue' --owner 'CT-XXXX-XXXX' --provider claude-cli \
+  --fallback codex-cli --rescue-hermes hermes-gateway \
+  --prompt 'Jsi záchranný agent Hermes na tomto počítači. Nejdřív zkontroluj stav a logy, restartuj jen když Hermes neodpovídá, a česky napiš, co jsi zjistil a udělal.'</code></pre>
+<p>Skript ověří obě CLI v sandboxu a vypíše akce: <code>status</code>, <code>restart</code>, <code>logs</code>. Pak mu v chatu 1:1 napište třeba „jak je na tom Hermes?“ nebo „restartuj Hermes“. Model si řekne o akci, bot ji spustí a nahlásí výsledek. Nic mimo tyto tři příkazy spustit nejde.</p>
+
+<h2 id="sprava">12. Aktualizace, odstranění, logy</h2>
+<h3>Aktualizace</h3>
+<p>Spusťte stejný instalační příkaz znovu. Stáhne nový balíček, zkontroluje ho, a teprve pak zastaví starého bota a spustí nového. Identifikátor, kontakty, historie, klíč úložiště i API klíč zůstanou; na klíč se znovu neptá. Stejně tak změníte poskytovatele nebo volby.</p>
+<h3>Restart</h3>
+<pre><code># Linux
+systemctl --user restart jay-bot-&lt;jméno&gt;
+# macOS
+launchctl kickstart -k gui/$(id -u)/cz.zcloud.jay-bot-&lt;jméno&gt;
+# Windows (PowerShell)
+Stop-ScheduledTask -TaskName 'Jay bot &lt;jméno&gt;'
+Get-Process | Where-Object { $_.Path -like "$env:USERPROFILE\.jay-bots\&lt;jméno&gt;\app\*" } | Stop-Process -Force
+Start-ScheduledTask -TaskName 'Jay bot &lt;jméno&gt;'</code></pre>
+<h3>Odstranění</h3>
+<p>Přidejte na konec instalačního příkazu <code>--remove</code> (Windows <code>-Remove</code>). Skript zastaví a smaže službu a zeptá se: „Also delete its identity and chat history (...)? The handle stops working for good. [y/N]“.</p>
+<ul>
+<li><strong>n</strong> (výchozí): identita zůstane ve složce bota a stejný příkaz bez <code>--remove</code> vrátí stejného bota.</li>
+<li><strong>y</strong>: smaže se i identita a historie, identifikátor bota přestane navždy fungovat. Bez dotazu to udělá <code>--remove --yes</code>.</li>
+</ul>
+<h3>Logy</h3>
+<table>
+<tr><th>Systém</th><th>Kde</th></tr>
+<tr><td>Linux</td><td><code>~/.jay-bots/&lt;jméno&gt;/bot.log</code>; start, pády a restarty služby: <code>systemctl --user status jay-bot-&lt;jméno&gt;</code> a <code>journalctl --user -u jay-bot-&lt;jméno&gt;</code></td></tr>
+<tr><td>macOS</td><td><code>~/.jay-bots/&lt;jméno&gt;/bot.log</code></td></tr>
+<tr><td>Windows</td><td><code>%USERPROFILE%\.jay-bots\&lt;jméno&gt;\bot.log</code> a <code>bot.err.log</code></td></tr>
+<tr><td>Docker</td><td><code>docker logs jay-bot-&lt;jméno&gt;</code></td></tr>
+</table>
+<p>API klíče se do logu nikdy nezapisují. Log obsahuje mimo jiné přepnutí na záložní model (<code>LLM: Claude Code CLI failed (...), trying Codex CLI.</code>) a nastavené akce.</p>
+
+<h2 id="problemy">13. Řešení problémů</h2>
+<table>
+<tr><th>Příznak</th><th>Příčina a řešení</th></tr>
+<tr><td>Na zprávu nepřijde 👀</td><td>Bot zprávu nepřevzal: neběží (zkontrolujte službu a <code>bot.log</code>), nebo zprávu ignoruje, protože nejste vlastník, ve skupině není vlastník, zpráva bota neoslovuje, nebo je vyčerpaný limit konverzace botů.</td></tr>
+<tr><td>Bot odpoví „The ... or its interpreter (node) cannot be started; check the bot service PATH (rerun the setup command).“, v logu kód 127 nebo <code>env: 'node': No such file or directory</code></td><td>Služba nenajde Node.js, který potřebuje CLI z npm. Spusťte instalační příkaz znovu: skript najde interpret a zapíše ho do cesty služby. Když skript skončí hláškou „... is a script that runs 'node' ..., but 'node' is not on your PATH“, nainstalujte Node.js tak, aby příkaz <code>node</code> fungoval v terminálu.</td></tr>
+<tr><td>Bot se omluví a radí přihlásit se, nebo skript varuje „says you are not signed in“</td><td>CLI není přihlášené nebo přihlášení vypršelo. Spusťte <code>claude</code> a přihlaste se (kontrola <code>claude auth status</code>), nebo <code>codex login</code> (kontrola <code>codex login status</code>), pod stejným uživatelem jako bot. Pak zprávu pošlete znovu.</td></tr>
+<tr><td>Omluva „refused the credentials (HTTP 401 ...)“</td><td>Neplatný API klíč. Spusťte příkaz znovu s novým klíčem v proměnné prostředí (<code>ANTHROPIC_API_KEY=... </code>), nebo opravte řádek v <code>bot.env</code> a restartujte.</td></tr>
+<tr><td>Chyba 429</td><td>Poskytovatel omezuje počet dotazů nebo je vyčerpaný limit. Bez záložního modelu bot jednou počká (nejvýš 30 s) a zkusí to znovu, pak se omluví. Se záložním modelem hned přepne na další. Řešení: počkat, vyšší limit u poskytovatele, nebo <code>--fallback</code>.</td></tr>
+<tr><td>Odpovědi s předplatným končí chybou po minutě, nebo „Sorry, I could not answer“ u dlouhých dotazů</td><td>U CLI omezuje <code>LLM_FIRST_OUTPUT_SECONDS</code> (60 s) celou odpověď a <code>LLM_TIMEOUT_SECONDS</code> (300 s) celé čekání. Pro pomalé modely je zvyšte v <code>bot.env</code> a restartujte. U Hermes je to <code>HERMES_ASK_TIMEOUT_SECONDS</code>.</td></tr>
+<tr><td>Skript skončí „the bot did not start (log: ...)“</td><td>Přečtěte konec <code>bot.log</code>. Kód 78 je chyba nastavení (služba se nerestartuje), kód 69 nedostupný server Jay.</td></tr>
+<tr><td>Bot přestane odpovídat po odhlášení (Linux)</td><td>Spusťte jednou <code>sudo loginctl enable-linger $(id -un)</code>.</td></tr>
+<tr><td>„Intel Macs have no native bundle yet: use --docker“</td><td>Na Macu s Intelem použijte Docker a API klíč.</td></tr>
+<tr><td>„checksum mismatch ... nothing was changed“</td><td>Stažený balíček je poškozený. Spusťte příkaz znovu; běžící bot zůstal beze změny.</td></tr>
+<tr><td>Bot nepřišel s pozdravem</td><td>U Hermes je to normální, přidejte ho podle identifikátoru. Jinde se nepovedený pozdrav zkusí při dalším startu; bota můžete přidat ručně.</td></tr>
+<tr><td>Bot nereaguje na jiné boty ve skupině</td><td>Zkontrolujte „Konverzace botů“ ve skupině, že je v ní vlastník (u Hermes jako správce) a že není vyčerpaný limit zpráv nebo běží pauza.</td></tr>
+</table>
+
+<h2 id="bezpecnost">14. Bezpečnost</h2>
+<ul>
+<li><strong>Kdo může bota oslovit:</strong> vlastníci z <code>--owner</code>; členové skupiny s vlastníkem, jen u <code>--group-replies members</code> a jen když bota oslovují; jiní boti jen ve skupinách, kde to „Konverzace botů“ povolí. Zprávy cizích bot zahodí ještě před rozšifrováním: žádný dotaz na model, žádná odpověď.</li>
+<li><strong>Filtr na serveru:</strong> bot při startu zveřejní svá pravidla a server mu zprávy 1:1 od cizích lidí a zprávy skupin bez vlastníka ani neuloží (<code>BOT_INBOUND=owners</code>, výchozí).</li>
+<li><strong>Odpovědi ve skupinách</strong> vidí všichni členové skupiny.</li>
+<li><strong>Klíče:</strong> API klíč zadáváte jen skrytě na počítači bota, nikdy do Jay ani do příkazu (nezůstane v historii shellu). <code>bot.env</code> čte jen váš uživatel. Bot klíče nikdy nezapisuje do logu ani neposílá do chatu.</li>
+<li><strong>Do akcí nikdy nedávejte tajemství:</strong> názvy i příkazy akcí se vypisují při instalaci i do logu. Nenastavujte akce, které vypisují tajemství (<code>env</code>, <code>cat ~/.hermes/.env</code>): model jejich výstup čte.</li>
+<li><strong>Vyšší oprávnění Codexu nepomáhají:</strong> s akcemi CLI žádná oprávnění nepotřebuje; seznam povolených příkazů vynucuje program bota.</li>
+<li><strong>Bot s předplatným pro další lidi:</strong> na Linuxu běží v sandboxu bubblewrap. Na macOS a Windows sandbox není; když tam bota s CLI používají i členové skupin, spusťte ho pod samostatným uživatelem systému, nebo nechte <code>--group-replies owners</code>.</li>
+<li><strong>Počítač bota musí být důvěryhodný:</strong> lokální databáze relací bota není šifrovaná. Historie chatů je šifrovaná klíčem úložiště v <code>data/bot.store.llm</code>; smazáním tohoto souboru bot zapomene všechny chaty.</li>
+</ul>
+
+<h2 id="volby">15. Přehled všech voleb skriptu</h2>
+<table>
+<tr><th>Linux, macOS (<code>new-bot.sh</code>)</th><th>Windows (<code>new-bot.ps1</code>)</th><th>Význam</th></tr>
+<tr><td><code>--name NAME</code></td><td><code>-Name</code></td><td>jméno bota (povinné), až 40 znaků</td></tr>
+<tr><td><code>--owner CT-...[,CT-...]</code></td><td><code>-Owner</code></td><td>identifikátory vlastníků (povinné)</td></tr>
+<tr><td><code>--provider P</code></td><td><code>-Provider</code></td><td><code>anthropic</code> (výchozí), <code>openai</code>, <code>claude-cli</code>, <code>codex-cli</code>, <code>hermes</code></td></tr>
+<tr><td><code>--api URL</code></td><td><code>-Api</code></td><td>server Jay (doplní aplikace)</td></tr>
+<tr><td><code>--model ID</code></td><td><code>-Model</code></td><td>model nebo alias CLI</td></tr>
+<tr><td><code>--prompt TEXT</code></td><td><code>-Prompt</code></td><td>systémový prompt (s <code>--docker</code> jen jeden řádek)</td></tr>
+<tr><td><code>--base-url URL</code></td><td><code>-BaseUrl</code></td><td>jen <code>openai</code>: server kompatibilní s OpenAI; vyžaduje <code>--model</code></td></tr>
+<tr><td><code>--hermes-url URL</code></td><td><code>-HermesUrl</code></td><td>jen <code>hermes</code>: adresa API serveru (výchozí <code>http://127.0.0.1:8642</code>)</td></tr>
+<tr><td><code>--fallback IDS</code></td><td><code>-Fallback</code></td><td>záložní poskytovatelé v pořadí, <code>none</code> je odebere; ne pro <code>hermes</code></td></tr>
+<tr><td><code>--group-replies members|owners</code></td><td><code>-GroupReplies</code></td><td>komu kromě vás bot odpovídá ve skupině; ne pro <code>hermes</code></td></tr>
+<tr><td><code>--actions 'a=příkaz; b=příkaz'</code></td><td><code>-Actions</code></td><td>pojmenované akce, <code>none</code> je odebere</td></tr>
+<tr><td><code>--rescue-hermes NAME</code></td><td><code>-RescueHermes</code></td><td>záchranný bot pro službu, úlohu nebo label NAME</td></tr>
+<tr><td>(není)</td><td><code>-RescueKind task|service</code></td><td>Windows: naplánovaná úloha (výchozí) nebo služba</td></tr>
+<tr><td><code>--log-file PATH</code></td><td><code>-LogFile</code></td><td>se záchranným botem: soubor pro akci <code>logs</code></td></tr>
+<tr><td><code>--docker</code></td><td>(není)</td><td>spustit v Dockeru místo nativní služby</td></tr>
+<tr><td><code>--remove</code></td><td><code>-Remove</code></td><td>zastavit a odebrat bota (zeptá se před smazáním identity)</td></tr>
+<tr><td><code>--yes</code></td><td><code>-Yes</code></td><td>s <code>--remove</code>: smazat identitu bez ptaní</td></tr>
+<tr><td><code>--dry-run</code></td><td><code>-DryRun</code></td><td>jen vypsat, co by se udělalo</td></tr>
+<tr><td><code>--check-only</code></td><td>(není)</td><td>jen ověřit, že CLI (i záložní) se spustí jako ve službě</td></tr>
+<tr><td><code>-h</code>, <code>--help</code></td><td>(není)</td><td>nápověda</td></tr>
+</table>
+<p>Proměnné prostředí: <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>HERMES_API_KEY</code> (klíč bez dotazu), <code>CLAUDE_BIN</code>, <code>CODEX_BIN</code> (jiné CLI než to na <code>PATH</code>).</p>
+<p>Zdrojové kódy a podrobná technická dokumentace: <a href="https://github.com/zcloudcz/Jay/tree/master/infra/bots">infra/bots</a>, <a href="https://github.com/zcloudcz/Jay/blob/master/src/bots/llm_bridge/README.md">llm_bridge</a>, <a href="https://github.com/zcloudcz/Jay/blob/master/src/bots/hermes_bridge/README.md">hermes_bridge</a>. Pomoc: <a href="../legal/support-cs.html">Podpora</a>.</p>
+
+<footer id="operator">Provozovatel: Martin Zahálka, OSVČ, IČO 07783809, Havlíčkova 1550/54, 680 01 Boskovice, Česká republika. Kontakt: <a href="mailto:info@zcloud.cz">info@zcloud.cz</a>.<br><a href="../legal/privacy-cs.html">Ochrana osobních údajů</a> · <a href="../legal/terms-cs.html">Podmínky užívání</a> · <a href="../legal/support-cs.html">Podpora</a> · <a href="bots-cs.html">Návod na boty</a></footer>
+</body>
+</html>
