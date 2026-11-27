@@ -202,6 +202,9 @@ class FakeApi {
   final groups = <String, List<String>>{};
   final handles = <String, String>{};
 
+  /// `GET /devices/{id}/profile` answers by device id; unknown = 404.
+  final profiles = <String, Map<String, dynamic>>{};
+
   /// GET /groups/{id} bodies. A group in [groups] without an entry here
   /// answers like a server from before bot conversations (no `botTalk`).
   final groupDetails = <String, Map<String, dynamic>>{};
@@ -324,6 +327,11 @@ class FakeApi {
       };
     } else if (segments.length == 3 && segments[2] == 'key-bundle') {
       body = keyBundles[segments[1]];
+    } else if (segments.length == 3 &&
+        segments[0] == 'devices' &&
+        segments[2] == 'profile' &&
+        request.method == 'GET') {
+      body = profiles[segments[1]];
     } else if (segments.length == 3 && segments[2] == 'device-list') {
       body = deviceLists[segments[1]];
     } else if (segments.length == 2 && segments[0] == 'groups') {

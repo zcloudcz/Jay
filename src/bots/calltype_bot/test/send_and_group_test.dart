@@ -227,6 +227,58 @@ void main() {
     });
 
     test(
+      'allowDirectSender admits a refused sender only without a group claim',
+      () async {
+        api.groups[groupId] = [alice.id, bob.id, bot.deviceId];
+        final asked = <String>[];
+        final seen = <BotMessage>[];
+        await bot.onMessage(
+          (m) async => seen.add(m),
+          allowSender: (_) => false,
+          allowDirectSender: (sender) {
+            asked.add(sender);
+            return sender == bob.id;
+          },
+        );
+        hub.deliver(await bob.messageTo(bot.deviceId, api.botBundle, 'direct'));
+        hub.deliver(
+          await bob.messageTo(
+            bot.deviceId,
+            api.botBundle,
+            '@hermes in group',
+            groupId: groupId,
+          ),
+        );
+        hub.deliver(await alice.messageTo(bot.deviceId, api.botBundle, 'no'));
+        await until(() => hub.calls('AcknowledgeMessage').length == 3);
+        expect(seen.map((m) => m.text), ['direct']);
+        // Never asked for the group message: groups keep their own rules.
+        expect(asked, [bob.id, alice.id]);
+      },
+    );
+
+    test('peerProfile reads the profile endpoint and caches it', () async {
+      api.profiles[bob.id] = {
+        'deviceId': bob.id,
+        'userHandle': 'CT-BOBB-0001',
+        'isBot': true,
+        'displayName': 'Bob bot',
+      };
+      final profile = await bot.peerProfile(bob.id);
+      expect(profile?.isBot, isTrue);
+      expect(profile?.handle, 'CT-BOBB-0001');
+      expect(profile?.displayName, 'Bob bot');
+      await bot.peerProfile(bob.id.toUpperCase());
+      expect(
+        api.requests.where((r) => r == 'GET /devices/${bob.id}/profile'),
+        hasLength(1),
+      );
+      // Unknown: null, never the key bundle (it would burn a pre-key).
+      expect(await bot.peerProfile(alice.id), isNull);
+      expect(api.requests.where((r) => r.contains('key-bundle')), isEmpty);
+    });
+
+    test(
       'allowGroupSender admits a refused sender only for its group claim',
       () async {
         api.groups[groupId] = [alice.id, bob.id, bot.deviceId];

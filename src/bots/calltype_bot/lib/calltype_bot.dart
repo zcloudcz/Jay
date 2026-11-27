@@ -77,6 +77,21 @@ typedef BotReactionHandler = Future<void> Function(BotReaction reaction);
 typedef GroupSenderCheck =
     Future<bool> Function(String senderId, String groupId);
 
+/// Second-chance pre-decrypt check for a sender [allowSender] refused, for a
+/// 1:1 message (no group claim). See `allowDirectSender` in
+/// [CallTypeBot.onMessage].
+typedef DirectSenderCheck = bool Function(String senderId);
+
+/// The public profile of a peer identity (`GET /devices/{id}/profile`), see
+/// [CallTypeBot.peerProfile].
+class BotPeerProfile {
+  const BotPeerProfile({required this.isBot, this.handle, this.displayName});
+
+  final bool isBot;
+  final String? handle;
+  final String? displayName;
+}
+
 /// Receives a group message as CONTEXT (spec 2026-11-13-group-topics row
 /// 19), see [CallTypeBot.onContext]. Never a turn: the handler must not
 /// reply, react or run anything because of it.
@@ -572,6 +587,7 @@ class CallTypeBot {
   final _pendingActions = <Future<void>>{};
   bool Function(String senderId)? _allowSender;
   GroupSenderCheck? _allowGroupSender;
+  DirectSenderCheck? _allowDirectSender;
   GroupServesCheck? _servesGroup;
   BotContextHandler? _contextHandler;
 
@@ -771,10 +787,17 @@ class CallTypeBot {
   /// [allowGroupSender] refused is still DECRYPTED, but it can only update
   /// the group topic or reach [onContext]; it never starts a turn. Without
   /// it refused senders stay dropped blind, as before.
+  ///
+  /// [allowDirectSender] (spec 2026-11-27-bot-public-dm P3) is consulted
+  /// only when [allowSender] refused and the message has NO group claim, so
+  /// a bot can open its 1:1 chats to everybody without also admitting
+  /// strangers' group messages. The inner payload must agree that there is
+  /// no group, so the server cannot route a group message through it.
   Future<void> onMessage(
     BotMessageHandler handler, {
     bool Function(String senderId)? allowSender,
     GroupSenderCheck? allowGroupSender,
+    DirectSenderCheck? allowDirectSender,
     GroupServesCheck? servesGroup,
     bool receiveFiles = false,
     AckReactions? ackReactions,
@@ -784,6 +807,7 @@ class CallTypeBot {
     _receiveFiles = receiveFiles;
     _allowSender = allowSender;
     _allowGroupSender = allowGroupSender;
+    _allowDirectSender = allowDirectSender;
     _servesGroup = servesGroup;
     if (_subscription == null) {
       _subscription = _signalR.onMessage.listen(_enqueue);
@@ -947,6 +971,34 @@ class CallTypeBot {
     );
     return info;
   }
+
+  /// The public profile of [identityId] (handle, name, bot flag), cached for
+  /// the process; null when the server does not know it or cannot be asked.
+  ///
+  /// WHY the profile endpoint and never the key bundle: fetching a key
+  /// bundle consumes one of the peer's one-time pre-keys. A failed lookup is
+  /// not cached, so the next message asks again.
+  Future<BotPeerProfile?> peerProfile(String identityId) async {
+    final key = identityId.toLowerCase();
+    final cached = _profiles[key];
+    if (cached != null) return cached;
+    try {
+      final data = await _api.getDeviceProfile(identityId);
+      final profile = BotPeerProfile(
+        isBot: data['isBot'] == true,
+        handle: data['userHandle'] as String?,
+        displayName: data['displayName'] as String?,
+      );
+      _profiles[key] = profile;
+      return profile;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ponytail: never pruned; one small entry per peer that wrote 1:1. Add an
+  // LRU if a public bot ever meets that many people.
+  final _profiles = <String, BotPeerProfile>{};
 
   /// Forgets the cached [group] data of [groupId], or of every group.
   void invalidateGroups([String? groupId]) => groupId == null
@@ -1274,6 +1326,10 @@ class CallTypeBot {
     }
     final identity = await _directory.identityOf(senderId);
     var allowed = _allowSender?.call(identity) ?? true;
+    final directCheck = _allowDirectSender;
+    if (!allowed && groupId == null && directCheck != null) {
+      allowed = directCheck(identity);
+    }
     final groupCheck = _allowGroupSender;
     if (!allowed && groupId != null && groupCheck != null) {
       // WHY this may hit the network inside the crypto queue: it runs only
