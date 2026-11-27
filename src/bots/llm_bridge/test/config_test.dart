@@ -204,6 +204,59 @@ void main() {
     );
   });
 
+  test('public 1:1 (spec 2026-11-27-bot-public-dm): defaults off', () {
+    final c = parse({'LLM_PROVIDER': 'claude-cli'});
+    expect(c.publicDm, isFalse);
+    expect(c.inbound, isNull);
+    expect(c.publicRate, 20);
+    expect(c.publicDaily, 200);
+    expect(c.publicBotRate, 5);
+  });
+
+  test('public 1:1: PUBLIC_DM=on publishes open, limits parsed', () {
+    final cli = {'LLM_PROVIDER': 'claude-cli'};
+    final c = parse({
+      ...cli,
+      'PUBLIC_DM': 'on',
+      'LLM_PUBLIC_RATE': '3',
+      'LLM_PUBLIC_DAILY': '50',
+      'LLM_PUBLIC_BOT_RATE': '0',
+    });
+    expect(c.publicDm, isTrue);
+    expect(c.inbound, 'open');
+    expect(c.publicRate, 3);
+    expect(c.publicDaily, 50);
+    expect(c.publicBotRate, 0);
+    // Groups are untouched by the mode.
+    expect(c.groupReplies, GroupReplies.owners);
+    expect(parse({...cli, 'PUBLIC_DM': 'true'}).publicDm, isTrue);
+    expect(parse({...cli, 'PUBLIC_DM': 'off'}).publicDm, isFalse);
+    expect(
+      parse({...cli, 'PUBLIC_DM': 'on', 'BOT_INBOUND': 'open'}).inbound,
+      'open',
+    );
+    expect(
+      () => parse({...cli, 'PUBLIC_DM': 'yes please'}),
+      configError('PUBLIC_DM must be on or off'),
+    );
+    expect(
+      () => parse({...cli, 'PUBLIC_DM': 'on', 'BOT_INBOUND': 'owners'}),
+      configError('BOT_INBOUND=owners is set'),
+    );
+    expect(
+      () => parse({...cli, 'LLM_PUBLIC_RATE': '0'}),
+      configError('LLM_PUBLIC_RATE must be an integer >= 1'),
+    );
+    expect(
+      () => parse({...cli, 'LLM_PUBLIC_DAILY': 'many'}),
+      configError('LLM_PUBLIC_DAILY must be an integer >= 1'),
+    );
+    expect(
+      () => parse({...cli, 'LLM_PUBLIC_BOT_RATE': '-1'}),
+      configError('LLM_PUBLIC_BOT_RATE must be an integer >= 0'),
+    );
+  });
+
   test('bot access: GROUP_REPLIES, BOT_INBOUND, PEER_MAX_TURNS_CAP', () {
     final cli = {'LLM_PROVIDER': 'claude-cli'};
     final d = parse(cli);

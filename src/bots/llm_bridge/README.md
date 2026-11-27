@@ -26,6 +26,9 @@ Contract: `docs/superpowers/specs/2026-11-09-bot-factory.md`.
   3. **Other bots**, only in groups, only where the group's "Bot
      conversation" setting allows it and an owner is a member, up to the
      group's turn limit (capped by `PEER_MAX_TURNS_CAP`). Never 1:1.
+  4. **Anyone in 1:1, only with `PUBLIC_DM=on`** (a public or demo bot, see
+     "Public bot" below), within per-sender, per-bot and daily limits.
+     Groups keep rules 1-3.
 - Everyone else is acknowledged and dropped **before decryption**: no model
   call, no reply, no typing indicator. At start the bot also publishes a
   server-side inbound policy (owners = the resolved `ALLOWED_HANDLES`), so
@@ -147,12 +150,50 @@ want a bot for more people or for heavy use, use an API key (`anthropic` or
 | `BOT_GREETING` | no | `on` | `off` = no first message to the owners |
 | `GROUP_REPLIES` | no | `members` (API keys), `owners` (CLI providers) | `members` = in a group with an owner, any human member who addresses the bot is answered; `owners` = owners only |
 | `BOT_INBOUND` | no | `owners` | server-side inbound policy: `owners` = the server delivers only owners' 1:1 messages and groups with an owner; `open` = everything (the bot still filters) |
+| `PUBLIC_DM` | no | `off` | `on` = answer anyone in 1:1 within the limits below and publish the open inbound policy; groups unchanged (see "Public bot") |
+| `LLM_PUBLIC_RATE` | no | `20` | `PUBLIC_DM`: messages per stranger per hour, then one notice per hour |
+| `LLM_PUBLIC_DAILY` | no | `200` | `PUBLIC_DM`: stranger messages of all senders per 24 h |
+| `LLM_PUBLIC_BOT_RATE` | no | `5` | `PUBLIC_DM`: answers per other bot per hour in 1:1 (no notice); `0` = never |
 | `PEER_MAX_TURNS_CAP` | no | `50` | ceiling for a bot-only exchange in a group; a group's "max messages" above it is cut down to it |
 | `LLM_IMAGE_MAX_BYTES` | no | `5242880` (5 MB) | largest received image passed to the model (max 20 MB) |
 | `LLM_IMAGE_MODEL` | no | unset (no image generation) | `LLM_PROVIDER=openai` only: image model of `POST {OPENAI_BASE_URL}/images/generations`, e.g. `gpt-image-1`; any other provider refuses to start with it |
 
 Exit codes: 78 configuration (nothing to retry; the services do not restart
 on it), 69 Jay API unreachable, 73 history file not writable.
+
+## Public bot (`PUBLIC_DM`, spec `2026-11-27-bot-public-dm`)
+
+`PUBLIC_DM=on` (setup script: `--public-dm`, PowerShell `-PublicDm`) makes
+the bot answer **anyone** who writes to it 1:1, for example a demo bot for
+app reviewers. The bot then publishes the open server inbound policy
+(`BOT_INBOUND=owners` together with it is refused at start).
+
+- **Groups do not change**: the owner rules above still apply there.
+- **Owners keep everything** and have no limits. **Strangers** never run
+  actions (`LLM_ACTIONS` is owners-in-1:1 only) and never get generated
+  images (`LLM_IMAGE_MODEL`): they are not told about the image tags, and
+  a `[[image: ...]]` the model writes anyway stays text. `/new` and
+  `/help` act only on the sender's own chat.
+- Every sender has **its own conversation**, as always: strangers never see
+  each other's or the owner's messages.
+- **Limits** (sliding windows, in memory, a restart resets them):
+  `LLM_PUBLIC_RATE` messages per stranger per hour (default 20),
+  `LLM_PUBLIC_DAILY` stranger messages per 24 h over all senders (default
+  200). Over a limit the sender gets ONE polite notice per hour (Czech and
+  English), then silence; no model call.
+- **Other bots** writing 1:1 count as strangers with their own limit,
+  `LLM_PUBLIC_BOT_RATE` answers per bot per hour (default 5, `0` = never),
+  and never get a notice, so two bots cannot ping-pong. The bot flag comes
+  from the sender's public profile; an unknown sender counts as a bot.
+- One log line per stranger message: `Public 1:1: CT-XXXX-XXXX (human):
+  answered` (or `limit notice ...` / `dropped: ...`); never the content.
+
+Risks: every answer is paid from the owner's key or plan; anything a
+stranger writes goes to the provider; the chat history file grows with every
+stranger (delete `<BOT_STORE_PATH>.llm` to reset). Use an **API key**
+provider for a public bot: the subscription CLIs (`claude-cli`,
+`codex-cli`) are for the owner's personal use (see "Subscription
+providers").
 
 ## Rescue bot: fallback providers and actions (spec `2026-11-12-llm-bridge-fallback-rescue`)
 

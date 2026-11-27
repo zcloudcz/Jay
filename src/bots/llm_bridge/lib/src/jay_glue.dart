@@ -6,6 +6,7 @@ import 'access.dart';
 import 'bridge.dart';
 import 'history_store.dart';
 import 'images.dart';
+import 'public_dm.dart';
 
 /// [ChatSink] over one incoming Jay message: replies go back into the
 /// conversation it came from (the runtime quotes it in groups).
@@ -90,7 +91,9 @@ void _noLog(String _) {}
 /// everywhere; with [groupReplies] `members` any human member of a group
 /// that has an owner in it; other bots only in groups, under the group's
 /// bot-talk setting with an owner as member, capped by [peerTurnsCap].
-/// Everyone else is dropped by the runtime BEFORE decryption.
+/// Everyone else is dropped by the runtime BEFORE decryption, unless
+/// [publicDm] is set (spec 2026-11-27-bot-public-dm): then anyone is
+/// answered in 1:1 within its limits; groups keep the rules above.
 Future<void> runJayGlue(
   CallTypeBot bot, {
   required LlmBridge bridge,
@@ -101,6 +104,7 @@ Future<void> runJayGlue(
   int imageMaxBytes = defaultImageMaxBytes,
   DateTime Function()? now,
   bool ackReactions = true,
+  PublicDmLimiter? publicDm,
   required void Function(String) log,
 }) async {
   try {
@@ -130,7 +134,15 @@ Future<void> runJayGlue(
       ownerRule: OwnerRule.member,
       now: now,
     ),
+    publicDm: publicDm,
   );
+  if (publicDm != null) {
+    log(
+      'Public 1:1: on (per stranger ${publicDm.rate}/h, all strangers '
+      '${publicDm.daily}/24 h, per peer bot ${publicDm.botRate}/h; groups '
+      'unchanged).',
+    );
+  }
 
   /// The turn's outcome becomes the final acknowledgement reaction.
   void settle(BotMessage message, TurnOutcome outcome) {
@@ -168,7 +180,44 @@ Future<void> runJayGlue(
         return;
       }
     }
-    switch (access.decide(message.senderId, group)) {
+    // P8/P10: a stranger of a public bot needs its bot flag for the limits
+    // and gets one log line (handle, never content).
+    final stranger =
+        groupId == null && access.isPublicStranger(message.senderId);
+    bool? directIsBot;
+    var who = message.senderId;
+    if (stranger) {
+      final profile = await bot.peerProfile(message.senderId);
+      directIsBot = profile?.isBot;
+      who = profile?.handle ?? message.senderId;
+    }
+    final decision = access.decide(
+      message.senderId,
+      group,
+      directIsBot: directIsBot,
+    );
+    if (stranger) {
+      final kind = switch (directIsBot) {
+        true => 'bot',
+        false => 'human',
+        null => 'unknown, treated as a bot',
+      };
+      final outcome = switch (decision) {
+        Answer() => 'answered',
+        PublicLimitNotice(:final daily) =>
+          'limit notice (${daily ? 'daily cap' : 'hourly limit'})',
+        Ignore(:final reason) => 'dropped: $reason',
+        BotLimitNotice() => 'dropped',
+      };
+      log('Public 1:1: $who ($kind): $outcome');
+    }
+    switch (decision) {
+      case PublicLimitNotice(:final daily):
+        // No 👀: nothing was accepted, the model is not called.
+        await message.reply(
+          daily ? BridgeTexts.publicDailyLimit : BridgeTexts.publicSenderLimit,
+        );
+        return;
       case Ignore():
         // Not a turn (e.g. a bot the bot-talk rules refuse), but in a group
         // that reads along it is still context (spec 2026-11-13-group-topics
@@ -204,6 +253,7 @@ Future<void> runJayGlue(
               sink: _MessageSink(message),
               senderLabel: label,
               actionsAllowed: actionsAllowed,
+              imageGenerationAllowed: !stranger,
               groupTopic: message.groupTopic,
             ),
           );
@@ -228,6 +278,7 @@ Future<void> runJayGlue(
                 senderLabel: label,
                 images: [image],
                 actionsAllowed: actionsAllowed,
+                imageGenerationAllowed: !stranger,
                 groupTopic: message.groupTopic,
               ),
             );
@@ -250,6 +301,8 @@ Future<void> runJayGlue(
     // The app sends small photos inline (`type: file`), spec M4.
     receiveFiles: true,
     allowSender: access.allowSender,
+    // P3: 1:1 only; group messages never reach this check.
+    allowDirectSender: access.allowDirectSender,
     // WHY a group lookup before decryption: only for senders that are not
     // owners, cached per group and dropped on the server's group hints.
     allowGroupSender: (id, groupId) async =>

@@ -4,6 +4,8 @@ library;
 
 import 'package:calltype_bot/calltype_bot.dart';
 
+import 'public_dm.dart';
+
 /// Env `GROUP_REPLIES`.
 enum GroupReplies {
   /// In a group with at least one owner as member, any HUMAN member who
@@ -45,6 +47,14 @@ class BotLimitNotice extends AccessDecision {
   const BotLimitNotice();
 }
 
+/// A stranger in a public 1:1 chat hit a limit (spec 2026-11-27-bot-public-dm
+/// P6/P7): post the one notice of this hour, no answer. [daily]: the global
+/// daily cap, else the sender's own hourly limit.
+class PublicLimitNotice extends AccessDecision {
+  const PublicLimitNotice({required this.daily});
+  final bool daily;
+}
+
 /// The rules. [owners]: owner identity id (lower-case) -> handle.
 ///
 /// WHY humans other than owners only in groups WITH an owner: every answer
@@ -57,6 +67,7 @@ class LlmAccess {
     required Map<String, String> owners,
     required this.groupReplies,
     required this.botTalk,
+    this.publicDm,
   }) : _owners = {for (final e in owners.entries) e.key.toLowerCase(): e.value};
 
   final Map<String, String> _owners;
@@ -66,10 +77,24 @@ class LlmAccess {
   /// [OwnerRule.member] by the glue (A5).
   final BotTalkPolicy botTalk;
 
+  /// `PUBLIC_DM=on` (spec 2026-11-27-bot-public-dm): the limits for
+  /// strangers in 1:1; null = off, 1:1 is owners only as before.
+  final PublicDmLimiter? publicDm;
+
   String? ownerHandle(String id) => _owners[id.toLowerCase()];
 
   /// Cheap pre-decrypt check: owners always.
   bool allowSender(String id) => ownerHandle(id) != null;
+
+  /// Pre-decrypt second chance for a non-owner's 1:1 message (P3): anyone
+  /// when public, nobody otherwise. Never asked for group messages, so the
+  /// group rules below stay exactly as without the public mode.
+  bool allowDirectSender(String id) => publicDm != null;
+
+  /// Whether [senderId] in 1:1 is a stranger of a public bot, i.e. [decide]
+  /// needs `directIsBot` (looked up by the caller) and applies the limits.
+  bool isPublicStranger(String senderId) =>
+      publicDm != null && ownerHandle(senderId) == null;
 
   /// Pre-decrypt second chance for a non-owner in [group]: a human member
   /// when [groupReplies] allows it and an owner is in the group, or a bot
@@ -84,14 +109,31 @@ class LlmAccess {
 
   /// The decision for a message from [senderId]; [group] is null in 1:1.
   /// An allowed bot turn is counted here (call once per message).
-  AccessDecision decide(String senderId, GroupInfo? group) {
+  ///
+  /// [directIsBot]: whether a 1:1 sender is a bot, from its profile; only
+  /// used for strangers of a public bot. Null (unknown) counts as a bot:
+  /// the stricter limits and no notice (fail closed).
+  AccessDecision decide(
+    String senderId,
+    GroupInfo? group, {
+    bool? directIsBot,
+  }) {
     final owner = ownerHandle(senderId);
     if (group == null) {
-      // WHY no strangers and no bots in 1:1: a private chat has no owner
-      // watching it, and a bot-to-bot 1:1 has no human at all.
-      return owner == null
-          ? const Ignore('not an owner (1:1)')
-          : const Answer(null);
+      if (owner != null) return const Answer(null);
+      final limiter = publicDm;
+      // WHY no strangers and no bots in 1:1 by default: a private chat has
+      // no owner watching it, and a bot-to-bot 1:1 has no human at all.
+      // PUBLIC_DM is the owner's explicit choice, bounded by the limits.
+      if (limiter == null) return const Ignore('not an owner (1:1)');
+      return switch (limiter.check(senderId, isBot: directIsBot ?? true)) {
+        PublicVerdict.allow => const Answer(null),
+        PublicVerdict.senderLimitNotice => const PublicLimitNotice(
+          daily: false,
+        ),
+        PublicVerdict.dailyLimitNotice => const PublicLimitNotice(daily: true),
+        PublicVerdict.drop => const Ignore('public limit reached'),
+      };
     }
     if (owner != null) {
       botTalk.humanSpoke(group.groupId);

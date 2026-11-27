@@ -100,6 +100,18 @@ abstract final class BridgeTexts {
       'messages of each chat until then).\n'
       '/help: this text.';
 
+  /// Public 1:1 (spec 2026-11-27-bot-public-dm P6/P7): the one notice per
+  /// hour to a stranger over a limit. Czech first, like the greeting.
+  static const publicSenderLimit =
+      'Omlouvám se, dosáhli jste limitu zpráv pro tohoto bota. Zkuste to '
+      'prosím za hodinu.\n'
+      'Sorry, you have reached the message limit of this bot. Please try '
+      'again in an hour.';
+  static const publicDailyLimit =
+      'Tento bot dnes dosáhl svého denního limitu zpráv. Zkuste to prosím '
+      'později.\n'
+      'This bot has reached its daily message limit. Please try again later.';
+
   static String timeout(Duration d) =>
       'Sorry, the model did not answer within ${d.inSeconds} seconds.';
   static String auth(String detail) =>
@@ -250,6 +262,7 @@ class LlmBridge {
   /// (T5). Each only when present, so a prompt without them is unchanged.
   String _system({
     bool actionsAllowed = false,
+    bool imagesAllowed = true,
     String? topic,
     bool hasContext = false,
     String? summary,
@@ -258,7 +271,7 @@ class LlmBridge {
     return [
       systemPrompt,
       ackDirectiveHint,
-      if (imageGenerator != null) ImageTexts.generationHint,
+      if (imagesAllowed && imageGenerator != null) ImageTexts.generationHint,
       // Only on turns that may run actions (A7): in groups the model does
       // not learn about them, so it cannot promise one there.
       if (actionsAllowed && runner != null) actionsPromptBlock(runner.all),
@@ -359,6 +372,10 @@ class LlmBridge {
   ///
   /// [groupTopic]: the group admins' topic (spec 2026-11-13-group-topics
   /// T2), part of the system prompt of this turn.
+  ///
+  /// [imageGenerationAllowed]: false for strangers of a public bot (spec
+  /// 2026-11-27-bot-public-dm P5). The model is not told about image tags
+  /// then, and a `[[image: ...]]` it writes anyway stays plain text.
   Future<TurnOutcome> handle({
     required String conversationId,
     required String text,
@@ -366,8 +383,10 @@ class LlmBridge {
     String? senderLabel,
     List<ChatImage> images = const [],
     bool actionsAllowed = false,
+    bool imageGenerationAllowed = true,
     String? groupTopic,
   }) async {
+    final generator = imageGenerationAllowed ? imageGenerator : null;
     var message = text.trim();
     if (message.isEmpty && images.isEmpty) return _plain;
 
@@ -401,6 +420,7 @@ class LlmBridge {
     final run = _Run(this, sink);
     final system = _system(
       actionsAllowed: actionsAllowed,
+      imagesAllowed: generator != null,
       topic: groupTopic,
       hasContext: past.any((t) => t.text.startsWith(contextTurnPrefix)),
       summary: summaryKeep == null
@@ -430,7 +450,7 @@ class LlmBridge {
         log('LLM: invalid reaction directive in $conversationId stripped.');
       }
       final reaction = directive.emoji;
-      final tags = imageGenerator == null
+      final tags = generator == null
           ? (text: directive.text, prompts: const <String>[])
           : extractImageTags(directive.text);
       final prompts = tags.prompts.take(maxImagesPerAnswer).toList();
@@ -450,7 +470,7 @@ class LlmBridge {
       }
       final shown = answer.trim().isEmpty ? BridgeTexts.empty : answer;
       await run.finish(shown);
-      final notes = await _sendImages(prompts, sink);
+      final notes = await _sendImages(generator, prompts, sink);
       if (answer.trim().isNotEmpty) {
         await history.append(conversationId, [
           userTurn,
@@ -489,8 +509,11 @@ class LlmBridge {
   /// Generates and sends one image per prompt (spec M8). A failure costs
   /// that image only: the user gets a short note, the turn goes on.
   /// Returns the notes (they also go into the history).
-  Future<List<String>> _sendImages(List<String> prompts, ChatSink sink) async {
-    final generator = imageGenerator;
+  Future<List<String>> _sendImages(
+    ImageGenerator? generator,
+    List<String> prompts,
+    ChatSink sink,
+  ) async {
     if (generator == null) return const [];
     final notes = <String>[];
     for (final prompt in prompts) {

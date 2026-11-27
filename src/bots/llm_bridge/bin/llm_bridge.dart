@@ -118,6 +118,13 @@ Future<void> main() async {
     inbound: config.inbound,
     imageMaxBytes: config.imageMaxBytes,
     ackReactions: config.ackReactions,
+    publicDm: config.publicDm
+        ? PublicDmLimiter(
+            rate: config.publicRate,
+            daily: config.publicDaily,
+            botRate: config.publicBotRate,
+          )
+        : null,
     log: log,
   );
   log(

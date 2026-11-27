@@ -5,6 +5,7 @@ library;
 import 'access.dart' show GroupReplies;
 import 'actions.dart' show BridgeAction, parseActions;
 import 'images.dart' show defaultImageMaxBytes, imageMaxBytesCeiling;
+import 'public_dm.dart' show PublicDmDefaults;
 
 /// A configuration error: the process exits with EX_CONFIG and this text.
 class ConfigException implements Exception {
@@ -135,6 +136,10 @@ class LlmConfig {
     this.peerTurnsCap = 50,
     this.imageModel,
     this.imageMaxBytes = defaultImageMaxBytes,
+    this.publicDm = false,
+    this.publicRate = PublicDmDefaults.rate,
+    this.publicDaily = PublicDmDefaults.daily,
+    this.publicBotRate = PublicDmDefaults.botRate,
   });
 
   final String apiUrl;
@@ -216,8 +221,20 @@ class LlmConfig {
   final GroupReplies groupReplies;
 
   /// `BOT_INBOUND` as given (`owners` default, `open`), see
-  /// `publishInboundPolicy`.
+  /// `publishInboundPolicy`; `open` when [publicDm] is on and it was unset.
   final String? inbound;
+
+  /// `PUBLIC_DM`: answer anyone in 1:1 (spec 2026-11-27-bot-public-dm).
+  final bool publicDm;
+
+  /// `LLM_PUBLIC_RATE`: messages per stranger per hour.
+  final int publicRate;
+
+  /// `LLM_PUBLIC_DAILY`: stranger messages of all senders per 24 h.
+  final int publicDaily;
+
+  /// `LLM_PUBLIC_BOT_RATE`: answers per peer bot per hour in 1:1.
+  final int publicBotRate;
 
   /// `PEER_MAX_TURNS_CAP`: ceiling for a bot-only exchange in a group.
   final int peerTurnsCap;
@@ -472,12 +489,30 @@ class LlmConfig {
       );
     }
 
-    final inbound = opt('BOT_INBOUND');
+    var inbound = opt('BOT_INBOUND');
     if (inbound != null &&
         !const {'open', 'owners'}.contains(inbound.toLowerCase())) {
       throw ConfigException(
         'BOT_INBOUND must be owners or open, got "$inbound".',
       );
+    }
+
+    final publicRaw = (opt('PUBLIC_DM') ?? 'off').toLowerCase();
+    if (!const {'on', 'off', 'true', 'false', '1', '0'}.contains(publicRaw)) {
+      throw ConfigException('PUBLIC_DM must be on or off, got "$publicRaw".');
+    }
+    final publicDm = const {'on', 'true', '1'}.contains(publicRaw);
+    if (publicDm) {
+      // P2: the server must deliver strangers' 1:1 messages at all. An
+      // explicit owners policy would silently make the mode do nothing.
+      if (inbound != null && inbound.toLowerCase() == 'owners') {
+        throw const ConfigException(
+          'PUBLIC_DM=on needs the open server inbound policy, but '
+          'BOT_INBOUND=owners is set. Remove BOT_INBOUND (PUBLIC_DM=on '
+          'publishes open) or turn PUBLIC_DM off.',
+        );
+      }
+      inbound = 'open';
     }
 
     return LlmConfig(
@@ -517,6 +552,14 @@ class LlmConfig {
       peerTurnsCap: positive('PEER_MAX_TURNS_CAP', 50, min: 0),
       imageModel: imageModel,
       imageMaxBytes: imageMaxBytes,
+      publicDm: publicDm,
+      publicRate: positive('LLM_PUBLIC_RATE', PublicDmDefaults.rate),
+      publicDaily: positive('LLM_PUBLIC_DAILY', PublicDmDefaults.daily),
+      publicBotRate: positive(
+        'LLM_PUBLIC_BOT_RATE',
+        PublicDmDefaults.botRate,
+        min: 0,
+      ),
     );
   }
 }

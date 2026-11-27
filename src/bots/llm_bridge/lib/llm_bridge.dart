@@ -17,3 +17,4 @@ export 'src/http_providers.dart';
 export 'src/os_process.dart';
 export 'src/images.dart';
 export 'src/provider.dart';
+export 'src/public_dm.dart';

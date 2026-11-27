@@ -13,7 +13,10 @@ void main() {
   var t = DateTime.utc(2026, 11, 9, 12);
   setUp(() => t = DateTime.utc(2026, 11, 9, 12));
 
-  LlmAccess access({GroupReplies replies = GroupReplies.members}) => LlmAccess(
+  LlmAccess access({
+    GroupReplies replies = GroupReplies.members,
+    PublicDmLimiter? publicDm,
+  }) => LlmAccess(
     owners: {owner: 'CT-OWNR-0001'},
     groupReplies: replies,
     botTalk: BotTalkPolicy(
@@ -22,6 +25,7 @@ void main() {
       ownerRule: OwnerRule.member,
       now: () => t,
     ),
+    publicDm: publicDm,
   );
 
   GroupInfo makeGroup({
@@ -134,6 +138,71 @@ void main() {
       final g = makeGroup(maxTurns: 5);
       expect(a.decide(peer, g), isA<Answer>());
       expect(a.decide(peer, g), isA<BotLimitNotice>());
+    });
+  });
+
+  group('public 1:1 (spec 2026-11-27-bot-public-dm)', () {
+    LlmAccess open() => access(
+      publicDm: PublicDmLimiter(rate: 2, daily: 100, botRate: 1, now: () => t),
+    );
+
+    test('off: the second chance admits nobody', () {
+      final a = access();
+      expect(a.allowDirectSender(member), isFalse);
+      expect(a.isPublicStranger(member), isFalse);
+    });
+
+    test('on: a stranger is admitted and answered without a label', () {
+      final a = open();
+      expect(a.allowSender(member), isFalse);
+      expect(a.allowDirectSender(member), isTrue);
+      expect(a.isPublicStranger(member), isTrue);
+      expect(a.isPublicStranger(owner), isFalse);
+      expect(labelOf(a.decide(member, null, directIsBot: false)), isNull);
+    });
+
+    test('on: the owner is never limited', () {
+      final a = open();
+      for (var i = 0; i < 10; i++) {
+        expect(a.decide(owner, null), isA<Answer>());
+      }
+    });
+
+    test('on: a stranger over its limit gets one notice, then nothing', () {
+      final a = open();
+      expect(a.decide(member, null, directIsBot: false), isA<Answer>());
+      expect(a.decide(member, null, directIsBot: false), isA<Answer>());
+      final notice = a.decide(member, null, directIsBot: false);
+      expect(notice, isA<PublicLimitNotice>());
+      expect((notice as PublicLimitNotice).daily, isFalse);
+      expect(a.decide(member, null, directIsBot: false), isA<Ignore>());
+      t = t.add(const Duration(minutes: 61));
+      expect(a.decide(member, null, directIsBot: false), isA<Answer>());
+    });
+
+    test('on: a peer bot has its own limit and never a notice', () {
+      final a = open();
+      expect(a.decide(peer, null, directIsBot: true), isA<Answer>());
+      expect(a.decide(peer, null, directIsBot: true), isA<Ignore>());
+      expect(a.decide(peer, null, directIsBot: true), isA<Ignore>());
+    });
+
+    test('on: an unknown sender counts as a bot', () {
+      final a = open();
+      expect(a.decide(member, null), isA<Answer>());
+      expect(a.decide(member, null), isA<Ignore>());
+    });
+
+    test('on: groups are unchanged', () {
+      final a = open();
+      final g = makeGroup(withOwner: false);
+      expect(a.decide(member, g), isA<Ignore>());
+      expect(a.admitGroupSender(g, member), isFalse);
+      final owners = access(
+        replies: GroupReplies.owners,
+        publicDm: PublicDmLimiter(now: () => t),
+      );
+      expect(owners.decide(member, makeGroup()), isA<Ignore>());
     });
   });
 }
