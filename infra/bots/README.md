@@ -76,6 +76,18 @@ their questions are paid from the owner's key or plan); other bots only in
 groups whose "Bot conversation" setting allows it. The server enforces the
 owner rules too (the bot publishes its policy at start).
 
+Public bot (`--public-dm`, Windows `-PublicDm`, spec
+`2026-11-27-bot-public-dm`): the bot answers ANYONE in 1:1 (`PUBLIC_DM=on`,
+open server policy) within limits per stranger, for all strangers and per
+other bot; strangers never run actions or get generated images; groups keep
+the owner rules. A rerun keeps it, `--no-public-dm` (`-PublicDm:$false`)
+turns it off; refused for `--provider hermes` and rescue bots. The scripts
+warn that strangers are paid from the owner's key or plan (and, with a CLI
+provider, that a subscription is for personal use). Demo bot for reviewers:
+
+    curl -fsSL https://jay.zcloud.cz/bots/new-bot.sh | bash -s -- \
+      --name 'Jay Demo' --owner CT-XXXX-XXXX --provider anthropic --public-dm
+
 Options: `--model`, `--prompt`, `--base-url` (any OpenAI-compatible endpoint),
 `--group-replies members|owners`, `--actions 'name=command; ...'` (`none`
 removes them; kept on a rerun like the other options), `--rescue-hermes <unit

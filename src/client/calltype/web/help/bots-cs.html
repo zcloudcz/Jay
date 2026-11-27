@@ -199,6 +199,14 @@ Update: run the same command again. Remove: add --remove.</code></pre>
 <li>Napište cokoli. Bot dá 👀, chvíli „píše...“ a odpoví.</li>
 </ol>
 <p>Bot odpovídá jen vlastníkům uvedeným v <code>--owner</code>. Když chcete, aby ho v chatu 1:1 mohl používat i někdo další, přidejte jeho identifikátor: <code>--owner CT-AAAA-AAAA,CT-BBBB-BBBB</code> a spusťte příkaz znovu. Každý vlastník pak platí z vašeho klíče nebo předplatného.</p>
+<h3 id="verejny-bot">Veřejný bot</h3>
+<p>Volba <code>--public-dm</code> (Windows <code>-PublicDm</code>) udělá z bota veřejného bota: v chatu 1:1 odpoví <strong>komukoli</strong>, kdo mu napíše, třeba jako ukázkový bot pro ostatní. Ve skupinách platí dál pravidlo vlastníka (<a href="#skupiny">kapitola 8</a>). Vypnete ji volbou <code>--no-public-dm</code> (Windows <code>-PublicDm:$false</code>); při dalším spuštění příkazu se pamatuje.</p>
+<ul>
+<li><strong>Cizí lidé</strong> mají každý svůj vlastní chat, nevidí se navzájem ani vaše zprávy. Nikdy nespustí akce a bot jim nevytváří obrázky. Vy jako vlastník máte vše jako dřív a bez limitů.</li>
+<li><strong>Limity:</strong> 20 zpráv za hodinu od jednoho člověka, 200 zpráv za den od všech cizích dohromady, 5 odpovědí za hodinu jinému botovi. Po limitu dostane člověk jednou za hodinu zdvořilou zprávu, pak bot mlčí; jinému botovi neodpoví vůbec, aby si boti nepsali donekonečna. Limity změníte v <code>bot.env</code>: <code>LLM_PUBLIC_RATE</code>, <code>LLM_PUBLIC_DAILY</code>, <code>LLM_PUBLIC_BOT_RATE</code> (při dalším spuštění příkazu zůstanou).</li>
+<li>Do logu bota jde za každou zprávu cizího člověka jeden řádek s jeho identifikátorem, nikdy obsah zprávy.</li>
+</ul>
+<div class="warn"><strong>Rizika:</strong> každou odpověď cizímu člověku platíte z vašeho API klíče nebo předplatného. Všechno, co cizí lidé napíšou, jde k poskytovateli modelu. Předplatné (Claude Code, Codex) je podle podmínek výrobců jen pro vaše osobní použití: pro veřejného bota použijte API klíč (<code>--provider anthropic</code> nebo <code>openai</code>). Do instrukcí veřejného bota nedávejte nic soukromého, cizí lidé se ho mohou na instrukce zeptat.</div>
 
 <h2 id="skupiny">8. Bot ve skupině</h2>
 <p>Bota přidáte do skupiny jako jakýkoli kontakt při zakládání skupiny (<strong>Nová skupina</strong>). Pravidla:</p>
@@ -362,7 +370,7 @@ Start-ScheduledTask -TaskName 'Jay bot &lt;jméno&gt;'</code></pre>
 
 <h2 id="bezpecnost">14. Bezpečnost</h2>
 <ul>
-<li><strong>Kdo může bota oslovit:</strong> vlastníci z <code>--owner</code>; členové skupiny s vlastníkem, jen u <code>--group-replies members</code> a jen když bota oslovují; jiní boti jen ve skupinách, kde to „Konverzace botů“ povolí. Zprávy cizích bot zahodí ještě před rozšifrováním: žádný dotaz na model, žádná odpověď.</li>
+<li><strong>Kdo může bota oslovit:</strong> vlastníci z <code>--owner</code>; členové skupiny s vlastníkem, jen u <code>--group-replies members</code> a jen když bota oslovují; jiní boti jen ve skupinách, kde to „Konverzace botů“ povolí; s <code>--public-dm</code> kdokoli v chatu 1:1, v rámci limitů (<a href="#verejny-bot">Veřejný bot</a>). Zprávy cizích bot zahodí ještě před rozšifrováním: žádný dotaz na model, žádná odpověď.</li>
 <li><strong>Filtr na serveru:</strong> bot při startu zveřejní svá pravidla a server mu zprávy 1:1 od cizích lidí a zprávy skupin bez vlastníka ani neuloží (<code>BOT_INBOUND=owners</code>, výchozí).</li>
 <li><strong>Odpovědi ve skupinách</strong> vidí všichni členové skupiny.</li>
 <li><strong>Klíče:</strong> API klíč zadáváte jen skrytě na počítači bota, nikdy do Jay ani do příkazu (nezůstane v historii shellu). <code>bot.env</code> čte jen váš uživatel. Bot klíče nikdy nezapisuje do logu ani neposílá do chatu.</li>
@@ -385,6 +393,7 @@ Start-ScheduledTask -TaskName 'Jay bot &lt;jméno&gt;'</code></pre>
 <tr><td><code>--hermes-url URL</code></td><td><code>-HermesUrl</code></td><td>jen <code>hermes</code>: adresa API serveru (výchozí <code>http://127.0.0.1:8642</code>)</td></tr>
 <tr><td><code>--fallback IDS</code></td><td><code>-Fallback</code></td><td>záložní poskytovatelé v pořadí, <code>none</code> je odebere; ne pro <code>hermes</code></td></tr>
 <tr><td><code>--group-replies members|owners</code></td><td><code>-GroupReplies</code></td><td>komu kromě vás bot odpovídá ve skupině; ne pro <code>hermes</code></td></tr>
+<tr><td><code>--public-dm</code>, <code>--no-public-dm</code></td><td><code>-PublicDm</code>, <code>-PublicDm:$false</code></td><td>veřejný bot: v 1:1 odpoví komukoli, v rámci limitů; ne pro <code>hermes</code> ani záchranného bota</td></tr>
 <tr><td><code>--actions 'a=příkaz; b=příkaz'</code></td><td><code>-Actions</code></td><td>pojmenované akce, <code>none</code> je odebere</td></tr>
 <tr><td><code>--rescue-hermes NAME</code></td><td><code>-RescueHermes</code></td><td>záchranný bot pro službu, úlohu nebo label NAME</td></tr>
 <tr><td>(není)</td><td><code>-RescueKind task|service</code></td><td>Windows: naplánovaná úloha (výchozí) nebo služba</td></tr>

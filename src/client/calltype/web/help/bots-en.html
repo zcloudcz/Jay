@@ -199,6 +199,14 @@ Update: run the same command again. Remove: add --remove.</code></pre>
 <li>Write anything. The bot adds 👀, shows typing for a moment and answers.</li>
 </ol>
 <p>The bot answers only the owners listed in <code>--owner</code>. To let someone else use it in a 1:1 chat, add their handle, <code>--owner CT-AAAA-AAAA,CT-BBBB-BBBB</code>, and run the command again. Every owner then uses your key or subscription.</p>
+<h3 id="public-bot">Public bot</h3>
+<p>The option <code>--public-dm</code> (Windows <code>-PublicDm</code>) makes the bot a public bot: in a 1:1 chat it answers <strong>anyone</strong> who writes to it, for example as a demo bot for others. Groups keep the owner rule (<a href="#groups">chapter 8</a>). Turn it off with <code>--no-public-dm</code> (Windows <code>-PublicDm:$false</code>); a rerun of the command keeps it.</p>
+<ul>
+<li><strong>Strangers</strong> each get their own chat and never see each other or your messages. They never run actions and the bot creates no images for them. You as the owner keep everything as before, without limits.</li>
+<li><strong>Limits:</strong> 20 messages per hour from one person, 200 messages per day from all strangers together, 5 answers per hour to another bot. Over a limit a person gets one polite message per hour, then the bot stays silent; another bot gets no answer at all, so bots cannot write to each other forever. Change the limits in <code>bot.env</code>: <code>LLM_PUBLIC_RATE</code>, <code>LLM_PUBLIC_DAILY</code>, <code>LLM_PUBLIC_BOT_RATE</code> (a rerun of the command keeps them).</li>
+<li>The bot's log gets one line per stranger message with their handle, never the content.</li>
+</ul>
+<div class="warn"><strong>Risks:</strong> every answer to a stranger is paid from your API key or subscription. Everything strangers write goes to the model provider. A subscription (Claude Code, Codex) is for your personal use under the vendors' terms: use an API key for a public bot (<code>--provider anthropic</code> or <code>openai</code>). Put nothing private into a public bot's instructions; strangers can ask it about them.</div>
 
 <h2 id="groups">8. The bot in a group</h2>
 <p>Add the bot to a group like any contact when you create the group (<strong>New group</strong>). The rules:</p>
@@ -362,7 +370,7 @@ Start-ScheduledTask -TaskName 'Jay bot &lt;name&gt;'</code></pre>
 
 <h2 id="security">14. Security</h2>
 <ul>
-<li><strong>Who can reach the bot:</strong> the owners in <code>--owner</code>; members of a group with an owner, only with <code>--group-replies members</code> and only when they address the bot; other bots only in groups where "Bot conversation" allows it. Messages from anyone else are dropped before decryption: no model call, no answer.</li>
+<li><strong>Who can reach the bot:</strong> the owners in <code>--owner</code>; members of a group with an owner, only with <code>--group-replies members</code> and only when they address the bot; other bots only in groups where "Bot conversation" allows it; with <code>--public-dm</code> anyone in a 1:1 chat, within the limits (<a href="#public-bot">Public bot</a>). Messages from anyone else are dropped before decryption: no model call, no answer.</li>
 <li><strong>Server filter:</strong> at start the bot publishes its rules, and the server does not even store 1:1 messages from strangers or messages of groups without an owner (<code>BOT_INBOUND=owners</code>, the default).</li>
 <li><strong>Answers in groups</strong> are visible to all group members.</li>
 <li><strong>Keys:</strong> you type the API key only into a hidden prompt on the bot's computer, never into Jay or into the command (so it stays out of the shell history). Only your user can read <code>bot.env</code>. The bot never writes keys to the log or into a chat.</li>
@@ -385,6 +393,7 @@ Start-ScheduledTask -TaskName 'Jay bot &lt;name&gt;'</code></pre>
 <tr><td><code>--hermes-url URL</code></td><td><code>-HermesUrl</code></td><td><code>hermes</code> only: API server address (default <code>http://127.0.0.1:8642</code>)</td></tr>
 <tr><td><code>--fallback IDS</code></td><td><code>-Fallback</code></td><td>fallback providers in order, <code>none</code> removes them; not for <code>hermes</code></td></tr>
 <tr><td><code>--group-replies members|owners</code></td><td><code>-GroupReplies</code></td><td>who besides you is answered in a group; not for <code>hermes</code></td></tr>
+<tr><td><code>--public-dm</code>, <code>--no-public-dm</code></td><td><code>-PublicDm</code>, <code>-PublicDm:$false</code></td><td>public bot: answers anyone in 1:1, within limits; not for <code>hermes</code> or a rescue bot</td></tr>
 <tr><td><code>--actions 'a=command; b=command'</code></td><td><code>-Actions</code></td><td>named actions, <code>none</code> removes them</td></tr>
 <tr><td><code>--rescue-hermes NAME</code></td><td><code>-RescueHermes</code></td><td>rescue bot for the service, task or label NAME</td></tr>
 <tr><td>(none)</td><td><code>-RescueKind task|service</code></td><td>Windows: Scheduled Task (default) or service</td></tr>

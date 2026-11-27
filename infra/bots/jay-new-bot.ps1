@@ -37,6 +37,11 @@ param(
   # (default: members for API keys, owners for claude-cli/codex-cli).
   [ValidateSet('', 'members', 'owners')]
   [string]$GroupReplies = '',
+  # Public bot (PUBLIC_DM=on): ANYONE may write to it in 1:1, within limits
+  # per stranger, for all strangers and per other bot; strangers never run
+  # actions or generate images; groups unchanged. A rerun keeps it,
+  # -PublicDm:$false turns it off.
+  [switch]$PublicDm,
   # Named commands the bot may run for its owners (LLM_ACTIONS):
   # 'name=command; name2=command2'; 'none' removes them.
   [string]$Actions,
@@ -100,6 +105,9 @@ if (-not $Remove) {
   }
   if ($HermesUrl -and $Provider -ne 'hermes') { Fail '-HermesUrl is only for -Provider hermes' }
   if ($GroupReplies -and $Provider -eq 'hermes') { Fail '-GroupReplies is not for -Provider hermes (Hermes answers owners only)' }
+  # Spec 2026-11-27-bot-public-dm P11: the public mode lives in llm_bridge.
+  if ($PublicDm -and $Provider -eq 'hermes') { Fail '-PublicDm is not for -Provider hermes (Hermes answers owners only)' }
+  if ($PublicDm -and $RescueHermes) { Fail '-RescueHermes answers owners only; drop -PublicDm' }
   if ($PSBoundParameters.ContainsKey('Fallback') -and $Provider -eq 'hermes') {
     Fail '-Fallback is not for -Provider hermes (Hermes falls back between its models itself)'
   }
@@ -270,6 +278,8 @@ if (-not $PSBoundParameters.ContainsKey('BaseUrl')) { $BaseUrl = Get-Old $old 'O
 # would make the bridge refuse to start (spec F3).
 if ($Provider -ne 'openai') { $BaseUrl = '' }
 if (-not $PSBoundParameters.ContainsKey('GroupReplies')) { $GroupReplies = Get-Old $old 'GROUP_REPLIES' }
+$publicDmOn = if ($PSBoundParameters.ContainsKey('PublicDm')) { [bool]$PublicDm } else { (Get-Old $old 'PUBLIC_DM') -eq 'on' }
+if ($Provider -eq 'hermes' -or $RescueHermes) { $publicDmOn = $false }
 if ($Provider -eq 'hermes') {
   if (-not $HermesUrl) { $HermesUrl = Get-Old $old 'HERMES_URL' }
   if (-not $HermesUrl) { $HermesUrl = 'http://127.0.0.1:8642' }
@@ -418,11 +428,21 @@ if ($clis.Count -gt 0) {
   # Spec 2026-11-09-bot-access A7: Windows has no sandbox for the CLI in
   # this setup, and group members could make the bot run it. (Spec F8: the
   # default is owners when any provider of the chain is a CLI.)
-  if ($GroupReplies -eq 'members') {
-    $cliNames = @($clis | ForEach-Object { $_.Cli }) -join ' and '
-    Write-Host "WARNING: group members can make this bot run your $cliNames, and there is no sandbox on Windows." -ForegroundColor Yellow
-    Write-Host '  Run the bot under a separate Windows user, or use -GroupReplies owners. See infra/bots/README.md.' -ForegroundColor Yellow
+  $cliNames = @($clis | ForEach-Object { $_.Cli }) -join ' and '
+  if ($GroupReplies -eq 'members' -or $publicDmOn) {
+    $who = if ($publicDmOn) { 'anyone who writes to it' } else { 'group members' }
+    $off = if ($publicDmOn) { ' and -PublicDm:$false' } else { '' }
+    Write-Host "WARNING: $who can make this bot run your $cliNames, and there is no sandbox on Windows." -ForegroundColor Yellow
+    Write-Host "  Run the bot under a separate Windows user, or use -GroupReplies owners$off. See infra/bots/README.md." -ForegroundColor Yellow
   }
+  if ($publicDmOn) {
+    Write-Host "WARNING: $cliNames uses your personal subscription; the vendors' terms cover your own use, not strangers. Use an API key (-Provider anthropic or openai) for a public bot." -ForegroundColor Yellow
+  }
+}
+# Spec 2026-11-27-bot-public-dm: say plainly what a public bot costs.
+if ($publicDmOn) {
+  Write-Host 'Public 1:1: on (anyone can write to the bot; per stranger 20/h, all strangers 200/day, other bots 5/h; strangers never run actions or generate images; groups unchanged).'
+  Write-Host "WARNING: every stranger's message is answered from YOUR key or plan. Change the limits in $settingsFile (LLM_PUBLIC_RATE, LLM_PUBLIC_DAILY, LLM_PUBLIC_BOT_RATE; kept on a rerun)." -ForegroundColor Yellow
 }
 
 Write-Host "Setting up bot '$Name' for $($owners -join ',') ($chainText, Scheduled Task) in $botDir"
@@ -486,6 +506,14 @@ if ($Provider -eq 'hermes') {
   if ($GroupReplies) { $settings.GROUP_REPLIES = $GroupReplies }
   foreach ($c in $clis) { $settings[$c.Var] = $c.Path }
   if ($Actions) { $settings.LLM_ACTIONS = $Actions }
+  if ($publicDmOn) {
+    $settings.PUBLIC_DM = 'on'
+    # Limits the owner tuned by hand in the settings survive a rerun.
+    foreach ($k in @('LLM_PUBLIC_RATE', 'LLM_PUBLIC_DAILY', 'LLM_PUBLIC_BOT_RATE')) {
+      $v = Get-Old $old $k
+      if ($v) { $settings[$k] = $v }
+    }
+  }
 }
 
 $runFile = Join-Path $botDir 'run.ps1'

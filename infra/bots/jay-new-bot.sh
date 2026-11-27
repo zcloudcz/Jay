@@ -48,6 +48,11 @@ Usage: new-bot.sh --name NAME --owner CT-XXXX-XXXX[,CT-...] [options]
   --group-replies M    members | owners: who besides you the bot answers in a
                        group that you are in (default: members for API keys,
                        owners for claude-cli/codex-cli)
+  --public-dm          public bot: ANYONE may write to it in 1:1 (PUBLIC_DM=on;
+                       e.g. a demo bot). Limits per stranger (20/h), for all
+                       strangers (200/day) and per other bot (5/h); strangers
+                       never run actions or generate images; groups stay as
+                       above. A rerun keeps it, --no-public-dm turns it off
   --actions VALUE      named commands the bot may run for you (LLM_ACTIONS):
                        'name=command; name2=command2'; 'none' removes them
   --rescue-hermes NAME make this a rescue bot for Hermes: actions status,
@@ -72,7 +77,9 @@ holds for the providers given with --fallback.
 
 Who can reach the bot: you (the owners); members of a group you are in when
 they mention the bot (their questions cost YOUR key or plan); other bots only
-in groups whose bot conversation setting allows it. On Linux the bot runs in
+in groups whose bot conversation setting allows it; with --public-dm also
+anyone in 1:1 (paid from YOUR key or plan, within the limits above). On
+Linux the bot runs in
 a bubblewrap sandbox that sees only its own folder and the CLIs it needs.
 EOF
 }
@@ -84,7 +91,7 @@ name='' owner='' provider=anthropic api=$DEFAULT_API model='' prompt=''
 base_url='' hermes_url='' remove=0 dry=0 docker=0 yes=0 group_replies='' check_only=0
 model_set=0 prompt_set=0 base_url_set=0 hermes_url_set=0 group_replies_set=0
 actions='' actions_set=0 rescue='' log_file_arg='' fallback='' fallback_set=0
-os_override='' arch_override=''
+os_override='' arch_override='' public_dm='' public_dm_set=0
 
 need_value() { if [ $# -lt 2 ] || [ -z "$2" ]; then die "$1 needs a value (see --help)"; fi; }
 while [ $# -gt 0 ]; do
@@ -101,6 +108,8 @@ while [ $# -gt 0 ]; do
     --actions) need_value "$@"; actions=$2; actions_set=1; shift 2 ;;
     --rescue-hermes) need_value "$@"; rescue=$2; shift 2 ;;
     --fallback) need_value "$@"; fallback=$2; fallback_set=1; shift 2 ;;
+    --public-dm) public_dm=on; public_dm_set=1; shift ;;
+    --no-public-dm) public_dm=off; public_dm_set=1; shift ;;
     --log-file) need_value "$@"; log_file_arg=$2; shift 2 ;;
     --docker) docker=1; shift ;;
     --remove) remove=1; shift ;;
@@ -174,6 +183,10 @@ if [ "$remove" = 0 ]; then
     [ "$provider" != hermes ] || die "--group-replies is not for --provider hermes (Hermes answers owners only)"
     case "$group_replies" in members|owners) ;; *) die "--group-replies must be members or owners" ;; esac
   fi
+  # Spec 2026-11-27-bot-public-dm P11: the public mode lives in llm_bridge.
+  if [ "$public_dm" = on ] && [ "$provider" = hermes ]; then
+    die "--public-dm is not for --provider hermes (Hermes answers owners only)"
+  fi
   if [ "$fallback_set" = 1 ] && [ "$provider" = hermes ]; then
     die "--fallback is not for --provider hermes (Hermes falls back between its models itself)"
   fi
@@ -194,8 +207,9 @@ if [ "$remove" = 0 ]; then
     if [ "$group_replies_set" = 1 ] && [ "$group_replies" != owners ]; then
       die "--rescue-hermes answers owners only; drop --group-replies $group_replies"
     fi
+    [ "$public_dm" != on ] || die "--rescue-hermes answers owners only; drop --public-dm"
     # A rescue bot must never act for anyone but its owners.
-    group_replies=owners group_replies_set=1
+    group_replies=owners group_replies_set=1 public_dm=off public_dm_set=1
   fi
 fi
 
@@ -486,6 +500,12 @@ done
 # endpoint would make the bridge refuse to start (spec F3).
 [ "$provider" = openai ] || base_url=''
 [ "$group_replies_set" = 1 ] || group_replies=$(old_value GROUP_REPLIES)
+[ "$public_dm_set" = 1 ] || public_dm=$(old_value PUBLIC_DM)
+[ "$provider" != hermes ] || public_dm=''
+# Limits the owner tuned by hand in bot.env survive a rerun (no options).
+public_rate=$(old_value LLM_PUBLIC_RATE)
+public_daily=$(old_value LLM_PUBLIC_DAILY)
+public_bot_rate=$(old_value LLM_PUBLIC_BOT_RATE)
 if [ "$provider" = hermes ]; then
   [ "$hermes_url_set" = 1 ] || hermes_url=$(old_value HERMES_URL)
   [ -n "$hermes_url" ] || hermes_url=http://127.0.0.1:8642
@@ -800,16 +820,26 @@ elif [ "$split_sandbox" = 1 ]; then
 elif [ "$sandbox" = 1 ]; then
   say "Isolation: the bot runs in a bubblewrap sandbox (sees only $bot_dir and what its providers need)."
 elif [ "$docker" = 0 ]; then
-  if [ "$ncli" -gt 0 ] && [ "$effective_replies" = members ]; then
-    say "WARNING: group members can make this bot run your $clis_text, and there is no sandbox here."
+  if [ "$ncli" -gt 0 ] && { [ "$effective_replies" = members ] || [ "$public_dm" = on ]; }; then
+    who='group members'
+    [ "$public_dm" = on ] && who='anyone who writes to it'
+    say "WARNING: $who can make this bot run your $clis_text, and there is no sandbox here."
     if [ "$os" = linux ]; then
       say "  Install bubblewrap (e.g. 'sudo apt install bubblewrap') and run this command again,"
     else
       say "  macOS has no sandbox for it in this setup. Run the bot under a separate macOS user,"
     fi
-    say "  or use --group-replies owners. See infra/bots/README.md."
+    say "  or use --group-replies owners$([ "$public_dm" = on ] && printf ' and --no-public-dm'). See infra/bots/README.md."
   elif [ "$os" = linux ]; then
     say "Note: bubblewrap (bwrap) is not available, so the bot runs without a sandbox."
+  fi
+fi
+# Spec 2026-11-27-bot-public-dm: say plainly what a public bot costs.
+if [ "$public_dm" = on ]; then
+  say "Public 1:1: on (anyone can write to the bot; per stranger 20/h, all strangers 200/day, other bots 5/h; strangers never run actions or generate images; groups unchanged)."
+  say "WARNING: every stranger's message is answered from YOUR key or plan. Change the limits in $env_file (LLM_PUBLIC_RATE, LLM_PUBLIC_DAILY, LLM_PUBLIC_BOT_RATE; kept on a rerun)."
+  if [ "$ncli" -gt 0 ]; then
+    say "WARNING: $clis_text $([ "$ncli" = 1 ] && printf is || printf are) your personal subscription; the vendors' terms cover your own use, not strangers. Use an API key (--provider anthropic or openai) for a public bot."
   fi
 fi
 
@@ -840,6 +870,12 @@ write_settings() {
       emit GROUP_REPLIES "$group_replies"
       for ((k = 0; k < ncli; k++)); do emit "${cl_vars[$k]}" "$(cli_setting "$k")"; done
       emit LLM_ACTIONS "$actions"
+      if [ "$public_dm" = on ]; then
+        emit PUBLIC_DM on
+        emit LLM_PUBLIC_RATE "$public_rate"
+        emit LLM_PUBLIC_DAILY "$public_daily"
+        emit LLM_PUBLIC_BOT_RATE "$public_bot_rate"
+      fi
     fi
   } > "$tmp"
   chmod 600 "$tmp"

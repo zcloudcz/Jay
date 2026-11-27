@@ -15,6 +15,9 @@
 #   5. (both) --fallback / -Fallback: the provider chain, a key or CLI check
 #      per fallback, and (real bubblewrap) a fake two-CLI bot whose claude
 #      and codex both start in the sandbox (spec 2026-11-12 F12)
+#   6. (both) --public-dm / -PublicDm: the public 1:1 notice and warnings,
+#      the stored setting kept on a rerun, refused for hermes and rescue
+#      bots (spec 2026-11-27-bot-public-dm P11)
 # Needs bash, shellcheck and (for 3) pwsh; set SKIP_PWSH=1 to skip 3.
 # Run from anywhere: infra/bots/test-scripts.sh
 set -euo pipefail
@@ -109,6 +112,35 @@ for provider in claude-cli codex-cli; do
 done
 out=$(bash "$sh_script" --dry-run --name x --owner CT-AAAA-0001 --provider anthropic --group-replies members --os Darwin --arch arm64 2>&1)
 expect_not "macos anthropic members" "$out" "WARNING"
+
+echo "== bash public 1:1 (spec 2026-11-27-bot-public-dm)"
+out=$(bash "$sh_script" --dry-run --name pub --owner CT-AAAA-0001 --provider anthropic --public-dm --os Linux --arch x64 2>&1)
+label="sh public anthropic"
+expect_in "$label" "$out" "Public 1:1: on (anyone can write to the bot; per stranger 20/h, all strangers 200/day, other bots 5/h"
+expect_in "$label" "$out" "WARNING: every stranger's message is answered from YOUR key or plan"
+expect_in "$label" "$out" "LLM_PUBLIC_RATE, LLM_PUBLIC_DAILY, LLM_PUBLIC_BOT_RATE"
+expect_not "$label" "$out" "personal subscription"
+for secret in LEAKCHECK-1 LEAKCHECK-2 LEAKCHECK-3; do expect_not "$label" "$out" "$secret"; done
+out=$(bash "$sh_script" --dry-run --name pub --owner CT-AAAA-0001 --provider anthropic --os Linux --arch x64 2>&1)
+expect_not "sh public default off" "$out" "Public 1:1"
+out=$(bash "$sh_script" --dry-run --name pub --owner CT-AAAA-0001 --provider claude-cli --public-dm --os Darwin --arch arm64 2>&1)
+label="sh public macos claude-cli"
+expect_in "$label" "$out" "WARNING: anyone who writes to it can make this bot run your claude, and there is no sandbox here."
+expect_in "$label" "$out" "or use --group-replies owners and --no-public-dm"
+expect_in "$label" "$out" "WARNING: claude is your personal subscription"
+out=$(bash "$sh_script" --dry-run --name pub --owner CT-AAAA-0001 --provider codex-cli --public-dm --os Linux --arch x64 2>&1)
+label="sh public linux codex-cli"
+expect_not "$label" "$out" "anyone who writes to it can make"
+expect_in "$label" "$out" "Isolation: the bot runs in a bubblewrap sandbox"
+expect_in "$label" "$out" "WARNING: codex is your personal subscription"
+mkdir -p "$JAY_BOTS_DIR/keeppub"
+printf "BOT_STORE_KEY='%s'\nPUBLIC_DM='on'\n" "AAAA" > "$JAY_BOTS_DIR/keeppub/bot.env"
+out=$(bash "$sh_script" --dry-run --name keeppub --owner CT-AAAA-0001 --os Linux --arch x64 2>&1)
+expect_in "sh rerun keeps public" "$out" "Public 1:1: on"
+out=$(bash "$sh_script" --dry-run --name keeppub --owner CT-AAAA-0001 --no-public-dm --os Linux --arch x64 2>&1)
+expect_not "sh --no-public-dm" "$out" "Public 1:1"
+out=$(bash "$sh_script" --dry-run --name keeppub --owner CT-AAAA-0001 --rescue-hermes hermes-gateway --os Linux --arch x64 2>&1)
+expect_not "sh rescue drops stored public" "$out" "Public 1:1"
 
 echo "== bash actions and Hermes rescue presets (spec 2026-11-12 A5, A6)"
 uid=$(id -u)
@@ -217,6 +249,8 @@ check_error "key as argument" "unknown argument" --name x --owner CT-AAAA-0001 -
 check_error "bad group replies" "--group-replies must be" --name x --owner CT-AAAA-0001 --group-replies all
 check_error "group replies hermes" "not for --provider hermes" --name x --owner CT-AAAA-0001 --provider hermes --group-replies members
 
+check_error "public + hermes" "--public-dm is not for --provider hermes" --name x --owner CT-AAAA-0001 --provider hermes --public-dm
+check_error "public + rescue" "answers owners only; drop --public-dm" --name x --owner CT-AAAA-0001 --rescue-hermes h --public-dm
 check_error "rescue + docker" "drop --docker" --name x --owner CT-AAAA-0001 --rescue-hermes hermes-gateway --docker --os Linux --arch x64
 check_error "actions + hermes" "not for --provider hermes" --name x --owner CT-AAAA-0001 --provider hermes --actions 'a=b'
 check_error "rescue + members" "answers owners only" --name x --owner CT-AAAA-0001 --rescue-hermes h --group-replies members
@@ -497,6 +531,31 @@ else
   ps_error "ps1 rescue members" "answers owners only" "-Name x -RescueHermes h -GroupReplies members"
   ps_error "ps1 rescue bad name" "is not a Scheduled Task or service name" "-Name x -RescueHermes \"h'; x\""
   ps_error "ps1 log file w/o rescue" "-LogFile is only for -RescueHermes" "-Name x -LogFile C:\\x.log"
+
+  echo "== PowerShell -PublicDm (spec 2026-11-27-bot-public-dm)"
+  out=$(ps_run "-Name pub -Provider anthropic -PublicDm")
+  label="ps1 public anthropic"
+  expect_in "$label" "$out" "Public 1:1: on (anyone can write to the bot; per stranger 20/h, all strangers 200/day, other bots 5/h"
+  expect_in "$label" "$out" "WARNING: every stranger's message is answered from YOUR key or plan"
+  expect_not "$label" "$out" "personal subscription"
+  for secret in LEAKCHECK-1 LEAKCHECK-2 LEAKCHECK-3; do expect_not "$label" "$out" "$secret"; done
+  out=$(ps_run "-Name pub -Provider anthropic")
+  expect_not "ps1 public default off" "$out" "Public 1:1"
+  out=$(ps_run "-Name pub -Provider codex-cli -PublicDm")
+  label="ps1 public codex-cli"
+  expect_in "$label" "$out" "WARNING: anyone who writes to it can make this bot run your codex, and there is no sandbox on Windows."
+  expect_in "$label" "$out" "or use -GroupReplies owners and -PublicDm:\$false"
+  expect_in "$label" "$out" "WARNING: codex uses your personal subscription"
+  ps_error "ps1 public hermes" "-PublicDm is not for -Provider hermes" "-Name x -Provider hermes -PublicDm"
+  ps_error "ps1 public rescue" "answers owners only; drop -PublicDm" "-Name x -RescueHermes h -PublicDm"
+  mkdir -p "$JAY_BOTS_DIR/keeppubps"
+  printf '{"BOT_STORE_KEY":"AAAA","PUBLIC_DM":"on"}' > "$JAY_BOTS_DIR/keeppubps/bot.env.json"
+  out=$(ps_run "-Name keeppubps")
+  expect_in "ps1 rerun keeps public" "$out" "Public 1:1: on"
+  out=$(ps_run "-Name keeppubps -PublicDm:\$false")
+  expect_not "ps1 -PublicDm:\$false" "$out" "Public 1:1"
+  out=$(ps_run "-Name keeppubps -RescueHermes h")
+  expect_not "ps1 rescue drops stored public" "$out" "Public 1:1"
 
   echo "== PowerShell -Fallback (spec 2026-11-12 F12)"
   out=$(ps_run "-Name fb -Provider claude-cli -Fallback codex-cli")
