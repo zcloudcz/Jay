@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "jay-web-local",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8090", "-d", "src/client/calltype/build/web"],
+      "port": 8090
+    }
+  ]
+}
