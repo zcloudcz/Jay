@@ -26,7 +26,7 @@ flood of strangers cannot burn the owner's key or subscription.
 | P8 | Peer bots in 1:1 (sender profile `isBot`, from `GET /devices/{id}/profile`, never key-bundle): treated as strangers, but limited by `LLM_PUBLIC_BOT_RATE` (default 5 answers per peer bot per hour) and NEVER sent a limit notice (a notice is a message another bot could answer: ping-pong). Reactions still never start a turn. A failed profile lookup counts as a bot (stricter limits, fail closed). |
 | P9 | History: one conversation per sender identity, as today (`conversationId` = identity), so strangers never see each other or the owner. |
 | P10 | Logging: one line per stranger message, `Public 1:1: <handle or id> (<human\|bot>): <answered\|limit notice\|dropped: reason>`. Never content. |
-| P11 | Scripts: `jay-new-bot.sh --public-dm` / `--no-public-dm`, `jay-new-bot.ps1 -PublicDm` / `-PublicDm:$false`. A rerun keeps the stored value. Refused with `--provider hermes` and `--rescue-hermes`. A WARNING in the output when on (strangers spend the key/plan, stronger for CLI subscriptions). Dry-run prints `Public 1:1: on (...)`. |
+| P11 | Scripts: `jay-new-bot.sh --public-dm` / `--no-public-dm`, `jay-new-bot.ps1 -PublicDm` / `-PublicDm:$false`. A rerun keeps the stored value and any hand-tuned `LLM_PUBLIC_*` limits. Refused with `--provider hermes` and `--rescue-hermes`. A WARNING in the output when on (strangers spend the key/plan, stronger for CLI subscriptions). Dry-run prints `Public 1:1: on (...)`. |
 
 ## Wire / config
 
